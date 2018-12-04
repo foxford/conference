@@ -1,0 +1,18 @@
+version: '3'
+
+services:
+  app:
+    build:
+      context: ./docker/
+      dockerfile: develop.dockerfile
+
+  vernemq:
+    image: netologygroup/mqtt-gateway:a098f05
+    volumes:
+      - ./etc/vernemq:/etc/vernemq
+
+  janus:
+    image: netologygroup/janus-gateway
+    command: /opt/janus/bin/janus
+    volumes:
+      - ./etc/janus:/opt/janus/etc/janus/

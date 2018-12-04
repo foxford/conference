@@ -2,6 +2,15 @@
 
 A WebRTC based conference media server.
 
+## Setup development environment
+
+```bash
+bash docker/init_develop_configs.sh
+ls etc/
+# should be
+# janus  vernemq
+docker-compose up -d
+```
 
 
 ### License

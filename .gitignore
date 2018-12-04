@@ -16,3 +16,6 @@ Session.vim
 App.toml
 /docs/book/
 .idea
+
+# Service configs
+etc/
