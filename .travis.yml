@@ -1,0 +1,36 @@
+language: rust
+rust:
+  - stable
+addons:
+  apt:
+    packages:
+      - lftp
+cache:
+  directories:
+    - ${TRAVIS_HOME}/.cargo
+before_cache:
+  - rm -rf ${TRAVIS_HOME}/.cargo/registry
+services: docker
+git:
+  depth: 1
+jobs:
+  include:
+    - stage: check
+      name: Tests
+      script: cargo test
+    - stage: check
+      name : Rustfmt
+      install: rustup component add rustfmt-preview
+      script: cargo fmt -- --check
+    - stage: check
+      name: Clippy
+      install: rustup component add clippy-preview
+      script: cargo clippy
+    - stage: check
+      name: Docs
+      install: cargo install mdbook --vers 0.2.2 --force
+      script: mdbook build docs && deploy/docs.sh
+stages:
+  - name: check
+notifications:
+  email: false
