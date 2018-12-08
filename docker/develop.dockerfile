@@ -1,4 +1,5 @@
-FROM netologygroup/mqtt-gateway:a098f05 as mqtt-gateway-plugin
+FROM netologygroup/mqtt-gateway:v0.3.0 as mqtt-gateway-plugin
+FROM netologygroup/janus-gateway:v0.1.0 as janus-gateway-plugin
 FROM ubuntu:18.04
 
 ENV DEBIAN_FRONTEND noninteractive
@@ -13,6 +14,7 @@ RUN set -xe \
         ca-certificates \
         curl \
         less \
+        libconfig-dev \
         libmicrohttpd-dev \
         libjansson-dev \
         libnice-dev \
@@ -27,8 +29,9 @@ RUN set -xe \
         automake \
         cmake \
         git \
+        vim-nox \
     && PAHO_MQTT_BUILD_DIR=$(mktemp -d) \
-        && PAHO_MQTT_VERSION='1.3.0' \
+        && PAHO_MQTT_VERSION='1.1.0' \
         && cd "${PAHO_MQTT_BUILD_DIR}" \
         && git clone "https://github.com/eclipse/paho.mqtt.c.git" . \
         && git checkout "v${PAHO_MQTT_VERSION}" \
@@ -38,29 +41,40 @@ RUN set -xe \
 ## -----------------------------------------------------------------------------
 ## Installing Janus Gateway
 ## -----------------------------------------------------------------------------
-ARG JANUS_GATEWAY_VERSION=0.4.5
+ARG JANUS_GATEWAY_COMMIT='c8ee38780a6cdb75e3c459238c65b078273d60bd'
 
 RUN set -xe \
     && JANUS_GATEWAY_BUILD_DIR=$(mktemp -d) \
     && cd "${JANUS_GATEWAY_BUILD_DIR}" \
-    && git clone 'https://github.com/meetecho/janus-gateway' . \
-    && git checkout "v${JANUS_GATEWAY_VERSION}" \
+    && git clone 'https://github.com/manifest/janus-gateway' . \
+    && git checkout "${JANUS_GATEWAY_COMMIT}" \
     && ./autogen.sh \
-    && ./configure --prefix=/opt/janus \
+    && ./configure --prefix='/opt/janus' \
     && make -j $(nproc) \
     && make install \
     && make configs \
     && rm -rf "${JANUS_GATEWAY_BUILD_DIR}"
 
+COPY --from=janus-gateway-plugin /opt/janus/lib/janus/plugins/*.so /opt/janus/lib/janus/plugins/
+
 ## -----------------------------------------------------------------------------
 ## Configuring Janus Gateway
 ## -----------------------------------------------------------------------------
 RUN set -xe \
-    && JANUS_CONF='/opt/janus/etc/janus/janus.cfg' \
-    && perl -pi -e 's/(debug_level = ).*/${1}6/' "${JANUS_CONF}" \
-    && JANUS_MQTT_CONF='/opt/janus/etc/janus/janus.transport.mqtt.cfg' \
-    && perl -pi -e 's/(enable = ).*/${1}yes/' "${JANUS_MQTT_CONF}" \
-    && perl -pi -e 's/;(client_id = ).*/${1}mqtt3v1\/agents\/jgcp-1.00000000-0000-1017-a000-000000000000.example.org/' "${JANUS_MQTT_CONF}"
+    && JANUS_MQTT_TRANSPORT_CONF='/opt/janus/etc/janus/janus.transport.mqtt.jcfg' \
+    && perl -pi -e 's/\t(enable = ).*/\t${1}true/' "${JANUS_MQTT_TRANSPORT_CONF}" \
+    && perl -pi -e 's/\t#(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/agents\/a.00000000-0000-1071-a000-000000000000.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
+    && perl -pi -e 's/\t(subscribe_topic = ).*/\t${1}\"agents\/a.00000000-0000-1071-a000-000000000000.example.org\/api\/v1\/in\/conferences.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
+    && perl -pi -e 's/\t(publish_topic = ).*/\t${1}\"apps\/janus-gateway.example.org\/api\/v1\/responses\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
+    && JANUS_MQTT_EVENTS_CONF='/opt/janus/etc/janus/janus.eventhandler.mqttevh.jcfg' \
+    && perl -pi -e 's/\t(enabled = ).*/\t${1}true/' "${JANUS_MQTT_EVENTS_CONF}" \
+    && perl -pi -e 's/\t(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/agents\/events-a.00000000-0000-1071-a000-000000000000.example.org\"/' "${JANUS_MQTT_EVENTS_CONF}" \
+    && perl -pi -e 's/\t#(topic = ).*/\t${1}\"apps\/janus-gateway.example.org\/api\/v1\/events\"/' "${JANUS_MQTT_EVENTS_CONF}" \
+    && perl -pi -e 's/\t#(will_enabled = ).*/\t${1}true/' "${JANUS_MQTT_EVENTS_CONF}" \
+    && perl -pi -e 's/\t#(will_retain = ).*/\t${1}1/' "${JANUS_MQTT_EVENTS_CONF}" \
+    && perl -pi -e 's/\t#(will_qos = ).*/\t${1}1/' "${JANUS_MQTT_EVENTS_CONF}" \
+    && perl -pi -e 's/\t#(connect_status = ).*/\t${1}\"{\\\"online\\\":true}\"/' "${JANUS_MQTT_EVENTS_CONF}" \
+    && perl -pi -e 's/\t#(disconnect_status = ).*/\t${1}\"{\\\"online\\\":false}\"/' "${JANUS_MQTT_EVENTS_CONF}"
 
 ## -----------------------------------------------------------------------------
 ## Installing VerneMQ
