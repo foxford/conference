@@ -1,0 +1,10 @@
+[identity]
+label = "conferences"
+audience = "example.org"
+account_id = "00000000-0000-1070-a000-000000000000"
+
+[backend]
+name = "janus-gateway.example.org"
+
+[mqtt]
+uri = "mqtt://192.168.99.100:1883"

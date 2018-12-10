@@ -1,3 +1,9 @@
+mod app;
+mod backend;
+mod transport;
+
 fn main() {
-    println!("Hello, world!");
+    env_logger::init();
+
+    app::run();
 }
