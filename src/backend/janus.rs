@@ -28,7 +28,7 @@ impl SessionCreateRequest {
 #[serde(tag = "janus")]
 pub(crate) enum Response {
     Success(SuccessResponse),
-    Timeout(SessionTimeoutNotification),
+    Timeout(SessionTimeoutEvent),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -47,7 +47,7 @@ pub(crate) struct SessionResponseData {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct SessionTimeoutNotification {
+pub(crate) struct SessionTimeoutEvent {
     session_id: u64,
 }
 
