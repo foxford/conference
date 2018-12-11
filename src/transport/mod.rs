@@ -80,4 +80,42 @@ impl FromStr for ApplicationName {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub(crate) struct ApplicationGroup {
+    label: String,
+    app_name: ApplicationName,
+}
+
+impl ApplicationGroup {
+    pub(crate) fn new(label: &str, app_name: ApplicationName) -> Self {
+        Self {
+            label: label.to_owned(),
+            app_name,
+        }
+    }
+}
+
+impl fmt::Display for ApplicationGroup {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}.{}", self.label, self.app_name)
+    }
+}
+
+impl FromStr for ApplicationGroup {
+    type Err = Error;
+
+    fn from_str(val: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = val.splitn(2, '.').collect();
+        match parts[..] {
+            [label, rest] => Ok(Self::new(&label, rest.parse::<ApplicationName>()?)),
+            _ => Err(err_msg(format!(
+                "Invalid value for the application group: {}",
+                val
+            ))),
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 pub(crate) mod compat;
