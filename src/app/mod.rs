@@ -18,7 +18,7 @@ pub(crate) fn run() {
         &config.identity.audience,
     );
     let name = transport::ApplicationName::new(&config.identity.label, &config.identity.audience);
-    let group = format!("loadbalancer.{name}", name = name);
+    let group = transport::ApplicationGroup::new("loadbalancer", name.clone());
 
     // MQTT client
     let mqtt_client_id = format!("v1.mqtt3/agents/{agent_id}", agent_id = agent_id);
