@@ -17,11 +17,7 @@ pub(crate) fn run() {
         &config.identity.account_id,
         &config.identity.audience,
     );
-    let name = format!(
-        "{label}.{audience}",
-        label = config.identity.label,
-        audience = config.identity.audience
-    );
+    let name = transport::ApplicationName::new(&config.identity.label, &config.identity.audience);
     let group = format!("loadbalancer.{name}", name = name);
 
     // MQTT client
