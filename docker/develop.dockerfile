@@ -61,6 +61,8 @@ COPY --from=janus-gateway-plugin /opt/janus/lib/janus/plugins/*.so /opt/janus/li
 ## Configuring Janus Gateway
 ## -----------------------------------------------------------------------------
 RUN set -xe \
+    && JANUS_CONF='/opt/janus/etc/janus/janus.jcfg' \
+    && perl -pi -e 's/\t#(session_timeout = ).*/\t${1}0/' "${JANUS_CONF}" \
     && JANUS_MQTT_TRANSPORT_CONF='/opt/janus/etc/janus/janus.transport.mqtt.jcfg' \
     && perl -pi -e 's/\t(enable = ).*/\t${1}true/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t#(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/agents\/a.00000000-0000-1071-a000-000000000000.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
