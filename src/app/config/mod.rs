@@ -10,7 +10,8 @@ pub(crate) struct Identity {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Backend {
-    pub name: String,
+    pub label: String,
+    pub audience: String,
 }
 
 #[derive(Debug, Deserialize)]
