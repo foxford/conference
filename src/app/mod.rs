@@ -19,6 +19,7 @@ pub(crate) fn run() {
     );
     let name = transport::ApplicationName::new(&config.identity.label, &config.identity.audience);
     let group = transport::ApplicationGroup::new("loadbalancer", name.clone());
+    let backend_name = transport::ApplicationName::new(&config.backend.label, &config.backend.audience);
 
     // MQTT client
     let mqtt_client_id = format!("v1.mqtt3/agents/{agent_id}", agent_id = agent_id);
@@ -31,7 +32,7 @@ pub(crate) fn run() {
     let sub_responses_backend = format!(
         "$share/{group}/apps/{backend_name}/api/v1/responses",
         group = group,
-        backend_name = config.backend.name
+        backend_name = backend_name
     );
 //    let sub_events_backend = format!(
 //        "$share/{group}/apps/{backend_name}/api/v1/events/+",
