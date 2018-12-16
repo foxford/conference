@@ -2,21 +2,31 @@ use failure::{err_msg, Error};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
+use uuid::Uuid;
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct MessageProperties {
+    agent_label: String,
+    account_id: Uuid,
+    audience: String,
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct AgentId {
     label: String,
-    account_id: String,
+    account_id: Uuid,
     audience: String,
 }
 
 impl AgentId {
-    pub(crate) fn new(label: &str, account_id: &str, audience: &str) -> Self {
+    pub(crate) fn new(label: &str, account_id: Uuid, audience: &str) -> Self {
         Self {
             label: label.to_owned(),
-            account_id: account_id.to_owned(),
+            account_id: account_id,
             audience: audience.to_owned(),
         }
     }
@@ -34,9 +44,44 @@ impl FromStr for AgentId {
     fn from_str(val: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = val.splitn(3, '.').collect();
         match parts[..] {
-            [label, account_id, audience] => Ok(Self::new(&label, &account_id, &audience)),
+            [ref label, ref account_id, ref audience] => {
+                Ok(Self::new(label, Uuid::parse_str(account_id)?, audience))
+            }
             _ => Err(err_msg(format!("Invalid value for the agent id: {}", val))),
         }
+    }
+}
+
+impl From<&MessageProperties> for AgentId {
+    fn from(properties: &MessageProperties) -> Self {
+        AgentId::new(
+            &properties.agent_label,
+            properties.account_id,
+            &properties.audience,
+        )
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct ApplicationIdentity {
+    label: String,
+    audience: String,
+    account_id: Uuid,
+}
+
+impl ApplicationIdentity {
+    pub(crate) fn name(&self) -> ApplicationName {
+        ApplicationName::new(&self.label, &self.audience)
+    }
+
+    pub(crate) fn group(&self, label: &str) -> ApplicationGroup {
+        ApplicationGroup::new(label, self.name())
+    }
+
+    pub(crate) fn agent_id(&self, label: &str) -> AgentId {
+        AgentId::new(label, self.account_id, &self.audience)
     }
 }
 
@@ -69,7 +114,7 @@ impl FromStr for ApplicationName {
     fn from_str(val: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = val.splitn(2, '.').collect();
         match parts[..] {
-            [label, audience] => Ok(Self::new(&label, &audience)),
+            [ref label, ref audience] => Ok(Self::new(label, audience)),
             _ => Err(err_msg(format!(
                 "Invalid value for the application name: {}",
                 val
@@ -107,7 +152,7 @@ impl FromStr for ApplicationGroup {
     fn from_str(val: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = val.splitn(2, '.').collect();
         match parts[..] {
-            [label, rest] => Ok(Self::new(&label, rest.parse::<ApplicationName>()?)),
+            [ref label, ref rest] => Ok(Self::new(label, rest.parse::<ApplicationName>()?)),
             _ => Err(err_msg(format!(
                 "Invalid value for the application group: {}",
                 val
@@ -119,3 +164,4 @@ impl FromStr for ApplicationGroup {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) mod compat;
+pub(crate) mod correlation_data;
