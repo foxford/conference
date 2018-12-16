@@ -1,4 +1,4 @@
-FROM netologygroup/mqtt-gateway:v0.3.0 as mqtt-gateway-plugin
+FROM netologygroup/mqtt-gateway:v0.4.0 as mqtt-gateway-plugin
 FROM netologygroup/janus-gateway:v0.1.0 as janus-gateway-plugin
 FROM ubuntu:18.04
 
