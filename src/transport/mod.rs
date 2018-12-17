@@ -7,7 +7,48 @@ use uuid::Uuid;
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct MessageProperties {
+#[serde(rename_all = "lowercase")]
+#[serde(tag = "type")]
+pub(crate) enum MessageProperties {
+    Event(EventMessageProperties),
+    Request(RequestMessageProperties),
+    Response(ResponseMessageProperties),
+}
+
+impl MessageProperties {
+    pub(crate) fn authn(&self) -> &AuthnMessageProperties {
+        match self {
+            MessageProperties::Event(ref props) => &props.authn,
+            MessageProperties::Request(ref props) => &props.authn,
+            MessageProperties::Response(ref props) => &props.authn,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct EventMessageProperties {
+    #[serde(flatten)]
+    authn: AuthnMessageProperties,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct RequestMessageProperties {
+    method: String,
+    response_topic: String,
+    correlation_data: String,
+    #[serde(flatten)]
+    authn: AuthnMessageProperties,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct ResponseMessageProperties {
+    correlation_data: String,
+    #[serde(flatten)]
+    authn: AuthnMessageProperties,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct AuthnMessageProperties {
     agent_label: String,
     account_id: Uuid,
     audience: String,
@@ -53,12 +94,14 @@ impl FromStr for AgentId {
 }
 
 impl From<&MessageProperties> for AgentId {
-    fn from(properties: &MessageProperties) -> Self {
-        AgentId::new(
-            &properties.agent_label,
-            properties.account_id,
-            &properties.audience,
-        )
+    fn from(props: &MessageProperties) -> Self {
+        AgentId::from(props.authn())
+    }
+}
+
+impl From<&AuthnMessageProperties> for AgentId {
+    fn from(authn: &AuthnMessageProperties) -> Self {
+        AgentId::new(&authn.agent_label, authn.account_id, &authn.audience)
     }
 }
 
