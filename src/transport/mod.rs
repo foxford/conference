@@ -2,7 +2,6 @@ use failure::{err_msg, Error};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
-use uuid::Uuid;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -33,16 +32,13 @@ pub(crate) struct EventMessageProperties {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct RequestMessageProperties {
-    method: String,
-    response_topic: String,
-    correlation_data: String,
+    pub(crate) method: String,
     #[serde(flatten)]
     authn: AuthnMessageProperties,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct ResponseMessageProperties {
-    correlation_data: String,
     #[serde(flatten)]
     authn: AuthnMessageProperties,
 }
@@ -50,7 +46,7 @@ pub(crate) struct ResponseMessageProperties {
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct AuthnMessageProperties {
     agent_label: String,
-    account_id: Uuid,
+    account_label: String,
     audience: String,
 }
 
@@ -59,23 +55,29 @@ pub(crate) struct AuthnMessageProperties {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct AgentId {
     label: String,
-    account_id: Uuid,
-    audience: String,
+    account_id: AccountId,
 }
 
 impl AgentId {
-    pub(crate) fn new(label: &str, account_id: Uuid, audience: &str) -> Self {
+    pub(crate) fn new(label: &str, account_id: AccountId) -> Self {
         Self {
             label: label.to_owned(),
             account_id: account_id,
-            audience: audience.to_owned(),
         }
+    }
+
+    pub(crate) fn account_id(&self) -> &AccountId {
+        &self.account_id
     }
 }
 
 impl fmt::Display for AgentId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.{}.{}", self.label, self.account_id, self.audience)
+        write!(
+            f,
+            "{}.{}.{}",
+            self.label, self.account_id.label, self.account_id.audience,
+        )
     }
 }
 
@@ -85,8 +87,10 @@ impl FromStr for AgentId {
     fn from_str(val: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = val.splitn(3, '.').collect();
         match parts[..] {
-            [ref label, ref account_id, ref audience] => {
-                Ok(Self::new(label, Uuid::parse_str(account_id)?, audience))
+            [ref agent_label, ref account_label, ref audience] => {
+                let account_id = AccountId::new(account_label, audience);
+                let agent_id = Self::new(agent_label, account_id);
+                Ok(agent_id)
             }
             _ => Err(err_msg(format!("Invalid value for the agent id: {}", val))),
         }
@@ -101,42 +105,22 @@ impl From<&MessageProperties> for AgentId {
 
 impl From<&AuthnMessageProperties> for AgentId {
     fn from(authn: &AuthnMessageProperties) -> Self {
-        AgentId::new(&authn.agent_label, authn.account_id, &authn.audience)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Clone, Deserialize)]
-pub(crate) struct ApplicationIdentity {
-    label: String,
-    audience: String,
-    account_id: Uuid,
-}
-
-impl ApplicationIdentity {
-    pub(crate) fn name(&self) -> ApplicationName {
-        ApplicationName::new(&self.label, &self.audience)
-    }
-
-    pub(crate) fn group(&self, label: &str) -> ApplicationGroup {
-        ApplicationGroup::new(label, self.name())
-    }
-
-    pub(crate) fn agent_id(&self, label: &str) -> AgentId {
-        AgentId::new(label, self.account_id, &self.audience)
+        AgentId::new(
+            &authn.agent_label,
+            AccountId::new(&authn.account_label, &authn.audience),
+        )
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct ApplicationName {
+pub(crate) struct AccountId {
     label: String,
     audience: String,
 }
 
-impl ApplicationName {
+impl AccountId {
     pub(crate) fn new(label: &str, audience: &str) -> Self {
         Self {
             label: label.to_owned(),
@@ -145,13 +129,13 @@ impl ApplicationName {
     }
 }
 
-impl fmt::Display for ApplicationName {
+impl fmt::Display for AccountId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}.{}", self.label, self.audience)
     }
 }
 
-impl FromStr for ApplicationName {
+impl FromStr for AccountId {
     type Err = Error;
 
     fn from_str(val: &str) -> Result<Self, Self::Err> {
@@ -169,33 +153,33 @@ impl FromStr for ApplicationName {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct ApplicationGroup {
+pub(crate) struct SharedGroup {
     label: String,
-    app_name: ApplicationName,
+    account_id: AccountId,
 }
 
-impl ApplicationGroup {
-    pub(crate) fn new(label: &str, app_name: ApplicationName) -> Self {
+impl SharedGroup {
+    pub(crate) fn new(label: &str, account_id: AccountId) -> Self {
         Self {
             label: label.to_owned(),
-            app_name,
+            account_id,
         }
     }
 }
 
-impl fmt::Display for ApplicationGroup {
+impl fmt::Display for SharedGroup {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.{}", self.label, self.app_name)
+        write!(f, "{}.{}", self.label, self.account_id)
     }
 }
 
-impl FromStr for ApplicationGroup {
+impl FromStr for SharedGroup {
     type Err = Error;
 
     fn from_str(val: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = val.splitn(2, '.').collect();
         match parts[..] {
-            [ref label, ref rest] => Ok(Self::new(label, rest.parse::<ApplicationName>()?)),
+            [ref label, ref rest] => Ok(Self::new(label, rest.parse::<AccountId>()?)),
             _ => Err(err_msg(format!(
                 "Invalid value for the application group: {}",
                 val

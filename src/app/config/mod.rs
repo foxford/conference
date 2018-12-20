@@ -1,4 +1,4 @@
-use crate::transport::{ApplicationIdentity, ApplicationName};
+use crate::transport::AccountId;
 use config;
 use serde_derive::Deserialize;
 
@@ -9,8 +9,8 @@ pub(crate) struct Mqtt {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Config {
-    pub(crate) identity: ApplicationIdentity,
-    pub(crate) backend: ApplicationName,
+    pub(crate) id: AccountId,
+    pub(crate) backend_id: AccountId,
     pub(crate) mqtt: Mqtt,
 }
 

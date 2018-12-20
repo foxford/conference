@@ -2,28 +2,21 @@ use crate::transport;
 use failure::{err_msg, Error};
 use log::{error, info, warn};
 use rumqtt::{MqttClient, MqttOptions, QoS};
-use uuid::Uuid;
 
 mod config;
 mod janus;
 
 #[derive(Debug)]
 pub(crate) struct AgentBuilder {
-    label: String,
-    application: transport::ApplicationIdentity,
-    backend: transport::ApplicationName,
+    agent_id: transport::AgentId,
+    backend_account_id: transport::AccountId,
 }
 
 impl AgentBuilder {
-    fn new(
-        label: &str,
-        application: transport::ApplicationIdentity,
-        backend: transport::ApplicationName,
-    ) -> Self {
+    fn new(agent_id: transport::AgentId, backend_account_id: transport::AccountId) -> Self {
         Self {
-            label: label.to_owned(),
-            application,
-            backend,
+            agent_id,
+            backend_account_id,
         }
     }
 
@@ -31,12 +24,12 @@ impl AgentBuilder {
         self,
         config: &config::Mqtt,
     ) -> Result<(Agent, crossbeam_channel::Receiver<rumqtt::Notification>), Error> {
-        let client_id = Self::mqtt_client_id(&self.application.agent_id(&self.label));
+        let client_id = Self::mqtt_client_id(&self.agent_id);
         let options = Self::mqtt_options(&client_id, &config)?;
         let (tx, rx) = MqttClient::start(options)?;
 
-        let mut agent = Agent::new(self.application, self.backend, tx);
-        let group = agent.application.group("loadbalancer");
+        let group = transport::SharedGroup::new("loadbalancer", self.agent_id.account_id().clone());
+        let mut agent = Agent::new(self.agent_id, self.backend_account_id, tx);
         agent.tx.subscribe(
             agent.backend_responses_subscription(&group),
             QoS::AtLeastOnce,
@@ -61,20 +54,20 @@ impl AgentBuilder {
 }
 
 pub(crate) struct Agent {
-    application: transport::ApplicationIdentity,
-    backend: transport::ApplicationName,
+    id: transport::AgentId,
+    backend_account_id: transport::AccountId,
     tx: rumqtt::MqttClient,
 }
 
 impl Agent {
     fn new(
-        application: transport::ApplicationIdentity,
-        backend: transport::ApplicationName,
+        id: transport::AgentId,
+        backend_account_id: transport::AccountId,
         tx: MqttClient,
     ) -> Self {
         Self {
-            application,
-            backend,
+            id,
+            backend_account_id,
             tx,
         }
     }
@@ -97,15 +90,15 @@ impl Agent {
         format!(
             "agents/{backend_agent_id}/api/v1/in/{app_name}",
             backend_agent_id = backend_agent_id,
-            app_name = self.application.name()
+            app_name = &self.id.account_id()
         )
     }
 
-    fn backend_responses_subscription(&self, group: &transport::ApplicationGroup) -> String {
+    fn backend_responses_subscription(&self, group: &transport::SharedGroup) -> String {
         format!(
             "$share/{group}/apps/{backend_name}/api/v1/responses",
             group = group,
-            backend_name = &self.backend,
+            backend_name = &self.backend_account_id,
         )
     }
 }
@@ -116,18 +109,16 @@ pub(crate) fn run() {
     info!("App config: {:?}", config);
 
     // Agent
-    let (mut tx, rx) = AgentBuilder::new("a", config.identity.clone(), config.backend.clone())
+    let agent_id = transport::AgentId::new("a", config.id);
+    let (mut tx, rx) = AgentBuilder::new(agent_id, config.backend_id.clone())
         .start(&config.mqtt)
         .expect("Failed to create an agent");
 
     // TODO: derive a backend agent id from a status message
-    let backend_agent_id = transport::AgentId::new(
-        "a",
-        Uuid::parse_str("00000000-0000-1071-a000-000000000000").expect("Failed to parse UUID"),
-        "example.org",
-    );
+    let backend_agent_id = transport::AgentId::new("a", config.backend_id.clone());
 
     // TODO: Replace with Real-Time Connection data
+    use uuid::Uuid;
     let room_id = Uuid::new_v4();
     let rtc_id = Uuid::new_v4();
 
@@ -142,14 +133,10 @@ pub(crate) fn run() {
                 let topic = &message.topic_name;
                 let data = &message.payload.as_slice();
 
-                // Processing of backend messages
-                if topic.contains(&format!("apps/{}", config.backend)) {
-                    match janus::handle_message(&mut tx, data) {
-                        Err(err) => handle_error(topic, data, err),
-                        Ok(_) => info!("Message has been processed"),
-                    }
-                } else {
-                    error!("Received a message with an unexpected topic = {}", topic)
+                let result = janus::handle_message(&mut tx, data);
+                match result {
+                    Err(err) => handle_error(topic, data, err),
+                    Ok(_) => info!("Message has been processed"),
                 }
             }
             _ => error!("An unsupported type of message = {:?}", message),

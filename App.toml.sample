@@ -1,9 +1,8 @@
-[identity]
+[id]
 label = "conferences"
 audience = "example.org"
-account_id = "00000000-0000-1070-a000-000000000000"
 
-[backend]
+[backend_id]
 label = "janus-gateway"
 audience = "example.org"
 
