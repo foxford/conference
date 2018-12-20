@@ -1,5 +1,5 @@
-FROM netologygroup/mqtt-gateway:v0.4.0 as mqtt-gateway-plugin
-FROM netologygroup/janus-gateway:v0.1.0 as janus-gateway-plugin
+FROM netologygroup/mqtt-gateway:v0.5.0 as mqtt-gateway-plugin
+FROM netologygroup/janus-gateway:4181d1f as janus-gateway-plugin
 FROM ubuntu:18.04
 
 ENV DEBIAN_FRONTEND noninteractive
@@ -41,12 +41,12 @@ RUN set -xe \
 ## -----------------------------------------------------------------------------
 ## Installing Janus Gateway
 ## -----------------------------------------------------------------------------
-ARG JANUS_GATEWAY_COMMIT='c8ee38780a6cdb75e3c459238c65b078273d60bd'
+ARG JANUS_GATEWAY_COMMIT='e31a116e14b4a3c98eaf3f346fcbb249396188f4'
 
 RUN set -xe \
     && JANUS_GATEWAY_BUILD_DIR=$(mktemp -d) \
     && cd "${JANUS_GATEWAY_BUILD_DIR}" \
-    && git clone 'https://github.com/manifest/janus-gateway' . \
+    && git clone 'https://github.com/meetecho/janus-gateway' . \
     && git checkout "${JANUS_GATEWAY_COMMIT}" \
     && ./autogen.sh \
     && ./configure --prefix='/opt/janus' \
@@ -66,13 +66,13 @@ RUN set -xe \
     && JANUS_MQTT_TRANSPORT_CONF='/opt/janus/etc/janus/janus.transport.mqtt.jcfg' \
     && perl -pi -e 's/\t(enable = ).*/\t${1}true/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t(json = ).*/\t${1}\"plain\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
-    && perl -pi -e 's/\t#(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/agents\/a.00000000-0000-1071-a000-000000000000.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
-    && perl -pi -e 's/\t(subscribe_topic = ).*/\t${1}\"agents\/a.00000000-0000-1071-a000-000000000000.example.org\/api\/v1\/in\/conferences.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
+    && perl -pi -e 's/\t#(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/agents\/a.janus-gateway.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
+    && perl -pi -e 's/\t(subscribe_topic = ).*/\t${1}\"agents\/a.janus-gateway.example.org\/api\/v1\/in\/conferences.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t(publish_topic = ).*/\t${1}\"apps\/janus-gateway.example.org\/api\/v1\/responses\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && JANUS_MQTT_EVENTS_CONF='/opt/janus/etc/janus/janus.eventhandler.mqttevh.jcfg' \
     && perl -pi -e 's/\t(enabled = ).*/\t${1}true/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t(json = ).*/\t${1}\"plain\"/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && perl -pi -e 's/\t(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/agents\/events-a.00000000-0000-1071-a000-000000000000.example.org\"/' "${JANUS_MQTT_EVENTS_CONF}" \
+    && perl -pi -e 's/\t(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/agents\/events-a.janus-gateway.example.org\"/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(topic = ).*/\t${1}\"apps\/janus-gateway.example.org\/api\/v1\/events\"/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(will_enabled = ).*/\t${1}true/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(will_retain = ).*/\t${1}1/' "${JANUS_MQTT_EVENTS_CONF}" \
