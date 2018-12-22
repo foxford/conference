@@ -1,9 +1,33 @@
-mod app;
-mod backend;
-mod transport;
+#[macro_use]
+extern crate diesel;
 
 fn main() {
     env_logger::init();
 
+    // TODO: Remove creating a demo room
+    app::room::create_demo_room();
+
     app::run();
+}
+
+pub fn establish_connection() -> diesel::pg::PgConnection {
+    use std::env;
+
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be specified");
+
+    use ::diesel::connection::Connection;
+    use ::diesel::pg::PgConnection;
+    let conn = PgConnection::establish(&database_url)
+        .expect(&format!("Error connecting to {}", database_url));
+
+    conn
+}
+
+mod app;
+mod backend;
+mod schema;
+mod transport;
+
+pub mod sql {
+    pub use crate::transport::sql::{Account_id, Agent_id};
 }

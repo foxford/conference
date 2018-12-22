@@ -3,9 +3,6 @@ use failure::{err_msg, Error};
 use log::{error, info, warn};
 use rumqtt::{MqttClient, MqttOptions, QoS};
 
-mod config;
-mod janus;
-
 #[derive(Debug)]
 pub(crate) struct AgentBuilder {
     agent_id: transport::AgentId,
@@ -34,6 +31,9 @@ impl AgentBuilder {
             agent.backend_responses_subscription(&group),
             QoS::AtLeastOnce,
         )?;
+        agent
+            .tx
+            .subscribe(agent.anyone_output_subscription(&group), QoS::AtLeastOnce)?;
 
         Ok((agent, rx))
     }
@@ -101,6 +101,14 @@ impl Agent {
             backend_name = &self.backend_account_id,
         )
     }
+
+    fn anyone_output_subscription(&self, group: &transport::SharedGroup) -> String {
+        format!(
+            "$share/{group}/agents/+/api/v1/out/{name}",
+            group = group,
+            name = &self.id.account_id(),
+        )
+    }
 }
 
 pub(crate) fn run() {
@@ -122,6 +130,9 @@ pub(crate) fn run() {
     let room_id = Uuid::new_v4();
     let rtc_id = Uuid::new_v4();
 
+    // Create Real-Time Connection resource
+    let rtc = rtc::Rtc {};
+
     // Creating a Janus Gateway session
     let req = janus::create_session_request(room_id, rtc_id).expect("Failed to build a request");
     tx.publish(&tx.backend_input_topic(&backend_agent_id), &req)
@@ -133,7 +144,16 @@ pub(crate) fn run() {
                 let topic = &message.topic_name;
                 let data = &message.payload.as_slice();
 
-                let result = janus::handle_message(&mut tx, data);
+                let result =
+                    // Processing backend messages
+                    if topic.starts_with(&format!("apps/{}", &config.backend_id)) {
+                        janus::handle_message(&mut tx, data)
+                    }
+                    // Processing API messages
+                    else {
+                        handle_message(&mut tx, data, &rtc)
+                    };
+
                 match result {
                     Err(err) => handle_error(topic, data, err),
                     Ok(_) => info!("Message has been processed"),
@@ -144,6 +164,23 @@ pub(crate) fn run() {
     }
 }
 
+fn handle_message(_tx: &mut Agent, data: &[u8], rtc: &rtc::Rtc) -> Result<(), Error> {
+    use crate::transport::compat::Envelope;
+    use crate::transport::MessageProperties;
+
+    let envelope = serde_json::from_slice::<Envelope>(data)?;
+    match envelope.properties() {
+        MessageProperties::Request(ref req) => match req.method.as_str() {
+            "rtc.create" => Ok(rtc.create(envelope.payload::<rtc::CreateParameters>()?)),
+            _ => Err(err_msg(format!(
+                "Unsupported request method: {:?}",
+                envelope
+            ))),
+        },
+        _ => Err(err_msg(format!("Unsupported message type: {:?}", envelope))),
+    }
+}
+
 fn handle_error(topic: &str, data: &[u8], error: Error) {
     let message = std::str::from_utf8(data).unwrap_or("[non-utf8 characters]");
     warn!(
@@ -151,3 +188,8 @@ fn handle_error(topic: &str, data: &[u8], error: Error) {
         message, topic, error
     );
 }
+
+mod config;
+mod janus;
+pub mod room;
+mod rtc;
