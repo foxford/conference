@@ -1,0 +1,1 @@
+drop type agent_id cascade;
