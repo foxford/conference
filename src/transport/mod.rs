@@ -32,9 +32,15 @@ pub(crate) struct EventMessageProperties {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct RequestMessageProperties {
-    pub(crate) method: String,
+    method: String,
     #[serde(flatten)]
     authn: AuthnMessageProperties,
+}
+
+impl RequestMessageProperties {
+    pub(crate) fn method(&self) -> &str {
+        &self.method
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -54,7 +60,7 @@ pub(crate) struct AuthnMessageProperties {
 
 #[derive(Debug, Clone, Deserialize, Serialize, FromSqlRow, AsExpression)]
 #[sql_type = "sql::Account_id"]
-pub struct AccountId {
+pub(crate) struct AccountId {
     label: String,
     audience: String,
 }
