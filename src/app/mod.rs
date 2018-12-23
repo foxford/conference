@@ -1,16 +1,16 @@
-use crate::transport;
+use crate::transport::{AccountId, AgentId, SharedGroup};
 use failure::{err_msg, Error};
 use log::{error, info, warn};
 use rumqtt::{MqttClient, MqttOptions, QoS};
 
 #[derive(Debug)]
 pub(crate) struct AgentBuilder {
-    agent_id: transport::AgentId,
-    backend_account_id: transport::AccountId,
+    agent_id: AgentId,
+    backend_account_id: AccountId,
 }
 
 impl AgentBuilder {
-    fn new(agent_id: transport::AgentId, backend_account_id: transport::AccountId) -> Self {
+    fn new(agent_id: AgentId, backend_account_id: AccountId) -> Self {
         Self {
             agent_id,
             backend_account_id,
@@ -25,7 +25,7 @@ impl AgentBuilder {
         let options = Self::mqtt_options(&client_id, &config)?;
         let (tx, rx) = MqttClient::start(options)?;
 
-        let group = transport::SharedGroup::new("loadbalancer", self.agent_id.account_id().clone());
+        let group = SharedGroup::new("loadbalancer", self.agent_id.account_id().clone());
         let mut agent = Agent::new(self.agent_id, self.backend_account_id, tx);
         agent.tx.subscribe(
             agent.backend_responses_subscription(&group),
@@ -38,7 +38,7 @@ impl AgentBuilder {
         Ok((agent, rx))
     }
 
-    fn mqtt_client_id(agent_id: &transport::AgentId) -> String {
+    fn mqtt_client_id(agent_id: &AgentId) -> String {
         format!("v1.mqtt3/agents/{agent_id}", agent_id = agent_id)
     }
 
@@ -54,17 +54,13 @@ impl AgentBuilder {
 }
 
 pub(crate) struct Agent {
-    id: transport::AgentId,
-    backend_account_id: transport::AccountId,
+    id: AgentId,
+    backend_account_id: AccountId,
     tx: rumqtt::MqttClient,
 }
 
 impl Agent {
-    fn new(
-        id: transport::AgentId,
-        backend_account_id: transport::AccountId,
-        tx: MqttClient,
-    ) -> Self {
+    fn new(id: AgentId, backend_account_id: AccountId, tx: MqttClient) -> Self {
         Self {
             id,
             backend_account_id,
@@ -86,7 +82,7 @@ impl Agent {
             .map_err(|_| err_msg(format!("Failed to publish an MQTT message: {:?}", message)))
     }
 
-    fn backend_input_topic(&self, backend_agent_id: &transport::AgentId) -> String {
+    fn backend_input_topic(&self, backend_agent_id: &AgentId) -> String {
         format!(
             "agents/{backend_agent_id}/api/v1/in/{app_name}",
             backend_agent_id = backend_agent_id,
@@ -94,7 +90,7 @@ impl Agent {
         )
     }
 
-    fn backend_responses_subscription(&self, group: &transport::SharedGroup) -> String {
+    fn backend_responses_subscription(&self, group: &SharedGroup) -> String {
         format!(
             "$share/{group}/apps/{backend_name}/api/v1/responses",
             group = group,
@@ -102,7 +98,7 @@ impl Agent {
         )
     }
 
-    fn anyone_output_subscription(&self, group: &transport::SharedGroup) -> String {
+    fn anyone_output_subscription(&self, group: &SharedGroup) -> String {
         format!(
             "$share/{group}/agents/+/api/v1/out/{name}",
             group = group,
@@ -117,21 +113,21 @@ pub(crate) fn run() {
     info!("App config: {:?}", config);
 
     // Agent
-    let agent_id = transport::AgentId::new("a", config.id);
+    let agent_id = AgentId::new("a", config.id);
     let (mut tx, rx) = AgentBuilder::new(agent_id, config.backend_id.clone())
         .start(&config.mqtt)
         .expect("Failed to create an agent");
 
     // TODO: derive a backend agent id from a status message
-    let backend_agent_id = transport::AgentId::new("a", config.backend_id.clone());
+    let backend_agent_id = AgentId::new("a", config.backend_id.clone());
 
-    // TODO: Replace with Real-Time Connection data
+    // TODO: replace with Real-Time Connection data
     use uuid::Uuid;
     let room_id = Uuid::new_v4();
     let rtc_id = Uuid::new_v4();
 
     // Create Real-Time Connection resource
-    let rtc = rtc::Rtc {};
+    let rtc = rtc::State {};
 
     // Creating a Janus Gateway session
     let req = janus::create_session_request(room_id, rtc_id).expect("Failed to build a request");
@@ -164,14 +160,21 @@ pub(crate) fn run() {
     }
 }
 
-fn handle_message(_tx: &mut Agent, data: &[u8], rtc: &rtc::Rtc) -> Result<(), Error> {
+fn handle_message(_tx: &mut Agent, data: &[u8], rtc: &rtc::State) -> Result<(), Error> {
     use crate::transport::compat::Envelope;
     use crate::transport::MessageProperties;
 
     let envelope = serde_json::from_slice::<Envelope>(data)?;
-    match envelope.properties() {
-        MessageProperties::Request(ref req) => match req.method.as_str() {
-            "rtc.create" => Ok(rtc.create(envelope.payload::<rtc::CreateParameters>()?)),
+    let props = envelope.properties();
+    let agent_id = AgentId::from(props);
+    let subject = agent_id.account_id();
+
+    match props {
+        MessageProperties::Request(ref req) => match req.method() {
+            "rtc.create" => {
+                let _ = rtc.create(&envelope.payload::<rtc::CreateParameters>()?, subject);
+                Ok(())
+            }
             _ => Err(err_msg(format!(
                 "Unsupported request method: {:?}",
                 envelope

@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Insertable)]
 #[table_name = "room"]
-pub(crate) struct CreateParameters<'a> {
+pub(crate) struct NewRoom<'a> {
     id: Option<&'a Uuid>,
     time: (Bound<&'a DateTime<Utc>>, Bound<&'a DateTime<Utc>>),
     owner_id: &'a AccountId,
@@ -60,7 +60,7 @@ pub(crate) fn create_demo_room() {
         Uuid::from_str("00000001-0000-1000-a000-000000000000").expect("Error generating room id");
     let account_id = AccountId::new("admin", "example.org");
     let time = (Bound::Unbounded, Bound::Unbounded);
-    let params = CreateParameters {
+    let params = NewRoom {
         id: Some(&id),
         owner_id: &account_id,
         time: time,
