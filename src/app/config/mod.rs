@@ -1,3 +1,4 @@
+use crate::transport::mqtt::AgentOptions;
 use crate::transport::AccountId;
 use config;
 use serde_derive::Deserialize;
@@ -11,7 +12,7 @@ pub(crate) struct Mqtt {
 pub(crate) struct Config {
     pub(crate) id: AccountId,
     pub(crate) backend_id: AccountId,
-    pub(crate) mqtt: Mqtt,
+    pub(crate) mqtt: AgentOptions,
 }
 
 pub(crate) fn load() -> Result<Config, config::ConfigError> {
