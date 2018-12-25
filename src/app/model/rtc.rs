@@ -12,14 +12,6 @@ pub(crate) struct Record {
 }
 
 impl Record {
-    pub(crate) fn room_id(&self) -> &Uuid {
-        &self.room_id
-    }
-
-    pub(crate) fn owner_id(&self) -> &AccountId {
-        &self.owner_id
-    }
-
     pub(crate) fn id(&self) -> &Uuid {
         &self.id
     }
@@ -42,13 +34,13 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub(crate) fn id(self, id: &'a Uuid) -> Self {
-        Self {
-            id: Some(id),
-            room_id: self.room_id,
-            owner_id: self.owner_id,
-        }
-    }
+//     pub(crate) fn id(self, id: &'a Uuid) -> Self {
+//         Self {
+//             id: Some(id),
+//             room_id: self.room_id,
+//             owner_id: self.owner_id,
+//         }
+//     }
 
     pub(crate) fn execute(&self) -> Result<Record, Error> {
         use crate::schema::rtc::dsl::rtc;
