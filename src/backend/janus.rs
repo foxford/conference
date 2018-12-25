@@ -22,13 +22,13 @@ impl CreateSessionRequest {
 #[derive(Debug, Serialize)]
 pub(crate) struct CreateHandleRequest {
     transaction: String,
-    session_id: u64,
+    session_id: i64,
     plugin: String,
     janus: String,
 }
 
 impl CreateHandleRequest {
-    pub(crate) fn new(transaction: &str, session_id: u64, plugin: &str) -> Self {
+    pub(crate) fn new(transaction: &str, session_id: i64, plugin: &str) -> Self {
         Self {
             transaction: transaction.to_owned(),
             session_id,
@@ -67,7 +67,7 @@ pub(crate) struct SessionErrorResponse {
 #[derive(Debug, Deserialize)]
 pub(crate) struct HandleErrorResponse {
     pub(crate) transaction: String,
-    pub(crate) session_id: u64,
+    pub(crate) session_id: i64,
     pub(crate) error: ErrorResponseData,
 }
 
@@ -87,12 +87,12 @@ pub(crate) struct SuccessResponse {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct SuccessResponseData {
-    pub(crate) id: u64,
+    pub(crate) id: i64,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct TimeoutEvent {
-    pub(crate) session_id: u64,
+    pub(crate) session_id: i64,
 }
