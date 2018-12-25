@@ -291,25 +291,15 @@ pub mod sql {
 
     impl ToSql<Agent_id, Pg> for AgentId {
         fn to_sql<W: Write>(&self, out: &mut Output<W, Pg>) -> serialize::Result {
-            WriteTuple::<(Text, Text, Text)>::write_tuple(
-                &(
-                    &self.account_id.label,
-                    &self.account_id.audience,
-                    &self.label,
-                ),
-                out,
-            )
+            WriteTuple::<(Account_id, Text)>::write_tuple(&(&self.account_id, &self.label), out)
         }
     }
 
     impl FromSql<Agent_id, Pg> for AgentId {
         fn from_sql(bytes: Option<&[u8]>) -> deserialize::Result<Self> {
-            let (agent_label, account_label, audience): (String, String, String) =
-                FromSql::<Record<(Text, Text, Text)>, Pg>::from_sql(bytes)?;
-            Ok(AgentId::new(
-                &agent_label,
-                AccountId::new(&account_label, &audience),
-            ))
+            let (account_id, label): (AccountId, String) =
+                FromSql::<Record<(Account_id, Text)>, Pg>::from_sql(bytes)?;
+            Ok(AgentId::new(&label, account_id))
         }
     }
 
