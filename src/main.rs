@@ -3,10 +3,6 @@ extern crate diesel;
 
 fn main() {
     env_logger::init();
-
-    // TODO: Remove creating a demo room
-    app::room::create_demo_room();
-
     app::run();
 }
 
