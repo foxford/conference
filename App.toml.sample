@@ -1,5 +1,5 @@
 [id]
-label = "conferences"
+label = "conference"
 audience = "example.org"
 
 [backend_id]

@@ -3,7 +3,7 @@
 if [[ ! ${SFTP_USER} ]]; then echo "SFTP_USER isn't specified" 1>&2; exit 1; fi
 if [[ ! ${SFTP_PASSWORD} ]]; then echo "SFTP_PASSWORD isn't specified" 1>&2; exit 1; fi
 
-PROJECT=${PROJECT:-'conferences'}
+PROJECT=${PROJECT:-'conference'}
 BUCKET=${BUCKET:-'docs-netology-group.services'}
 HOST=${HOST:-'sftp.selcdn.ru'}
 SOURCE=${SOURCE:-'docs/book'}
