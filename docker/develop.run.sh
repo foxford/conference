@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PROJECT="conferences"
+PROJECT="conference"
 PROJECT_DIR="/build"
 DOCKER_CONTAINER_NAME="sandbox/${PROJECT}.develop"
 DOCKER_CONTAINER_COMMAND=${DOCKER_CONTAINER_COMMAND:-'/bin/bash'}
