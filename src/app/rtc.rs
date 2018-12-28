@@ -1,10 +1,10 @@
 use crate::app::janus;
 use crate::backend::janus::CreateSessionRequest;
-use crate::transport::mqtt::{LocalMessage, Message};
-use crate::transport::{
-    AgentId, Destination, LocalMessageProperties, LocalResponseMessageProperties,
-    LocalResponseMessageStatus,
+use crate::transport::mqtt::{
+    LocalMessage, LocalMessageProperties, LocalResponseMessageProperties,
+    LocalResponseMessageStatus, Message,
 };
+use crate::transport::{AgentId, Destination};
 use failure::Error;
 use serde_derive::Deserialize;
 use uuid::Uuid;
