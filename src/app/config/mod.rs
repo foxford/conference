@@ -4,11 +4,6 @@ use config;
 use serde_derive::Deserialize;
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct Mqtt {
-    pub(crate) uri: String,
-}
-
-#[derive(Debug, Deserialize)]
 pub(crate) struct Config {
     pub(crate) id: AccountId,
     pub(crate) backend_id: AccountId,
