@@ -42,12 +42,6 @@ impl FromStr for AccountId {
     }
 }
 
-impl From<&MessageProperties> for AccountId {
-    fn from(props: &MessageProperties) -> Self {
-        AccountId::from(props.authn())
-    }
-}
-
 impl From<&AuthnMessageProperties> for AccountId {
     fn from(authn: &AuthnMessageProperties) -> Self {
         AccountId::new(&authn.account_label, &authn.audience)
@@ -102,12 +96,6 @@ impl FromStr for AgentId {
     }
 }
 
-impl From<&MessageProperties> for AgentId {
-    fn from(props: &MessageProperties) -> Self {
-        AgentId::from(props.authn())
-    }
-}
-
 impl From<&AuthnMessageProperties> for AgentId {
     fn from(authn: &AuthnMessageProperties) -> Self {
         AgentId::new(&authn.agent_label, AccountId::from(authn))
@@ -153,94 +141,6 @@ impl FromStr for SharedGroup {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
-#[serde(tag = "type")]
-pub(crate) enum LocalMessageProperties {
-    Event(LocalEventMessageProperties),
-    Request(LocalRequestMessageProperties),
-    Response(LocalResponseMessageProperties),
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct LocalEventMessageProperties {}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct LocalRequestMessageProperties {
-    method: String,
-}
-
-impl LocalRequestMessageProperties {
-    pub(crate) fn new(method: &str) -> Self {
-        Self {
-            method: method.to_owned(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct LocalResponseMessageProperties {
-    status: LocalResponseMessageStatus,
-}
-
-impl LocalResponseMessageProperties {
-    pub(crate) fn new(status: LocalResponseMessageStatus) -> Self {
-        Self { status }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum LocalResponseMessageStatus {
-    Success,
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[serde(tag = "type")]
-pub(crate) enum MessageProperties {
-    Event(EventMessageProperties),
-    Request(RequestMessageProperties),
-    Response(ResponseMessageProperties),
-}
-
-impl MessageProperties {
-    pub(crate) fn authn(&self) -> &AuthnMessageProperties {
-        match self {
-            MessageProperties::Event(ref props) => &props.authn,
-            MessageProperties::Request(ref props) => &props.authn,
-            MessageProperties::Response(ref props) => &props.authn,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct EventMessageProperties {
-    #[serde(flatten)]
-    authn: AuthnMessageProperties,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct RequestMessageProperties {
-    method: String,
-    #[serde(flatten)]
-    authn: AuthnMessageProperties,
-}
-
-impl RequestMessageProperties {
-    pub(crate) fn method(&self) -> &str {
-        &self.method
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct ResponseMessageProperties {
-    #[serde(flatten)]
-    authn: AuthnMessageProperties,
-}
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct AuthnMessageProperties {

@@ -2,10 +2,10 @@ use crate::app::model::{janus_handle_shadow, janus_session_shadow, rtc};
 use crate::backend::janus::{CreateHandleRequest, CreateSessionRequest, ErrorResponse, Response};
 use crate::transport::correlation_data::{from_base64, to_base64};
 use crate::transport::mqtt::compat;
-use crate::transport::mqtt::{Agent, LocalMessage, Publish};
-use crate::transport::{
-    AgentId, Destination, LocalMessageProperties, LocalRequestMessageProperties,
+use crate::transport::mqtt::{
+    Agent, LocalMessage, LocalMessageProperties, LocalRequestMessageProperties, Publish,
 };
+use crate::transport::{AgentId, Destination};
 use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 

@@ -1,10 +1,7 @@
-use super::{
-    AccountId, AgentId, Destination, LocalMessageProperties, MessageProperties, Publishable,
-    SharedGroup,
-};
+use super::{AccountId, AgentId, AuthnMessageProperties, Destination, Publishable, SharedGroup};
 use failure::{err_msg, format_err, Error};
 use rumqtt::{MqttClient, MqttOptions, QoS};
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -107,6 +104,108 @@ impl Agent {
             name = &self.id.account_id(),
         )
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[serde(tag = "type")]
+pub(crate) enum MessageProperties {
+    Event(EventMessageProperties),
+    Request(RequestMessageProperties),
+    Response(ResponseMessageProperties),
+}
+
+impl MessageProperties {
+    pub(crate) fn authn(&self) -> &AuthnMessageProperties {
+        match self {
+            MessageProperties::Event(ref props) => &props.authn,
+            MessageProperties::Request(ref props) => &props.authn,
+            MessageProperties::Response(ref props) => &props.authn,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct EventMessageProperties {
+    #[serde(flatten)]
+    authn: AuthnMessageProperties,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct RequestMessageProperties {
+    method: String,
+    #[serde(flatten)]
+    authn: AuthnMessageProperties,
+}
+
+impl RequestMessageProperties {
+    pub(crate) fn method(&self) -> &str {
+        &self.method
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ResponseMessageProperties {
+    #[serde(flatten)]
+    authn: AuthnMessageProperties,
+}
+
+impl From<&MessageProperties> for AccountId {
+    fn from(props: &MessageProperties) -> Self {
+        AccountId::from(props.authn())
+    }
+}
+
+impl From<&MessageProperties> for AgentId {
+    fn from(props: &MessageProperties) -> Self {
+        AgentId::from(props.authn())
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+#[serde(tag = "type")]
+pub(crate) enum LocalMessageProperties {
+    Event(LocalEventMessageProperties),
+    Request(LocalRequestMessageProperties),
+    Response(LocalResponseMessageProperties),
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct LocalEventMessageProperties {}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct LocalRequestMessageProperties {
+    method: String,
+}
+
+impl LocalRequestMessageProperties {
+    pub(crate) fn new(method: &str) -> Self {
+        Self {
+            method: method.to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct LocalResponseMessageProperties {
+    status: LocalResponseMessageStatus,
+}
+
+impl LocalResponseMessageProperties {
+    pub(crate) fn new(status: LocalResponseMessageStatus) -> Self {
+        Self { status }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum LocalResponseMessageStatus {
+    Success,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -292,8 +391,7 @@ where
 
 pub mod compat {
 
-    use super::{LocalMessage, Message};
-    use crate::transport::{LocalMessageProperties, MessageProperties};
+    use super::{LocalMessage, LocalMessageProperties, Message, MessageProperties};
     use failure::Error;
     use serde_derive::{Deserialize, Serialize};
 
@@ -326,8 +424,6 @@ pub mod compat {
     pub(crate) struct Envelope {
         payload: String,
         properties: MessageProperties,
-//    response_topic: Option<String>,
-//    correlation_data: Option<String>,
     }
 
     impl Envelope {

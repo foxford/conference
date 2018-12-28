@@ -1,6 +1,6 @@
 use crate::transport::mqtt::compat;
-use crate::transport::mqtt::{Agent, AgentBuilder, Publish};
-use crate::transport::{AgentId, MessageProperties};
+use crate::transport::mqtt::{Agent, AgentBuilder, MessageProperties, Publish};
+use crate::transport::AgentId;
 use failure::{format_err, Error};
 use log::{error, info};
 
