@@ -12,7 +12,7 @@ pub(crate) fn run() {
     info!("App config: {:?}", config);
 
     // Agent
-    let agent_id = AgentId::new("a", config.id);
+    let agent_id = AgentId::new("alpha", config.id);
     let (mut tx, rx) = AgentBuilder::new(agent_id, config.backend_id.clone())
         .start(&config.mqtt)
         .expect("Failed to create an agent");
@@ -21,7 +21,7 @@ pub(crate) fn run() {
     self::room::create_demo_room();
 
     // TODO: derive a backend agent id from a status message
-    let backend_agent_id = AgentId::new("a", config.backend_id.clone());
+    let backend_agent_id = AgentId::new("alpha", config.backend_id.clone());
 
     // Create Real-Time Connection resource
     let rtc = rtc::State { backend_agent_id };
