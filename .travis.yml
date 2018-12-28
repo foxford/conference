@@ -30,7 +30,12 @@ jobs:
       name: Docs
       install: cargo install mdbook --vers 0.2.2 --force
       script: mdbook build docs && deploy/docs.sh
+    - stage: deploy
+      name: Kubernetes
+      script: deploy/run.sh
 stages:
   - name: check
+  - name: deploy
+    if: (branch = master AND type = push) OR tag IS present
 notifications:
   email: false
