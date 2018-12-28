@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: conference
+  labels:
+    app: conference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: conference
+  template:
+    metadata:
+      labels:
+        app: conference
+    spec:
+      containers:
+        - name: conference
+          image: netologygroup/conference
+          imagePullPolicy: Always
+          env:
+            - name: RUST_LOG
+              valueFrom:
+                configMapKeyRef:
+                  name: conference-environment
+                  key: RUST_LOG
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-conference-credentials
+                  key: database_url
+          volumeMounts:
+            - name: config
+              mountPath: /app/App.toml
+              subPath: App.toml
+          resources:
+            requests:
+              cpu: 100m
+              memory: 200Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+      volumes:
+        - name: config
+          configMap:
+            name: conference-config
