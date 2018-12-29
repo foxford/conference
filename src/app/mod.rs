@@ -61,7 +61,7 @@ fn handle_message(tx: &mut Agent, bytes: &[u8], rtc: &rtc::State) -> Result<(), 
     match envelope.properties() {
         MessageProperties::Request(ref req) => match req.method() {
             "rtc.create" => {
-                let req = rtc.create(&compat::into_message(envelope)?)?;
+                let req = rtc.create(compat::into_message(envelope)?)?;
                 req.publish(tx)
             }
             _ => Err(format_err!("Unsupported request method: {:?}", envelope)),

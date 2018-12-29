@@ -142,7 +142,7 @@ impl FromStr for SharedGroup {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct AuthnMessageProperties {
     agent_label: String,
     account_label: String,
@@ -151,7 +151,7 @@ pub(crate) struct AuthnMessageProperties {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub(crate) enum Destination {
     Broadcast(BroadcastUri),
     Multicast(AccountId),

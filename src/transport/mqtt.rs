@@ -108,7 +108,7 @@ impl Agent {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 #[serde(tag = "type")]
 pub(crate) enum MessageProperties {
@@ -127,15 +127,17 @@ impl MessageProperties {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct EventMessageProperties {
     #[serde(flatten)]
     authn: AuthnMessageProperties,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct RequestMessageProperties {
     method: String,
+    response_topic: String,
+    correlation_data: String,
     #[serde(flatten)]
     authn: AuthnMessageProperties,
 }
@@ -144,10 +146,18 @@ impl RequestMessageProperties {
     pub(crate) fn method(&self) -> &str {
         &self.method
     }
+
+    pub(crate) fn to_response(
+        &self,
+        status: LocalResponseMessageStatus,
+    ) -> LocalResponseMessageProperties {
+        LocalResponseMessageProperties::new(status, &self.correlation_data)
+    }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct ResponseMessageProperties {
+    correlation_data: String,
     #[serde(flatten)]
     authn: AuthnMessageProperties,
 }
@@ -194,11 +204,15 @@ impl LocalRequestMessageProperties {
 #[derive(Debug, Serialize)]
 pub(crate) struct LocalResponseMessageProperties {
     status: LocalResponseMessageStatus,
+    correlation_data: String,
 }
 
 impl LocalResponseMessageProperties {
-    pub(crate) fn new(status: LocalResponseMessageStatus) -> Self {
-        Self { status }
+    pub(crate) fn new(status: LocalResponseMessageStatus, correlation_data: &str) -> Self {
+        Self {
+            status,
+            correlation_data: correlation_data.to_owned(),
+        }
     }
 }
 
@@ -210,7 +224,7 @@ pub(crate) enum LocalResponseMessageStatus {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub(crate) struct LocalMessage<T>
 where
     T: serde::Serialize,
@@ -262,7 +276,7 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Message<T> {
     payload: T,
     properties: MessageProperties,
@@ -288,9 +302,27 @@ impl<T> Message<T> {
         &self.payload
     }
 
-//    pub(crate) fn create_message<N>(&self, payload: N, properties: LocalMessageProperties) -> LocalMessage<N> {
-//        LocalMessage::new(payload, properties)
-//    }
+    pub(crate) fn properties(&self) -> &MessageProperties {
+        &self.properties
+    }
+
+    pub(crate) fn to_response<R>(
+        &self,
+        data: R,
+        status: LocalResponseMessageStatus,
+    ) -> Result<LocalMessage<R>, Error>
+    where
+        R: serde::Serialize,
+    {
+        match self.properties() {
+            MessageProperties::Request(req_props) => Ok(LocalMessage::new(
+                data,
+                LocalMessageProperties::Response(req_props.to_response(status)),
+                Destination::Unicast(self.agent_id()),
+            )),
+            _ => Err(err_msg("Error converting request to response")),
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -400,10 +432,6 @@ pub mod compat {
         payload: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         properties: Option<&'a LocalMessageProperties>,
-//    #[serde(skip_serializing_if = "Option::is_none")]
-//    response_topic: Option<String>,
-//    #[serde(skip_serializing_if = "Option::is_none")]
-//    correlation_data: Option<String>,
     }
 
     pub(crate) fn from_message<'a, T>(

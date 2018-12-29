@@ -1,9 +1,11 @@
 use crate::app::model::{janus_handle_shadow, janus_session_shadow, rtc};
+use crate::app::rtc::CreateRequest as CreateRtcRequest;
 use crate::backend::janus::{CreateHandleRequest, CreateSessionRequest, ErrorResponse, Response};
 use crate::transport::correlation_data::{from_base64, to_base64};
 use crate::transport::mqtt::compat;
 use crate::transport::mqtt::{
-    Agent, LocalMessage, LocalMessageProperties, LocalRequestMessageProperties, Publish,
+    Agent, LocalMessage, LocalMessageProperties, LocalRequestMessageProperties,
+    LocalResponseMessageStatus, Publish,
 };
 use crate::transport::{AgentId, Destination};
 use failure::{format_err, Error};
@@ -22,21 +24,21 @@ pub(crate) enum Transaction {
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateSessionTransaction {
     rtc: rtc::Record,
-    owner_id: AgentId,
+    req: CreateRtcRequest,
 }
 
 impl CreateSessionTransaction {
-    pub(crate) fn new(rtc: rtc::Record, owner_id: AgentId) -> Self {
-        Self { rtc, owner_id }
+    pub(crate) fn new(rtc: rtc::Record, req: CreateRtcRequest) -> Self {
+        Self { rtc, req }
     }
 }
 
 pub(crate) fn create_session_request(
     rtc: rtc::Record,
-    owner_id: AgentId,
+    req: CreateRtcRequest,
     to: AgentId,
 ) -> Result<LocalMessage<CreateSessionRequest>, Error> {
-    let transaction = Transaction::CreateSession(CreateSessionTransaction::new(rtc, owner_id));
+    let transaction = Transaction::CreateSession(CreateSessionTransaction::new(rtc, req));
     let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
     let method = LocalRequestMessageProperties::new("janus_session.create");
     let props = LocalMessageProperties::Request(method);
@@ -103,12 +105,16 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8]) -> Result<(), Error> 
                 Transaction::CreateHandle(tn) => {
                     // Creating a shadow of Janus Session
                     let handle_id = resp.data.id;
-                    let rtc_id = tn.previous.rtc.id();
-                    let owner_id = tn.previous.owner_id;
-                    let _ = janus_handle_shadow::InsertQuery::new(handle_id, rtc_id, &owner_id)
-                        .execute()?;
+                    let rtc = tn.previous.rtc;
+                    let req = tn.previous.req;
+                    let _ =
+                        janus_handle_shadow::InsertQuery::new(handle_id, rtc.id(), &req.agent_id())
+                            .execute()?;
 
-                    let resp = crate::app::rtc::create_rtc_response(tn.previous.rtc, owner_id);
+                    let status = LocalResponseMessageStatus::Success;
+                    let resp = req
+                        .to_response(rtc, status)
+                        .expect("Error converting request to response");
                     resp.publish(tx)
                 }
             }
