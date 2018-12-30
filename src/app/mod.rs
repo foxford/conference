@@ -64,6 +64,11 @@ fn handle_message(tx: &mut Agent, bytes: &[u8], rtc: &rtc::State) -> Result<(), 
                 let next = rtc.create(compat::into_request(envelope)?)?;
                 next.publish(tx)
             }
+            "rtc.read" => {
+                let req = compat::into_request(envelope)?;
+                let next = rtc.read(&req)?;
+                next.publish(tx)
+            }
             _ => Err(format_err!("Unsupported request method: {:?}", envelope)),
         },
         _ => Err(format_err!("Unsupported message type: {:?}", envelope)),
