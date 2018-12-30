@@ -7,16 +7,12 @@ fn main() {
 }
 
 pub fn establish_connection() -> diesel::pg::PgConnection {
+    use diesel::connection::Connection;
+    use diesel::pg::PgConnection;
     use std::env;
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be specified");
-
-    use ::diesel::connection::Connection;
-    use ::diesel::pg::PgConnection;
-    let conn = PgConnection::establish(&database_url)
-        .expect(&format!("Error connecting to {}", database_url));
-
-    conn
+    PgConnection::establish(&database_url).expect(&format!("Error connecting to {}", database_url))
 }
 
 mod app;
