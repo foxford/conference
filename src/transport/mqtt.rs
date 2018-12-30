@@ -1,4 +1,4 @@
-use super::{AccountId, AgentId, AuthnMessageProperties, Destination, Publishable, SharedGroup};
+use super::{AccountId, AgentId, Authenticable, AuthnMessageProperties, Destination, SharedGroup};
 use failure::{err_msg, format_err, Error};
 use rumqtt::{MqttClient, MqttOptions, QoS};
 use serde_derive::{Deserialize, Serialize};
@@ -109,25 +109,6 @@ impl Agent {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-#[serde(tag = "type")]
-pub(crate) enum MessageProperties {
-    Event(EventMessageProperties),
-    Request(RequestMessageProperties),
-    Response(ResponseMessageProperties),
-}
-
-impl MessageProperties {
-    pub(crate) fn authn(&self) -> &AuthnMessageProperties {
-        match self {
-            MessageProperties::Event(ref props) => &props.authn,
-            MessageProperties::Request(ref props) => &props.authn,
-            MessageProperties::Response(ref props) => &props.authn,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct EventMessageProperties {
     #[serde(flatten)]
     authn: AuthnMessageProperties,
@@ -136,8 +117,8 @@ pub(crate) struct EventMessageProperties {
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct RequestMessageProperties {
     method: String,
-    response_topic: String,
     correlation_data: String,
+    response_topic: String,
     #[serde(flatten)]
     authn: AuthnMessageProperties,
 }
@@ -151,7 +132,11 @@ impl RequestMessageProperties {
         &self,
         status: LocalResponseMessageStatus,
     ) -> LocalResponseMessageProperties {
-        LocalResponseMessageProperties::new(status, &self.correlation_data)
+        LocalResponseMessageProperties::new(
+            status,
+            &self.correlation_data,
+            Some(&self.response_topic),
+        )
     }
 }
 
@@ -162,28 +147,89 @@ pub(crate) struct ResponseMessageProperties {
     authn: AuthnMessageProperties,
 }
 
-impl From<&MessageProperties> for AccountId {
-    fn from(props: &MessageProperties) -> Self {
-        AccountId::from(props.authn())
+impl Authenticable for EventMessageProperties {
+    fn account_id(&self) -> AccountId {
+        AccountId::from(&self.authn)
+    }
+
+    fn agent_id(&self) -> AgentId {
+        AgentId::from(&self.authn)
     }
 }
 
-impl From<&MessageProperties> for AgentId {
-    fn from(props: &MessageProperties) -> Self {
-        AgentId::from(props.authn())
+impl Authenticable for RequestMessageProperties {
+    fn account_id(&self) -> AccountId {
+        AccountId::from(&self.authn)
+    }
+
+    fn agent_id(&self) -> AgentId {
+        AgentId::from(&self.authn)
+    }
+}
+
+impl Authenticable for ResponseMessageProperties {
+    fn account_id(&self) -> AccountId {
+        AccountId::from(&self.authn)
+    }
+
+    fn agent_id(&self) -> AgentId {
+        AgentId::from(&self.authn)
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
-#[serde(tag = "type")]
-pub(crate) enum LocalMessageProperties {
-    Event(LocalEventMessageProperties),
-    Request(LocalRequestMessageProperties),
-    Response(LocalResponseMessageProperties),
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct Message<T, P>
+where
+    P: Authenticable,
+{
+    payload: T,
+    properties: P,
 }
+
+impl<T, P> Message<T, P>
+where
+    P: Authenticable,
+{
+    pub(crate) fn new(payload: T, properties: P) -> Self {
+        Self {
+            payload,
+            properties,
+        }
+    }
+
+    pub(crate) fn payload(&self) -> &T {
+        &self.payload
+    }
+
+    pub(crate) fn properties(&self) -> &P {
+        &self.properties
+    }
+}
+
+impl<T> Message<T, RequestMessageProperties> {
+    pub(crate) fn to_response<R>(
+        &self,
+        data: R,
+        status: LocalResponseMessageStatus,
+    ) -> LocalResponse<R>
+    where
+        R: serde::Serialize,
+    {
+        LocalMessage::new(
+            data,
+            self.properties.to_response(status),
+            Destination::Unicast(self.properties.agent_id()),
+        )
+    }
+}
+
+pub(crate) type Event<T> = Message<T, EventMessageProperties>;
+pub(crate) type Request<T> = Message<T, RequestMessageProperties>;
+pub(crate) type Response<T> = Message<T, ResponseMessageProperties>;
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize)]
 pub(crate) struct LocalEventMessageProperties {}
@@ -205,13 +251,20 @@ impl LocalRequestMessageProperties {
 pub(crate) struct LocalResponseMessageProperties {
     status: LocalResponseMessageStatus,
     correlation_data: String,
+    #[serde(skip)]
+    response_topic: Option<String>,
 }
 
 impl LocalResponseMessageProperties {
-    pub(crate) fn new(status: LocalResponseMessageStatus, correlation_data: &str) -> Self {
+    pub(crate) fn new(
+        status: LocalResponseMessageStatus,
+        correlation_data: &str,
+        response_topic: Option<&str>,
+    ) -> Self {
         Self {
             status,
             correlation_data: correlation_data.to_owned(),
+            response_topic: response_topic.map(|val| val.to_owned()),
         }
     }
 }
@@ -225,24 +278,20 @@ pub(crate) enum LocalResponseMessageStatus {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize)]
-pub(crate) struct LocalMessage<T>
+pub(crate) struct LocalMessage<T, P>
 where
     T: serde::Serialize,
 {
     payload: T,
-    properties: LocalMessageProperties,
+    properties: P,
     destination: Destination,
 }
 
-impl<T> LocalMessage<T>
+impl<T, P> LocalMessage<T, P>
 where
     T: serde::Serialize,
 {
-    pub(crate) fn new(
-        payload: T,
-        properties: LocalMessageProperties,
-        destination: Destination,
-    ) -> Self {
+    pub(crate) fn new(payload: T, properties: P, destination: Destination) -> Self {
         Self {
             payload,
             properties,
@@ -254,96 +303,40 @@ where
         &self.payload
     }
 
-    pub(crate) fn properties(&self) -> &LocalMessageProperties {
+    pub(crate) fn properties(&self) -> &P {
         &self.properties
+    }
+
+    pub(crate) fn destination(&self) -> &Destination {
+        &self.destination
     }
 }
 
-impl<T> Publishable for LocalMessage<T>
-where
-    T: serde::Serialize,
-{
-    fn destination_topic(&self, agent_id: &AgentId) -> Result<String, Error> {
-        DestinationTopicBuilder::build(agent_id, &self.properties, &self.destination)
-    }
+pub(crate) type LocalEvent<T> = LocalMessage<T, LocalEventMessageProperties>;
+pub(crate) type LocalRequest<T> = LocalMessage<T, LocalRequestMessageProperties>;
+pub(crate) type LocalResponse<T> = LocalMessage<T, LocalResponseMessageProperties>;
 
-    fn to_bytes(&self) -> Result<String, Error> {
-        let envelope = self::compat::from_message(self)?;
-        let payload = serde_json::to_string(&envelope)?;
-        Ok(payload)
-    }
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) trait Publishable {
+    fn destination_topic(&self, agent_id: &AgentId) -> Result<String, Error>;
+    fn to_bytes(&self) -> Result<String, Error>;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct Message<T> {
-    payload: T,
-    properties: MessageProperties,
-}
-
-impl<T> Message<T> {
-    pub(crate) fn new(payload: T, properties: MessageProperties) -> Self {
-        Self {
-            payload,
-            properties,
-        }
-    }
-
-    pub(crate) fn subject(&self) -> AccountId {
-        AccountId::from(&self.properties)
-    }
-
-    pub(crate) fn agent_id(&self) -> AgentId {
-        AgentId::from(&self.properties)
-    }
-
-    pub(crate) fn payload(&self) -> &T {
-        &self.payload
-    }
-
-    pub(crate) fn properties(&self) -> &MessageProperties {
-        &self.properties
-    }
-
-    pub(crate) fn to_response<R>(
-        &self,
-        data: R,
-        status: LocalResponseMessageStatus,
-    ) -> Result<LocalMessage<R>, Error>
-    where
-        R: serde::Serialize,
-    {
-        match self.properties() {
-            MessageProperties::Request(req_props) => Ok(LocalMessage::new(
-                data,
-                LocalMessageProperties::Response(req_props.to_response(status)),
-                Destination::Unicast(self.agent_id()),
-            )),
-            _ => Err(err_msg("Error converting request to response")),
-        }
-    }
+pub(crate) trait Publish<'a> {
+    fn publish(&'a self, tx: &mut Agent) -> Result<(), Error>;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct DestinationTopicBuilder;
+trait DestinationTopic {
+    fn destination_topic(&self, agent_id: &AgentId, dest: &Destination) -> Result<String, Error>;
+}
 
-impl DestinationTopicBuilder {
-    fn build(
-        agent_id: &AgentId,
-        props: &LocalMessageProperties,
-        dest: &Destination,
-    ) -> Result<String, Error> {
-        match props {
-            LocalMessageProperties::Event(_) => Self::build_event_topic(agent_id, dest),
-            LocalMessageProperties::Request(_) => Self::build_request_topic(agent_id, dest),
-            LocalMessageProperties::Response(_) => Self::build_response_topic(agent_id, dest),
-        }
-    }
-
-    // TODO: api version
-    fn build_event_topic(agent_id: &AgentId, dest: &Destination) -> Result<String, Error> {
+impl DestinationTopic for LocalEventMessageProperties {
+    fn destination_topic(&self, agent_id: &AgentId, dest: &Destination) -> Result<String, Error> {
         match dest {
             Destination::Broadcast(ref dest_uri) => Ok(format!(
                 "apps/{app_name}/api/v1/{uri}",
@@ -356,9 +349,10 @@ impl DestinationTopicBuilder {
             )),
         }
     }
+}
 
-    // TODO: api version
-    fn build_request_topic(agent_id: &AgentId, dest: &Destination) -> Result<String, Error> {
+impl DestinationTopic for LocalRequestMessageProperties {
+    fn destination_topic(&self, agent_id: &AgentId, dest: &Destination) -> Result<String, Error> {
         match dest {
             Destination::Unicast(ref dest_agent_id) => Ok(format!(
                 "agents/{agent_id}/api/v1/in/{app_name}",
@@ -376,86 +370,60 @@ impl DestinationTopicBuilder {
             )),
         }
     }
+}
 
-    // TODO: api version
-    fn build_response_topic(agent_id: &AgentId, dest: &Destination) -> Result<String, Error> {
-        match dest {
-            Destination::Unicast(ref dest_agent_id) => Ok(format!(
-                "agents/{agent_id}/api/v1/in/{app_name}",
-                agent_id = dest_agent_id,
-                app_name = &agent_id.account_id(),
-            )),
-            _ => Err(format_err!(
-                "Destination {:?} incompatible with response message type",
-                dest,
-            )),
+impl DestinationTopic for LocalResponseMessageProperties {
+    fn destination_topic(&self, agent_id: &AgentId, dest: &Destination) -> Result<String, Error> {
+        match &self.response_topic {
+            Some(ref val) => Ok(val.to_owned()),
+            None => match dest {
+                Destination::Unicast(ref dest_agent_id) => Ok(format!(
+                    "agents/{agent_id}/api/v1/in/{app_name}",
+                    agent_id = dest_agent_id,
+                    app_name = &agent_id.account_id(),
+                )),
+                _ => Err(format_err!(
+                    "Destination {:?} incompatible with response message type",
+                    dest,
+                )),
+            },
         }
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) trait Publish {
-    fn publish(&self, tx: &mut Agent) -> Result<(), Error>;
-}
-
-impl<T> Publish for T
-where
-    T: Publishable,
-{
-    fn publish(&self, tx: &mut Agent) -> Result<(), Error> {
-        tx.publish(self)?;
-        Ok(())
-    }
-}
-
-impl<T1, T2> Publish for (T1, T2)
-where
-    T1: Publishable,
-    T2: Publishable,
-{
-    fn publish(&self, tx: &mut Agent) -> Result<(), Error> {
-        tx.publish(&self.0)?;
-        tx.publish(&self.1)?;
-        Ok(())
-    }
-}
-
 pub mod compat {
 
-    use super::{LocalMessage, LocalMessageProperties, Message, MessageProperties};
-    use failure::Error;
+    use super::{
+        Agent, Destination, DestinationTopic, Event, EventMessageProperties, LocalEvent,
+        LocalEventMessageProperties, LocalRequest, LocalRequestMessageProperties, LocalResponse,
+        LocalResponseMessageProperties, Message, Publish, Publishable, Request,
+        RequestMessageProperties, Response, ResponseMessageProperties,
+    };
+    use crate::transport::AgentId;
+    use failure::{err_msg, format_err, Error};
     use serde_derive::{Deserialize, Serialize};
 
-    #[derive(Debug, Serialize)]
-    pub(crate) struct LocalEnvelope<'a> {
-        payload: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        properties: Option<&'a LocalMessageProperties>,
-    }
+    ////////////////////////////////////////////////////////////////////////////////
 
-    pub(crate) fn from_message<'a, T>(
-        message: &'a LocalMessage<T>,
-    ) -> Result<LocalEnvelope<'a>, Error>
-    where
-        T: serde::Serialize,
-    {
-        let payload = serde_json::to_string(message.payload())?;
-        let envelope = LocalEnvelope {
-            payload,
-            properties: Some(message.properties()),
-        };
-        Ok(envelope)
+    #[derive(Debug, Deserialize, Serialize)]
+    #[serde(rename_all = "lowercase")]
+    #[serde(tag = "type")]
+    pub(crate) enum EnvelopeMessageProperties {
+        Event(EventMessageProperties),
+        Request(RequestMessageProperties),
+        Response(ResponseMessageProperties),
     }
 
     #[derive(Debug, Deserialize)]
     pub(crate) struct Envelope {
         payload: String,
-        properties: MessageProperties,
+        properties: EnvelopeMessageProperties,
     }
 
     impl Envelope {
-        pub(crate) fn properties(&self) -> &MessageProperties {
+        pub(crate) fn properties(&self) -> &EnvelopeMessageProperties {
             &self.properties
         }
 
@@ -468,13 +436,159 @@ pub mod compat {
         }
     }
 
-    pub(crate) fn into_message<T>(envelope: Envelope) -> Result<Message<T>, Error>
+    pub(crate) fn into_event<T>(envelope: Envelope) -> Result<Event<T>, Error>
     where
         T: serde::de::DeserializeOwned,
     {
         let payload = envelope.payload::<T>()?;
-        let properties = envelope.properties;
-        Ok(Message::new(payload, properties))
+        match envelope.properties {
+            EnvelopeMessageProperties::Event(props) => Ok(Message::new(payload, props)),
+            val => Err(format_err!("Error converting into event = {:?}", val)),
+        }
+    }
+
+    pub(crate) fn into_request<T>(envelope: Envelope) -> Result<Request<T>, Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let payload = envelope.payload::<T>()?;
+        match envelope.properties {
+            EnvelopeMessageProperties::Request(props) => Ok(Message::new(payload, props)),
+            _ => Err(err_msg("Error converting into request")),
+        }
+    }
+
+    pub(crate) fn into_response<T>(envelope: Envelope) -> Result<Response<T>, Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let payload = envelope.payload::<T>()?;
+        match envelope.properties {
+            EnvelopeMessageProperties::Response(props) => Ok(Message::new(payload, props)),
+            _ => Err(err_msg("Error converting into response")),
+        }
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////
+
+    #[derive(Debug, Serialize)]
+    #[serde(rename_all = "lowercase")]
+    #[serde(tag = "type")]
+    pub(crate) enum LocalEnvelopeMessageProperties<'a> {
+        Event(&'a LocalEventMessageProperties),
+        Request(&'a LocalRequestMessageProperties),
+        Response(&'a LocalResponseMessageProperties),
+    }
+
+    #[derive(Debug, Serialize)]
+    pub(crate) struct LocalEnvelope<'a> {
+        payload: String,
+        properties: LocalEnvelopeMessageProperties<'a>,
+        #[serde(skip)]
+        destination: &'a Destination,
+    }
+
+    pub(crate) trait ToEnvelope<'a> {
+        fn to_envelope(&'a self) -> Result<LocalEnvelope<'a>, Error>;
+    }
+
+    impl<'a, T> ToEnvelope<'a> for LocalEvent<T>
+    where
+        T: serde::Serialize,
+    {
+        fn to_envelope(&'a self) -> Result<LocalEnvelope<'a>, Error> {
+            let payload = serde_json::to_string(self.payload())?;
+            let envelope = LocalEnvelope {
+                payload,
+                properties: LocalEnvelopeMessageProperties::Event(self.properties()),
+                destination: self.destination(),
+            };
+            Ok(envelope)
+        }
+    }
+
+    impl<'a, T> ToEnvelope<'a> for LocalRequest<T>
+    where
+        T: serde::Serialize,
+    {
+        fn to_envelope(&'a self) -> Result<LocalEnvelope<'a>, Error> {
+            let payload = serde_json::to_string(self.payload())?;
+            let envelope = LocalEnvelope {
+                payload,
+                properties: LocalEnvelopeMessageProperties::Request(self.properties()),
+                destination: self.destination(),
+            };
+            Ok(envelope)
+        }
+    }
+
+    impl<'a, T> ToEnvelope<'a> for LocalResponse<T>
+    where
+        T: serde::Serialize,
+    {
+        fn to_envelope(&'a self) -> Result<LocalEnvelope<'a>, Error> {
+            let payload = serde_json::to_string(self.payload())?;
+            let envelope = LocalEnvelope {
+                payload,
+                properties: LocalEnvelopeMessageProperties::Response(self.properties()),
+                destination: self.destination(),
+            };
+            Ok(envelope)
+        }
+    }
+
+    impl<'a> DestinationTopic for LocalEnvelopeMessageProperties<'a> {
+        fn destination_topic(
+            &self,
+            agent_id: &AgentId,
+            dest: &Destination,
+        ) -> Result<String, Error> {
+            match self {
+                LocalEnvelopeMessageProperties::Event(inner) => {
+                    inner.destination_topic(agent_id, dest)
+                }
+                LocalEnvelopeMessageProperties::Request(inner) => {
+                    inner.destination_topic(agent_id, dest)
+                }
+                LocalEnvelopeMessageProperties::Response(inner) => {
+                    inner.destination_topic(agent_id, dest)
+                }
+            }
+        }
+    }
+
+    impl<'a> Publishable for LocalEnvelope<'a> {
+        fn destination_topic(&self, agent_id: &AgentId) -> Result<String, Error> {
+            let dest = self.destination;
+            self.properties.destination_topic(agent_id, dest)
+        }
+
+        fn to_bytes(&self) -> Result<String, Error> {
+            Ok(serde_json::to_string(&self)?)
+        }
+    }
+
+    impl<'a, T> Publish<'a> for T
+    where
+        T: ToEnvelope<'a>,
+    {
+        fn publish(&'a self, tx: &mut Agent) -> Result<(), Error> {
+            let envelope = self.to_envelope()?;
+            tx.publish(&envelope)?;
+            Ok(())
+        }
+    }
+
+    impl<'a, T1, T2> Publish<'a> for (T1, T2)
+    where
+        T1: ToEnvelope<'a>,
+        T2: ToEnvelope<'a>,
+    {
+        fn publish(&'a self, tx: &mut Agent) -> Result<(), Error> {
+            tx.publish(&self.0.to_envelope()?)?;
+            tx.publish(&self.1.to_envelope()?)?;
+            Ok(())
+        }
     }
 
 }
