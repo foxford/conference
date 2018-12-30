@@ -1,6 +1,6 @@
 use crate::app::janus;
 use crate::backend::janus::CreateSessionRequest;
-use crate::transport::mqtt::{LocalRequest, Request};
+use crate::transport::mqtt::{IncomingRequest, OutgoingRequest};
 use crate::transport::{AgentId, Authenticable};
 use failure::Error;
 use serde_derive::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::app::model::rtc;
 
-pub(crate) type CreateRequest = Request<CreateRequestData>;
+pub(crate) type CreateRequest = IncomingRequest<CreateRequestData>;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateRequestData {
@@ -24,7 +24,7 @@ impl State {
     pub(crate) fn create(
         &self,
         input: CreateRequest,
-    ) -> Result<LocalRequest<CreateSessionRequest>, Error> {
+    ) -> Result<OutgoingRequest<CreateSessionRequest>, Error> {
         // Creating a Real-Time Connection
         let record =
             rtc::InsertQuery::new(&input.payload().room_id, &input.properties().account_id())

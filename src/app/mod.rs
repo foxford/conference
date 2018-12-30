@@ -57,9 +57,9 @@ pub(crate) fn run() {
 }
 
 fn handle_message(tx: &mut Agent, bytes: &[u8], rtc: &rtc::State) -> Result<(), Error> {
-    let envelope = serde_json::from_slice::<compat::Envelope>(bytes)?;
+    let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(bytes)?;
     match envelope.properties() {
-        compat::EnvelopeMessageProperties::Request(ref req) => match req.method() {
+        compat::IncomingEnvelopeProperties::Request(ref req) => match req.method() {
             "rtc.create" => {
                 let next = rtc.create(compat::into_request(envelope)?)?;
                 next.publish(tx)

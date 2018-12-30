@@ -4,7 +4,7 @@ use crate::backend::janus::{CreateHandleRequest, CreateSessionRequest, ErrorResp
 use crate::transport::correlation_data::{from_base64, to_base64};
 use crate::transport::mqtt::compat;
 use crate::transport::mqtt::{
-    Agent, LocalRequest, LocalRequestMessageProperties, LocalResponseMessageStatus, Publish,
+    Agent, OutgoingRequest, OutgoingRequestProperties, OutgoingResponseStatus, Publish,
 };
 use crate::transport::{AgentId, Authenticable, Destination};
 use failure::{format_err, Error};
@@ -36,11 +36,15 @@ pub(crate) fn create_session_request(
     rtc: rtc::Record,
     req: CreateRtcRequest,
     to: AgentId,
-) -> Result<LocalRequest<CreateSessionRequest>, Error> {
+) -> Result<OutgoingRequest<CreateSessionRequest>, Error> {
     let transaction = Transaction::CreateSession(CreateSessionTransaction::new(rtc, req));
     let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
-    let props = LocalRequestMessageProperties::new("janus_session.create");
-    Ok(LocalRequest::new(payload, props, Destination::Unicast(to)))
+    let props = OutgoingRequestProperties::new("janus_session.create");
+    Ok(OutgoingRequest::new(
+        payload,
+        props,
+        Destination::Unicast(to),
+    ))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -64,21 +68,25 @@ pub(crate) fn create_handle_request(
     previous: CreateSessionTransaction,
     session_id: i64,
     to: AgentId,
-) -> Result<LocalRequest<CreateHandleRequest>, Error> {
+) -> Result<OutgoingRequest<CreateHandleRequest>, Error> {
     let transaction = Transaction::CreateHandle(CreateHandleTransaction::new(previous, session_id));
     let payload = CreateHandleRequest::new(
         &to_base64(&transaction)?,
         session_id,
         "janus.plugin.conference",
     );
-    let props = LocalRequestMessageProperties::new("janus_handle.create");
-    Ok(LocalRequest::new(payload, props, Destination::Unicast(to)))
+    let props = OutgoingRequestProperties::new("janus_handle.create");
+    Ok(OutgoingRequest::new(
+        payload,
+        props,
+        Destination::Unicast(to),
+    ))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8]) -> Result<(), Error> {
-    let envelope = serde_json::from_slice::<compat::Envelope>(bytes)?;
+    let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(bytes)?;
     let message = compat::into_event::<Response>(envelope)?;
     match message.payload() {
         Response::Success(ref resp) => {
@@ -106,7 +114,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8]) -> Result<(), Error> 
                     let _ = janus_handle_shadow::InsertQuery::new(handle_id, rtc.id(), &owner_id)
                         .execute()?;
 
-                    let status = LocalResponseMessageStatus::Success;
+                    let status = OutgoingResponseStatus::Success;
                     let resp = req.to_response(rtc, status);
                     resp.publish(tx)
                 }
