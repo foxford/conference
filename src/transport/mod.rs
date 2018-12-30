@@ -142,15 +142,6 @@ impl FromStr for SharedGroup {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct AuthnMessageProperties {
-    agent_label: String,
-    account_label: String,
-    audience: String,
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Serialize)]
 pub(crate) enum Destination {
     Broadcast(BroadcastUri),
@@ -162,9 +153,18 @@ pub(crate) type BroadcastUri = String;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) trait Publishable {
-    fn destination_topic(&self, agent_id: &AgentId) -> Result<String, Error>;
-    fn to_bytes(&self) -> Result<String, Error>;
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct AuthnMessageProperties {
+    agent_label: String,
+    account_label: String,
+    audience: String,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) trait Authenticable {
+    fn account_id(&self) -> AccountId;
+    fn agent_id(&self) -> AgentId;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

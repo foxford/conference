@@ -1,5 +1,5 @@
 use crate::transport::mqtt::compat;
-use crate::transport::mqtt::{Agent, AgentBuilder, MessageProperties, Publish};
+use crate::transport::mqtt::{Agent, AgentBuilder, Publish};
 use crate::transport::AgentId;
 use failure::{format_err, Error};
 use log::{error, info};
@@ -59,10 +59,10 @@ pub(crate) fn run() {
 fn handle_message(tx: &mut Agent, bytes: &[u8], rtc: &rtc::State) -> Result<(), Error> {
     let envelope = serde_json::from_slice::<compat::Envelope>(bytes)?;
     match envelope.properties() {
-        MessageProperties::Request(ref req) => match req.method() {
+        compat::EnvelopeMessageProperties::Request(ref req) => match req.method() {
             "rtc.create" => {
-                let req = rtc.create(compat::into_message(envelope)?)?;
-                req.publish(tx)
+                let next = rtc.create(compat::into_request(envelope)?)?;
+                next.publish(tx)
             }
             _ => Err(format_err!("Unsupported request method: {:?}", envelope)),
         },
