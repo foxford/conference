@@ -201,7 +201,7 @@ where
     }
 }
 
-impl<T> IncomingMessage<T, IncomingRequestProperties> {
+impl<T> IncomingRequest<T> {
     pub(crate) fn to_response<R>(
         &self,
         data: R,

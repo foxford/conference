@@ -54,3 +54,22 @@ impl<'a> InsertQuery<'a> {
             .get_result::<Record>(&conn)
     }
 }
+
+pub(crate) struct FindQuery<'a> {
+    id: &'a Uuid,
+}
+
+impl<'a> FindQuery<'a> {
+    pub(crate) fn new(id: &'a Uuid) -> Self {
+        Self { id }
+    }
+
+    pub(crate) fn execute(&self) -> Result<Record, Error> {
+        use diesel::prelude::*;
+
+        // TODO: replace with db connection pool
+        let conn = crate::establish_connection();
+
+        rtc::table.find(self.id).get_result::<Record>(&conn)
+    }
+}
