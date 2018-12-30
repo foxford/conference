@@ -28,4 +28,4 @@ correlation_data | string | _required_ | The same value will be in a response
 
 Name       | Type   | Default    | Description
 ---------- | ------ | ---------- | ------------------
-room_id    | string | _required_ | Room where the real-time connection will be created
+id         | string | _required_ | Real-time connection identifier
