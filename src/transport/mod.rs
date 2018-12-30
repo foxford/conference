@@ -42,8 +42,8 @@ impl FromStr for AccountId {
     }
 }
 
-impl From<&AuthnMessageProperties> for AccountId {
-    fn from(authn: &AuthnMessageProperties) -> Self {
+impl From<&AuthnProperties> for AccountId {
+    fn from(authn: &AuthnProperties) -> Self {
         AccountId::new(&authn.account_label, &authn.audience)
     }
 }
@@ -96,8 +96,8 @@ impl FromStr for AgentId {
     }
 }
 
-impl From<&AuthnMessageProperties> for AgentId {
-    fn from(authn: &AuthnMessageProperties) -> Self {
+impl From<&AuthnProperties> for AgentId {
+    fn from(authn: &AuthnProperties) -> Self {
         AgentId::new(&authn.agent_label, AccountId::from(authn))
     }
 }
@@ -154,7 +154,7 @@ pub(crate) type BroadcastUri = String;
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct AuthnMessageProperties {
+pub(crate) struct AuthnProperties {
     agent_label: String,
     account_label: String,
     audience: String,
