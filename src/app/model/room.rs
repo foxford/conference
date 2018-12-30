@@ -1,6 +1,7 @@
 use crate::schema::room;
 use crate::transport::AccountId;
 use chrono::{DateTime, Utc};
+use diesel::pg::PgConnection;
 use diesel::result::Error;
 use std::collections::Bound;
 use uuid::Uuid;
@@ -40,15 +41,12 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub(crate) fn execute(&self) -> Result<Record, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
         use crate::schema::room::dsl::room;
         use diesel::RunQueryDsl;
 
-        // TODO: replace with db connection pool
-        let conn = crate::establish_connection();
-
         diesel::insert_into(room)
             .values(self)
-            .get_result::<Record>(&conn)
+            .get_result::<Record>(conn)
     }
 }

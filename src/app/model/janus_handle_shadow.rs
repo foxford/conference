@@ -1,5 +1,6 @@
 use crate::schema::janus_handle_shadow;
 use crate::transport::AgentId;
+use diesel::pg::PgConnection;
 use diesel::result::Error;
 use uuid::Uuid;
 
@@ -27,15 +28,12 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub(crate) fn execute(&self) -> Result<Record, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
         use crate::schema::janus_handle_shadow::dsl::janus_handle_shadow;
         use diesel::RunQueryDsl;
 
-        // TODO: replace with db connection pool
-        let conn = crate::establish_connection();
-
         diesel::insert_into(janus_handle_shadow)
             .values(self)
-            .get_result::<Record>(&conn)
+            .get_result::<Record>(conn)
     }
 }

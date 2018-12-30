@@ -4,6 +4,7 @@ use crate::transport::mqtt::{
     IncomingRequest, OutgoingRequest, OutgoingResponse, OutgoingResponseStatus,
 };
 use crate::transport::{AgentId, Authenticable};
+use crate::PgPool;
 use failure::Error;
 use serde_derive::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -25,8 +26,18 @@ pub(crate) struct ReadRequestData {
 }
 
 pub(crate) struct State {
-    // TODO: replace with backend agent registery, make private
-    pub(crate) backend_agent_id: AgentId,
+    db: PgPool,
+    // TODO: replace with backend agent registery
+    backend_agent_id: AgentId,
+}
+
+impl State {
+    pub(crate) fn new(db: PgPool, backend_agent_id: AgentId) -> Self {
+        Self {
+            db,
+            backend_agent_id,
+        }
+    }
 }
 
 impl State {
@@ -37,7 +48,8 @@ impl State {
         // Creating a Real-Time Connection
         let data = req.payload();
         let props = req.properties();
-        let record = rtc::InsertQuery::new(&data.room_id, &props.account_id()).execute()?;
+        let conn = self.db.get()?;
+        let record = rtc::InsertQuery::new(&data.room_id, &props.account_id()).execute(&conn)?;
 
         // TODO: reuse a Janus Session if it already exists (create only Janus Handler)
         // Building a Create Janus Session request
@@ -48,7 +60,8 @@ impl State {
     }
 
     pub(crate) fn read(&self, req: &ReadRequest) -> Result<OutgoingResponse<rtc::Record>, Error> {
-        let record = rtc::FindQuery::new(&req.payload().id).execute()?;
+        let conn = self.db.get()?;
+        let record = rtc::FindQuery::new(&req.payload().id).execute(&conn)?;
         let status = OutgoingResponseStatus::Success;
         let resp = req.to_response(record, status);
         Ok(resp)
