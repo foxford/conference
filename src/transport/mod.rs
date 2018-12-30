@@ -61,7 +61,7 @@ impl AgentId {
     pub(crate) fn new(label: &str, account_id: AccountId) -> Self {
         Self {
             label: label.to_owned(),
-            account_id: account_id,
+            account_id,
         }
     }
 

@@ -38,17 +38,14 @@ pub(crate) fn run() {
                     handle_message(&mut tx, bytes, &rtc)
                 };
 
-                match result {
-                    Err(err) => {
-                        let text = std::str::from_utf8(bytes).unwrap_or("[non-utf8 characters]");
-                        error!(
-                            "Error processing a message = {text} sent to the topic = {topic}: {detail}",
-                            text = text,
-                            topic = topic,
-                            detail = err,
-                        )
-                    }
-                    _ => (),
+                if let Err(err) = result {
+                    let text = std::str::from_utf8(bytes).unwrap_or("[non-utf8 characters]");
+                    error!(
+                        "Error processing a message = {text} sent to the topic = {topic}: {detail}",
+                        text = text,
+                        topic = topic,
+                        detail = err,
+                    )
                 }
             }
             _ => error!("An unsupported type of message = {:?}", message),
