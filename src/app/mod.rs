@@ -1,12 +1,13 @@
 use crate::transport::mqtt::compat;
 use crate::transport::mqtt::{Agent, AgentBuilder, Publish};
 use crate::transport::AgentId;
+use crate::PgPool;
 use failure::{format_err, Error};
 use log::{error, info};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn run() {
+pub(crate) fn run(db: &PgPool) {
     // Config
     let config = config::load().expect("Failed to load config");
     info!("App config: {:?}", config);
@@ -18,13 +19,19 @@ pub(crate) fn run() {
         .expect("Failed to create an agent");
 
     // TODO: Remove creating a demo room
-    self::room::create_demo_room();
+    {
+        let conn = db.get().expect("Error getting a database connection");
+        self::room::create_demo_room(&conn);
+    }
 
     // TODO: derive a backend agent id from a status message
     let backend_agent_id = AgentId::new("alpha", config.backend_id.clone());
 
     // Create Real-Time Connection resource
-    let rtc = rtc::State { backend_agent_id };
+    let rtc = rtc::State::new(db.clone(), backend_agent_id);
+
+    // Create Backend resource
+    let backend = janus::State::new(db.clone());
 
     for message in rx {
         match message {
@@ -33,7 +40,7 @@ pub(crate) fn run() {
                 let bytes = &message.payload.as_slice();
 
                 let result = if topic.starts_with(&format!("apps/{}", &config.backend_id)) {
-                    janus::handle_message(&mut tx, bytes)
+                    janus::handle_message(&mut tx, bytes, &backend)
                 } else {
                     handle_message(&mut tx, bytes, &rtc)
                 };

@@ -1,5 +1,6 @@
 use crate::schema::rtc;
 use crate::transport::AccountId;
+use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -34,24 +35,13 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-//     pub(crate) fn id(self, id: &'a Uuid) -> Self {
-//         Self {
-//             id: Some(id),
-//             room_id: self.room_id,
-//             owner_id: self.owner_id,
-//         }
-//     }
-
-    pub(crate) fn execute(&self) -> Result<Record, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
         use crate::schema::rtc::dsl::rtc;
         use diesel::RunQueryDsl;
 
-        // TODO: replace with db connection pool
-        let conn = crate::establish_connection();
-
         diesel::insert_into(rtc)
             .values(self)
-            .get_result::<Record>(&conn)
+            .get_result::<Record>(conn)
     }
 }
 
@@ -64,12 +54,9 @@ impl<'a> FindQuery<'a> {
         Self { id }
     }
 
-    pub(crate) fn execute(&self) -> Result<Record, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
         use diesel::prelude::*;
 
-        // TODO: replace with db connection pool
-        let conn = crate::establish_connection();
-
-        rtc::table.find(self.id).get_result::<Record>(&conn)
+        rtc::table.find(self.id).get_result::<Record>(conn)
     }
 }

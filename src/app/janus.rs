@@ -7,6 +7,7 @@ use crate::transport::mqtt::{
     Agent, OutgoingRequest, OutgoingRequestProperties, OutgoingResponseStatus, Publish,
 };
 use crate::transport::{AgentId, Authenticable, Destination};
+use crate::PgPool;
 use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 
@@ -85,7 +86,17 @@ pub(crate) fn create_handle_request(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8]) -> Result<(), Error> {
+pub(crate) struct State {
+    db: PgPool,
+}
+
+impl State {
+    pub(crate) fn new(db: PgPool) -> Self {
+        Self { db }
+    }
+}
+
+pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Result<(), Error> {
     let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(bytes)?;
     let message = compat::into_event::<Response>(envelope)?;
     match message.payload() {
@@ -97,9 +108,10 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8]) -> Result<(), Error> 
                     let rtc_id = tn.rtc.id();
                     let session_id = resp.data.id;
                     let location_id = message.properties().agent_id();
+                    let conn = janus.db.get()?;
                     let _ =
                         janus_session_shadow::InsertQuery::new(rtc_id, session_id, &location_id)
-                            .execute()?;
+                            .execute(&conn)?;
 
                     let req = create_handle_request(tn, session_id, location_id)?;
                     req.publish(tx)
@@ -111,8 +123,9 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8]) -> Result<(), Error> 
                     let rtc = tn.previous.rtc;
                     let req = tn.previous.req;
                     let owner_id = req.properties().agent_id();
+                    let conn = janus.db.get()?;
                     let _ = janus_handle_shadow::InsertQuery::new(handle_id, rtc.id(), &owner_id)
-                        .execute()?;
+                        .execute(&conn)?;
 
                     let status = OutgoingResponseStatus::Success;
                     let resp = req.to_response(rtc, status);
