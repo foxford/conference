@@ -8,7 +8,7 @@ use uuid::Uuid;
 pub(crate) struct Record {
     handle_id: i64,
     rtc_id: Uuid,
-    owner_id: AgentId,
+    reply_to: AgentId,
 }
 
 #[derive(Debug, Insertable)]
@@ -16,15 +16,15 @@ pub(crate) struct Record {
 pub(crate) struct InsertQuery<'a> {
     handle_id: i64,
     rtc_id: &'a Uuid,
-    owner_id: &'a AgentId,
+    reply_to: &'a AgentId,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(handle_id: i64, rtc_id: &'a Uuid, owner_id: &'a AgentId) -> Self {
+    pub(crate) fn new(handle_id: i64, rtc_id: &'a Uuid, reply_to: &'a AgentId) -> Self {
         Self {
             handle_id,
             rtc_id,
-            owner_id,
+            reply_to,
         }
     }
 

@@ -10,7 +10,7 @@ use uuid::Uuid;
 pub(crate) struct Record {
     id: Uuid,
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
-    owner_id: AccountId,
+    audience: String,
 }
 
 #[derive(Debug, Insertable)]
@@ -18,18 +18,18 @@ pub(crate) struct Record {
 pub(crate) struct InsertQuery<'a> {
     id: Option<&'a Uuid>,
     time: (Bound<&'a DateTime<Utc>>, Bound<&'a DateTime<Utc>>),
-    owner_id: &'a AccountId,
+    audience: &'a str,
 }
 
 impl<'a> InsertQuery<'a> {
     pub(crate) fn new(
         time: (Bound<&'a DateTime<Utc>>, Bound<&'a DateTime<Utc>>),
-        owner_id: &'a AccountId,
+        audience: &'a str,
     ) -> Self {
         Self {
             id: None,
             time,
-            owner_id,
+            audience,
         }
     }
 
@@ -37,7 +37,7 @@ impl<'a> InsertQuery<'a> {
         Self {
             id: Some(id),
             time: self.time,
-            owner_id: self.owner_id,
+            audience: self.audience,
         }
     }
 
