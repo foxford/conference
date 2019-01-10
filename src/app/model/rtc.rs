@@ -9,7 +9,6 @@ use uuid::Uuid;
 pub(crate) struct Record {
     id: Uuid,
     room_id: Uuid,
-    owner_id: AccountId,
 }
 
 impl Record {
@@ -23,16 +22,11 @@ impl Record {
 pub(crate) struct InsertQuery<'a> {
     id: Option<&'a Uuid>,
     room_id: &'a Uuid,
-    owner_id: &'a AccountId,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(room_id: &'a Uuid, owner_id: &'a AccountId) -> Self {
-        Self {
-            id: None,
-            room_id,
-            owner_id,
-        }
+    pub(crate) fn new(room_id: &'a Uuid) -> Self {
+        Self { id: None, room_id }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {

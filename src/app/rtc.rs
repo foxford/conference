@@ -46,17 +46,15 @@ impl State {
         req: CreateRequest,
     ) -> Result<OutgoingRequest<CreateSessionRequest>, Error> {
         // Creating a Real-Time Connection
-        let data = req.payload();
-        let props = req.properties();
         let conn = self.db.get()?;
-        let record = rtc::InsertQuery::new(&data.room_id, &props.account_id()).execute(&conn)?;
+        let record = rtc::InsertQuery::new(&req.payload().room_id).execute(&conn)?;
 
         // TODO: reuse a Janus Session if it already exists (create only Janus Handler)
         // Building a Create Janus Session request
         let to = self.backend_agent_id.clone();
-        let req = janus::create_session_request(record, req, to)?;
+        let backend_req = janus::create_session_request(record, req, to)?;
 
-        Ok(req)
+        Ok(backend_req)
     }
 
     pub(crate) fn read(&self, req: &ReadRequest) -> Result<OutgoingResponse<rtc::Record>, Error> {

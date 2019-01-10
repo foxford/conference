@@ -19,6 +19,14 @@ impl AccountId {
             audience: audience.to_owned(),
         }
     }
+
+    pub(crate) fn label(&self) -> &str {
+        &self.label
+    }
+
+    pub(crate) fn audience(&self) -> &str {
+        &self.audience
+    }
 }
 
 impl fmt::Display for AccountId {

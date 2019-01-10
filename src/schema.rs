@@ -5,7 +5,7 @@ table! {
     janus_handle_shadow (handle_id, rtc_id) {
         handle_id -> Int8,
         rtc_id -> Uuid,
-        owner_id -> Agent_id,
+        reply_to -> Agent_id,
     }
 }
 
@@ -27,7 +27,7 @@ table! {
     room (id) {
         id -> Uuid,
         time -> Tstzrange,
-        owner_id -> Account_id,
+        audience -> Text,
     }
 }
 
@@ -38,7 +38,6 @@ table! {
     rtc (id) {
         id -> Uuid,
         room_id -> Uuid,
-        owner_id -> Account_id,
     }
 }
 

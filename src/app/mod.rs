@@ -14,14 +14,14 @@ pub(crate) fn run(db: &PgPool) {
 
     // Agent
     let agent_id = AgentId::new("alpha", config.id);
-    let (mut tx, rx) = AgentBuilder::new(agent_id, config.backend_id.clone())
+    let (mut tx, rx) = AgentBuilder::new(agent_id.clone(), config.backend_id.clone())
         .start(&config.mqtt)
         .expect("Failed to create an agent");
 
     // TODO: Remove creating a demo room
     {
         let conn = db.get().expect("Error getting a database connection");
-        self::room::create_demo_room(&conn);
+        self::room::create_demo_room(&conn, agent_id.account_id().audience());
     }
 
     // TODO: derive a backend agent id from a status message
