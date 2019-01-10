@@ -15,7 +15,7 @@ pub(crate) fn create_database_pool(url: &str, size: u32) -> ConnectionPool {
 }
 
 pub mod sql {
-    pub use crate::transport::sql::{Account_id, Agent_id};
+    pub use crate::authn::sql::{Account_id, Agent_id};
 }
 
 pub(crate) mod janus_handle_shadow;

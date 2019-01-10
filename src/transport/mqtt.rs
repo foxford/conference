@@ -1,4 +1,5 @@
-use super::{AccountId, AgentId, Authenticable, AuthnProperties, Destination, SharedGroup};
+use super::{AuthnProperties, Destination, SharedGroup};
+use crate::authn::{AccountId, AgentId, Authenticable};
 use failure::{err_msg, format_err, Error};
 use rumqtt::{MqttClient, MqttOptions, QoS};
 use serde_derive::{Deserialize, Serialize};
@@ -395,7 +396,7 @@ pub mod compat {
         OutgoingRequestProperties, OutgoingResponse, OutgoingResponseProperties, Publish,
         Publishable,
     };
-    use crate::transport::AgentId;
+    use crate::authn::AgentId;
     use failure::{err_msg, format_err, Error};
     use serde_derive::{Deserialize, Serialize};
 
