@@ -1,13 +1,13 @@
+use crate::db::ConnectionPool;
 use crate::transport::mqtt::compat;
 use crate::transport::mqtt::{Agent, AgentBuilder, Publish};
 use crate::transport::AgentId;
-use crate::PgPool;
 use failure::{format_err, Error};
 use log::{error, info};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn run(db: &PgPool) {
+pub(crate) fn run(db: &ConnectionPool) {
     // Config
     let config = config::load().expect("Failed to load config");
     info!("App config: {:?}", config);
@@ -81,6 +81,5 @@ fn handle_message(tx: &mut Agent, bytes: &[u8], rtc: &rtc::State) -> Result<(), 
 
 mod config;
 mod janus;
-mod model;
 mod room;
 mod rtc;

@@ -1,6 +1,6 @@
 table! {
     use diesel::sql_types::*;
-    use crate::sql::*;
+    use crate::db::sql::*;
 
     janus_handle_shadow (handle_id, rtc_id) {
         handle_id -> Int8,
@@ -11,7 +11,7 @@ table! {
 
 table! {
     use diesel::sql_types::*;
-    use crate::sql::*;
+    use crate::db::sql::*;
 
     janus_session_shadow (rtc_id) {
         rtc_id -> Uuid,
@@ -22,7 +22,7 @@ table! {
 
 table! {
     use diesel::sql_types::*;
-    use crate::sql::*;
+    use crate::db::sql::*;
 
     room (id) {
         id -> Uuid,
@@ -33,7 +33,7 @@ table! {
 
 table! {
     use diesel::sql_types::*;
-    use crate::sql::*;
+    use crate::db::sql::*;
 
     rtc (id) {
         id -> Uuid,

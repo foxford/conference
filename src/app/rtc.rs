@@ -1,15 +1,15 @@
 use crate::app::janus;
 use crate::backend::janus::CreateSessionRequest;
+use crate::db::ConnectionPool;
 use crate::transport::mqtt::{
     IncomingRequest, OutgoingRequest, OutgoingResponse, OutgoingResponseStatus,
 };
-use crate::transport::{AgentId, Authenticable};
-use crate::PgPool;
+use crate::transport::AgentId;
 use failure::Error;
 use serde_derive::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::app::model::rtc;
+use crate::db::rtc;
 
 pub(crate) type CreateRequest = IncomingRequest<CreateRequestData>;
 
@@ -26,13 +26,13 @@ pub(crate) struct ReadRequestData {
 }
 
 pub(crate) struct State {
-    db: PgPool,
+    db: ConnectionPool,
     // TODO: replace with backend agent registery
     backend_agent_id: AgentId,
 }
 
 impl State {
-    pub(crate) fn new(db: PgPool, backend_agent_id: AgentId) -> Self {
+    pub(crate) fn new(db: ConnectionPool, backend_agent_id: AgentId) -> Self {
         Self {
             db,
             backend_agent_id,
