@@ -1,5 +1,4 @@
 use crate::schema::room;
-use crate::transport::AccountId;
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;

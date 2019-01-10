@@ -1,5 +1,4 @@
-use crate::app::model::room;
-use crate::transport::AccountId;
+use crate::db::room;
 use diesel::pg::PgConnection;
 use std::collections::Bound;
 use uuid::Uuid;

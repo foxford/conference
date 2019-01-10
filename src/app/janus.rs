@@ -1,13 +1,12 @@
-use crate::app::model::{janus_handle_shadow, janus_session_shadow, rtc};
 use crate::app::rtc::CreateRequest as CreateRtcRequest;
 use crate::backend::janus::{CreateHandleRequest, CreateSessionRequest, ErrorResponse, Response};
+use crate::db::{janus_handle_shadow, janus_session_shadow, rtc, ConnectionPool};
 use crate::transport::correlation_data::{from_base64, to_base64};
 use crate::transport::mqtt::compat;
 use crate::transport::mqtt::{
     Agent, OutgoingRequest, OutgoingRequestProperties, OutgoingResponseStatus, Publish,
 };
 use crate::transport::{AgentId, Authenticable, Destination};
-use crate::PgPool;
 use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 
@@ -87,11 +86,11 @@ pub(crate) fn create_handle_request(
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct State {
-    db: PgPool,
+    db: ConnectionPool,
 }
 
 impl State {
-    pub(crate) fn new(db: PgPool) -> Self {
+    pub(crate) fn new(db: ConnectionPool) -> Self {
         Self { db }
     }
 }

@@ -20,10 +20,6 @@ impl AccountId {
         }
     }
 
-    pub(crate) fn label(&self) -> &str {
-        &self.label
-    }
-
     pub(crate) fn audience(&self) -> &str {
         &self.audience
     }

@@ -1,5 +1,4 @@
 use crate::schema::rtc;
-use crate::transport::AccountId;
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
