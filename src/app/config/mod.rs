@@ -1,5 +1,5 @@
+use crate::authn::AccountId;
 use crate::transport::mqtt::AgentOptions;
-use crate::transport::AccountId;
 use config;
 use serde_derive::Deserialize;
 

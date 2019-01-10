@@ -1,10 +1,10 @@
 use crate::app::janus;
+use crate::authn::AgentId;
 use crate::backend::janus::CreateSessionRequest;
 use crate::db::ConnectionPool;
 use crate::transport::mqtt::{
     IncomingRequest, OutgoingRequest, OutgoingResponse, OutgoingResponseStatus,
 };
-use crate::transport::AgentId;
 use failure::Error;
 use serde_derive::{Deserialize, Serialize};
 use uuid::Uuid;

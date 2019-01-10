@@ -1,4 +1,5 @@
 use crate::app::rtc::CreateRequest as CreateRtcRequest;
+use crate::authn::{AgentId, Authenticable};
 use crate::backend::janus::{CreateHandleRequest, CreateSessionRequest, ErrorResponse, Response};
 use crate::db::{janus_handle_shadow, janus_session_shadow, rtc, ConnectionPool};
 use crate::transport::correlation_data::{from_base64, to_base64};
@@ -6,7 +7,7 @@ use crate::transport::mqtt::compat;
 use crate::transport::mqtt::{
     Agent, OutgoingRequest, OutgoingRequestProperties, OutgoingResponseStatus, Publish,
 };
-use crate::transport::{AgentId, Authenticable, Destination};
+use crate::transport::Destination;
 use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 

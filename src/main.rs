@@ -22,6 +22,7 @@ fn main() {
 }
 
 mod app;
+mod authn;
 mod backend;
 mod db;
 mod schema;
