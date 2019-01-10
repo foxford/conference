@@ -41,7 +41,7 @@ RUN set -xe \
 ## -----------------------------------------------------------------------------
 ## Installing Janus Gateway
 ## -----------------------------------------------------------------------------
-ARG JANUS_GATEWAY_COMMIT='e31a116e14b4a3c98eaf3f346fcbb249396188f4'
+ARG JANUS_GATEWAY_COMMIT='314e878a80fef84089173f5874d24d28a0154020'
 
 RUN set -xe \
     && JANUS_GATEWAY_BUILD_DIR=$(mktemp -d) \
@@ -64,7 +64,7 @@ RUN set -xe \
     && JANUS_CONF='/opt/janus/etc/janus/janus.jcfg' \
     && perl -pi -e 's/\t#(session_timeout = ).*/\t${1}0/' "${JANUS_CONF}" \
     && JANUS_MQTT_TRANSPORT_CONF='/opt/janus/etc/janus/janus.transport.mqtt.jcfg' \
-    && perl -pi -e 's/\t(enable = ).*/\t${1}true/' "${JANUS_MQTT_TRANSPORT_CONF}" \
+    && perl -pi -e 's/\t(enabled = ).*/\t${1}true/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t(json = ).*/\t${1}\"plain\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t#(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/agents\/alpha.janus-gateway.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t(subscribe_topic = ).*/\t${1}\"agents\/alpha.janus-gateway.example.org\/api\/v1\/in\/conference.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
