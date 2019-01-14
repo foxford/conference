@@ -7,6 +7,7 @@ create table janus_handle_shadow (
     check((reply_to).label is not null),
     check(((reply_to).account_id).label is not null),
     check(((reply_to).account_id).audience is not null),
+    unique(rtc_id, reply_to),
     foreign key (rtc_id) references rtc (id) on delete cascade,
     primary key (handle_id, rtc_id)
 )
