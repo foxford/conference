@@ -95,6 +95,7 @@ impl FromStr for AgentId {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
 pub(crate) trait Authenticable {
     fn account_id(&self) -> AccountId;
     fn agent_id(&self) -> AgentId;
@@ -113,7 +114,7 @@ pub mod sql {
     use diesel::sql_types::{Record, Text};
     use std::io::Write;
 
-    #[derive(SqlType)]
+    #[derive(SqlType, QueryId)]
     #[postgres(type_name = "account_id")]
     #[allow(non_camel_case_types)]
     pub struct Account_id;
@@ -132,7 +133,7 @@ pub mod sql {
         }
     }
 
-    #[derive(SqlType)]
+    #[derive(SqlType, QueryId)]
     #[postgres(type_name = "agent_id")]
     #[allow(non_camel_case_types)]
     pub struct Agent_id;
