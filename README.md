@@ -6,7 +6,7 @@ A WebRTC based conference media server.
 
 
 
-### License
+## License
 
 The source code is provided under the terms of [the MIT license][license].
 
