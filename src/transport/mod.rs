@@ -55,7 +55,7 @@ pub(crate) type BroadcastUri = String;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct AuthnProperties {
     agent_label: String,
     account_label: String,
