@@ -1,10 +1,12 @@
-use crate::schema::rtc;
+use crate::schema::{room, rtc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize, Queryable)]
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[belongs_to(room::Record, foreign_key = "room_id")]
+#[table_name = "rtc"]
 pub(crate) struct Record {
     id: Uuid,
     room_id: Uuid,
@@ -32,9 +34,7 @@ impl<'a> InsertQuery<'a> {
         use crate::schema::rtc::dsl::rtc;
         use diesel::RunQueryDsl;
 
-        diesel::insert_into(rtc)
-            .values(self)
-            .get_result::<Record>(conn)
+        diesel::insert_into(rtc).values(self).get_result(conn)
     }
 }
 
@@ -50,6 +50,6 @@ impl<'a> FindQuery<'a> {
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
         use diesel::prelude::*;
 
-        rtc::table.find(self.id).get_result::<Record>(conn)
+        rtc::table.find(self.id).get_result(conn)
     }
 }
