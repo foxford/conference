@@ -5,7 +5,8 @@ use diesel::result::Error;
 use std::collections::Bound;
 use uuid::Uuid;
 
-#[derive(Debug, Queryable)]
+#[derive(Debug, Identifiable, Queryable)]
+#[table_name = "room"]
 pub(crate) struct Record {
     id: Uuid,
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
@@ -44,8 +45,6 @@ impl<'a> InsertQuery<'a> {
         use crate::schema::room::dsl::room;
         use diesel::RunQueryDsl;
 
-        diesel::insert_into(room)
-            .values(self)
-            .get_result::<Record>(conn)
+        diesel::insert_into(room).values(self).get_result(conn)
     }
 }
