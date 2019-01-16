@@ -1,15 +1,20 @@
-use crate::app::rtc::CreateRequest as CreateRtcRequest;
 use crate::authn::{AgentId, Authenticable};
-use crate::backend::janus::{CreateHandleRequest, CreateSessionRequest, ErrorResponse, Response};
+use crate::backend::janus::{
+    CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
+    TrickleRequest,
+};
 use crate::db::{janus_handle_shadow, janus_session_shadow, rtc, ConnectionPool};
 use crate::transport::correlation_data::{from_base64, to_base64};
-use crate::transport::mqtt::compat;
+use crate::transport::mqtt::compat::{into_event, IncomingEnvelope, IntoEnvelope};
 use crate::transport::mqtt::{
-    Agent, OutgoingRequest, OutgoingRequestProperties, OutgoingResponseStatus, Publish,
+    Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties,
+    OutgoingResponseStatus, Publish,
 };
 use crate::transport::Destination;
 use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
+use uuid::Uuid;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -17,28 +22,30 @@ use serde_derive::{Deserialize, Serialize};
 pub(crate) enum Transaction {
     CreateSession(CreateSessionTransaction),
     CreateHandle(CreateHandleTransaction),
+    CreateStream(CreateStreamTransaction),
+    CreateTrickle(CreateTrickleTransaction),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateSessionTransaction {
+    reqp: IncomingRequestProperties,
     rtc: rtc::Record,
-    req: CreateRtcRequest,
 }
 
 impl CreateSessionTransaction {
-    pub(crate) fn new(rtc: rtc::Record, req: CreateRtcRequest) -> Self {
-        Self { rtc, req }
+    pub(crate) fn new(reqp: IncomingRequestProperties, rtc: rtc::Record) -> Self {
+        Self { reqp, rtc }
     }
 }
 
 pub(crate) fn create_session_request(
+    reqp: IncomingRequestProperties,
     rtc: rtc::Record,
-    req: CreateRtcRequest,
     to: AgentId,
 ) -> Result<OutgoingRequest<CreateSessionRequest>, Error> {
-    let transaction = Transaction::CreateSession(CreateSessionTransaction::new(rtc, req));
+    let transaction = Transaction::CreateSession(CreateSessionTransaction::new(reqp, rtc));
     let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
     let props = OutgoingRequestProperties::new("janus_session.create");
     Ok(OutgoingRequest::new(
@@ -86,6 +93,89 @@ pub(crate) fn create_handle_request(
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct CreateStreamTransaction {
+    reqp: IncomingRequestProperties,
+}
+
+impl CreateStreamTransaction {
+    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
+        Self { reqp }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct CreateStreamRequestBody {
+    method: &'static str,
+    id: Uuid,
+}
+
+impl CreateStreamRequestBody {
+    pub(crate) fn new(id: Uuid) -> Self {
+        Self {
+            method: "stream.create",
+            id,
+        }
+    }
+}
+
+pub(crate) fn create_stream_request(
+    reqp: IncomingRequestProperties,
+    session_id: i64,
+    handle_id: i64,
+    rtc_id: Uuid,
+    jsep: JsonValue,
+    to: AgentId,
+) -> Result<OutgoingRequest<MessageRequest>, Error> {
+    let transaction = Transaction::CreateStream(CreateStreamTransaction::new(reqp));
+    let body = CreateStreamRequestBody::new(rtc_id);
+    let payload = MessageRequest::new(
+        &to_base64(&transaction)?,
+        session_id,
+        handle_id,
+        serde_json::to_value(&body)?,
+        Some(jsep),
+    );
+    let props = OutgoingRequestProperties::new("janus_conference_stream.create");
+    Ok(OutgoingRequest::new(
+        payload,
+        props,
+        Destination::Unicast(to),
+    ))
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct CreateTrickleTransaction {
+    reqp: IncomingRequestProperties,
+}
+
+impl CreateTrickleTransaction {
+    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
+        Self { reqp }
+    }
+}
+
+pub(crate) fn create_trickle_request(
+    reqp: IncomingRequestProperties,
+    session_id: i64,
+    handle_id: i64,
+    jsep: JsonValue,
+    to: AgentId,
+) -> Result<OutgoingRequest<TrickleRequest>, Error> {
+    let transaction = Transaction::CreateTrickle(CreateTrickleTransaction::new(reqp));
+    let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
+    let props = OutgoingRequestProperties::new("janus_trickle.create");
+    Ok(OutgoingRequest::new(
+        payload,
+        props,
+        Destination::Unicast(to),
+    ))
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 pub(crate) struct State {
     db: ConnectionPool,
 }
@@ -97,16 +187,16 @@ impl State {
 }
 
 pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Result<(), Error> {
-    let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(bytes)?;
-    let message = compat::into_event::<Response>(envelope)?;
+    let envelope = serde_json::from_slice::<IncomingEnvelope>(bytes)?;
+    let message = into_event::<IncomingMessage>(envelope)?;
     match message.payload() {
-        Response::Success(ref resp) => {
-            match from_base64::<Transaction>(&resp.transaction)? {
-                // Session created
+        IncomingMessage::Success(ref inresp) => {
+            match from_base64::<Transaction>(&inresp.transaction())? {
+                // Session has been created
                 Transaction::CreateSession(tn) => {
                     // Creating a shadow of Janus Session
                     let rtc_id = tn.rtc.id();
-                    let session_id = resp.data.id;
+                    let session_id = inresp.data().id();
                     let location_id = message.properties().agent_id();
                     let conn = janus.db.get()?;
                     let _ =
@@ -114,31 +204,80 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                             .execute(&conn)?;
 
                     let req = create_handle_request(tn, session_id, location_id)?;
-                    req.publish(tx)
+                    req.into_envelope()?.publish(tx)
                 }
-                // Handle created
+                // Handle has been created
                 Transaction::CreateHandle(tn) => {
                     // Creating a shadow of Janus Session
-                    let handle_id = resp.data.id;
+                    let handle_id = inresp.data().id();
                     let rtc = tn.previous.rtc;
-                    let req = tn.previous.req;
-                    let owner_id = req.properties().agent_id();
+                    let reqp = tn.previous.reqp;
+                    let owner_id = reqp.agent_id();
                     let conn = janus.db.get()?;
                     let _ = janus_handle_shadow::InsertQuery::new(handle_id, rtc.id(), &owner_id)
                         .execute(&conn)?;
 
-                    let status = OutgoingResponseStatus::Success;
-                    let resp = req.to_response(rtc, status);
-                    resp.publish(tx)
+                    let resp = crate::app::rtc::CreateResponse::new(
+                        rtc,
+                        reqp.to_response(&OutgoingResponseStatus::Success),
+                        Destination::Unicast(reqp.agent_id()),
+                    );
+
+                    resp.into_envelope()?.publish(tx)
                 }
+                // An unsupported incoming Success message has been received
+                _ => Err(format_err!("on-success: {:?}", inresp)),
             }
         }
-        Response::Error(ErrorResponse::Session(ref resp)) => {
-            Err(format_err!("on-session-error: {:?}", resp))
+        IncomingMessage::Ack(ref inresp) => {
+            match from_base64::<Transaction>(&inresp.transaction())? {
+                // Conference Stream is being created
+                Transaction::CreateStream(_tn) => Err(format_err!("on-ack-stream: {:?}", inresp)),
+                // Trickle message has been received by Janus Gateway
+                Transaction::CreateTrickle(tn) => {
+                    let reqp = tn.reqp;
+                    let resp = crate::app::signal::CreateResponse::new(
+                        crate::app::signal::CreateResponseData::new(None),
+                        reqp.to_response(&OutgoingResponseStatus::Success),
+                        Destination::Unicast(reqp.agent_id()),
+                    );
+
+                    resp.into_envelope()?.publish(tx)
+                }
+                // An unsupported incoming Ack message has been received
+                _ => Err(format_err!("on-ack: {:?}", inresp)),
+            }
         }
-        Response::Error(ErrorResponse::Handle(ref resp)) => {
-            Err(format_err!("on-handle-error: {:?}", resp))
+        IncomingMessage::Event(ref inresp) => {
+            match from_base64::<Transaction>(&inresp.transaction())? {
+                // Conference Stream has been created
+                Transaction::CreateStream(tn) => {
+                    let reqp = tn.reqp;
+                    let jsep = inresp.jsep().ok_or_else(|| {
+                        format_err!("missing jsep in a response on {}", reqp.method())
+                    })?;
+                    let resp = crate::app::signal::CreateResponse::new(
+                        crate::app::signal::CreateResponseData::new(Some(jsep.clone())),
+                        reqp.to_response(&OutgoingResponseStatus::Success),
+                        Destination::Unicast(reqp.agent_id()),
+                    );
+
+                    resp.into_envelope()?.publish(tx)
+                }
+                // An unsupported incoming Event message has been received
+                _ => Err(format_err!("on-event: {:?}", inresp)),
+            }
         }
-        Response::Timeout(ref event) => Err(format_err!("on-timeout-event: {:?}", event)),
+        IncomingMessage::Error(ErrorResponse::Session(ref inresp)) => {
+            Err(format_err!("on-session-error: {:?}", inresp))
+        }
+        IncomingMessage::Error(ErrorResponse::Handle(ref inresp)) => {
+            Err(format_err!("on-handle-error: {:?}", inresp))
+        }
+        IncomingMessage::Timeout(ref inev) => Err(format_err!("on-timeout-event: {:?}", inev)),
+        IncomingMessage::WebRtcUp(ref inev) => Err(format_err!("on-webrtc-up: {:?}", inev)),
+        IncomingMessage::Media(ref inev) => Err(format_err!("on-media: {:?}", inev)),
+        IncomingMessage::HangUp(ref inev) => Err(format_err!("on-hangup-event: {:?}", inev)),
+        IncomingMessage::SlowLink(ref inev) => Err(format_err!("on-slowlink-event: {:?}", inev)),
     }
 }
