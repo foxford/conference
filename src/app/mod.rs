@@ -30,6 +30,9 @@ pub(crate) fn run(db: &ConnectionPool) {
     // Create Real-Time Connection resource
     let rtc = rtc::State::new(db.clone(), backend_agent_id);
 
+    // Create Signal resource
+    let signal = signal::State::new(db.clone());
+
     // Create Backend resource
     let backend = janus::State::new(db.clone());
 
@@ -39,10 +42,16 @@ pub(crate) fn run(db: &ConnectionPool) {
                 let topic = &message.topic_name;
                 let bytes = &message.payload.as_slice();
 
+                {
+                    // Log incoming messages
+                    let text = std::str::from_utf8(bytes).unwrap_or("[non-utf8 characters]");
+                    info!("Incoming message = {} sent to the topic = {}", text, topic)
+                }
+
                 let result = if topic.starts_with(&format!("apps/{}", &config.backend_id)) {
                     janus::handle_message(&mut tx, bytes, &backend)
                 } else {
-                    handle_message(&mut tx, bytes, &rtc)
+                    handle_message(&mut tx, bytes, &rtc, &signal)
                 };
 
                 if let Err(err) = result {
@@ -60,17 +69,31 @@ pub(crate) fn run(db: &ConnectionPool) {
     }
 }
 
-fn handle_message(tx: &mut Agent, bytes: &[u8], rtc: &rtc::State) -> Result<(), Error> {
+fn handle_message(
+    tx: &mut Agent,
+    bytes: &[u8],
+    rtc: &rtc::State,
+    signal: &signal::State,
+) -> Result<(), Error> {
     let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(bytes)?;
     match envelope.properties() {
         compat::IncomingEnvelopeProperties::Request(ref req) => match req.method() {
             "rtc.create" => {
-                let next = rtc.create(compat::into_request(envelope)?)?;
+                // TODO: catch and process errors: unprocessable entry
+                let req = compat::into_request(envelope)?;
+                let next = rtc.create(&req)?;
                 next.publish(tx)
             }
             "rtc.read" => {
+                // TODO: catch and process errors: not found, unprocessable entry
                 let req = compat::into_request(envelope)?;
                 let next = rtc.read(&req)?;
+                next.publish(tx)
+            }
+            "signal.create" => {
+                // TODO: catch and process errors: unprocessable entry
+                let req = compat::into_request(envelope)?;
+                let next = signal.create(&req)?;
                 next.publish(tx)
             }
             _ => Err(format_err!("Unsupported request method: {:?}", envelope)),
@@ -83,3 +106,4 @@ mod config;
 mod janus;
 mod room;
 mod rtc;
+mod signal;
