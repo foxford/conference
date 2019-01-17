@@ -18,10 +18,6 @@ pub(crate) struct CreateRequestData {
     room_id: Uuid,
 }
 
-pub(crate) type CreateResponse = OutgoingResponse<rtc::Record>;
-
-////////////////////////////////////////////////////////////////////////////////
-
 pub(crate) type ReadRequest = IncomingRequest<ReadRequestData>;
 
 #[derive(Debug, Deserialize)]
@@ -29,7 +25,7 @@ pub(crate) struct ReadRequestData {
     id: Uuid,
 }
 
-pub(crate) type ReadResponse = OutgoingResponse<rtc::Record>;
+pub(crate) type RecordResponse = OutgoingResponse<rtc::Record>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -56,7 +52,8 @@ impl State {
 
         // Building a Create Janus Session request
         let to = self.backend_agent_id.clone();
-        let backreq = janus::create_session_request(inreq.properties().clone(), record, to)?;
+        let backreq =
+            janus::create_session_request(inreq.properties().clone(), record.id().clone(), to)?;
 
         backreq.into_envelope()
     }
@@ -64,10 +61,7 @@ impl State {
     pub(crate) fn read(&self, inreq: &ReadRequest) -> Result<impl Publishable, Error> {
         let conn = self.db.get()?;
         let record = rtc::FindQuery::new(&inreq.payload().id).execute(&conn)?;
-
-        let resp: ReadResponse = inreq.to_response(record, &OutgoingResponseStatus::Success);
-
-        let backreq = janus::create_handle_request(tn, session_id, location_id)?;
+        let resp: RecordResponse = inreq.to_response(record, &OutgoingResponseStatus::Success);
 
         resp.into_envelope()
     }

@@ -31,21 +31,21 @@ pub(crate) enum Transaction {
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateSessionTransaction {
     reqp: IncomingRequestProperties,
-    rtc: rtc::Record,
+    rtc_id: Uuid,
 }
 
 impl CreateSessionTransaction {
-    pub(crate) fn new(reqp: IncomingRequestProperties, rtc: rtc::Record) -> Self {
-        Self { reqp, rtc }
+    pub(crate) fn new(reqp: IncomingRequestProperties, rtc_id: Uuid) -> Self {
+        Self { reqp, rtc_id }
     }
 }
 
 pub(crate) fn create_session_request(
     reqp: IncomingRequestProperties,
-    rtc: rtc::Record,
+    rtc_id: Uuid,
     to: AgentId,
 ) -> Result<OutgoingRequest<CreateSessionRequest>, Error> {
-    let transaction = Transaction::CreateSession(CreateSessionTransaction::new(reqp, rtc));
+    let transaction = Transaction::CreateSession(CreateSessionTransaction::new(reqp, rtc_id));
     let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
     let props = OutgoingRequestProperties::new("janus_session.create");
     Ok(OutgoingRequest::new(
@@ -59,25 +59,29 @@ pub(crate) fn create_session_request(
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateHandleTransaction {
-    previous: CreateSessionTransaction,
+    reqp: IncomingRequestProperties,
+    rtc_id: Uuid,
     session_id: i64,
 }
 
 impl CreateHandleTransaction {
-    pub(crate) fn new(previous: CreateSessionTransaction, session_id: i64) -> Self {
+    pub(crate) fn new(reqp: IncomingRequestProperties, rtc_id: Uuid, session_id: i64) -> Self {
         Self {
-            previous,
+            reqp,
+            rtc_id,
             session_id,
         }
     }
 }
 
 pub(crate) fn create_handle_request(
-    previous: CreateSessionTransaction,
+    reqp: IncomingRequestProperties,
+    rtc_id: Uuid,
     session_id: i64,
     to: AgentId,
 ) -> Result<OutgoingRequest<CreateHandleRequest>, Error> {
-    let transaction = Transaction::CreateHandle(CreateHandleTransaction::new(previous, session_id));
+    let transaction =
+        Transaction::CreateHandle(CreateHandleTransaction::new(reqp, rtc_id, session_id));
     let payload = CreateHandleRequest::new(
         &to_base64(&transaction)?,
         session_id,
@@ -195,30 +199,34 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                 // Session has been created
                 Transaction::CreateSession(tn) => {
                     // Creating a shadow of Janus Session
-                    let rtc_id = tn.rtc.id();
                     let session_id = inresp.data().id();
                     let location_id = message.properties().agent_id();
                     let conn = janus.db.get()?;
-                    let _ =
-                        janus_session_shadow::InsertQuery::new(rtc_id, session_id, &location_id)
-                            .execute(&conn)?;
+                    let _ = janus_session_shadow::InsertQuery::new(
+                        &tn.rtc_id,
+                        session_id,
+                        &location_id,
+                    )
+                    .execute(&conn)?;
 
-                    let req = create_handle_request(tn, session_id, location_id)?;
+                    let req = create_handle_request(tn.reqp, tn.rtc_id, session_id, location_id)?;
                     req.into_envelope()?.publish(tx)
                 }
                 // Handle has been created
                 Transaction::CreateHandle(tn) => {
+                    let reqp = tn.reqp;
+                    let rtc_id = tn.rtc_id;
+                    let id = inresp.data().id();
+
                     // Creating a shadow of Janus Session
-                    let handle_id = inresp.data().id();
-                    let rtc = tn.previous.rtc;
-                    let reqp = tn.previous.reqp;
-                    let owner_id = reqp.agent_id();
                     let conn = janus.db.get()?;
-                    let _ = janus_handle_shadow::InsertQuery::new(handle_id, rtc.id(), &owner_id)
+                    let _ = janus_handle_shadow::InsertQuery::new(id, &rtc_id, &reqp.agent_id())
                         .execute(&conn)?;
 
-                    let resp = crate::app::rtc::CreateResponse::new(
-                        rtc,
+                    // Returning Real-Time connection
+                    let record = rtc::FindQuery::new(&rtc_id).execute(&conn)?;
+                    let resp = crate::app::rtc::RecordResponse::new(
+                        record,
                         reqp.to_response(&OutgoingResponseStatus::Success),
                         Destination::Unicast(reqp.agent_id()),
                     );
