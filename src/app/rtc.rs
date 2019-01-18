@@ -71,7 +71,7 @@ impl State {
             Ok(_) => {
                 // Returning Real-Time connection
                 let record = rtc::FindQuery::new(&id).execute(&conn)?;
-                let resp = inreq.to_response(record, &OutgoingResponseStatus::Success);
+                let resp = inreq.to_response(record, &OutgoingResponseStatus::OK);
                 resp.into_envelope()
             }
             Err(_) => {

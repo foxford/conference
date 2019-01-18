@@ -244,6 +244,7 @@ impl OutgoingRequestProperties {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct OutgoingResponseProperties {
+    #[serde(with = "crate::serde::HttpStatusCodeRef")]
     status: &'static OutgoingResponseStatus,
     correlation_data: String,
     #[serde(skip)]
@@ -264,11 +265,7 @@ impl OutgoingResponseProperties {
     }
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum OutgoingResponseStatus {
-    Success,
-}
+pub(crate) type OutgoingResponseStatus = http::StatusCode;
 
 ////////////////////////////////////////////////////////////////////////////////
 

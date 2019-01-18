@@ -227,7 +227,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     let record = rtc::FindQuery::new(&rtc_id).execute(&conn)?;
                     let resp = crate::app::rtc::RecordResponse::new(
                         record,
-                        reqp.to_response(&OutgoingResponseStatus::Success),
+                        reqp.to_response(&OutgoingResponseStatus::OK),
                         Destination::Unicast(reqp.agent_id()),
                     );
 
@@ -246,7 +246,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     let reqp = tn.reqp;
                     let resp = crate::app::signal::CreateResponse::new(
                         crate::app::signal::CreateResponseData::new(None),
-                        reqp.to_response(&OutgoingResponseStatus::Success),
+                        reqp.to_response(&OutgoingResponseStatus::OK),
                         Destination::Unicast(reqp.agent_id()),
                     );
 
@@ -266,7 +266,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     })?;
                     let resp = crate::app::signal::CreateResponse::new(
                         crate::app::signal::CreateResponseData::new(Some(jsep.clone())),
-                        reqp.to_response(&OutgoingResponseStatus::Success),
+                        reqp.to_response(&OutgoingResponseStatus::OK),
                         Destination::Unicast(reqp.agent_id()),
                     );
 
