@@ -1,6 +1,6 @@
 use crate::app::janus;
-use crate::authn::AgentId;
-use crate::db::{rtc, ConnectionPool};
+use crate::authn::{AgentId, Authenticable};
+use crate::db::{janus_handle_shadow, janus_session_shadow, rtc, ConnectionPool};
 use crate::transport::mqtt::compat::IntoEnvelope;
 use crate::transport::mqtt::{
     IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable,
@@ -59,10 +59,35 @@ impl State {
     }
 
     pub(crate) fn read(&self, inreq: &ReadRequest) -> Result<impl Publishable, Error> {
-        let conn = self.db.get()?;
-        let record = rtc::FindQuery::new(&inreq.payload().id).execute(&conn)?;
-        let resp: RecordResponse = inreq.to_response(record, &OutgoingResponseStatus::Success);
+        let id = inreq.payload().id;
 
-        resp.into_envelope()
+        // Looking up for Janus Handle
+        let conn = self.db.get()?;
+        let maybe_location =
+            janus_handle_shadow::FindLocationQuery::new(&inreq.properties().agent_id(), &id)
+                .execute(&conn);
+
+        match maybe_location {
+            Ok(_) => {
+                // Returning Real-Time connection
+                let record = rtc::FindQuery::new(&id).execute(&conn)?;
+                let resp = inreq.to_response(record, &OutgoingResponseStatus::Success);
+                resp.into_envelope()
+            }
+            Err(_) => {
+                // Looking up for Janus Gateway Session
+                let session = janus_session_shadow::FindQuery::new(&id).execute(&conn)?;
+
+                // Building a Create Janus Handle request
+                let backreq = janus::create_handle_request(
+                    inreq.properties().clone(),
+                    id,
+                    session.session_id(),
+                    session.location_id().clone(),
+                )?;
+
+                backreq.into_envelope()
+            }
+        }
     }
 }
