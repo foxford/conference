@@ -14,6 +14,16 @@ pub(crate) struct Record {
     location_id: AgentId,
 }
 
+impl Record {
+    pub(crate) fn session_id(&self) -> i64 {
+        self.session_id
+    }
+
+    pub(crate) fn location_id(&self) -> &AgentId {
+        &self.location_id
+    }
+}
+
 #[derive(Debug, Insertable)]
 #[table_name = "janus_session_shadow"]
 pub(crate) struct InsertQuery<'a> {
@@ -37,6 +47,24 @@ impl<'a> InsertQuery<'a> {
 
         diesel::insert_into(janus_session_shadow)
             .values(self)
+            .get_result(conn)
+    }
+}
+
+pub(crate) struct FindQuery<'a> {
+    rtc_id: &'a Uuid,
+}
+
+impl<'a> FindQuery<'a> {
+    pub(crate) fn new(rtc_id: &'a Uuid) -> Self {
+        Self { rtc_id }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
+        use diesel::prelude::*;
+
+        janus_session_shadow::table
+            .filter(janus_session_shadow::rtc_id.eq(self.rtc_id))
             .get_result(conn)
     }
 }
