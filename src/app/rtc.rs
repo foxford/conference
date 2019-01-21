@@ -78,7 +78,7 @@ impl State {
                 // Looking up for Janus Gateway Session
                 let session = janus_session_shadow::FindQuery::new(&id).execute(&conn)?;
 
-                // Building a Create Janus Handle request
+                // Building a Create Janus Gateway Handle request
                 let backreq = janus::create_handle_request(
                     inreq.properties().clone(),
                     id,

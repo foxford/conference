@@ -2,7 +2,10 @@ use crate::schema::{room, rtc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use uuid::Uuid;
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
 #[belongs_to(room::Record, foreign_key = "room_id")]
@@ -10,6 +13,8 @@ use uuid::Uuid;
 pub(crate) struct Record {
     id: Uuid,
     room_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jsep: Option<JsonValue>,
 }
 
 impl Record {
@@ -17,6 +22,36 @@ impl Record {
         &self.id
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, AsChangeset)]
+#[table_name = "rtc"]
+pub(crate) struct UpdateQuery<'a> {
+    id: &'a Uuid,
+    jsep: Option<&'a JsonValue>,
+}
+
+impl<'a> UpdateQuery<'a> {
+    pub(crate) fn new(id: &'a Uuid) -> Self {
+        Self { id, jsep: None }
+    }
+
+    pub(crate) fn jsep(self, jsep: &'a JsonValue) -> Self {
+        Self {
+            id: self.id,
+            jsep: Some(jsep),
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
+        use diesel::prelude::*;
+
+        diesel::update(rtc::table).set(self).get_result(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Insertable)]
 #[table_name = "rtc"]
@@ -37,6 +72,8 @@ impl<'a> InsertQuery<'a> {
         diesel::insert_into(rtc).values(self).get_result(conn)
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct FindQuery<'a> {
     id: &'a Uuid,

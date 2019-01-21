@@ -4,6 +4,8 @@ use diesel::pg::PgConnection;
 use diesel::result::Error;
 use uuid::Uuid;
 
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Identifiable, Queryable, Associations)]
 #[belongs_to(rtc::Record, foreign_key = "rtc_id")]
 #[primary_key(handle_id, rtc_id)]
@@ -13,6 +15,8 @@ pub(crate) struct Record {
     rtc_id: Uuid,
     reply_to: AgentId,
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Insertable)]
 #[table_name = "janus_handle_shadow"]
@@ -37,9 +41,11 @@ impl<'a> InsertQuery<'a> {
 
         diesel::insert_into(janus_handle_shadow)
             .values(self)
-            .get_result::<Record>(conn)
+            .get_result(conn)
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Queryable)]
 pub(crate) struct LocationRecord {
@@ -62,6 +68,9 @@ impl LocationRecord {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
 pub(crate) struct FindLocationQuery<'a> {
     reply_to: &'a AgentId,
     rtc_id: &'a Uuid,
