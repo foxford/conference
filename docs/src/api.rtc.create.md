@@ -29,3 +29,13 @@ correlation_data | string | _required_ | The same value will be in a response
 Name              | Type   | Default    | Description
 ----------------- | ------ | ---------- | ------------------
 room_id           | string | _required_ | Room where the real-time connection will be created
+
+**Response**
+
+Name              | Type   | Default    | Description
+----------------- | ------ | ---------- | ------------------
+jsep              | object | _optional_ | Returned only on offer requests and contains answer.
+
+**Response**
+
+If successful, the response payload contains an instance of **Real-Time Connection**.
