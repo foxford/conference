@@ -29,3 +29,7 @@ correlation_data | string | _required_ | The same value will be in a response
 Name       | Type   | Default    | Description
 ---------- | ------ | ---------- | ------------------
 id         | string | _required_ | Real-time connection identifier
+
+**Response**
+
+If successful, the response payload contains an instance of **Real-Time Connection**.
