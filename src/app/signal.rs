@@ -46,19 +46,18 @@ impl State {
 
 impl State {
     pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
+        let rtc_id = &inreq.payload().rtc_id;
         let jsep = &inreq.payload().jsep;
         let sdp_type = parse_sdp_type(jsep)?;
+
+        let conn = self.db.get()?;
+        let record =
+            janus_handle_shadow::FindLocationQuery::new(&inreq.properties().agent_id(), rtc_id)
+                .execute(&conn)?;
+
         match sdp_type {
             SdpType::Offer => {
                 let rtc_id = &inreq.payload().rtc_id;
-
-                let conn = self.db.get()?;
-                let record = janus_handle_shadow::FindLocationQuery::new(
-                    &inreq.properties().agent_id(),
-                    rtc_id,
-                )
-                .execute(&conn)?;
-
                 let backreq = janus::create_stream_request(
                     inreq.properties().clone(),
                     record.session_id(),
@@ -69,17 +68,19 @@ impl State {
                 )?;
                 backreq.into_envelope()
             }
-            SdpType::Answer => Err(err_msg("sdp_type = answer is not currently supported")),
-            SdpType::IceCandidate => {
+            SdpType::Answer => {
                 let rtc_id = &inreq.payload().rtc_id;
-
-                let conn = self.db.get()?;
-                let record = janus_handle_shadow::FindLocationQuery::new(
-                    &inreq.properties().agent_id(),
-                    rtc_id,
-                )
-                .execute(&conn)?;
-
+                let backreq = janus::read_stream_request(
+                    inreq.properties().clone(),
+                    record.session_id(),
+                    record.handle_id(),
+                    rtc_id.clone(),
+                    jsep.clone(),
+                    record.location_id().clone(),
+                )?;
+                backreq.into_envelope()
+            }
+            SdpType::IceCandidate => {
                 let backreq = janus::create_trickle_request(
                     inreq.properties().clone(),
                     record.session_id(),

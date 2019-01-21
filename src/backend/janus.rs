@@ -248,12 +248,22 @@ impl EventResponse {
     pub(crate) fn jsep(&self) -> Option<&JsonValue> {
         self.jsep.as_ref()
     }
+
+    pub(crate) fn plugin(&self) -> &EventResponsePluginData {
+        &self.plugindata
+    }
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct EventResponsePluginData {
     data: JsonValue,
     plugin: String,
+}
+
+impl EventResponsePluginData {
+    pub(crate) fn data(&self) -> &JsonValue {
+        &self.data
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

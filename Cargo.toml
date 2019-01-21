@@ -9,13 +9,13 @@ log = "0.4.6"
 env_logger = "0.6.0"
 config = "0.9.1"
 failure = "0.1.3"
-serde = "1.0.84"
-serde_derive = "1.0.84"
+serde = "1.0.85"
+serde_derive = "1.0.85"
 serde_json = "1.0.34"
 base64 = "0.10.0"
 uuid = { version = "0.6.5", features = ["v4", "serde"] }
 chrono = { version = "0.4.6", feature = ["serde"] }
-diesel = { version = "1.3.3", features = ["postgres", "uuid", "chrono", "r2d2"] }
+diesel = { version = "1.3.3", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
 rumqtt = { git = "https://github.com/AtherEnergy/rumqtt.git", rev = "587c868" }
 crossbeam-channel = "0.3.3"
 http = "0.1.14"
