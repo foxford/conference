@@ -81,7 +81,7 @@ impl State {
                 backreq.into_envelope()
             }
             SdpType::IceCandidate => {
-                let backreq = janus::create_trickle_request(
+                let backreq = janus::trickle_request(
                     inreq.properties().clone(),
                     record.session_id(),
                     record.handle_id(),

@@ -24,7 +24,7 @@ pub(crate) enum Transaction {
     CreateHandle(CreateHandleTransaction),
     CreateStream(CreateStreamTransaction),
     ReadStream(ReadStreamTransaction),
-    CreateTrickle(CreateTrickleTransaction),
+    Trickle(TrickleTransaction),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -206,24 +206,24 @@ pub(crate) fn read_stream_request(
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CreateTrickleTransaction {
+pub(crate) struct TrickleTransaction {
     reqp: IncomingRequestProperties,
 }
 
-impl CreateTrickleTransaction {
+impl TrickleTransaction {
     pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
         Self { reqp }
     }
 }
 
-pub(crate) fn create_trickle_request(
+pub(crate) fn trickle_request(
     reqp: IncomingRequestProperties,
     session_id: i64,
     handle_id: i64,
     jsep: JsonValue,
     to: AgentId,
 ) -> Result<OutgoingRequest<TrickleRequest>, Error> {
-    let transaction = Transaction::CreateTrickle(CreateTrickleTransaction::new(reqp));
+    let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
     let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
     let props = OutgoingRequestProperties::new("janus_trickle.create");
     Ok(OutgoingRequest::new(
@@ -297,7 +297,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                 // Conference Stream is being created
                 Transaction::CreateStream(_tn) => Err(format_err!("on-ack-stream: {:?}", inresp)),
                 // Trickle message has been received by Janus Gateway
-                Transaction::CreateTrickle(tn) => {
+                Transaction::Trickle(tn) => {
                     let reqp = tn.reqp;
                     let resp = crate::app::signal::CreateResponse::new(
                         crate::app::signal::CreateResponseData::new(None),
