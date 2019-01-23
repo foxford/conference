@@ -1,5 +1,5 @@
 FROM netologygroup/mqtt-gateway:v0.5.0 as mqtt-gateway-plugin
-FROM netologygroup/janus-gateway:e1fb6ea as janus-gateway-plugin
+FROM netologygroup/janus-gateway:14ade6b as janus-gateway-plugin
 FROM ubuntu:18.04
 
 ENV DEBIAN_FRONTEND noninteractive
