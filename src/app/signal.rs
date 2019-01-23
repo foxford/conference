@@ -68,18 +68,7 @@ impl State {
                 )?;
                 backreq.into_envelope()
             }
-            SdpType::Answer => {
-                let rtc_id = &inreq.payload().rtc_id;
-                let backreq = janus::read_stream_request(
-                    inreq.properties().clone(),
-                    record.session_id(),
-                    record.handle_id(),
-                    rtc_id.clone(),
-                    jsep.clone(),
-                    record.location_id().clone(),
-                )?;
-                backreq.into_envelope()
-            }
+            SdpType::Answer => Err(err_msg("sdp_type = answer is not currently supported")),
             SdpType::IceCandidate => {
                 let backreq = janus::trickle_request(
                     inreq.properties().clone(),

@@ -101,12 +101,11 @@ pub(crate) fn create_handle_request(
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateStreamTransaction {
     reqp: IncomingRequestProperties,
-    rtc_id: Uuid,
 }
 
 impl CreateStreamTransaction {
-    pub(crate) fn new(reqp: IncomingRequestProperties, rtc_id: Uuid) -> Self {
-        Self { reqp, rtc_id }
+    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
+        Self { reqp }
     }
 }
 
@@ -133,7 +132,7 @@ pub(crate) fn create_stream_request(
     jsep: JsonValue,
     to: AgentId,
 ) -> Result<OutgoingRequest<MessageRequest>, Error> {
-    let transaction = Transaction::CreateStream(CreateStreamTransaction::new(reqp, rtc_id));
+    let transaction = Transaction::CreateStream(CreateStreamTransaction::new(reqp));
     let body = CreateStreamRequestBody::new(rtc_id);
     let payload = MessageRequest::new(
         &to_base64(&transaction)?,
@@ -315,10 +314,10 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             match from_base64::<Transaction>(&inresp.transaction())? {
                 // Conference Stream has been created
                 Transaction::CreateStream(tn) => {
-                    let plugin_data = inresp.plugin().data();
                     let reqp = tn.reqp;
 
                     // TODO: improve error handling
+                    let plugin_data = inresp.plugin().data();
                     let status = plugin_data.get("status").ok_or_else(|| {
                         format_err!("missing status in a response on {}", reqp.method())
                     })?;
@@ -330,16 +329,6 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     let jsep = inresp.jsep().ok_or_else(|| {
                         format_err!("missing jsep in a response on {}", reqp.method())
                     })?;
-                    // Updating Rtc w/ offer (as JSEP) for listeners
-                    let _ = {
-                        let conn = janus.db.get()?;
-                        let offer = plugin_data.get("offer").ok_or_else(|| {
-                            format_err!("missing offer in a response on {}", reqp.method())
-                        })?;
-                        rtc::UpdateQuery::new(&tn.rtc_id)
-                            .jsep(offer)
-                            .execute(&conn)?
-                    };
 
                     let resp = crate::app::signal::CreateResponse::new(
                         crate::app::signal::CreateResponseData::new(Some(jsep.clone())),
@@ -350,10 +339,10 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     resp.into_envelope()?.publish(tx)
                 }
                 Transaction::ReadStream(tn) => {
-                    let plugin_data = inresp.plugin().data();
                     let reqp = tn.reqp;
 
                     // TODO: improve error handling
+                    let plugin_data = inresp.plugin().data();
                     let status = plugin_data.get("status").ok_or_else(|| {
                         format_err!("missing status in a response on {}", reqp.method())
                     })?;
