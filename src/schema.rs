@@ -38,7 +38,6 @@ table! {
     rtc (id) {
         id -> Uuid,
         room_id -> Uuid,
-        jsep -> Nullable<Jsonb>,
     }
 }
 
