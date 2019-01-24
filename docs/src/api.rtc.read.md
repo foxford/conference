@@ -2,6 +2,8 @@
 
 Picks up the real-time connection through signal messages and then media may be received.
 
+*NOTE: If Janus Gateway is used as a backend, a handle to the conference plugin for the patricular agent will be created. A session will be created when necessary.*
+
 **Request**
 
 ```bash
