@@ -33,7 +33,7 @@ pub(crate) type ListRequest = IncomingRequest<ListRequestData>;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct ListRequestData {
-    room_id: Option<Uuid>,
+    room_id: Uuid,
     offset: Option<i64>,
     limit: Option<i64>,
 }
@@ -108,7 +108,7 @@ impl State {
         // Looking up for Real-Time Connections
         let conn = self.db.get()?;
         let objects = rtc::ListQuery::from_options(
-            inreq.payload().room_id.as_ref(),
+            Some(&inreq.payload().room_id),
             inreq.payload().offset,
             Some(std::cmp::min(
                 inreq.payload().limit.unwrap_or_else(|| MAX_LIMIT),
