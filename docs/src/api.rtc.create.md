@@ -2,6 +2,8 @@
 
 Creates a real-time connection to available backend through signal messages and then media may be sent.
 
+*NOTE: If Janus Gateway is used as a backend, a handle to the conference plugin for the patricular agent and a session will be created when necessary.*
+
 **Request**
 
 ```bash
@@ -29,12 +31,6 @@ correlation_data | string | _required_ | The same value will be in a response
 Name              | Type   | Default    | Description
 ----------------- | ------ | ---------- | ------------------
 room_id           | string | _required_ | Room where the real-time connection will be created
-
-**Response**
-
-Name              | Type   | Default    | Description
------------------ | ------ | ---------- | ------------------
-jsep              | object | _optional_ | Returned only on offer requests and contains answer.
 
 **Response**
 
