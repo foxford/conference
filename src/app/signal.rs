@@ -110,6 +110,8 @@ fn parse_sdp_type(jsep: &JsonValue) -> Result<SdpType, Error> {
         (Some(JsonValue::String(ref val)), None) if val == "offer" => Ok(SdpType::Offer),
         (Some(JsonValue::String(ref val)), None) if val == "answer" => Ok(SdpType::Answer),
         (None, Some(JsonValue::String(_))) => Ok(SdpType::IceCandidate),
+        (None, Some(JsonValue::Object(_))) => Ok(SdpType::IceCandidate), // {"completed": true}
+        (None, Some(JsonValue::Null)) => Ok(SdpType::IceCandidate),      // null
         _ => Err(format_err!("invalid jsep = {}", jsep)),
     }
 }
@@ -121,7 +123,7 @@ fn is_sdp_recvonly(jsep: &JsonValue) -> Result<bool, Error> {
     let sdp = sdp
         .as_str()
         .ok_or_else(|| format_err!("invalid sdp = {}", sdp))?;
-    let sdp = parse_sdp(sdp, true).map_err(|_| err_msg("invalid sdp"))?;
+    let sdp = parse_sdp(sdp, false).map_err(|_| err_msg("invalid sdp"))?;
 
     // Returning true if all media section contains 'recvonly' attribute
     Ok(sdp.media.iter().all(|item| {
