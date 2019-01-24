@@ -1,6 +1,6 @@
 # Create
 
-Create a signaling message.
+Create a signaling message: WebRTC offer or ice candidate.
 
 *NOTE: All media segments of the listener's sdp composing an **offer** must contain a **recvonly** attribute, when at least one media segment of the publisher's sdp must contain a **sendonly** or a **sendrecv** attribute.*
 

@@ -1,6 +1,6 @@
 # Create
 
-Creates a real-time connection to available backend through signal messages and then media may be sent.
+Create a real-time connection to send signal messages and then media.
 
 *NOTE: If Janus Gateway is used as a backend, a handle to the conference plugin for the patricular agent and a session will be created when necessary.*
 
@@ -34,4 +34,4 @@ room_id           | string | _required_ | Room where the real-time connection wi
 
 **Response**
 
-If successful, the response payload contains an instance of **Real-Time Connection**.
+If successful, the response payload contains a **Real-Time Connection** object.

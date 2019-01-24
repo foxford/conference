@@ -1,8 +1,6 @@
-# Read
+# List
 
-Pick up the real-time connection to send signal messages and then media.
-
-*NOTE: If Janus Gateway is used as a backend, a handle to the conference plugin for the patricular agent will be created. A session will be created when necessary.*
+List real-time connections.
 
 **Request**
 
@@ -22,7 +20,7 @@ APP_NAME | string | _required_ | Name of the application
 Name             | Type   | Default    | Description
 ---------------- | ------ | ---------- | ------------------
 type             | string | _required_ | Always `request`
-method           | string | _required_ | Always `signal.read`
+method           | string | _required_ | Always `signal.list`
 response_topic   | string | _required_ | Always `agents/${ME}/api/v1/in/${APP_NAME}`
 correlation_data | string | _required_ | The same value will be in a response
 
@@ -30,8 +28,10 @@ correlation_data | string | _required_ | The same value will be in a response
 
 Name       | Type   | Default    | Description
 ---------- | ------ | ---------- | ------------------
-id         | string | _required_ | Real-time connection identifier
+room_id    | string | _optional_ | Room identifier
+offset     | int    | _optional_ | Returns objects starting from the specified index
+limit      | int    |         25 | Limits the number of objects in the response
 
 **Response**
 
-If successful, the response payload contains the **Real-Time Connection** instance.
+If successful, the response payload contains the list of **Real-Time Connection** instances.
