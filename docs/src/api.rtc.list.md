@@ -28,10 +28,10 @@ correlation_data | string | _required_ | The same value will be in a response
 
 Name       | Type   | Default    | Description
 ---------- | ------ | ---------- | ------------------
-room_id    | string | _optional_ | Room identifier
+room_id    | string | _required_ | Room identifier
 offset     | int    | _optional_ | Returns objects starting from the specified index
 limit      | int    |         25 | Limits the number of objects in the response
 
 **Response**
 
-If successful, the response payload contains the list of **Real-Time Connection** instances.
+If successful, the response payload contains the list of **Real-Time Connection** objects.
