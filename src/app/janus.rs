@@ -278,9 +278,9 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                         .execute(&conn)?;
 
                     // Returning Real-Time connection
-                    let record = rtc::FindQuery::new(&rtc_id).execute(&conn)?;
-                    let resp = crate::app::rtc::RecordResponse::new(
-                        record,
+                    let object = rtc::FindQuery::new(&rtc_id).execute(&conn)?;
+                    let resp = crate::app::rtc::ObjectResponse::new(
+                        object,
                         reqp.to_response(&OutgoingResponseStatus::OK),
                         Destination::Unicast(reqp.agent_id()),
                     );

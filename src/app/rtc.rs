@@ -1,6 +1,6 @@
 use crate::app::janus;
 use crate::authn::{AgentId, Authenticable};
-use crate::db::{janus_handle_shadow, janus_session_shadow, rtc, ConnectionPool};
+use crate::db::{janus_session_shadow, location, rtc, ConnectionPool};
 use crate::transport::mqtt::compat::IntoEnvelope;
 use crate::transport::mqtt::{
     IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable,
@@ -38,8 +38,8 @@ pub(crate) struct ListRequestData {
     limit: Option<i64>,
 }
 
-pub(crate) type RecordResponse = OutgoingResponse<rtc::Record>;
-pub(crate) type RecordListResponse = OutgoingResponse<Vec<rtc::Record>>;
+pub(crate) type ObjectResponse = OutgoingResponse<rtc::Object>;
+pub(crate) type ObjectListResponse = OutgoingResponse<Vec<rtc::Object>>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -62,12 +62,12 @@ impl State {
     pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
         // Creating a Real-Time Connection
         let conn = self.db.get()?;
-        let record = rtc::InsertQuery::new(&inreq.payload().room_id).execute(&conn)?;
+        let object = rtc::InsertQuery::new(&inreq.payload().room_id).execute(&conn)?;
 
         // Building a Create Janus Session request
         let to = self.backend_agent_id.clone();
         let backreq =
-            janus::create_session_request(inreq.properties().clone(), record.id().clone(), to)?;
+            janus::create_session_request(inreq.properties().clone(), object.id().clone(), to)?;
 
         backreq.into_envelope()
     }
@@ -78,14 +78,13 @@ impl State {
         // Looking up for Janus Handle
         let conn = self.db.get()?;
         let maybe_location =
-            janus_handle_shadow::FindLocationQuery::new(&inreq.properties().agent_id(), &id)
-                .execute(&conn);
+            location::FindQuery::new(&inreq.properties().agent_id(), &id).execute(&conn);
 
         match maybe_location {
             Ok(_) => {
                 // Returning Real-Time connection
-                let record = rtc::FindQuery::new(&id).execute(&conn)?;
-                let resp = inreq.to_response(record, &OutgoingResponseStatus::OK);
+                let object = rtc::FindQuery::new(&id).execute(&conn)?;
+                let resp = inreq.to_response(object, &OutgoingResponseStatus::OK);
                 resp.into_envelope()
             }
             Err(_) => {
@@ -108,7 +107,7 @@ impl State {
     pub(crate) fn list(&self, inreq: &ListRequest) -> Result<impl Publishable, Error> {
         // Looking up for Real-Time Connections
         let conn = self.db.get()?;
-        let records = rtc::ListQuery::from_options(
+        let objects = rtc::ListQuery::from_options(
             inreq.payload().room_id.as_ref(),
             inreq.payload().offset,
             Some(std::cmp::min(
@@ -118,7 +117,7 @@ impl State {
         )
         .execute(&conn)?;
 
-        let resp = inreq.to_response(records, &OutgoingResponseStatus::OK);
+        let resp = inreq.to_response(objects, &OutgoingResponseStatus::OK);
         resp.into_envelope()
     }
 }
