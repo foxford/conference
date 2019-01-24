@@ -46,20 +46,52 @@ impl<'a> FindQuery<'a> {
 
 pub(crate) struct ListQuery<'a> {
     room_id: Option<&'a Uuid>,
+    offset: Option<i64>,
+    limit: Option<i64>,
 }
 
 impl<'a> ListQuery<'a> {
     pub(crate) fn new() -> Self {
-        Self { room_id: None }
+        Self {
+            room_id: None,
+            offset: None,
+            limit: None,
+        }
     }
 
-    pub(crate) fn from_options(room_id: Option<&'a Uuid>) -> Self {
-        Self { room_id: room_id }
+    pub(crate) fn from_options(
+        room_id: Option<&'a Uuid>,
+        offset: Option<i64>,
+        limit: Option<i64>,
+    ) -> Self {
+        Self {
+            room_id: room_id,
+            offset: offset,
+            limit: limit,
+        }
     }
 
     pub(crate) fn room_id(self, room_id: &'a Uuid) -> Self {
         Self {
             room_id: Some(room_id),
+            offset: self.offset,
+            limit: self.limit,
+        }
+    }
+
+    pub(crate) fn offset(self, offset: i64) -> Self {
+        Self {
+            room_id: self.room_id,
+            offset: Some(offset),
+            limit: self.limit,
+        }
+    }
+
+    pub(crate) fn limit(self, limit: i64) -> Self {
+        Self {
+            room_id: self.room_id,
+            offset: self.offset,
+            limit: Some(limit),
         }
     }
 
@@ -69,6 +101,12 @@ impl<'a> ListQuery<'a> {
         let mut q = rtc::table.into_boxed();
         if let Some(room_id) = self.room_id {
             q = q.filter(rtc::room_id.eq(room_id));
+        }
+        if let Some(offset) = self.offset {
+            q = q.offset(offset);
+        }
+        if let Some(limit) = self.limit {
+            q = q.limit(limit);
         }
         q.get_results(conn)
     }
