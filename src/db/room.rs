@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Identifiable, Queryable)]
 #[table_name = "room"]
-pub(crate) struct Record {
+pub(crate) struct Object {
     id: Uuid,
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: String,
@@ -42,7 +42,7 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::room::dsl::room;
         use diesel::RunQueryDsl;
 

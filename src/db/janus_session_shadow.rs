@@ -5,16 +5,16 @@ use diesel::result::Error;
 use uuid::Uuid;
 
 #[derive(Debug, Identifiable, Queryable, Associations)]
-#[belongs_to(rtc::Record, foreign_key = "rtc_id")]
+#[belongs_to(rtc::Object, foreign_key = "rtc_id")]
 #[primary_key(rtc_id)]
 #[table_name = "janus_session_shadow"]
-pub(crate) struct Record {
+pub(crate) struct Object {
     rtc_id: Uuid,
     session_id: i64,
     location_id: AgentId,
 }
 
-impl Record {
+impl Object {
     pub(crate) fn session_id(&self) -> i64 {
         self.session_id
     }
@@ -41,7 +41,7 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::janus_session_shadow::dsl::janus_session_shadow;
         use diesel::RunQueryDsl;
 
@@ -60,7 +60,7 @@ impl<'a> FindQuery<'a> {
         Self { rtc_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use diesel::prelude::*;
 
         janus_session_shadow::table

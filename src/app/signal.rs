@@ -1,6 +1,6 @@
 use crate::app::janus;
 use crate::authn::Authenticable;
-use crate::db::{janus_handle_shadow, ConnectionPool};
+use crate::db::{location, ConnectionPool};
 use crate::transport::mqtt::compat::IntoEnvelope;
 use crate::transport::mqtt::{IncomingRequest, OutgoingResponse, Publishable};
 use failure::{err_msg, format_err, Error};
@@ -51,30 +51,29 @@ impl State {
         let sdp_type = parse_sdp_type(jsep)?;
 
         let conn = self.db.get()?;
-        let record =
-            janus_handle_shadow::FindLocationQuery::new(&inreq.properties().agent_id(), rtc_id)
-                .execute(&conn)?;
+        let object =
+            location::FindQuery::new(&inreq.properties().agent_id(), rtc_id).execute(&conn)?;
 
         match sdp_type {
             SdpType::Offer => {
                 if is_sdp_recvonly(jsep)? {
                     let backreq = janus::read_stream_request(
                         inreq.properties().clone(),
-                        record.session_id(),
-                        record.handle_id(),
+                        object.session_id(),
+                        object.handle_id(),
                         rtc_id.clone(),
                         jsep.clone(),
-                        record.location_id().clone(),
+                        object.location_id().clone(),
                     )?;
                     backreq.into_envelope()
                 } else {
                     let backreq = janus::create_stream_request(
                         inreq.properties().clone(),
-                        record.session_id(),
-                        record.handle_id(),
+                        object.session_id(),
+                        object.handle_id(),
                         rtc_id.clone(),
                         jsep.clone(),
-                        record.location_id().clone(),
+                        object.location_id().clone(),
                     )?;
                     backreq.into_envelope()
                 }
@@ -83,10 +82,10 @@ impl State {
             SdpType::IceCandidate => {
                 let backreq = janus::trickle_request(
                     inreq.properties().clone(),
-                    record.session_id(),
-                    record.handle_id(),
+                    object.session_id(),
+                    object.handle_id(),
                     jsep.clone(),
-                    record.location_id().clone(),
+                    object.location_id().clone(),
                 )?;
                 backreq.into_envelope()
             }

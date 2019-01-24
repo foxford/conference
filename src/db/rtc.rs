@@ -9,16 +9,16 @@ use uuid::Uuid;
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
-#[belongs_to(room::Record, foreign_key = "room_id")]
+#[belongs_to(room::Object, foreign_key = "room_id")]
 #[table_name = "rtc"]
-pub(crate) struct Record {
+pub(crate) struct Object {
     id: Uuid,
     room_id: Uuid,
     #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
 }
 
-impl Record {
+impl Object {
     pub(crate) fn id(&self) -> &Uuid {
         &self.id
     }
@@ -35,7 +35,7 @@ impl<'a> FindQuery<'a> {
         Self { id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use diesel::prelude::*;
 
         rtc::table.find(self.id).get_result(conn)
@@ -95,7 +95,7 @@ impl<'a> ListQuery<'a> {
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Record>, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
 
         let mut q = rtc::table.into_boxed();
@@ -126,7 +126,7 @@ impl<'a> InsertQuery<'a> {
         Self { id: None, room_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::rtc::dsl::rtc;
         use diesel::RunQueryDsl;
 
