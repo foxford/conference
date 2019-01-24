@@ -108,7 +108,7 @@ impl<'a> ListQuery<'a> {
         if let Some(limit) = self.limit {
             q = q.limit(limit);
         }
-        q.get_results(conn)
+        q.order_by(rtc::created_at).get_results(conn)
     }
 }
 
