@@ -312,7 +312,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
         }
         IncomingMessage::Event(ref inresp) => {
             match from_base64::<Transaction>(&inresp.transaction())? {
-                // Conference Stream has been created
+                // Conference Stream has been created (an answer received)
                 Transaction::CreateStream(tn) => {
                     let reqp = tn.reqp;
 
@@ -338,6 +338,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
 
                     resp.into_envelope()?.publish(tx)
                 }
+                // Conference Stream has been read (an answer received)
                 Transaction::ReadStream(tn) => {
                     let reqp = tn.reqp;
 
@@ -350,8 +351,13 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                         return Err(format_err!("error received on {}", reqp.method()));
                     }
 
+                    // Getting answer (as JSEP)
+                    let jsep = inresp.jsep().ok_or_else(|| {
+                        format_err!("missing jsep in a response on {}", reqp.method())
+                    })?;
+
                     let resp = crate::app::signal::CreateResponse::new(
-                        crate::app::signal::CreateResponseData::new(None),
+                        crate::app::signal::CreateResponseData::new(Some(jsep.clone())),
                         reqp.to_response(&OutgoingResponseStatus::OK),
                         Destination::Unicast(reqp.agent_id()),
                     );

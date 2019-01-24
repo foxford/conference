@@ -57,16 +57,27 @@ impl State {
 
         match sdp_type {
             SdpType::Offer => {
-                let rtc_id = &inreq.payload().rtc_id;
-                let backreq = janus::create_stream_request(
-                    inreq.properties().clone(),
-                    record.session_id(),
-                    record.handle_id(),
-                    rtc_id.clone(),
-                    jsep.clone(),
-                    record.location_id().clone(),
-                )?;
-                backreq.into_envelope()
+                if is_sdp_recvonly(jsep)? {
+                    let backreq = janus::read_stream_request(
+                        inreq.properties().clone(),
+                        record.session_id(),
+                        record.handle_id(),
+                        rtc_id.clone(),
+                        jsep.clone(),
+                        record.location_id().clone(),
+                    )?;
+                    backreq.into_envelope()
+                } else {
+                    let backreq = janus::create_stream_request(
+                        inreq.properties().clone(),
+                        record.session_id(),
+                        record.handle_id(),
+                        rtc_id.clone(),
+                        jsep.clone(),
+                        record.location_id().clone(),
+                    )?;
+                    backreq.into_envelope()
+                }
             }
             SdpType::Answer => Err(err_msg("sdp_type = answer is not currently supported")),
             SdpType::IceCandidate => {
@@ -101,4 +112,25 @@ fn parse_sdp_type(jsep: &JsonValue) -> Result<SdpType, Error> {
         (None, Some(JsonValue::String(_))) => Ok(SdpType::IceCandidate),
         _ => Err(format_err!("invalid jsep = {}", jsep)),
     }
+}
+
+fn is_sdp_recvonly(jsep: &JsonValue) -> Result<bool, Error> {
+    use rsdparsa::{attribute_type::SdpAttributeType, parse_sdp};
+
+    let sdp = jsep.get("sdp").ok_or_else(|| err_msg("missing sdp"))?;
+    let sdp = sdp
+        .as_str()
+        .ok_or_else(|| format_err!("invalid sdp = {}", sdp))?;
+    let sdp = parse_sdp(sdp, true).map_err(|_| err_msg("invalid sdp"))?;
+
+    // Returning true if all media section contains 'recvonly' attribute
+    Ok(sdp.media.iter().all(|item| {
+        let recvonly = item.get_attribute(SdpAttributeType::Recvonly).is_some();
+        let sendonly = item.get_attribute(SdpAttributeType::Sendonly).is_some();
+        let sendrecv = item.get_attribute(SdpAttributeType::Sendrecv).is_some();
+        match (recvonly, sendonly, sendrecv) {
+            (true, false, false) => true,
+            _ => false,
+        }
+    }))
 }
