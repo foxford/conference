@@ -1,4 +1,6 @@
 use crate::schema::{room, rtc};
+use chrono::serde::ts_seconds;
+use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
@@ -12,6 +14,8 @@ use uuid::Uuid;
 pub(crate) struct Record {
     id: Uuid,
     room_id: Uuid,
+    #[serde(with = "ts_seconds")]
+    created_at: DateTime<Utc>,
 }
 
 impl Record {
