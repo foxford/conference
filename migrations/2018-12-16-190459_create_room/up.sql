@@ -3,6 +3,7 @@ create table room (
 
     time tstzrange not null,
     audience text not null,
+    created_at timestamptz not null default now(),
 
     primary key (id)
 )

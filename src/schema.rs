@@ -28,6 +28,7 @@ table! {
         id -> Uuid,
         time -> Tstzrange,
         audience -> Text,
+        created_at -> Timestamptz,
     }
 }
 
@@ -38,6 +39,7 @@ table! {
     rtc (id) {
         id -> Uuid,
         room_id -> Uuid,
+        created_at -> Timestamptz,
     }
 }
 

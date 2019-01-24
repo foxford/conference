@@ -11,6 +11,7 @@ pub(crate) struct Record {
     id: Uuid,
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: String,
+    created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Insertable)]
