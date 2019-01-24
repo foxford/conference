@@ -44,17 +44,33 @@ impl<'a> FindQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct ListQuery {}
+pub(crate) struct ListQuery<'a> {
+    room_id: Option<&'a Uuid>,
+}
 
-impl ListQuery {
+impl<'a> ListQuery<'a> {
     pub(crate) fn new() -> Self {
-        Self {}
+        Self { room_id: None }
+    }
+
+    pub(crate) fn from_options(room_id: Option<&'a Uuid>) -> Self {
+        Self { room_id: room_id }
+    }
+
+    pub(crate) fn room_id(self, room_id: &'a Uuid) -> Self {
+        Self {
+            room_id: Some(room_id),
+        }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Record>, Error> {
         use diesel::prelude::*;
 
-        rtc::table.load(conn)
+        let mut q = rtc::table.into_boxed();
+        if let Some(room_id) = self.room_id {
+            q = q.filter(rtc::room_id.eq(room_id));
+        }
+        q.get_results(conn)
     }
 }
 
