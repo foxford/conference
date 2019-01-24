@@ -11,6 +11,10 @@ use uuid::Uuid;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+const MAX_LIMIT: i64 = 25;
+
+////////////////////////////////////////////////////////////////////////////////
+
 pub(crate) type CreateRequest = IncomingRequest<CreateRequestData>;
 
 #[derive(Debug, Deserialize)]
@@ -30,6 +34,8 @@ pub(crate) type ListRequest = IncomingRequest<ListRequestData>;
 #[derive(Debug, Deserialize)]
 pub(crate) struct ListRequestData {
     room_id: Option<Uuid>,
+    offset: Option<i64>,
+    limit: Option<i64>,
 }
 
 pub(crate) type RecordResponse = OutgoingResponse<rtc::Record>;
@@ -102,8 +108,15 @@ impl State {
     pub(crate) fn list(&self, inreq: &ListRequest) -> Result<impl Publishable, Error> {
         // Looking up for Real-Time Connections
         let conn = self.db.get()?;
-        let records =
-            rtc::ListQuery::from_options(inreq.payload().room_id.as_ref()).execute(&conn)?;
+        let records = rtc::ListQuery::from_options(
+            inreq.payload().room_id.as_ref(),
+            inreq.payload().offset,
+            Some(std::cmp::min(
+                inreq.payload().limit.unwrap_or_else(|| MAX_LIMIT),
+                MAX_LIMIT,
+            )),
+        )
+        .execute(&conn)?;
 
         let resp = inreq.to_response(records, &OutgoingResponseStatus::OK);
         resp.into_envelope()
