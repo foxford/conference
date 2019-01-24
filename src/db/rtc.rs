@@ -26,6 +26,40 @@ impl Record {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+pub(crate) struct FindQuery<'a> {
+    id: &'a Uuid,
+}
+
+impl<'a> FindQuery<'a> {
+    pub(crate) fn new(id: &'a Uuid) -> Self {
+        Self { id }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
+        use diesel::prelude::*;
+
+        rtc::table.find(self.id).get_result(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct ListQuery {}
+
+impl ListQuery {
+    pub(crate) fn new() -> Self {
+        Self {}
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Record>, Error> {
+        use diesel::prelude::*;
+
+        rtc::table.load(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Insertable)]
 #[table_name = "rtc"]
 pub(crate) struct InsertQuery<'a> {
@@ -43,23 +77,5 @@ impl<'a> InsertQuery<'a> {
         use diesel::RunQueryDsl;
 
         diesel::insert_into(rtc).values(self).get_result(conn)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub(crate) struct FindQuery<'a> {
-    id: &'a Uuid,
-}
-
-impl<'a> FindQuery<'a> {
-    pub(crate) fn new(id: &'a Uuid) -> Self {
-        Self { id }
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Record, Error> {
-        use diesel::prelude::*;
-
-        rtc::table.find(self.id).get_result(conn)
     }
 }

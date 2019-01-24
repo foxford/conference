@@ -90,6 +90,12 @@ fn handle_message(
                 let next = rtc.read(&req)?;
                 next.publish(tx)
             }
+            "rtc.list" => {
+                // TODO: catch and process errors: unprocessable entry
+                let req = compat::into_request(envelope)?;
+                let next = rtc.list(&req)?;
+                next.publish(tx)
+            }
             "signal.create" => {
                 // TODO: catch and process errors: unprocessable entry
                 let req = compat::into_request(envelope)?;
