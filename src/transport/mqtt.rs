@@ -84,7 +84,7 @@ impl Agent {
         let bytes = message.to_bytes()?;
 
         self.tx
-            .publish(topic, QoS::AtLeastOnce, bytes)
+            .publish(topic, QoS::AtLeastOnce, false, bytes)
             .map_err(|_| err_msg("Error publishing an MQTT message"))
     }
 
