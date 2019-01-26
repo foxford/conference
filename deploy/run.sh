@@ -35,7 +35,7 @@ else
     curl -fsSLo kubectl "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl" \
         && chmod +x kubectl \
         && mv kubectl "${HOME}/.local/bin"
-    curl -fsSLo skaffold "https://storage.googleapis.com/skaffold/releases/v0.15.0/skaffold-linux-amd64" \
+    curl -fsSLo skaffold "https://storage.googleapis.com/skaffold/releases/v0.21.1/skaffold-linux-amd64" \
         && chmod +x skaffold \
         && mv skaffold "${HOME}/.local/bin"
     echo ${DOCKER_PASSWORD} \
