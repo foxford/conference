@@ -8,6 +8,7 @@ create table janus_session_shadow (
     check(((location_id).account_id).label is not null),
     check(((location_id).account_id).audience is not null),
     unique (rtc_id, location_id),
+    unique (session_id, location_id),
     foreign key (rtc_id) references rtc (id) on delete cascade,
     primary key (rtc_id)
 )
