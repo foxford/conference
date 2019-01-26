@@ -1,6 +1,6 @@
 use crate::app::janus;
 use crate::authn::Authenticable;
-use crate::db::{location, ConnectionPool};
+use crate::db::{location, rtc, ConnectionPool};
 use crate::transport::mqtt::compat::IntoEnvelope;
 use crate::transport::mqtt::{IncomingRequest, OutgoingResponse, Publishable};
 use failure::{err_msg, format_err, Error};
@@ -16,6 +16,7 @@ pub(crate) type CreateRequest = IncomingRequest<CreateRequestData>;
 pub(crate) struct CreateRequestData {
     rtc_id: Uuid,
     jsep: JsonValue,
+    label: Option<String>,
 }
 
 pub(crate) type CreateResponse = OutgoingResponse<CreateResponseData>;
@@ -67,6 +68,14 @@ impl State {
                     )?;
                     backreq.into_envelope()
                 } else {
+                    let label = inreq
+                        .payload()
+                        .label
+                        .as_ref()
+                        .ok_or_else(|| err_msg("missing label"))?;
+                    let state = rtc::RtcState::new(label, inreq.properties().agent_id(), None);
+                    let _ = rtc::UpdateQuery::new(rtc_id).state(&state).execute(&conn)?;
+
                     let backreq = janus::create_stream_request(
                         inreq.properties().clone(),
                         object.session_id(),
@@ -78,7 +87,7 @@ impl State {
                     backreq.into_envelope()
                 }
             }
-            SdpType::Answer => Err(err_msg("sdp_type = answer is not currently supported")),
+            SdpType::Answer => Err(err_msg("sdp_type = answer is not allowed")),
             SdpType::IceCandidate => {
                 let backreq = janus::trickle_request(
                     inreq.properties().clone(),
