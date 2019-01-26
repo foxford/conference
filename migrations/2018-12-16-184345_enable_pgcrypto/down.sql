@@ -1,1 +1,1 @@
-drop extension "pgcrypto";
+drop extension "pgcrypto" cascade;

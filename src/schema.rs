@@ -38,6 +38,7 @@ table! {
 
     rtc (id) {
         id -> Uuid,
+        state -> Nullable<Rtc_state>,
         room_id -> Uuid,
         created_at -> Timestamptz,
     }
