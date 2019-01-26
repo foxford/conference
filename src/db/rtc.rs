@@ -1,3 +1,4 @@
+use crate::authn::AgentId;
 use crate::schema::{room, rtc};
 use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
@@ -13,6 +14,8 @@ use uuid::Uuid;
 #[table_name = "rtc"]
 pub(crate) struct Object {
     id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state: Option<RtcState>,
     room_id: Uuid,
     #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
@@ -21,6 +24,56 @@ pub(crate) struct Object {
 impl Object {
     pub(crate) fn id(&self) -> &Uuid {
         &self.id
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+#[derive(Debug, Deserialize, Serialize, FromSqlRow, AsExpression)]
+#[sql_type = "sql::Rtc_state"]
+pub(crate) struct RtcState {
+    label: String,
+    sent_by: AgentId,
+//    #[serde(with = "ts_seconds")]
+//    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip)]
+    sent_at: Option<DateTime<Utc>>,
+}
+
+impl RtcState {
+    pub(crate) fn new(label: &str, sent_by: AgentId, sent_at: Option<DateTime<Utc>>) -> Self {
+        Self {
+            label: label.to_owned(),
+            sent_by,
+            sent_at,
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, AsChangeset)]
+#[table_name = "rtc"]
+pub(crate) struct UpdateQuery<'a> {
+    id: &'a Uuid,
+    state: Option<&'a RtcState>,
+}
+
+impl<'a> UpdateQuery<'a> {
+    pub(crate) fn new(id: &'a Uuid) -> Self {
+        Self { id, state: None }
+    }
+
+    pub(crate) fn state(self, state: &'a RtcState) -> Self {
+        Self {
+            id: self.id,
+            state: Some(state),
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+        use diesel::prelude::*;
+
+        diesel::update(rtc::table).set(self).get_result(conn)
     }
 }
 
@@ -132,4 +185,43 @@ impl<'a> InsertQuery<'a> {
 
         diesel::insert_into(rtc).values(self).get_result(conn)
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub mod sql {
+
+    use super::RtcState;
+    use crate::authn::sql::Agent_id;
+    use crate::authn::AgentId;
+    use chrono::{DateTime, Utc};
+
+    use diesel::deserialize::{self, FromSql};
+    use diesel::pg::Pg;
+    use diesel::serialize::{self, Output, ToSql, WriteTuple};
+    use diesel::sql_types::{Nullable, Record, Text, Timestamptz};
+    use std::io::Write;
+
+    #[derive(SqlType, QueryId)]
+    #[postgres(type_name = "rtc_state")]
+    #[allow(non_camel_case_types)]
+    pub struct Rtc_state;
+
+    impl ToSql<Rtc_state, Pg> for RtcState {
+        fn to_sql<W: Write>(&self, out: &mut Output<W, Pg>) -> serialize::Result {
+            WriteTuple::<(Text, Agent_id, Nullable<Timestamptz>)>::write_tuple(
+                &(&self.label, &self.sent_by, &self.sent_at),
+                out,
+            )
+        }
+    }
+
+    impl FromSql<Rtc_state, Pg> for RtcState {
+        fn from_sql(bytes: Option<&[u8]>) -> deserialize::Result<Self> {
+            let (label, sent_by, sent_at): (String, AgentId, Option<DateTime<Utc>>) =
+                FromSql::<Record<(Text, Agent_id, Nullable<Timestamptz>)>, Pg>::from_sql(bytes)?;
+            Ok(RtcState::new(&label, sent_by, sent_at))
+        }
+    }
+
 }
