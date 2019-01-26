@@ -177,7 +177,7 @@ pub(crate) enum IncomingMessage {
     Event(EventResponse),
     Success(SuccessResponse),
     Timeout(TimeoutEvent),
-    WebRtcUp(TimeoutEvent),
+    WebRtcUp(WebRtcUpEvent),
     Media(MediaEvent),
     HangUp(HangUpEvent),
     SlowLink(SlowLinkEvent),
@@ -299,21 +299,35 @@ impl SuccessResponseData {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// A session was torn down by the server because of timeout: 60 seconds (by default)
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct TimeoutEvent {
-    session_id: i64,
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 // A RTCPeerConnection becoming ready
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct WebRtcUpEvent {
     session_id: i64,
     sender: i64,
+}
+
+impl WebRtcUpEvent {
+    pub(crate) fn session_id(&self) -> i64 {
+        self.session_id
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+// A RTCPeerConnection closed for a DTLS alert (normal shutdown)
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct HangUpEvent {
+    session_id: i64,
+    sender: i64,
+    reason: String,
+}
+
+impl HangUpEvent {
+    pub(crate) fn session_id(&self) -> i64 {
+        self.session_id
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -331,13 +345,11 @@ pub(crate) struct MediaEvent {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// A RTCPeerConnection closed for a DTLS alert (normal shutdown)
+// A session was torn down by the server because of timeout: 60 seconds (by default)
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct HangUpEvent {
+pub(crate) struct TimeoutEvent {
     session_id: i64,
-    sender: i64,
-    reason: String,
 }
 
 ////////////////////////////////////////////////////////////////////////////////

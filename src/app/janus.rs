@@ -252,7 +252,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             match from_base64::<Transaction>(&inresp.transaction())? {
                 // Session has been created
                 Transaction::CreateSession(tn) => {
-                    // Creating a shadow of Janus Session
+                    // Creating a shadow of Janus Gateway Session
                     let session_id = inresp.data().id();
                     let location_id = message.properties().agent_id();
                     let conn = janus.db.get()?;
@@ -272,7 +272,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     let rtc_id = tn.rtc_id;
                     let id = inresp.data().id();
 
-                    // Creating a shadow of Janus Session
+                    // Creating a shadow of Janus Gateway Session
                     let conn = janus.db.get()?;
                     let _ = janus_handle_shadow::InsertQuery::new(id, &rtc_id, &reqp.agent_id())
                         .execute(&conn)?;
@@ -288,13 +288,19 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     resp.into_envelope()?.publish(tx)
                 }
                 // An unsupported incoming Success message has been received
-                _ => Err(format_err!("on-success: {:?}", inresp)),
+                _ => Err(format_err!(
+                    "received an unexpected Success message: {:?}",
+                    inresp,
+                )),
             }
         }
         IncomingMessage::Ack(ref inresp) => {
             match from_base64::<Transaction>(&inresp.transaction())? {
                 // Conference Stream is being created
-                Transaction::CreateStream(_tn) => Err(format_err!("on-ack-stream: {:?}", inresp)),
+                Transaction::CreateStream(_tn) => Err(format_err!(
+                    "received an unexpected Ack message (stream.create): {:?}",
+                    inresp,
+                )),
                 // Trickle message has been received by Janus Gateway
                 Transaction::Trickle(tn) => {
                     let reqp = tn.reqp;
@@ -307,7 +313,10 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     resp.into_envelope()?.publish(tx)
                 }
                 // An unsupported incoming Ack message has been received
-                _ => Err(format_err!("on-ack: {:?}", inresp)),
+                _ => Err(format_err!(
+                    "received an unexpected Ack message: {:?}",
+                    inresp,
+                )),
             }
         }
         IncomingMessage::Event(ref inresp) => {
@@ -365,19 +374,65 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     resp.into_envelope()?.publish(tx)
                 }
                 // An unsupported incoming Event message has been received
-                _ => Err(format_err!("on-event: {:?}", inresp)),
+                _ => Err(format_err!(
+                    "received an unexpected Event message: {:?}",
+                    inresp,
+                )),
             }
         }
-        IncomingMessage::Error(ErrorResponse::Session(ref inresp)) => {
-            Err(format_err!("on-session-error: {:?}", inresp))
+        IncomingMessage::Error(ErrorResponse::Session(ref inresp)) => Err(format_err!(
+            "received an unexpected Error message (session): {:?}",
+            inresp,
+        )),
+        IncomingMessage::Error(ErrorResponse::Handle(ref inresp)) => Err(format_err!(
+            "received an unexpected Error message (handle): {:?}",
+            inresp,
+        )),
+        IncomingMessage::WebRtcUp(ref inev) => {
+            let conn = janus.db.get()?;
+
+            // Updating Rtc State
+            // TODO: replace with one query
+            // Could've implemented in one query using '.single_value()'
+            // for the first select statement. The problem is that its
+            // return value is always 'Nullable' when the 'rtc_id' value
+            // for the following statement can't be null.
+            let session = janus_session_shadow::FindQuery::new()
+                .session_id(inev.session_id())
+                .location_id(&message.properties().agent_id())
+                .execute(&conn)?;
+            let _ = rtc::update_state(session.rtc_id(), &conn)?;
+
+            Ok(())
         }
-        IncomingMessage::Error(ErrorResponse::Handle(ref inresp)) => {
-            Err(format_err!("on-handle-error: {:?}", inresp))
+        IncomingMessage::HangUp(ref inev) => {
+            let conn = janus.db.get()?;
+
+            // Deleting Rtc State
+            // TODO: replace with one query
+            // Could've implemented in one query using '.single_value()'
+            // for the first select statement. The problem is that its
+            // return value is always 'Nullable' when the 'rtc_id' value
+            // for the following statement can't be null.
+            let session = janus_session_shadow::FindQuery::new()
+                .session_id(inev.session_id())
+                .location_id(&message.properties().agent_id())
+                .execute(&conn)?;
+            let _ = rtc::delete_state(session.rtc_id(), &conn)?;
+
+            Ok(())
         }
-        IncomingMessage::Timeout(ref inev) => Err(format_err!("on-timeout-event: {:?}", inev)),
-        IncomingMessage::WebRtcUp(ref inev) => Err(format_err!("on-webrtc-up: {:?}", inev)),
-        IncomingMessage::Media(ref inev) => Err(format_err!("on-media: {:?}", inev)),
-        IncomingMessage::HangUp(ref inev) => Err(format_err!("on-hangup-event: {:?}", inev)),
-        IncomingMessage::SlowLink(ref inev) => Err(format_err!("on-slowlink-event: {:?}", inev)),
+        IncomingMessage::Media(ref inev) => Err(format_err!(
+            "received an unexpected Media message: {:?}",
+            inev,
+        )),
+        IncomingMessage::Timeout(ref inev) => Err(format_err!(
+            "received an unexpected Timeout message: {:?}",
+            inev,
+        )),
+        IncomingMessage::SlowLink(ref inev) => Err(format_err!(
+            "received an unexpected SlowLink message: {:?}",
+            inev,
+        )),
     }
 }

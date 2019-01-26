@@ -89,7 +89,9 @@ impl State {
             }
             Err(_) => {
                 // Looking up for Janus Gateway Session
-                let session = janus_session_shadow::FindQuery::new(&id).execute(&conn)?;
+                let session = janus_session_shadow::FindQuery::new()
+                    .rtc_id(&id)
+                    .execute(&conn)?;
 
                 // Building a Create Janus Gateway Handle request
                 let backreq = janus::create_handle_request(
