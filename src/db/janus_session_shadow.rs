@@ -4,6 +4,8 @@ use diesel::pg::PgConnection;
 use diesel::result::Error;
 use uuid::Uuid;
 
+///////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Identifiable, Queryable, Associations)]
 #[belongs_to(rtc::Object, foreign_key = "rtc_id")]
 #[primary_key(rtc_id)]
@@ -15,6 +17,10 @@ pub(crate) struct Object {
 }
 
 impl Object {
+    pub(crate) fn rtc_id(&self) -> &Uuid {
+        &self.rtc_id
+    }
+
     pub(crate) fn session_id(&self) -> i64 {
         self.session_id
     }
@@ -23,6 +29,8 @@ impl Object {
         &self.location_id
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Insertable)]
 #[table_name = "janus_session_shadow"]
@@ -51,20 +59,62 @@ impl<'a> InsertQuery<'a> {
     }
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
 pub(crate) struct FindQuery<'a> {
-    rtc_id: &'a Uuid,
+    rtc_id: Option<&'a Uuid>,
+    session_id: Option<i64>,
+    location_id: Option<&'a AgentId>,
 }
 
 impl<'a> FindQuery<'a> {
-    pub(crate) fn new(rtc_id: &'a Uuid) -> Self {
-        Self { rtc_id }
+    pub(crate) fn new() -> Self {
+        Self {
+            rtc_id: None,
+            session_id: None,
+            location_id: None,
+        }
+    }
+
+    pub(crate) fn rtc_id(self, rtc_id: &'a Uuid) -> Self {
+        Self {
+            rtc_id: Some(rtc_id),
+            session_id: self.session_id,
+            location_id: self.location_id,
+        }
+    }
+
+    pub(crate) fn session_id(self, session_id: i64) -> Self {
+        Self {
+            rtc_id: self.rtc_id,
+            session_id: Some(session_id),
+            location_id: self.location_id,
+        }
+    }
+
+    pub(crate) fn location_id(self, location_id: &'a AgentId) -> Self {
+        Self {
+            rtc_id: self.rtc_id,
+            session_id: self.session_id,
+            location_id: Some(location_id),
+        }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use diesel::prelude::*;
 
-        janus_session_shadow::table
-            .filter(janus_session_shadow::rtc_id.eq(self.rtc_id))
-            .get_result(conn)
+        match (self.rtc_id, (self.session_id, self.location_id)) {
+            (Some(rtc_id), _) => janus_session_shadow::table
+                .filter(janus_session_shadow::rtc_id.eq(rtc_id))
+                .get_result(conn),
+            (None, (Some(session_id), Some(location_id))) => janus_session_shadow::table
+                .filter(janus_session_shadow::session_id.eq(session_id))
+                .filter(janus_session_shadow::location_id.eq(location_id))
+                .get_result(conn),
+            _ => Err(Error::QueryBuilderError(
+                "rtc_id or session_id and location_id are required parameters of the query".into(),
+            )),
+        }
     }
 }

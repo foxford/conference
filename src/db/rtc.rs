@@ -28,7 +28,7 @@ impl Object {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-#[derive(Debug, Deserialize, Serialize, FromSqlRow, AsExpression)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromSqlRow, AsExpression)]
 #[sql_type = "sql::Rtc_state"]
 pub(crate) struct RtcState {
     label: String,
@@ -46,34 +46,6 @@ impl RtcState {
             sent_by,
             sent_at,
         }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, AsChangeset)]
-#[table_name = "rtc"]
-pub(crate) struct UpdateQuery<'a> {
-    id: &'a Uuid,
-    state: Option<&'a RtcState>,
-}
-
-impl<'a> UpdateQuery<'a> {
-    pub(crate) fn new(id: &'a Uuid) -> Self {
-        Self { id, state: None }
-    }
-
-    pub(crate) fn state(self, state: &'a RtcState) -> Self {
-        Self {
-            id: self.id,
-            state: Some(state),
-        }
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use diesel::prelude::*;
-
-        diesel::update(rtc::table).set(self).get_result(conn)
     }
 }
 
@@ -185,6 +157,50 @@ impl<'a> InsertQuery<'a> {
 
         diesel::insert_into(rtc).values(self).get_result(conn)
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, AsChangeset)]
+#[table_name = "rtc"]
+pub(crate) struct UpdateQuery<'a> {
+    id: &'a Uuid,
+    state: Option<&'a RtcState>,
+}
+
+impl<'a> UpdateQuery<'a> {
+    pub(crate) fn new(id: &'a Uuid) -> Self {
+        Self { id, state: None }
+    }
+
+    pub(crate) fn state(self, state: &'a RtcState) -> Self {
+        Self {
+            id: self.id,
+            state: Some(state),
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+        use diesel::prelude::*;
+
+        diesel::update(rtc::table).set(self).get_result(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) fn update_state(id: &Uuid, conn: &PgConnection) -> Result<usize, Error> {
+    use diesel::prelude::*;
+
+    let q = format!("update rtc set state.sent_at = now() where id = '{}'", id);
+    diesel::sql_query(q).execute(conn)
+}
+
+pub(crate) fn delete_state(id: &Uuid, conn: &PgConnection) -> Result<usize, Error> {
+    use diesel::prelude::*;
+
+    let q = format!("update rtc set state = null where id = '{}'", id);
+    diesel::sql_query(q).execute(conn)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
