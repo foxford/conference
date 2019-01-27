@@ -3,8 +3,10 @@ use crate::authn::{AgentId, Authenticable};
 use crate::db::{janus_session_shadow, location, rtc, ConnectionPool};
 use crate::transport::mqtt::compat::IntoEnvelope;
 use crate::transport::mqtt::{
-    IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable,
+    IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
+    OutgoingResponseStatus, Publishable,
 };
+use crate::transport::Destination;
 use failure::Error;
 use serde_derive::Deserialize;
 use uuid::Uuid;
@@ -40,6 +42,7 @@ pub(crate) struct ListRequestData {
 
 pub(crate) type ObjectResponse = OutgoingResponse<rtc::Object>;
 pub(crate) type ObjectListResponse = OutgoingResponse<Vec<rtc::Object>>;
+pub(crate) type ObjectUpdateEvent = OutgoingEvent<rtc::Object>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -122,4 +125,15 @@ impl State {
         let resp = inreq.to_response(objects, &OutgoingResponseStatus::OK);
         resp.into_envelope()
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) fn update_event(object: rtc::Object) -> ObjectUpdateEvent {
+    let uri = format!("rooms/{}/events", object.room_id());
+    OutgoingEvent::new(
+        object,
+        OutgoingEventProperties::new("rtc.update"),
+        Destination::Broadcast(uri),
+    )
 }

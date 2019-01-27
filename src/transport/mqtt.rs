@@ -229,7 +229,16 @@ pub(crate) type IncomingResponse<T> = IncomingMessage<T, IncomingResponsePropert
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize)]
-pub(crate) struct OutgoingEventProperties {}
+pub(crate) struct OutgoingEventProperties {
+    #[serde(rename = "type")]
+    kind: &'static str,
+}
+
+impl OutgoingEventProperties {
+    pub(crate) fn new(kind: &'static str) -> Self {
+        Self { kind }
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub(crate) struct OutgoingRequestProperties {
