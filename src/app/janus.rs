@@ -401,9 +401,10 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                 .session_id(inev.session_id())
                 .location_id(&message.properties().agent_id())
                 .execute(&conn)?;
-            let _ = rtc::update_state(session.rtc_id(), &conn)?;
+            let rtc = rtc::update_state(session.rtc_id(), &conn)?;
 
-            Ok(())
+            let event = crate::app::rtc::update_event(rtc);
+            event.into_envelope()?.publish(tx)
         }
         IncomingMessage::HangUp(ref inev) => {
             let conn = janus.db.get()?;
@@ -418,9 +419,10 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                 .session_id(inev.session_id())
                 .location_id(&message.properties().agent_id())
                 .execute(&conn)?;
-            let _ = rtc::delete_state(session.rtc_id(), &conn)?;
+            let rtc = rtc::delete_state(session.rtc_id(), &conn)?;
 
-            Ok(())
+            let event = crate::app::rtc::update_event(rtc);
+            event.into_envelope()?.publish(tx)
         }
         IncomingMessage::Media(ref inev) => Err(format_err!(
             "received an unexpected Media message: {:?}",

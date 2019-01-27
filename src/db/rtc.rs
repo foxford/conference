@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
 #[belongs_to(room::Object, foreign_key = "room_id")]
 #[table_name = "rtc"]
 pub(crate) struct Object {
@@ -25,14 +25,20 @@ impl Object {
     pub(crate) fn id(&self) -> &Uuid {
         &self.id
     }
+
+    pub(crate) fn room_id(&self) -> &Uuid {
+        &self.room_id
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Clone, Deserialize, Serialize, FromSqlRow, AsExpression)]
 #[sql_type = "sql::Rtc_state"]
 pub(crate) struct RtcState {
     label: String,
     sent_by: AgentId,
+// NOTE: serialization of Option<DateTime> isn't supported by chrono
 //    #[serde(with = "ts_seconds")]
 //    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(skip)]
@@ -189,18 +195,18 @@ impl<'a> UpdateQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn update_state(id: &Uuid, conn: &PgConnection) -> Result<usize, Error> {
+pub(crate) fn update_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Error> {
     use diesel::prelude::*;
 
     let q = format!("update rtc set state.sent_at = now() where id = '{}'", id);
-    diesel::sql_query(q).execute(conn)
+    diesel::sql_query(q).get_result(conn)
 }
 
-pub(crate) fn delete_state(id: &Uuid, conn: &PgConnection) -> Result<usize, Error> {
+pub(crate) fn delete_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Error> {
     use diesel::prelude::*;
 
     let q = format!("update rtc set state = null where id = '{}'", id);
-    diesel::sql_query(q).execute(conn)
+    diesel::sql_query(q).get_result(conn)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
