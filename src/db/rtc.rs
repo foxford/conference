@@ -38,10 +38,8 @@ impl Object {
 pub(crate) struct RtcState {
     label: String,
     sent_by: AgentId,
-// NOTE: serialization of Option<DateTime> isn't supported by chrono
-//    #[serde(with = "ts_seconds")]
-//    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::serde::ts_seconds_option")]
     sent_at: Option<DateTime<Utc>>,
 }
 
