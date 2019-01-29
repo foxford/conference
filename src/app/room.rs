@@ -1,6 +1,6 @@
 use crate::db::room;
+use chrono::{offset::Utc, Duration};
 use diesel::pg::PgConnection;
-use std::collections::Bound;
 use uuid::Uuid;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -10,9 +10,11 @@ pub(crate) fn create_demo_room(conn: &PgConnection, audience: &str) {
 
     let id =
         Uuid::from_str("00000001-0000-1000-a000-000000000000").expect("Error generating room id");
-    let time = (Bound::Unbounded, Bound::Unbounded);
 
-    let _ = room::InsertQuery::new(time, &audience)
+    let start = Utc::now();
+    let end = start + Duration::weeks(53);
+
+    let _ = room::InsertQuery::new(&start..&end, &audience)
         .id(&id)
         .execute(conn);
 }
