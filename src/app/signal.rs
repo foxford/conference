@@ -115,11 +115,14 @@ fn parse_sdp_type(jsep: &JsonValue) -> Result<SdpType, Error> {
     let sdp_type = jsep.get("type");
     let candidate = jsep.get("candidate");
     match (sdp_type, candidate) {
+        // {"type": "offer", "sdp": _}
         (Some(JsonValue::String(ref val)), None) if val == "offer" => Ok(SdpType::Offer),
+        // {"type": "answer", "sdp": _}
         (Some(JsonValue::String(ref val)), None) if val == "answer" => Ok(SdpType::Answer),
-        (None, Some(JsonValue::String(_))) => Ok(SdpType::IceCandidate),
-        (None, Some(JsonValue::Object(_))) => Ok(SdpType::IceCandidate), // {"completed": true}
-        (None, Some(JsonValue::Null)) => Ok(SdpType::IceCandidate),      // null
+        // {"completed": true} or {"sdpMid": _, "sdpMLineIndex": _, "candidate": _}
+        (None, Some(JsonValue::Object(_))) => Ok(SdpType::IceCandidate),
+        // null
+        (None, Some(JsonValue::Null)) => Ok(SdpType::IceCandidate),
         _ => Err(format_err!("invalid jsep = {}", jsep)),
     }
 }
