@@ -126,7 +126,7 @@ fn parse_sdp_type(jsep: &JsonValue) -> Result<SdpType, Error> {
 }
 
 fn is_sdp_recvonly(jsep: &JsonValue) -> Result<bool, Error> {
-    use rsdparsa::{attribute_type::SdpAttributeType, parse_sdp};
+    use webrtc_sdp::{attribute_type::SdpAttributeType, parse_sdp};
 
     let sdp = jsep.get("sdp").ok_or_else(|| err_msg("missing sdp"))?;
     let sdp = sdp
