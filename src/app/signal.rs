@@ -75,7 +75,6 @@ impl State {
                         .ok_or_else(|| err_msg("missing label"))?;
                     let state = rtc::RtcState::new(label, inreq.properties().agent_id(), None);
                     let _ = rtc::UpdateQuery::new(rtc_id).state(&state).execute(&conn)?;
-                    let _ = rtc::delete_state(rtc_id, &conn)?;
 
                     let backreq = janus::create_stream_request(
                         inreq.properties().clone(),
