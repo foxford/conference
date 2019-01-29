@@ -1,6 +1,6 @@
-use serde::ser::{Serialize, Serializer};
-use serde_derive::Serialize;
 use chrono::{DateTime, Utc};
+use serde::ser::Serializer;
+use serde_derive::Serialize;
 
 #[derive(Serialize)]
 #[serde(remote = "http::StatusCode")]
