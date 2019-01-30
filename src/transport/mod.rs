@@ -35,7 +35,7 @@ impl FromStr for SharedGroup {
         match parts[..] {
             [ref label, ref rest] => Ok(Self::new(label, rest.parse::<AccountId>()?)),
             _ => Err(format_err!(
-                "Invalid value for the application group: {}",
+                "invalid value for the application group: {}",
                 val
             )),
         }

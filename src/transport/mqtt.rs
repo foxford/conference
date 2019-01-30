@@ -400,7 +400,7 @@ impl DestinationTopic for OutgoingEventProperties {
                 uri = dest_uri,
             )),
             _ => Err(format_err!(
-                "Destination {:?} incompatible with event message type",
+                "destination = '{:?}' incompatible with event message type",
                 dest,
             )),
         }
@@ -421,7 +421,7 @@ impl DestinationTopic for OutgoingRequestProperties {
                 app_name = dest_account_id,
             )),
             _ => Err(format_err!(
-                "Destination {:?} incompatible with request message type",
+                "destination = '{:?}' incompatible with request message type",
                 dest,
             )),
         }
@@ -439,7 +439,7 @@ impl DestinationTopic for OutgoingResponseProperties {
                     app_name = &agent_id.account_id(),
                 )),
                 _ => Err(format_err!(
-                    "Destination {:?} incompatible with response message type",
+                    "destination = '{:?}' incompatible with response message type",
                     dest,
                 )),
             },
@@ -499,7 +499,7 @@ pub mod compat {
         let payload = envelope.payload::<T>()?;
         match envelope.properties {
             IncomingEnvelopeProperties::Event(props) => Ok(IncomingMessage::new(payload, props)),
-            val => Err(format_err!("Error converting into event = {:?}", val)),
+            val => Err(format_err!("error converting into event = {:?}", val)),
         }
     }
 
@@ -521,7 +521,7 @@ pub mod compat {
         let payload = envelope.payload::<T>()?;
         match envelope.properties {
             IncomingEnvelopeProperties::Response(props) => Ok(IncomingMessage::new(payload, props)),
-            _ => Err(err_msg("Error converting into response")),
+            _ => Err(err_msg("error converting into response")),
         }
     }
 

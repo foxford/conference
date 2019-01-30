@@ -39,7 +39,7 @@ impl FromStr for AccountId {
         match parts[..] {
             [ref label, ref audience] => Ok(Self::new(label, audience)),
             _ => Err(format_err!(
-                "Invalid value for the application name: {}",
+                "invalid value for the application name: {}",
                 val
             )),
         }
@@ -89,7 +89,7 @@ impl FromStr for AgentId {
                 let agent_id = Self::new(agent_label, account_id);
                 Ok(agent_id)
             }
-            _ => Err(format_err!("Invalid value for the agent id: {}", val)),
+            _ => Err(format_err!("invalid value for the agent id: {}", val)),
         }
     }
 }
