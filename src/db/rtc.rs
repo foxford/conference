@@ -196,14 +196,20 @@ impl<'a> UpdateQuery<'a> {
 pub(crate) fn update_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Error> {
     use diesel::prelude::*;
 
-    let q = format!("update rtc set state.sent_at = now() where id = '{}'", id);
+    let q = format!(
+        "update rtc set state = null where id = '{}' ::uuid returning *",
+        id,
+    );
     diesel::sql_query(q).get_result(conn)
 }
 
 pub(crate) fn delete_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Error> {
     use diesel::prelude::*;
 
-    let q = format!("update rtc set state = null where id = '{}'", id);
+    let q = format!(
+        "update rtc set state = null where id = '{}' ::uuid returning *",
+        id,
+    );
     diesel::sql_query(q).get_result(conn)
 }
 
