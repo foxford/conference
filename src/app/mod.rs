@@ -13,7 +13,8 @@ pub(crate) fn run(db: &ConnectionPool) {
     info!("App config: {:?}", config);
 
     // Agent
-    let agent_id = AgentId::new("alpha", config.id);
+    let agent_id = AgentId::new(&generate_agent_label(), config.id);
+    info!("Agent id: {:?}", &agent_id);
     let (mut tx, rx) = AgentBuilder::new(agent_id.clone(), config.backend_id.clone())
         .start(&config.mqtt)
         .expect("Failed to create an agent");
@@ -106,6 +107,13 @@ fn handle_message(
         },
         _ => Err(format_err!("Unsupported message type: {:?}", envelope)),
     }
+}
+
+fn generate_agent_label() -> String {
+    use rand::distributions::Alphanumeric;
+    use rand::{thread_rng, Rng};
+
+    thread_rng().sample_iter(&Alphanumeric).take(32).collect()
 }
 
 mod config;
