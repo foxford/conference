@@ -40,7 +40,7 @@ impl<'a> FindQuery<'a> {
         Self { reply_to, rtc_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         rtc::table
@@ -54,5 +54,6 @@ impl<'a> FindQuery<'a> {
                 janus_session_shadow::location_id,
             ))
             .get_result(conn)
+            .optional()
     }
 }

@@ -43,7 +43,10 @@ pub(crate) fn run(db: &ConnectionPool) {
                 {
                     // Log incoming messages
                     let text = std::str::from_utf8(bytes).unwrap_or("[non-utf8 characters]");
-                    info!("Incoming message = {} sent to the topic = {}", text, topic)
+                    info!(
+                        "incoming message = '{}' sent to the topic = '{}'",
+                        text, topic,
+                    )
                 }
 
                 let result = if topic.starts_with(&format!("apps/{}", &config.backend_id)) {
@@ -55,14 +58,14 @@ pub(crate) fn run(db: &ConnectionPool) {
                 if let Err(err) = result {
                     let text = std::str::from_utf8(bytes).unwrap_or("[non-utf8 characters]");
                     error!(
-                        "Error processing a message = {text} sent to the topic = {topic}: {detail}",
+                        "error processing a message = '{text}' sent to the topic = '{topic}', '{detail}'",
                         text = text,
                         topic = topic,
                         detail = err,
                     )
                 }
             }
-            _ => error!("An unsupported type of message = {:?}", message),
+            _ => error!("an unsupported type of message = '{:?}'", message),
         }
     }
 }
@@ -106,9 +109,9 @@ fn handle_message(
                 let next = signal.create(&req)?;
                 next.publish(tx)
             }
-            _ => Err(format_err!("Unsupported request method: {:?}", envelope)),
+            _ => Err(format_err!("unsupported request method – {:?}", envelope)),
         },
-        _ => Err(format_err!("Unsupported message type: {:?}", envelope)),
+        _ => Err(format_err!("unsupported message type – {:?}", envelope)),
     }
 }
 

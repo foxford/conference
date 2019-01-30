@@ -47,13 +47,21 @@ impl State {
 
 impl State {
     pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
+        let agent_id = inreq.properties().agent_id();
         let rtc_id = &inreq.payload().rtc_id;
         let jsep = &inreq.payload().jsep;
         let sdp_type = parse_sdp_type(jsep)?;
 
         let conn = self.db.get()?;
-        let object =
-            location::FindQuery::new(&inreq.properties().agent_id(), rtc_id).execute(&conn)?;
+        let object = location::FindQuery::new(&agent_id, rtc_id)
+            .execute(&conn)?
+            .ok_or_else(|| {
+                format_err!(
+                    "the location of the rtc = '{}' for the agent = '{}' is not found",
+                    rtc_id,
+                    &agent_id,
+                )
+            })?;
 
         match sdp_type {
             SdpType::Offer => {
@@ -87,7 +95,7 @@ impl State {
                     backreq.into_envelope()
                 }
             }
-            SdpType::Answer => Err(err_msg("sdp_type = answer is not allowed")),
+            SdpType::Answer => Err(err_msg("sdp_type = 'answer' is not allowed")),
             SdpType::IceCandidate => {
                 let backreq = janus::trickle_request(
                     inreq.properties().clone(),
@@ -123,7 +131,7 @@ fn parse_sdp_type(jsep: &JsonValue) -> Result<SdpType, Error> {
         (None, Some(JsonValue::Object(_))) => Ok(SdpType::IceCandidate),
         // null
         (None, Some(JsonValue::Null)) => Ok(SdpType::IceCandidate),
-        _ => Err(format_err!("invalid jsep = {}", jsep)),
+        _ => Err(format_err!("invalid jsep = '{}'", jsep)),
     }
 }
 
@@ -133,7 +141,7 @@ fn is_sdp_recvonly(jsep: &JsonValue) -> Result<bool, Error> {
     let sdp = jsep.get("sdp").ok_or_else(|| err_msg("missing sdp"))?;
     let sdp = sdp
         .as_str()
-        .ok_or_else(|| format_err!("invalid sdp = {}", sdp))?;
+        .ok_or_else(|| format_err!("invalid sdp = '{}'", sdp))?;
     let sdp = parse_sdp(sdp, false).map_err(|_| err_msg("invalid sdp"))?;
 
     // Returning true if all media section contains 'recvonly' attribute

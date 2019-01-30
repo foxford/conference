@@ -278,7 +278,9 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                         .execute(&conn)?;
 
                     // Returning Real-Time connection
-                    let object = rtc::FindQuery::new(&rtc_id).execute(&conn)?;
+                    let object = rtc::FindQuery::new(&rtc_id)
+                        .execute(&conn)?
+                        .ok_or_else(|| format_err!("the rtc = '{}' is not found", &rtc_id))?;
                     let resp = crate::app::rtc::ObjectResponse::new(
                         object,
                         reqp.to_response(&OutgoingResponseStatus::OK),
@@ -397,10 +399,19 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             // for the first select statement. The problem is that its
             // return value is always 'Nullable' when the 'rtc_id' value
             // for the following statement can't be null.
+            let session_id = inev.session_id();
+            let location_id = &message.properties().agent_id();
             let session = janus_session_shadow::FindQuery::new()
-                .session_id(inev.session_id())
-                .location_id(&message.properties().agent_id())
-                .execute(&conn)?;
+                .session_id(session_id)
+                .location_id(location_id)
+                .execute(&conn)?
+                .ok_or_else(|| {
+                    format_err!(
+                        "session = '{}' within location = '{}' is not found",
+                        session_id,
+                        location_id,
+                    )
+                })?;
             let rtc = rtc::update_state(session.rtc_id(), &conn)?;
 
             let event = crate::app::rtc::update_event(rtc);
@@ -415,10 +426,19 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             // for the first select statement. The problem is that its
             // return value is always 'Nullable' when the 'rtc_id' value
             // for the following statement can't be null.
+            let session_id = inev.session_id();
+            let location_id = &message.properties().agent_id();
             let session = janus_session_shadow::FindQuery::new()
-                .session_id(inev.session_id())
-                .location_id(&message.properties().agent_id())
-                .execute(&conn)?;
+                .session_id(session_id)
+                .location_id(location_id)
+                .execute(&conn)?
+                .ok_or_else(|| {
+                    format_err!(
+                        "session = '{}' within location = '{}' is not found",
+                        session_id,
+                        location_id,
+                    )
+                })?;
             let rtc = rtc::delete_state(session.rtc_id(), &conn)?;
 
             let event = crate::app::rtc::update_event(rtc);

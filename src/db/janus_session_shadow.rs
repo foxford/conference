@@ -101,17 +101,19 @@ impl<'a> FindQuery<'a> {
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         match (self.rtc_id, (self.session_id, self.location_id)) {
             (Some(rtc_id), _) => janus_session_shadow::table
-                .filter(janus_session_shadow::rtc_id.eq(rtc_id))
-                .get_result(conn),
+                .find(rtc_id)
+                .get_result(conn)
+                .optional(),
             (None, (Some(session_id), Some(location_id))) => janus_session_shadow::table
                 .filter(janus_session_shadow::session_id.eq(session_id))
                 .filter(janus_session_shadow::location_id.eq(location_id))
-                .get_result(conn),
+                .get_result(conn)
+                .optional(),
             _ => Err(Error::QueryBuilderError(
                 "rtc_id or session_id and location_id are required parameters of the query".into(),
             )),

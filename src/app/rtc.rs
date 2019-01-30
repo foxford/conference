@@ -7,7 +7,7 @@ use crate::transport::mqtt::{
     OutgoingResponseStatus, Publishable,
 };
 use crate::transport::Destination;
-use failure::Error;
+use failure::{format_err, Error};
 use serde_derive::Deserialize;
 use uuid::Uuid;
 
@@ -81,20 +81,23 @@ impl State {
         // Looking up for Janus Handle
         let conn = self.db.get()?;
         let maybe_location =
-            location::FindQuery::new(&inreq.properties().agent_id(), &id).execute(&conn);
+            location::FindQuery::new(&inreq.properties().agent_id(), &id).execute(&conn)?;
 
         match maybe_location {
-            Ok(_) => {
+            Some(_) => {
                 // Returning Real-Time connection
-                let object = rtc::FindQuery::new(&id).execute(&conn)?;
+                let object = rtc::FindQuery::new(&id)
+                    .execute(&conn)?
+                    .ok_or_else(|| format_err!("the rtc = '{}' is not found", &id))?;
                 let resp = inreq.to_response(object, &OutgoingResponseStatus::OK);
                 resp.into_envelope()
             }
-            Err(_) => {
+            None => {
                 // Looking up for Janus Gateway Session
                 let session = janus_session_shadow::FindQuery::new()
                     .rtc_id(&id)
-                    .execute(&conn)?;
+                    .execute(&conn)?
+                    .ok_or_else(|| format_err!("a session for rtc = '{}' is not found", &id))?;
 
                 // Building a Create Janus Gateway Handle request
                 let backreq = janus::create_handle_request(

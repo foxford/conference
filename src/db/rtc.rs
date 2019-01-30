@@ -64,10 +64,10 @@ impl<'a> FindQuery<'a> {
         Self { id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
-        rtc::table.find(self.id).get_result(conn)
+        rtc::table.find(self.id).get_result(conn).optional()
     }
 }
 
