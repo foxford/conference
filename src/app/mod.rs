@@ -19,17 +19,14 @@ pub(crate) fn run(db: &ConnectionPool) {
         .start(&config.mqtt)
         .expect("Failed to create an agent");
 
-    // TODO: Remove creating a demo room
-    {
-        let conn = db.get().expect("Error getting a database connection");
-        self::room::create_demo_room(&conn, agent_id.account_id().audience());
-    }
-
     // TODO: derive a backend agent id from a status message
     let backend_agent_id = AgentId::new("alpha", config.backend_id.clone());
 
+    // Create Room resource
+    let room = room::State::new(db.clone());
+
     // Create Real-Time Connection resource
-    let rtc = rtc::State::new(db.clone(), backend_agent_id);
+    let rtc = rtc::State::new(db.clone(), backend_agent_id.clone());
 
     // Create Signal resource
     let signal = signal::State::new(db.clone());
@@ -52,7 +49,7 @@ pub(crate) fn run(db: &ConnectionPool) {
                 let result = if topic.starts_with(&format!("apps/{}", &config.backend_id)) {
                     janus::handle_message(&mut tx, bytes, &backend)
                 } else {
-                    handle_message(&mut tx, bytes, &rtc, &signal)
+                    handle_message(&mut tx, bytes, &rtc, &signal, &room)
                 };
 
                 if let Err(err) = result {
@@ -75,10 +72,16 @@ fn handle_message(
     bytes: &[u8],
     rtc: &rtc::State,
     signal: &signal::State,
+    room: &room::State,
 ) -> Result<(), Error> {
     let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(bytes)?;
     match envelope.properties() {
         compat::IncomingEnvelopeProperties::Request(ref req) => match req.method() {
+            "room.create" => {
+                let req = compat::into_request(envelope)?;
+                let next = room.create(&req)?;
+                next.publish(tx)
+            }
             "rtc.create" => {
                 // TODO: catch and process errors: unprocessable entry
                 let req = compat::into_request(envelope)?;

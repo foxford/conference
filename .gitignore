@@ -16,3 +16,4 @@ Session.vim
 App.toml
 /docs/book/
 .idea
+.vscode

@@ -10,6 +10,7 @@ use uuid::Uuid;
 #[table_name = "room"]
 pub(crate) struct Object {
     id: Uuid,
+    #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: String,
     created_at: DateTime<Utc>,
@@ -19,13 +20,13 @@ pub(crate) struct Object {
 #[table_name = "room"]
 pub(crate) struct InsertQuery<'a> {
     id: Option<&'a Uuid>,
-    time: (Bound<&'a DateTime<Utc>>, Bound<&'a DateTime<Utc>>),
+    time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: &'a str,
 }
 
 impl<'a> InsertQuery<'a> {
     pub(crate) fn new(
-        time: (Bound<&'a DateTime<Utc>>, Bound<&'a DateTime<Utc>>),
+        time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
         audience: &'a str,
     ) -> Self {
         Self {
