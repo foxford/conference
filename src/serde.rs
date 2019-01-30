@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::ser::{Serialize, Serializer};
+use serde::ser::Serializer;
 use serde_derive::Serialize;
 
 #[derive(Serialize)]

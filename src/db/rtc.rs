@@ -165,7 +165,7 @@ impl<'a> InsertQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, AsChangeset)]
+#[derive(Debug, Identifiable, AsChangeset)]
 #[table_name = "rtc"]
 pub(crate) struct UpdateQuery<'a> {
     id: &'a Uuid,
@@ -187,7 +187,7 @@ impl<'a> UpdateQuery<'a> {
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use diesel::prelude::*;
 
-        diesel::update(rtc::table).set(self).get_result(conn)
+        diesel::update(self).set(self).get_result(conn)
     }
 }
 
