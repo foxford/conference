@@ -18,15 +18,11 @@ pub(crate) fn run(db: &ConnectionPool) {
         .start(&config.mqtt)
         .expect("Failed to create an agent");
 
-    {
-        let _conn = db.get().expect("Error getting a database connection");
-    }
-
     // TODO: derive a backend agent id from a status message
     let backend_agent_id = AgentId::new("alpha", config.backend_id.clone());
 
     // Create Room resource
-    let room = room::State::new(db.clone(), backend_agent_id.clone());
+    let room = room::State::new(db.clone());
 
     // Create Real-Time Connection resource
     let rtc = rtc::State::new(db.clone(), backend_agent_id.clone());

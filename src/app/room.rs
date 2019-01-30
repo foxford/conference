@@ -27,16 +27,11 @@ pub(crate) type ObjectResponse = OutgoingResponse<room::Object>;
 
 pub(crate) struct State {
     db: ConnectionPool,
-    // TODO: replace with backend agent registry
-    backend_agent_id: AgentId,
 }
 
 impl State {
-    pub(crate) fn new(db: ConnectionPool, backend_agent_id: AgentId) -> Self {
-        Self {
-            db,
-            backend_agent_id,
-        }
+    pub(crate) fn new(db: ConnectionPool) -> Self {
+        Self { db }
     }
 }
 
