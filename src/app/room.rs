@@ -1,22 +1,58 @@
 use std::ops::Bound;
 
-use chrono::{offset::Utc, Duration};
-use diesel::pg::PgConnection;
-use uuid::Uuid;
+use chrono::{offset::Utc, DateTime};
+use failure::Error;
+use serde_derive::Deserialize;
 
-use crate::db::room;
+use crate::authn::AgentId;
+use crate::db::{room, ConnectionPool};
+use crate::transport::mqtt::{
+    compat::IntoEnvelope, IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable,
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn create_demo_room(conn: &PgConnection, audience: &str) {
-    use std::str::FromStr;
+pub(crate) type CreateRequest = IncomingRequest<CreateRequestData>;
 
-    let id =
-        Uuid::from_str("00000001-0000-1000-a000-000000000000").expect("Error generating room id");
+#[derive(Debug, Deserialize)]
+pub(crate) struct CreateRequestData {
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    audience: String,
+}
 
-    let time = (Bound::Unbounded, Bound::Unbounded);
+pub(crate) type ObjectResponse = OutgoingResponse<room::Object>;
 
-    let _ = room::InsertQuery::new(time, &audience)
-        .id(&id)
-        .execute(conn);
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct State {
+    db: ConnectionPool,
+    // TODO: replace with backend agent registry
+    backend_agent_id: AgentId,
+}
+
+impl State {
+    pub(crate) fn new(db: ConnectionPool, backend_agent_id: AgentId) -> Self {
+        Self {
+            db,
+            backend_agent_id,
+        }
+    }
+}
+
+impl State {
+    pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
+        // Creating a Room
+        let conn = self.db.get()?;
+
+        let time = (
+            Bound::Included(&inreq.payload().start),
+            Bound::Included(&inreq.payload().end),
+        );
+
+        let object = room::InsertQuery::new(time, &inreq.payload().audience).execute(&conn)?;
+
+        let resp = inreq.to_response(object, &OutgoingResponseStatus::OK);
+        resp.into_envelope()
+    }
 }
