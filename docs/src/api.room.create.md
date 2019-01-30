@@ -26,11 +26,10 @@ correlation_data | string | _required_ | The same value will be in a response
 
 **Payload**
 
-Name              | Type                 | Default    | Description
------------------ | -------------------- | ---------- | ------------------
-start             | Unix timestamp (UTC) | _required_ | A time when Room becomes 'open' for certain operations.
-end               | Unix timestamp (UTC) | _required_ | A time when Room becomes 'closed' for certain operations.
-audience          | string               | _required_ | Room's audience.
+Name     | Type                             | Default    | Description
+-------- | -------------------------------- | ---------- | ------------------
+time     | Array of 2 Unix timestamps (UTC) | _required_ | An interval when Room is 'open' for certain operations.
+audience | string                           | _required_ | Room's audience.
 
 **Response**
 

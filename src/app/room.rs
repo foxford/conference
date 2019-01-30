@@ -1,6 +1,6 @@
 use std::ops::Bound;
 
-use chrono::{serde::ts_seconds, DateTime, Utc};
+use chrono::{DateTime, Utc};
 use failure::Error;
 use serde_derive::Deserialize;
 
@@ -15,10 +15,8 @@ pub(crate) type CreateRequest = IncomingRequest<CreateRequestData>;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct CreateRequestData {
-    #[serde(with = "ts_seconds")]
-    start: DateTime<Utc>,
-    #[serde(with = "ts_seconds")]
-    end: DateTime<Utc>,
+    #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
+    time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: String,
 }
 
@@ -41,12 +39,8 @@ impl State {
         // Creating a Room
         let conn = self.db.get()?;
 
-        let time = (
-            Bound::Included(&inreq.payload().start),
-            Bound::Included(&inreq.payload().end),
-        );
-
-        let object = room::InsertQuery::new(time, &inreq.payload().audience).execute(&conn)?;
+        let object = room::InsertQuery::new(inreq.payload().time, &inreq.payload().audience)
+            .execute(&conn)?;
 
         let resp = inreq.to_response(object, &OutgoingResponseStatus::OK);
         resp.into_envelope()
