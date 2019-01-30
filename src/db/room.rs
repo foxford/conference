@@ -10,6 +10,7 @@ use uuid::Uuid;
 #[table_name = "room"]
 pub(crate) struct Object {
     id: Uuid,
+    #[serde(serialize_with = "crate::serde::ts_seconds_bound_tuple")]
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: String,
     created_at: DateTime<Utc>,

@@ -1,10 +1,9 @@
 use std::ops::Bound;
 
-use chrono::{offset::Utc, DateTime};
+use chrono::{serde::ts_seconds, DateTime, Utc};
 use failure::Error;
 use serde_derive::Deserialize;
 
-use crate::authn::AgentId;
 use crate::db::{room, ConnectionPool};
 use crate::transport::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable,
@@ -16,7 +15,9 @@ pub(crate) type CreateRequest = IncomingRequest<CreateRequestData>;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct CreateRequestData {
+    #[serde(with = "ts_seconds")]
     start: DateTime<Utc>,
+    #[serde(with = "ts_seconds")]
     end: DateTime<Utc>,
     audience: String,
 }
