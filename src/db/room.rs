@@ -2,10 +2,11 @@ use crate::schema::room;
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
-use std::collections::Bound;
+use serde_derive::Serialize;
+use std::ops::Bound;
 use uuid::Uuid;
 
-#[derive(Debug, Identifiable, Queryable)]
+#[derive(Debug, Identifiable, Queryable, Serialize)]
 #[table_name = "room"]
 pub(crate) struct Object {
     id: Uuid,
