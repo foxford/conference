@@ -2,6 +2,8 @@
 
 - [Overview](overview.md)
 - [API](api.md)
+    - [Room](api.room.md)
+        - [Create](api.room.create.md)
     - [Real-Time Connection](api.rtc.md)
         - [Create](api.rtc.create.md)
         - [Read](api.rtc.read.md)
