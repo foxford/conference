@@ -37,14 +37,19 @@ impl Object {
 #[sql_type = "sql::Rtc_state"]
 pub(crate) struct RtcState {
     label: String,
-    sent_by: AgentId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sent_by: Option<AgentId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(serialize_with = "crate::serde::ts_seconds_option")]
     sent_at: Option<DateTime<Utc>>,
 }
 
 impl RtcState {
-    pub(crate) fn new(label: &str, sent_by: AgentId, sent_at: Option<DateTime<Utc>>) -> Self {
+    pub(crate) fn new(
+        label: &str,
+        sent_by: Option<AgentId>,
+        sent_at: Option<DateTime<Utc>>,
+    ) -> Self {
         Self {
             label: label.to_owned(),
             sent_by,
@@ -197,17 +202,18 @@ pub(crate) fn update_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Err
     use diesel::prelude::*;
 
     let q = format!(
-        "update rtc set state = null where id = '{}' ::uuid returning *",
+        "update rtc set state.sent_at = now() where id = '{}' ::uuid returning *",
         id,
     );
     diesel::sql_query(q).get_result(conn)
 }
 
+// NOTE: erase all state fields but 'label' in order to be able to recognize a previously created rtc
 pub(crate) fn delete_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Error> {
     use diesel::prelude::*;
 
     let q = format!(
-        "update rtc set state = null where id = '{}' ::uuid returning *",
+        "update rtc set state.sent_by = null, state.sent_at = null where id = '{}' ::uuid returning *",
         id,
     );
     diesel::sql_query(q).get_result(conn)
@@ -235,7 +241,7 @@ pub mod sql {
 
     impl ToSql<Rtc_state, Pg> for RtcState {
         fn to_sql<W: Write>(&self, out: &mut Output<W, Pg>) -> serialize::Result {
-            WriteTuple::<(Text, Agent_id, Nullable<Timestamptz>)>::write_tuple(
+            WriteTuple::<(Text, Nullable<Agent_id>, Nullable<Timestamptz>)>::write_tuple(
                 &(&self.label, &self.sent_by, &self.sent_at),
                 out,
             )
@@ -244,8 +250,10 @@ pub mod sql {
 
     impl FromSql<Rtc_state, Pg> for RtcState {
         fn from_sql(bytes: Option<&[u8]>) -> deserialize::Result<Self> {
-            let (label, sent_by, sent_at): (String, AgentId, Option<DateTime<Utc>>) =
-                FromSql::<Record<(Text, Agent_id, Nullable<Timestamptz>)>, Pg>::from_sql(bytes)?;
+            let (label, sent_by, sent_at): (String, Option<AgentId>, Option<DateTime<Utc>>) =
+                FromSql::<Record<(Text, Nullable<Agent_id>, Nullable<Timestamptz>)>, Pg>::from_sql(
+                    bytes,
+                )?;
             Ok(RtcState::new(&label, sent_by, sent_at))
         }
     }
