@@ -120,17 +120,26 @@ enum SdpType {
 }
 
 fn parse_sdp_type(jsep: &JsonValue) -> Result<SdpType, Error> {
+    // '{"type": "offer", "sdp": _}' or '{"type": "answer", "sdp": _}'
     let sdp_type = jsep.get("type");
-    let candidate = jsep.get("candidate");
-    match (sdp_type, candidate) {
-        // {"type": "offer", "sdp": _}
-        (Some(JsonValue::String(ref val)), None) if val == "offer" => Ok(SdpType::Offer),
+    // '{"sdpMid": _, "sdpMLineIndex": _, "candidate": _}' or '{"completed": true}' or 'null'
+    let is_candidate = {
+        let candidate = jsep.get("candidate");
+        let completed = jsep.get("completed");
+        candidate
+            .map(|val| val.is_string())
+            .unwrap_or_else(|| false)
+            || completed
+                .map(|val| val.as_bool().unwrap_or_else(|| false))
+                .unwrap_or_else(|| false)
+            || jsep.is_null()
+    };
+    match (sdp_type, is_candidate) {
+        (Some(JsonValue::String(ref val)), false) if val == "offer" => Ok(SdpType::Offer),
         // {"type": "answer", "sdp": _}
-        (Some(JsonValue::String(ref val)), None) if val == "answer" => Ok(SdpType::Answer),
+        (Some(JsonValue::String(ref val)), false) if val == "answer" => Ok(SdpType::Answer),
         // {"completed": true} or {"sdpMid": _, "sdpMLineIndex": _, "candidate": _}
-        (None, Some(JsonValue::Object(_))) => Ok(SdpType::IceCandidate),
-        // null
-        (None, Some(JsonValue::Null)) => Ok(SdpType::IceCandidate),
+        (None, true) => Ok(SdpType::IceCandidate),
         _ => Err(format_err!("invalid jsep = '{}'", jsep)),
     }
 }
