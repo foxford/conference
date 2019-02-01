@@ -18,13 +18,13 @@ In order to authorize an **action** performed by a **subject** to an **object**,
 }
 ```
 
-Subject's namespace and account identifier are retrieved from `audience` and `account_label` properties of MQTT message respectively. URI of authorization endpoint, object and anonymous namespaces are configured through the application configuration file.
+Subject's namespace and account label are retrieved from `audience` and `account_label` properties of MQTT message respectively. URI of authorization endpoint, object and anonymous namespaces are configured through the application configuration file.
 
 Possible values for `SUBJECT`:
 
-subject                   |
-------------------------- | -
-["accounts", ACCOUNT_ID]  |
+subject                     |
+--------------------------- | -
+["accounts", ACCOUNT_LABEL] |
 
 Possible values for `OBJECT` and `ACTION`:
 
