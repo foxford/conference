@@ -81,12 +81,16 @@ impl Agent {
         &mut self,
         subscription: &S,
         qos: QoS,
-        group: &SharedGroup,
+        maybe_group: Option<&SharedGroup>,
     ) -> Result<(), Error>
     where
         S: SubscriptionTopic,
     {
-        let topic = subscription.subscription_topic(&self.id, group)?;
+        let mut topic = subscription.subscription_topic(&self.id)?;
+        if let Some(ref group) = maybe_group {
+            topic = format!("$share/{group}/{topic}", group = group, topic = topic);
+        };
+
         self.tx.subscribe(topic, qos)?;
         Ok(())
     }
@@ -434,7 +438,7 @@ impl DestinationTopic for OutgoingResponseProperties {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) trait SubscriptionTopic {
-    fn subscription_topic(&self, agent_id: &AgentId, group: &SharedGroup) -> Result<String, Error>;
+    fn subscription_topic(&self, agent_id: &AgentId) -> Result<String, Error>;
 }
 
 pub(crate) struct EventSubscription {
@@ -448,11 +452,10 @@ impl EventSubscription {
 }
 
 impl SubscriptionTopic for EventSubscription {
-    fn subscription_topic(&self, _: &AgentId, group: &SharedGroup) -> Result<String, Error> {
+    fn subscription_topic(&self, _: &AgentId) -> Result<String, Error> {
         match self.source {
             Source::Broadcast(ref source_account_id, ref source_uri) => Ok(format!(
-                "$share/{group}/apps/{app_name}/api/v1/{uri}",
-                group = group,
+                "apps/{app_name}/api/v1/{uri}",
                 app_name = source_account_id,
                 uri = source_uri,
             )),
@@ -475,17 +478,15 @@ impl RequestSubscription {
 }
 
 impl SubscriptionTopic for RequestSubscription {
-    fn subscription_topic(&self, agent_id: &AgentId, group: &SharedGroup) -> Result<String, Error> {
+    fn subscription_topic(&self, agent_id: &AgentId) -> Result<String, Error> {
         match self.source {
             Source::Unicast(ref source_account_id) => Ok(format!(
-                "$share/{group}/agents/{agent_id}/api/v1/in/{app_name}",
-                group = group,
+                "agents/{agent_id}/api/v1/in/{app_name}",
                 agent_id = agent_id,
                 app_name = source_account_id,
             )),
             Source::Multicast => Ok(format!(
-                "$share/{group}/agents/+/api/v1/out/{app_name}",
-                group = group,
+                "agents/+/api/v1/out/{app_name}",
                 app_name = agent_id.account_id(),
             )),
             _ => Err(format_err!(
@@ -507,11 +508,10 @@ impl ResponseSubscription {
 }
 
 impl SubscriptionTopic for ResponseSubscription {
-    fn subscription_topic(&self, agent_id: &AgentId, group: &SharedGroup) -> Result<String, Error> {
+    fn subscription_topic(&self, agent_id: &AgentId) -> Result<String, Error> {
         match self.source {
             Source::Unicast(ref source_account_id) => Ok(format!(
-                "$share/{group}/agents/{agent_id}/api/v1/in/{app_name}",
-                group = group,
+                "agents/{agent_id}/api/v1/in/{app_name}",
                 agent_id = agent_id,
                 app_name = source_account_id,
             )),

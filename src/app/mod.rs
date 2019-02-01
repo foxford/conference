@@ -28,13 +28,13 @@ pub(crate) fn run(db: &ConnectionPool) {
             "responses".to_owned(),
         )),
         QoS::AtLeastOnce,
-        &group,
+        Some(&group),
     )
     .expect("Error subscribing to backend responses");
     tx.subscribe(
         &RequestSubscription::new(Source::Multicast),
         QoS::AtLeastOnce,
-        &group,
+        Some(&group),
     )
     .expect("Error subscribing to everyone's output messages");
 
