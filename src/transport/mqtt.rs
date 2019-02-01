@@ -230,13 +230,12 @@ pub(crate) type IncomingResponse<T> = IncomingMessage<T, IncomingResponsePropert
 
 #[derive(Debug, Serialize)]
 pub(crate) struct OutgoingEventProperties {
-    #[serde(rename = "type")]
-    kind: &'static str,
+    label: &'static str,
 }
 
 impl OutgoingEventProperties {
-    pub(crate) fn new(kind: &'static str) -> Self {
-        Self { kind }
+    pub(crate) fn new(label: &'static str) -> Self {
+        Self { label }
     }
 }
 
