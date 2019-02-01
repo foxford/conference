@@ -2,7 +2,9 @@
 
 Create a signaling message: WebRTC offer or ice candidate.
 
-*NOTE: All media segments of the listener's sdp composing an **offer** must contain a **recvonly** attribute, when at least one media segment of the publisher's sdp must contain a **sendonly** or a **sendrecv** attribute.*
+*NOTE: It is required that agent call **rtc.create** or **rtc.read** method before sending any signal messages.*
+
+*NOTE: All media segments of the **listener**'s sdp composing an **offer** must contain a **recvonly** attribute, when at least one media segment of the **publisher**'s sdp must contain a **sendonly** or a **sendrecv** attribute.*
 
 **Request**
 
@@ -22,7 +24,7 @@ APP_NAME | string | _required_ | Name of the application
 Name             | Type   | Default    | Description
 ---------------- | ------ | ---------- | ------------------
 type             | string | _required_ | Always `request`
-method           | string | _required_ | Always `rtc.create`
+method           | string | _required_ | Always `signal.create`
 response_topic   | string | _required_ | Always `agents/${ME}/api/v1/in/${APP_NAME}`
 correlation_data | string | _required_ | The same value will be in a response
 
