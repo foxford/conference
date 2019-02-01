@@ -1,7 +1,10 @@
-use crate::authn::AgentId;
+use crate::authn::{AccountId, AgentId};
 use crate::db::ConnectionPool;
 use crate::transport::mqtt::compat;
-use crate::transport::mqtt::{Agent, AgentBuilder, Publish};
+use crate::transport::mqtt::{
+    Agent, AgentBuilder, EventSubscription, Publish, QoS, RequestSubscription,
+};
+use crate::transport::{SharedGroup, Source};
 use failure::{format_err, Error};
 use log::{error, info};
 
@@ -15,9 +18,25 @@ pub(crate) fn run(db: &ConnectionPool) {
     // Agent
     let agent_id = AgentId::new(&generate_agent_label(), config.id);
     info!("Agent id: {:?}", &agent_id);
-    let (mut tx, rx) = AgentBuilder::new(agent_id.clone(), config.backend_id.clone())
+    let group = SharedGroup::new("loadbalancer", agent_id.account_id().clone());
+    let (mut tx, rx) = AgentBuilder::new(agent_id.clone())
         .start(&config.mqtt)
         .expect("Failed to create an agent");
+    tx.subscribe(
+        &EventSubscription::new(Source::Broadcast(
+            config.backend_id.clone(),
+            "responses".to_owned(),
+        )),
+        QoS::AtLeastOnce,
+        &group,
+    )
+    .expect("Error subscribing to backend responses");
+    tx.subscribe(
+        &RequestSubscription::new(Source::Multicast),
+        QoS::AtLeastOnce,
+        &group,
+    )
+    .expect("Error subscribing to everyone's output messages");
 
     // TODO: derive a backend agent id from a status message
     let backend_agent_id = AgentId::new("alpha", config.backend_id.clone());

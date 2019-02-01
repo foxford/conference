@@ -1,8 +1,11 @@
-use super::{AuthnProperties, Destination, SharedGroup};
+use super::{AuthnProperties, Destination, SharedGroup, Source};
 use crate::authn::{AccountId, AgentId, Authenticable};
 use failure::{err_msg, format_err, Error};
-use rumqtt::{MqttClient, MqttOptions, QoS};
 use serde_derive::{Deserialize, Serialize};
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) use rumqtt::QoS;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -14,15 +17,11 @@ pub(crate) struct AgentOptions {
 #[derive(Debug)]
 pub(crate) struct AgentBuilder {
     agent_id: AgentId,
-    backend_account_id: AccountId,
 }
 
 impl AgentBuilder {
-    pub(crate) fn new(agent_id: AgentId, backend_account_id: AccountId) -> Self {
-        Self {
-            agent_id,
-            backend_account_id,
-        }
+    pub(crate) fn new(agent_id: AgentId) -> Self {
+        Self { agent_id }
     }
 
     pub(crate) fn start(
@@ -31,18 +30,9 @@ impl AgentBuilder {
     ) -> Result<(Agent, crossbeam_channel::Receiver<rumqtt::Notification>), Error> {
         let client_id = Self::mqtt_client_id(&self.agent_id);
         let options = Self::mqtt_options(&client_id, &config)?;
-        let (tx, rx) = MqttClient::start(options)?;
+        let (tx, rx) = rumqtt::MqttClient::start(options)?;
 
-        let group = SharedGroup::new("loadbalancer", self.agent_id.account_id().clone());
-        let mut agent = Agent::new(self.agent_id, self.backend_account_id, tx);
-        agent.tx.subscribe(
-            agent.backend_responses_subscription(&group),
-            QoS::AtLeastOnce,
-        )?;
-        agent
-            .tx
-            .subscribe(agent.anyone_output_subscription(&group), QoS::AtLeastOnce)?;
-
+        let mut agent = Agent::new(self.agent_id, tx);
         Ok((agent, rx))
     }
 
@@ -50,30 +40,29 @@ impl AgentBuilder {
         format!("v1.mqtt3/agents/{agent_id}", agent_id = agent_id)
     }
 
-    fn mqtt_options(client_id: &str, config: &AgentOptions) -> Result<MqttOptions, Error> {
+    fn mqtt_options(client_id: &str, config: &AgentOptions) -> Result<rumqtt::MqttOptions, Error> {
         let uri = config.uri.parse::<http::Uri>()?;
         let host = uri.host().ok_or_else(|| err_msg("missing MQTT host"))?;
         let port = uri
             .port_part()
             .ok_or_else(|| err_msg("missing MQTT port"))?;
 
-        Ok(MqttOptions::new(client_id, host, port.as_u16()).set_keep_alive(30))
+        Ok(rumqtt::MqttOptions::new(client_id, host, port.as_u16()).set_keep_alive(30))
     }
 }
 
 pub(crate) struct Agent {
     id: AgentId,
-    backend_account_id: AccountId,
     tx: rumqtt::MqttClient,
 }
 
 impl Agent {
-    fn new(id: AgentId, backend_account_id: AccountId, tx: MqttClient) -> Self {
-        Self {
-            id,
-            backend_account_id,
-            tx,
-        }
+    fn new(id: AgentId, tx: rumqtt::MqttClient) -> Self {
+        Self { id, tx }
+    }
+
+    pub(crate) fn id(&self) -> &AgentId {
+        &self.id
     }
 
     pub(crate) fn publish<M>(&mut self, message: &M) -> Result<(), Error>
@@ -88,22 +77,18 @@ impl Agent {
             .map_err(|_| err_msg("Error publishing an MQTT message"))
     }
 
-    // TODO: SubscriptionTopicBuilder -- Destination::Broadcast("responses")
-    fn backend_responses_subscription(&self, group: &SharedGroup) -> String {
-        format!(
-            "$share/{group}/apps/{backend_name}/api/v1/responses",
-            group = group,
-            backend_name = &self.backend_account_id,
-        )
-    }
-
-    // TODO: SubscriptionTopicBuilder -- Destination::Multicast(me)
-    fn anyone_output_subscription(&self, group: &SharedGroup) -> String {
-        format!(
-            "$share/{group}/agents/+/api/v1/out/{name}",
-            group = group,
-            name = &self.id.account_id(),
-        )
+    pub(crate) fn subscribe<S>(
+        &mut self,
+        subscription: &S,
+        qos: QoS,
+        group: &SharedGroup,
+    ) -> Result<(), Error>
+    where
+        S: SubscriptionTopic,
+    {
+        let topic = subscription.subscription_topic(&self.id, group)?;
+        self.tx.subscribe(topic, qos)?;
+        Ok(())
     }
 }
 
@@ -176,7 +161,7 @@ impl Authenticable for IncomingResponseProperties {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub(crate) struct IncomingMessage<T, P>
 where
     P: Authenticable,
@@ -277,7 +262,7 @@ pub(crate) type OutgoingResponseStatus = http::StatusCode;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub(crate) struct OutgoingMessage<T, P>
 where
     T: serde::Serialize,
@@ -399,7 +384,7 @@ impl DestinationTopic for OutgoingEventProperties {
                 uri = dest_uri,
             )),
             _ => Err(format_err!(
-                "destination = '{:?}' incompatible with event message type",
+                "destination = '{:?}' is incompatible with event message type",
                 dest,
             )),
         }
@@ -420,7 +405,7 @@ impl DestinationTopic for OutgoingRequestProperties {
                 app_name = dest_account_id,
             )),
             _ => Err(format_err!(
-                "destination = '{:?}' incompatible with request message type",
+                "destination = '{:?}' is incompatible with request message type",
                 dest,
             )),
         }
@@ -438,10 +423,102 @@ impl DestinationTopic for OutgoingResponseProperties {
                     app_name = &agent_id.account_id(),
                 )),
                 _ => Err(format_err!(
-                    "destination = '{:?}' incompatible with response message type",
+                    "destination = '{:?}' is incompatible with response message type",
                     dest,
                 )),
             },
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) trait SubscriptionTopic {
+    fn subscription_topic(&self, agent_id: &AgentId, group: &SharedGroup) -> Result<String, Error>;
+}
+
+pub(crate) struct EventSubscription {
+    source: Source,
+}
+
+impl EventSubscription {
+    pub(crate) fn new(source: Source) -> Self {
+        Self { source }
+    }
+}
+
+impl SubscriptionTopic for EventSubscription {
+    fn subscription_topic(&self, _: &AgentId, group: &SharedGroup) -> Result<String, Error> {
+        match self.source {
+            Source::Broadcast(ref source_account_id, ref source_uri) => Ok(format!(
+                "$share/{group}/apps/{app_name}/api/v1/{uri}",
+                group = group,
+                app_name = source_account_id,
+                uri = source_uri,
+            )),
+            _ => Err(format_err!(
+                "source = '{:?}' is incompatible with event subscription",
+                self.source,
+            )),
+        }
+    }
+}
+
+pub(crate) struct RequestSubscription {
+    source: Source,
+}
+
+impl RequestSubscription {
+    pub(crate) fn new(source: Source) -> Self {
+        Self { source }
+    }
+}
+
+impl SubscriptionTopic for RequestSubscription {
+    fn subscription_topic(&self, agent_id: &AgentId, group: &SharedGroup) -> Result<String, Error> {
+        match self.source {
+            Source::Unicast(ref source_account_id) => Ok(format!(
+                "$share/{group}/agents/{agent_id}/api/v1/in/{app_name}",
+                group = group,
+                agent_id = agent_id,
+                app_name = source_account_id,
+            )),
+            Source::Multicast => Ok(format!(
+                "$share/{group}/agents/+/api/v1/out/{app_name}",
+                group = group,
+                app_name = agent_id.account_id(),
+            )),
+            _ => Err(format_err!(
+                "source = '{:?}' is incompatible with request subscription",
+                self.source,
+            )),
+        }
+    }
+}
+
+pub(crate) struct ResponseSubscription {
+    source: Source,
+}
+
+impl ResponseSubscription {
+    pub(crate) fn new(source: Source) -> Self {
+        Self { source }
+    }
+}
+
+impl SubscriptionTopic for ResponseSubscription {
+    fn subscription_topic(&self, agent_id: &AgentId, group: &SharedGroup) -> Result<String, Error> {
+        match self.source {
+            Source::Unicast(ref source_account_id) => Ok(format!(
+                "$share/{group}/agents/{agent_id}/api/v1/in/{app_name}",
+                group = group,
+                agent_id = agent_id,
+                app_name = source_account_id,
+            )),
+            _ => Err(format_err!(
+                "source = '{:?}' is incompatible with response subscription",
+                self.source,
+            )),
         }
     }
 }

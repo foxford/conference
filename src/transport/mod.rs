@@ -44,14 +44,21 @@ impl FromStr for SharedGroup {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Serialize)]
+pub(crate) type BroadcastUri = String;
+
+#[derive(Debug)]
 pub(crate) enum Destination {
     Broadcast(BroadcastUri),
     Multicast(AccountId),
     Unicast(AgentId),
 }
 
-pub(crate) type BroadcastUri = String;
+#[derive(Debug)]
+pub(crate) enum Source {
+    Broadcast(AccountId, BroadcastUri),
+    Multicast,
+    Unicast(AccountId),
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
