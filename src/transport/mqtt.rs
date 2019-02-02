@@ -380,12 +380,12 @@ trait DestinationTopic {
 }
 
 impl DestinationTopic for OutgoingEventProperties {
-    fn destination_topic(&self, agent_id: &AgentId, dest: &Destination) -> Result<String, Error> {
+    fn destination_topic(&self, me: &AgentId, dest: &Destination) -> Result<String, Error> {
         match dest {
-            Destination::Broadcast(ref dest_uri) => Ok(format!(
-                "apps/{app_name}/api/v1/{uri}",
-                app_name = &agent_id.account_id(),
-                uri = dest_uri,
+            Destination::Broadcast(ref uri) => Ok(format!(
+                "apps/{app}/api/v1/{uri}",
+                app = me.account_id(),
+                uri = uri,
             )),
             _ => Err(format_err!(
                 "destination = '{:?}' is incompatible with event message type",
@@ -396,17 +396,17 @@ impl DestinationTopic for OutgoingEventProperties {
 }
 
 impl DestinationTopic for OutgoingRequestProperties {
-    fn destination_topic(&self, agent_id: &AgentId, dest: &Destination) -> Result<String, Error> {
+    fn destination_topic(&self, me: &AgentId, dest: &Destination) -> Result<String, Error> {
         match dest {
-            Destination::Unicast(ref dest_agent_id) => Ok(format!(
-                "agents/{agent_id}/api/v1/in/{app_name}",
-                agent_id = dest_agent_id,
-                app_name = &agent_id.account_id(),
-            )),
-            Destination::Multicast(ref dest_account_id) => Ok(format!(
-                "agents/{agent_id}/api/v1/out/{app_name}",
+            Destination::Unicast(ref agent_id) => Ok(format!(
+                "agents/{agent_id}/api/v1/in/{app}",
                 agent_id = agent_id,
-                app_name = dest_account_id,
+                app = me.account_id(),
+            )),
+            Destination::Multicast(ref account_id) => Ok(format!(
+                "agents/{agent_id}/api/v1/out/{app}",
+                agent_id = me,
+                app = account_id,
             )),
             _ => Err(format_err!(
                 "destination = '{:?}' is incompatible with request message type",
@@ -417,14 +417,14 @@ impl DestinationTopic for OutgoingRequestProperties {
 }
 
 impl DestinationTopic for OutgoingResponseProperties {
-    fn destination_topic(&self, agent_id: &AgentId, dest: &Destination) -> Result<String, Error> {
+    fn destination_topic(&self, me: &AgentId, dest: &Destination) -> Result<String, Error> {
         match &self.response_topic {
             Some(ref val) => Ok(val.to_owned()),
             None => match dest {
-                Destination::Unicast(ref dest_agent_id) => Ok(format!(
-                    "agents/{agent_id}/api/v1/in/{app_name}",
-                    agent_id = dest_agent_id,
-                    app_name = &agent_id.account_id(),
+                Destination::Unicast(ref agent_id) => Ok(format!(
+                    "agents/{agent_id}/api/v1/in/{app}",
+                    agent_id = agent_id,
+                    app = me.account_id(),
                 )),
                 _ => Err(format_err!(
                     "destination = '{:?}' is incompatible with response message type",
@@ -441,23 +441,23 @@ pub(crate) trait SubscriptionTopic {
     fn subscription_topic(&self, agent_id: &AgentId) -> Result<String, Error>;
 }
 
-pub(crate) struct EventSubscription {
-    source: Source,
+pub(crate) struct EventSubscription<'a> {
+    source: Source<'a>,
 }
 
-impl EventSubscription {
-    pub(crate) fn new(source: Source) -> Self {
+impl<'a> EventSubscription<'a> {
+    pub(crate) fn new(source: Source<'a>) -> Self {
         Self { source }
     }
 }
 
-impl SubscriptionTopic for EventSubscription {
-    fn subscription_topic(&self, _: &AgentId) -> Result<String, Error> {
+impl<'a> SubscriptionTopic for EventSubscription<'a> {
+    fn subscription_topic(&self, _me: &AgentId) -> Result<String, Error> {
         match self.source {
-            Source::Broadcast(ref source_account_id, ref source_uri) => Ok(format!(
-                "apps/{app_name}/api/v1/{uri}",
-                app_name = source_account_id,
-                uri = source_uri,
+            Source::Broadcast(ref account_id, ref uri) => Ok(format!(
+                "apps/{app}/api/v1/{uri}",
+                app = account_id,
+                uri = uri,
             )),
             _ => Err(format_err!(
                 "source = '{:?}' is incompatible with event subscription",
@@ -467,28 +467,26 @@ impl SubscriptionTopic for EventSubscription {
     }
 }
 
-pub(crate) struct RequestSubscription {
-    source: Source,
+pub(crate) struct RequestSubscription<'a> {
+    source: Source<'a>,
 }
 
-impl RequestSubscription {
-    pub(crate) fn new(source: Source) -> Self {
+impl<'a> RequestSubscription<'a> {
+    pub(crate) fn new(source: Source<'a>) -> Self {
         Self { source }
     }
 }
 
-impl SubscriptionTopic for RequestSubscription {
-    fn subscription_topic(&self, agent_id: &AgentId) -> Result<String, Error> {
+impl<'a> SubscriptionTopic for RequestSubscription<'a> {
+    fn subscription_topic(&self, me: &AgentId) -> Result<String, Error> {
         match self.source {
-            Source::Unicast(ref source_account_id) => Ok(format!(
-                "agents/{agent_id}/api/v1/in/{app_name}",
-                agent_id = agent_id,
-                app_name = source_account_id,
+            Source::Unicast(Some(ref account_id)) => Ok(format!(
+                "agents/{agent_id}/api/v1/in/{app}",
+                agent_id = me,
+                app = account_id,
             )),
-            Source::Multicast => Ok(format!(
-                "agents/+/api/v1/out/{app_name}",
-                app_name = agent_id.account_id(),
-            )),
+            Source::Unicast(None) => Ok(format!("agents/{agent_id}/api/v1/in/+", agent_id = me)),
+            Source::Multicast => Ok(format!("agents/+/api/v1/out/{app}", app = me.account_id())),
             _ => Err(format_err!(
                 "source = '{:?}' is incompatible with request subscription",
                 self.source,
@@ -497,24 +495,25 @@ impl SubscriptionTopic for RequestSubscription {
     }
 }
 
-pub(crate) struct ResponseSubscription {
-    source: Source,
+pub(crate) struct ResponseSubscription<'a> {
+    source: Source<'a>,
 }
 
-impl ResponseSubscription {
-    pub(crate) fn new(source: Source) -> Self {
+impl<'a> ResponseSubscription<'a> {
+    pub(crate) fn new(source: Source<'a>) -> Self {
         Self { source }
     }
 }
 
-impl SubscriptionTopic for ResponseSubscription {
-    fn subscription_topic(&self, agent_id: &AgentId) -> Result<String, Error> {
+impl<'a> SubscriptionTopic for ResponseSubscription<'a> {
+    fn subscription_topic(&self, me: &AgentId) -> Result<String, Error> {
         match self.source {
-            Source::Unicast(ref source_account_id) => Ok(format!(
-                "agents/{agent_id}/api/v1/in/{app_name}",
-                agent_id = agent_id,
-                app_name = source_account_id,
+            Source::Unicast(Some(ref account_id)) => Ok(format!(
+                "agents/{agent_id}/api/v1/in/{app}",
+                agent_id = me,
+                app = account_id,
             )),
+            Source::Unicast(None) => Ok(format!("agents/{agent_id}/api/v1/in/+", agent_id = me)),
             _ => Err(format_err!(
                 "source = '{:?}' is incompatible with response subscription",
                 self.source,

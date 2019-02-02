@@ -44,20 +44,28 @@ impl FromStr for SharedGroup {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type BroadcastUri = String;
-
 #[derive(Debug)]
 pub(crate) enum Destination {
-    Broadcast(BroadcastUri),
+    // -> event(app-to-any): apps/ACCOUNT_ID(ME)/api/v1/BROADCAST_URI
+    Broadcast(String),
+    // -> request(one-to-app): agents/AGENT_ID(ME)/api/v1/out/ACCOUNT_ID
     Multicast(AccountId),
+    // -> request(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
+    // -> response(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
     Unicast(AgentId),
 }
 
 #[derive(Debug)]
-pub(crate) enum Source {
-    Broadcast(AccountId, BroadcastUri),
+pub(crate) enum Source<'a> {
+    // <- event(any-from-app): apps/ACCOUNT_ID/api/v1/BROADCAST_URI
+    Broadcast(&'a AccountId, &'a str),
+    // <- request(app-from-any): agents/+/api/v1/out/ACCOUNT_ID(ME)
     Multicast,
-    Unicast(AccountId),
+    // <- request(one-from-one): agents/AGENT_ID(ME)/api/v1/in/ACCOUNT_ID
+    // <- request(one-from-any): agents/AGENT_ID(ME)/api/v1/in/+
+    // <- response(one-from-one): agents/AGENT_ID(ME)/api/v1/in/ACCOUNT_ID
+    // <- response(one-from-any): agents/AGENT_ID(ME)/api/v1/in/+
+    Unicast(Option<&'a AccountId>),
 }
 
 ////////////////////////////////////////////////////////////////////////////////

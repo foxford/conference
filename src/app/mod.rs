@@ -23,10 +23,7 @@ pub(crate) fn run(db: &ConnectionPool) {
         .start(&config.mqtt)
         .expect("Failed to create an agent");
     tx.subscribe(
-        &EventSubscription::new(Source::Broadcast(
-            config.backend_id.clone(),
-            "responses".to_owned(),
-        )),
+        &EventSubscription::new(Source::Broadcast(&config.backend_id, "responses")),
         QoS::AtLeastOnce,
         Some(&group),
     )
