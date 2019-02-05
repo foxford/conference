@@ -2,10 +2,32 @@ use super::{AuthnProperties, Destination, SharedGroup, Source};
 use crate::authn::{AccountId, AgentId, Authenticable};
 use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
+use std::fmt;
 
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) use rumqtt::QoS;
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
+pub(crate) enum ConnectionMode {
+    Agent,
+    Bridge,
+}
+
+impl fmt::Display for ConnectionMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ConnectionMode::Agent => "agents",
+                ConnectionMode::Bridge => "bridge-agents",
+            }
+        )
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -17,27 +39,53 @@ pub(crate) struct AgentOptions {
 #[derive(Debug)]
 pub(crate) struct AgentBuilder {
     agent_id: AgentId,
+    version: String,
+    mode: ConnectionMode,
 }
 
 impl AgentBuilder {
     pub(crate) fn new(agent_id: AgentId) -> Self {
-        Self { agent_id }
+        Self {
+            agent_id,
+            version: String::from("v1.mqtt3"),
+            mode: ConnectionMode::Agent,
+        }
+    }
+
+    pub(crate) fn version(self, version: &str) -> Self {
+        Self {
+            agent_id: self.agent_id,
+            version: version.to_owned(),
+            mode: self.mode,
+        }
+    }
+
+    pub(crate) fn mode(self, mode: ConnectionMode) -> Self {
+        Self {
+            agent_id: self.agent_id,
+            version: self.version,
+            mode,
+        }
     }
 
     pub(crate) fn start(
         self,
         config: &AgentOptions,
     ) -> Result<(Agent, crossbeam_channel::Receiver<rumqtt::Notification>), Error> {
-        let client_id = Self::mqtt_client_id(&self.agent_id);
-        let options = Self::mqtt_options(&client_id, &config)?;
+        let options = Self::mqtt_options(&self.mqtt_client_id(), &config)?;
         let (tx, rx) = rumqtt::MqttClient::start(options)?;
 
-        let mut agent = Agent::new(self.agent_id, tx);
+        let agent = Agent::new(self.agent_id, tx);
         Ok((agent, rx))
     }
 
-    fn mqtt_client_id(agent_id: &AgentId) -> String {
-        format!("v1.mqtt3/agents/{agent_id}", agent_id = agent_id)
+    fn mqtt_client_id(&self) -> String {
+        format!(
+            "{version}/{mode}/{agent_id}",
+            version = self.version,
+            mode = self.mode,
+            agent_id = self.agent_id,
+        )
     }
 
     fn mqtt_options(client_id: &str, config: &AgentOptions) -> Result<rumqtt::MqttOptions, Error> {

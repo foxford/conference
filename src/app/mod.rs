@@ -1,4 +1,4 @@
-use crate::authn::{AccountId, AgentId};
+use crate::authn::AgentId;
 use crate::db::ConnectionPool;
 use crate::transport::mqtt::compat;
 use crate::transport::mqtt::{
