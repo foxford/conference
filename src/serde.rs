@@ -89,7 +89,7 @@ pub(crate) mod ts_seconds_bound_tuple {
 
             match (start, end) {
                 (Some(start), Some(end)) => Ok((start, end)),
-                _ => Err(A::Error::custom("nahuy")),
+                _ => Err(A::Error::custom("failed to deserialize tuple of Bounds")),
             }
         }
     }
