@@ -95,7 +95,9 @@ impl AgentBuilder {
             .port_part()
             .ok_or_else(|| err_msg("missing MQTT port"))?;
 
-        Ok(rumqtt::MqttOptions::new(client_id, host, port.as_u16()).set_keep_alive(30))
+        Ok(rumqtt::MqttOptions::new(client_id, host, port.as_u16())
+            .set_keep_alive(30)
+            .set_reconnect_opts(rumqtt::ReconnectOptions::AfterFirstSuccess(5)))
     }
 }
 
