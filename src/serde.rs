@@ -25,7 +25,8 @@ pub(crate) mod ts_seconds_bound_tuple {
         ser::SerializeTuple,
     };
 
-    use super::{DateTime, Serializer, Utc};
+    use chrono::{DateTime, NaiveDateTime, Utc};
+    use serde::ser::Serializer;
 
     pub(crate) fn serialize<S>(
         range: &(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
@@ -66,13 +67,15 @@ pub(crate) mod ts_seconds_bound_tuple {
         D: de::Deserializer<'de>,
     {
         let (start, end) = d.deserialize_tuple(2, TupleSecondsTimestampVisitor)?;
+        let start = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(start, 0), Utc);
+        let end = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(end, 0), Utc);
         Ok((Bound::Included(start), Bound::Included(end)))
     }
 
     struct TupleSecondsTimestampVisitor;
 
     impl<'de> de::Visitor<'de> for TupleSecondsTimestampVisitor {
-        type Value = (DateTime<Utc>, DateTime<Utc>);
+        type Value = (i64, i64);
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
             formatter
@@ -99,7 +102,7 @@ pub(crate) mod ts_seconds_bound_tuple {
 mod test {
     use std::ops::Bound;
 
-    use chrono::{DateTime, Utc};
+    use chrono::{DateTime, NaiveDateTime, Utc};
     use serde_derive::{Deserialize, Serialize};
     use serde_json::json;
 
@@ -112,8 +115,11 @@ mod test {
     #[test]
     fn ser_de() {
         let now = Utc::now();
+        let now = NaiveDateTime::from_timestamp(now.timestamp(), 0);
+        let now = DateTime::from_utc(now, Utc);
+
         let val = json!({
-            "time": (now, now),
+            "time": (now.timestamp(), now.timestamp()),
         });
 
         let data: TestData = serde_json::from_value(val).unwrap();
