@@ -423,6 +423,17 @@ where
     }
 }
 
+impl<'a, T> Publish<'a> for Vec<T>
+where
+    T: Publishable,
+{
+    fn publish(&'a self, tx: &mut Agent) -> Result<(), Error> {
+        for p in self {
+            tx.publish(p)?;
+        }
+        Ok(())
+    }
+}
 ////////////////////////////////////////////////////////////////////////////////
 
 trait DestinationTopic {

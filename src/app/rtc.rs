@@ -4,7 +4,7 @@ use crate::db::{janus_handle_shadow, janus_session_shadow, location, room, rtc, 
 use crate::transport::mqtt::compat::IntoEnvelope;
 use crate::transport::mqtt::{
     IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
-    OutgoingResponseStatus, Publishable,
+    OutgoingResponseStatus, Publish, Publishable,
 };
 use crate::transport::Destination;
 use failure::{format_err, Error};
@@ -142,7 +142,7 @@ impl State {
         resp.into_envelope()
     }
 
-    pub(crate) fn store(&self, inreq: &StoreRequest) -> Result<impl Publishable, Error> {
+    pub(crate) fn store(&self, inreq: &StoreRequest) -> Result<impl Publish, Error> {
         use diesel::BelongingToDsl;
 
         let conn = self.db.get()?;
@@ -153,7 +153,7 @@ impl State {
         let rtcs = rtc::Object::belonging_to(&rooms_to_process).load(&conn);
         let rtcs = rtcs.grouped_by(&rooms_to_process);
 
-        let mut backreq = None;
+        let mut requests = Vec::new();
 
         for (room, rtcs) in rooms_to_process.into_iter().zip(rtcs) {
             for rtc in rtcs.iter().filter(|rtc| !rtc.stored) {
@@ -173,7 +173,7 @@ impl State {
                         format_err!("a handle for rtc = '{}' is not found", &rtc.id())
                     })?;
 
-                backreq = Some(janus::upload_stream_request(
+                let req = janus::upload_stream_request(
                     inreq.properties().clone(),
                     session.session_id(),
                     handle.handle_id(),
@@ -183,13 +183,13 @@ impl State {
                         rtc.record_name(),
                     ),
                     session.location_id().clone(),
-                )?);
+                )?;
+
+                requests.push(req.into_envelope()?);
             }
         }
 
-        backreq
-            .ok_or_else(|| format_err!("no rtcs need to be stored"))?
-            .into_envelope()
+        Ok(requests)
     }
 }
 
