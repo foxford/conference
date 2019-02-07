@@ -119,6 +119,11 @@ fn handle_message(
                 let next = rtc.list(&req)?;
                 next.publish(tx)
             }
+            "rtc.store" => {
+                let req = compat::into_request(envelope)?;
+                let next = rtc.store(&req)?;
+                next.publish(tx)
+            }
             "signal.create" => {
                 // TODO: catch and process errors: unprocessable entry
                 let req = compat::into_request(envelope)?;

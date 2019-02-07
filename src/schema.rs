@@ -40,6 +40,7 @@ table! {
         id -> Uuid,
         state -> Nullable<Rtc_state>,
         room_id -> Uuid,
+        stored -> Bool,
         created_at -> Timestamptz,
     }
 }
@@ -48,4 +49,4 @@ joinable!(janus_handle_shadow -> rtc (rtc_id));
 joinable!(janus_session_shadow -> rtc (rtc_id));
 joinable!(rtc -> room (room_id));
 
-allow_tables_to_appear_in_same_query!(janus_handle_shadow, janus_session_shadow, room, rtc);
+allow_tables_to_appear_in_same_query!(janus_handle_shadow, janus_session_shadow, room, rtc,);

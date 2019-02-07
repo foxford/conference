@@ -16,6 +16,22 @@ pub(crate) struct Object {
     created_at: DateTime<Utc>,
 }
 
+impl Object {
+    pub(crate) fn audience(&self) -> &str {
+        &self.audience
+    }
+
+    pub(crate) fn id(&self) -> Uuid {
+        self.id
+    }
+
+    pub(crate) fn bucket_name(&self) -> String {
+        format!("origin.webinar.{}", self.audience())
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Insertable)]
 #[table_name = "room"]
 pub(crate) struct InsertQuery<'a> {
@@ -49,5 +65,34 @@ impl<'a> InsertQuery<'a> {
         use diesel::RunQueryDsl;
 
         diesel::insert_into(room).values(self).get_result(conn)
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
+pub(crate) struct FindQuery<'a> {
+    id: Option<&'a Uuid>,
+}
+
+impl<'a> FindQuery<'a> {
+    pub(crate) fn new() -> Self {
+        Self { id: None }
+    }
+
+    pub(crate) fn id(mut self, id: &'a Uuid) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    pub(crate) fn one(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+        use diesel::prelude::*;
+
+        match self.id {
+            Some(id) => room::table.find(id).get_result(conn).optional(),
+            _ => Err(Error::QueryBuilderError(
+                "rtc_id or session_id and location_id are required parameters of the query".into(),
+            )),
+        }
     }
 }

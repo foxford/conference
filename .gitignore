@@ -17,3 +17,4 @@ App.toml
 /docs/book/
 .idea
 .vscode
+.env

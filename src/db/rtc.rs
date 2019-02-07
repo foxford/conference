@@ -2,8 +2,7 @@ use crate::authn::AgentId;
 use crate::schema::{room, rtc};
 use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
-use diesel::pg::PgConnection;
-use diesel::result::Error;
+use diesel::{pg::PgConnection, result::Error};
 use serde_derive::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -17,6 +16,7 @@ pub(crate) struct Object {
     #[serde(skip_serializing_if = "Option::is_none")]
     state: Option<RtcState>,
     room_id: Uuid,
+    stored: bool,
     #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
 }
@@ -28,6 +28,10 @@ impl Object {
 
     pub(crate) fn room_id(&self) -> &Uuid {
         &self.room_id
+    }
+
+    pub(crate) fn record_name(&self) -> String {
+        format!("{}.source.mp4", self.id())
     }
 }
 
@@ -61,18 +65,52 @@ impl RtcState {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct FindQuery<'a> {
-    id: &'a Uuid,
+    id: Option<&'a Uuid>,
+    stored: Option<bool>,
 }
 
 impl<'a> FindQuery<'a> {
-    pub(crate) fn new(id: &'a Uuid) -> Self {
-        Self { id }
+    pub(crate) fn new() -> Self {
+        Self {
+            id: None,
+            stored: None,
+        }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    pub(crate) fn id(mut self, id: &'a Uuid) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    pub(crate) fn stored(mut self, stored: bool) -> Self {
+        self.stored = Some(stored);
+        self
+    }
+
+    pub(crate) fn one(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
-        rtc::table.find(self.id).get_result(conn).optional()
+        match (self.id, self.stored) {
+            (Some(rtc_id), _) => rtc::table.find(rtc_id).get_result(conn).optional(),
+            (None, Some(stored)) => rtc::table
+                .filter(rtc::stored.eq(stored))
+                .get_result(conn)
+                .optional(),
+            _ => Err(Error::QueryBuilderError(
+                "id or stored are required parameters of the query".into(),
+            )),
+        }
+    }
+
+    pub(crate) fn many(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+        use diesel::prelude::*;
+
+        match (self.id, self.stored) {
+            (None, Some(stored)) => rtc::table.filter(rtc::stored.eq(stored)).load(conn),
+            _ => Err(Error::QueryBuilderError(
+                "stored is required parameter of the query".into(),
+            )),
+        }
     }
 }
 
@@ -153,11 +191,16 @@ impl<'a> ListQuery<'a> {
 pub(crate) struct InsertQuery<'a> {
     id: Option<&'a Uuid>,
     room_id: &'a Uuid,
+    stored: bool,
 }
 
 impl<'a> InsertQuery<'a> {
     pub(crate) fn new(room_id: &'a Uuid) -> Self {
-        Self { id: None, room_id }
+        Self {
+            id: None,
+            room_id,
+            stored: false,
+        }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
@@ -175,18 +218,26 @@ impl<'a> InsertQuery<'a> {
 pub(crate) struct UpdateQuery<'a> {
     id: &'a Uuid,
     state: Option<&'a RtcState>,
+    stored: Option<bool>,
 }
 
 impl<'a> UpdateQuery<'a> {
     pub(crate) fn new(id: &'a Uuid) -> Self {
-        Self { id, state: None }
+        Self {
+            id,
+            state: None,
+            stored: None,
+        }
     }
 
-    pub(crate) fn state(self, state: &'a RtcState) -> Self {
-        Self {
-            id: self.id,
-            state: Some(state),
-        }
+    pub(crate) fn state(mut self, state: &'a RtcState) -> Self {
+        self.state = Some(state);
+        self
+    }
+
+    pub(crate) fn stored(mut self, stored: bool) -> Self {
+        self.stored = Some(stored);
+        self
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {

@@ -3,7 +3,7 @@ use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
     TrickleRequest,
 };
-use crate::db::{janus_handle_shadow, janus_session_shadow, rtc, ConnectionPool};
+use crate::db::{janus_handle_shadow, janus_session_shadow, room, rtc, ConnectionPool};
 use crate::transport::correlation_data::{from_base64, to_base64};
 use crate::transport::mqtt::compat::{into_event, IncomingEnvelope, IntoEnvelope};
 use crate::transport::mqtt::{
@@ -24,6 +24,7 @@ pub(crate) enum Transaction {
     CreateHandle(CreateHandleTransaction),
     CreateStream(CreateStreamTransaction),
     ReadStream(ReadStreamTransaction),
+    UploadStream(UploadStreamTransaction),
     Trickle(TrickleTransaction),
 }
 
@@ -205,6 +206,61 @@ pub(crate) fn read_stream_request(
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct UploadStreamTransaction {
+    reqp: IncomingRequestProperties,
+}
+
+impl UploadStreamTransaction {
+    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
+        Self { reqp }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct UploadStreamRequestBody {
+    method: &'static str,
+    id: Uuid,
+    bucket: String,
+    object: String,
+}
+
+impl UploadStreamRequestBody {
+    pub(crate) fn new(id: Uuid, bucket: String, object: String) -> Self {
+        Self {
+            method: "stream.upload",
+            id,
+            bucket,
+            object,
+        }
+    }
+}
+
+pub(crate) fn upload_stream_request(
+    reqp: IncomingRequestProperties,
+    session_id: i64,
+    handle_id: i64,
+    body: UploadStreamRequestBody,
+    to: AgentId,
+) -> Result<OutgoingRequest<MessageRequest>, Error> {
+    let transaction = Transaction::UploadStream(UploadStreamTransaction::new(reqp));
+    let payload = MessageRequest::new(
+        &to_base64(&transaction)?,
+        session_id,
+        handle_id,
+        serde_json::to_value(&body)?,
+        None,
+    );
+    let props = OutgoingRequestProperties::new("janus_conference_stream.upload");
+    Ok(OutgoingRequest::new(
+        payload,
+        props,
+        Destination::Unicast(to),
+    ))
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct TrickleTransaction {
     reqp: IncomingRequestProperties,
 }
@@ -278,8 +334,9 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                         .execute(&conn)?;
 
                     // Returning Real-Time connection
-                    let object = rtc::FindQuery::new(&rtc_id)
-                        .execute(&conn)?
+                    let object = rtc::FindQuery::new()
+                        .id(&rtc_id)
+                        .one(&conn)?
                         .ok_or_else(|| format_err!("the rtc = '{}' is not found", &rtc_id))?;
                     let resp = crate::app::rtc::ObjectResponse::new(
                         object,
@@ -374,6 +431,62 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     );
 
                     resp.into_envelope()?.publish(tx)
+                }
+                Transaction::UploadStream(tn) => {
+                    let reqp = tn.reqp;
+
+                    let response = inresp.plugin().data();
+                    let status = response.get("status").ok_or_else(|| {
+                        format_err!(
+                            "missing status in a response on {}:{}",
+                            reqp.method(),
+                            inresp.transaction(),
+                        )
+                    })?;
+                    if status != 200 {
+                        return Err(format_err!("error received on {}", reqp.method()));
+                    }
+
+                    let rtc_id = response
+                        .get("id")
+                        .ok_or_else(|| {
+                            format_err!(
+                                "missing rtc id in a response on {}:{}",
+                                reqp.method(),
+                                inresp.transaction()
+                            )
+                        })?
+                        .as_str()
+                        .ok_or_else(|| {
+                            format_err!(
+                                "rtc_id is not a string on {}:{}",
+                                reqp.method(),
+                                inresp.transaction()
+                            )
+                        })?;
+                    let rtc_id = uuid::Uuid::parse_str(rtc_id)?;
+
+                    let conn = janus.db.get()?;
+
+                    let rtc = rtc::FindQuery::new()
+                        .id(&rtc_id)
+                        .one(&conn)?
+                        .ok_or_else(|| format_err!("the rtc = '{}' is not found", &rtc_id))?;
+
+                    let room = room::FindQuery::new()
+                        .id(rtc.room_id())
+                        .one(&conn)?
+                        .ok_or_else(|| {
+                            format_err!("a room for rtc = '{}' is not found", &rtc.id())
+                        })?;
+
+                    rtc::UpdateQuery::new(&rtc.id())
+                        .stored(true)
+                        .execute(&conn)?;
+
+                    let store_event = super::rtc::store_event(rtc, room);
+
+                    store_event.into_envelope()?.publish(tx)
                 }
                 // An unsupported incoming Event message has been received
                 _ => Err(format_err!(
