@@ -149,6 +149,7 @@ impl State {
 
         let rooms_to_process = room::FindQuery::new().finished(true).many(&conn)?;
         // TODO: why belonging_to is not working?
+        // TODO: filter here?
         let rtcs = rtc::Object::belonging_to(&rooms_to_process).load(&conn);
         let rtcs = rtcs.grouped_by(&rooms_to_process);
 
@@ -156,6 +157,8 @@ impl State {
 
         for (room, rtcs) in rooms_to_process.into_iter().zip(rtcs) {
             for rtc in rtcs.iter().filter(|rtc| !rtc.stored) {
+                // TODO: optimize if there will be such a need
+
                 let session = janus_session_shadow::FindQuery::new()
                     .rtc_id(&rtc.id())
                     .execute(&conn)?
