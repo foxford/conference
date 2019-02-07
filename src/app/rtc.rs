@@ -143,39 +143,45 @@ impl State {
     }
 
     pub(crate) fn store(&self, inreq: &StoreRequest) -> Result<impl Publishable, Error> {
+        use diesel::BelongingToDsl;
+
         let conn = self.db.get()?;
 
-        let rtcs_to_store = rtc::FindQuery::new().stored(false).many(&conn)?;
+        let rooms_to_process = room::FindQuery::new().finished(true).many(&conn)?;
+        // TODO: why belonging_to is not working?
+        let rtcs = rtc::Object::belonging_to(&rooms_to_process).load(&conn);
+        let rtcs = rtcs.grouped_by(&rooms_to_process);
 
         let mut backreq = None;
 
-        for rtc in rtcs_to_store {
-            let session = janus_session_shadow::FindQuery::new()
-                .rtc_id(&rtc.id())
-                .execute(&conn)?
-                .ok_or_else(|| format_err!("a session for rtc = '{}' is not found", &rtc.id()))?;
+        for (room, rtcs) in rooms_to_process.into_iter().zip(rtcs) {
+            for rtc in rtcs.iter().filter(|rtc| !rtc.stored) {
+                let session = janus_session_shadow::FindQuery::new()
+                    .rtc_id(&rtc.id())
+                    .execute(&conn)?
+                    .ok_or_else(|| {
+                        format_err!("a session for rtc = '{}' is not found", &rtc.id())
+                    })?;
 
-            let handle = janus_handle_shadow::FindQuery::new()
-                .rtc_id(&rtc.id())
-                .one(&conn)?
-                .ok_or_else(|| format_err!("a handle for rtc = '{}' is not found", &rtc.id()))?;
+                let handle = janus_handle_shadow::FindQuery::new()
+                    .rtc_id(&rtc.id())
+                    .one(&conn)?
+                    .ok_or_else(|| {
+                        format_err!("a handle for rtc = '{}' is not found", &rtc.id())
+                    })?;
 
-            let room = room::FindQuery::new()
-                .id(rtc.room_id())
-                .one(&conn)?
-                .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc.id()))?;
-
-            backreq = Some(janus::upload_stream_request(
-                inreq.properties().clone(),
-                session.session_id(),
-                handle.handle_id(),
-                janus::UploadStreamRequestBody::new(
-                    *rtc.id(),
-                    room.bucket_name(),
-                    rtc.record_name(),
-                ),
-                session.location_id().clone(),
-            )?);
+                backreq = Some(janus::upload_stream_request(
+                    inreq.properties().clone(),
+                    session.session_id(),
+                    handle.handle_id(),
+                    janus::UploadStreamRequestBody::new(
+                        *rtc.id(),
+                        room.bucket_name(),
+                        rtc.record_name(),
+                    ),
+                    session.location_id().clone(),
+                )?);
+            }
         }
 
         backreq

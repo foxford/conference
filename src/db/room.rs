@@ -6,7 +6,7 @@ use serde_derive::Serialize;
 use std::ops::Bound;
 use uuid::Uuid;
 
-#[derive(Debug, Identifiable, Queryable, Serialize)]
+#[derive(Debug, Identifiable, Queryable, Serialize, QueryableByName)]
 #[table_name = "room"]
 pub(crate) struct Object {
     id: Uuid,
@@ -73,15 +73,24 @@ impl<'a> InsertQuery<'a> {
 #[derive(Debug)]
 pub(crate) struct FindQuery<'a> {
     id: Option<&'a Uuid>,
+    finished: Option<bool>,
 }
 
 impl<'a> FindQuery<'a> {
     pub(crate) fn new() -> Self {
-        Self { id: None }
+        Self {
+            id: None,
+            finished: None,
+        }
     }
 
     pub(crate) fn id(mut self, id: &'a Uuid) -> Self {
         self.id = Some(id);
+        self
+    }
+
+    pub(crate) fn finished(mut self, finished: bool) -> Self {
+        self.finished = Some(finished);
         self
     }
 
@@ -92,6 +101,24 @@ impl<'a> FindQuery<'a> {
             Some(id) => room::table.find(id).get_result(conn).optional(),
             _ => Err(Error::QueryBuilderError(
                 "rtc_id or session_id and location_id are required parameters of the query".into(),
+            )),
+        }
+    }
+
+    pub(crate) fn many(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+        use diesel::prelude::*;
+
+        match self.finished {
+            Some(finished) => {
+                let q = if finished {
+                    "select room where upper(time) < now()"
+                } else {
+                    "select room where time @> now()"
+                };
+                diesel::sql_query(q).load(conn)
+            }
+            _ => Err(Error::QueryBuilderError(
+                "finished is required parameter of the query".into(),
             )),
         }
     }
