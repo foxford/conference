@@ -7,6 +7,7 @@ use serde_derive::Deserialize;
 pub(crate) struct Config {
     pub(crate) id: AccountId,
     pub(crate) backend_id: AccountId,
+    pub(crate) authz: crate::authz::ConfigMap,
     pub(crate) mqtt: AgentOptions,
 }
 
