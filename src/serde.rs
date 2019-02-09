@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use jsonwebtoken::Algorithm;
-use serde::de;
 use serde::de::{Deserializer, Error, Unexpected, Visitor};
 use serde::ser::Serializer;
 use serde_derive::Serialize;
