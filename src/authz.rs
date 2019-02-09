@@ -9,7 +9,8 @@ use std::fmt;
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) trait Authorize: Sync + Send {
-    fn authorize(&self, intent: &Intent) -> Result<(), Error>;
+    fn authorize(&self, subject: &AccountId, object: Vec<&str>, action: &str) -> Result<(), Error>;
+    fn box_clone(&self) -> Box<dyn Authorize>;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -34,7 +35,13 @@ impl fmt::Debug for Client {
     }
 }
 
-#[derive(Debug)]
+impl Clone for Client {
+    fn clone(&self) -> Self {
+        self.box_clone()
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct ClientMap {
     inner: HashMap<String, Client>,
 }
@@ -58,12 +65,18 @@ impl ClientMap {
         Ok(Self { inner })
     }
 
-    pub(crate) fn authorize(&self, audience: &str, intent: &Intent) -> Result<(), Error> {
+    pub(crate) fn authorize(
+        &self,
+        audience: &str,
+        subject: &AccountId,
+        object: Vec<&str>,
+        action: &str,
+    ) -> Result<(), Error> {
         let client = self
             .inner
             .get(audience)
             .ok_or_else(|| format_err!("no authz configuration for the audience = {}", audience))?;
-        client.authorize(intent)
+        client.authorize(subject, object, action)
     }
 }
 
@@ -89,19 +102,15 @@ impl<'a> Entity<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-type Action<'a> = &'a str;
-
-////////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Serialize)]
 pub(crate) struct Intent<'a> {
-    subject: &'a Entity<'a>,
-    object: &'a Entity<'a>,
-    action: Action<'a>,
+    subject: Entity<'a>,
+    object: Entity<'a>,
+    action: &'a str,
 }
 
 impl<'a> Intent<'a> {
-    pub(crate) fn new(subject: &'a Entity<'a>, object: &'a Entity<'a>, action: Action<'a>) -> Self {
+    pub(crate) fn new(subject: Entity<'a>, object: Entity<'a>, action: &'a str) -> Self {
         Self {
             subject,
             object,
@@ -109,19 +118,23 @@ impl<'a> Intent<'a> {
         }
     }
 
-    pub(crate) fn action(&self) -> String {
-        self.action.to_string()
+    pub(crate) fn action(&self) -> &str {
+        self.action
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct TrustedConfig {}
 
 impl Authorize for TrustedConfig {
-    fn authorize(&self, _intent: &Intent) -> Result<(), Error> {
+    fn authorize(&self, _: &AccountId, _: Vec<&str>, _: &str) -> Result<(), Error> {
         Ok(())
+    }
+
+    fn box_clone(&self) -> Box<dyn Authorize> {
+        Box::new(self.clone())
     }
 }
 
@@ -142,14 +155,22 @@ pub(crate) struct HttpConfig {
     key: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct HttpClient {
+    me: AccountId,
     pub(crate) uri: String,
     pub(crate) token: String,
 }
 
 impl Authorize for HttpClient {
-    fn authorize(&self, intent: &Intent) -> Result<(), Error> {
+    fn authorize(&self, subject: &AccountId, object: Vec<&str>, action: &str) -> Result<(), Error> {
         use reqwest;
+
+        let intent = Intent::new(
+            Entity::new(subject.audience(), vec!["accounts", subject.label()]),
+            Entity::new(self.me.audience(), object),
+            action,
+        );
 
         let client = reqwest::Client::new();
         let resp: Vec<String> = client
@@ -166,11 +187,15 @@ impl Authorize for HttpClient {
                 )
             })?;
 
-        if !resp.contains(&intent.action()) {
+        if !resp.contains(&intent.action().to_owned()) {
             return Err(format_err!("action = {} is not allowed", &intent.action()));
         }
 
         Ok(())
+    }
+
+    fn box_clone(&self) -> Box<dyn Authorize> {
+        Box::new(self.clone())
     }
 }
 
@@ -178,8 +203,8 @@ impl IntoClient for HttpConfig {
     fn into_client(self, me: &AccountId, audience: &str) -> Result<Client, Error> {
         let token = TokenBuilder::new()
             .issuer(me.audience())
-            .audience(audience)
             .subject(me.label())
+            .audience(&format!("{}:{}", me.audience(), audience))
             .key(&self.algorithm, &self.key)
             .build()
             .map_err(|err| {
@@ -191,6 +216,7 @@ impl IntoClient for HttpConfig {
             })?;
 
         Ok(Box::new(HttpClient {
+            me: me.clone(),
             uri: self.uri,
             token,
         }))

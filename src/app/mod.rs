@@ -1,4 +1,5 @@
 use crate::authn::AgentId;
+use crate::authz;
 use crate::db::ConnectionPool;
 use crate::transport::mqtt::compat;
 use crate::transport::mqtt::{
@@ -14,6 +15,10 @@ pub(crate) fn run(db: &ConnectionPool) {
     // Config
     let config = config::load().expect("Failed to load config");
     info!("App config: {:?}", config);
+
+    // Authz
+    let authz = authz::ClientMap::from_config(&config.id, config.authz)
+        .expect("Error converting authn config to clients");
 
     // Agent
     let agent_id = AgentId::new(&generate_agent_label(), config.id);
@@ -39,13 +44,13 @@ pub(crate) fn run(db: &ConnectionPool) {
     let backend_agent_id = AgentId::new("alpha", config.backend_id.clone());
 
     // Create Room resource
-    let room = room::State::new(db.clone());
+    let room = room::State::new(authz.clone(), db.clone());
 
     // Create Real-Time Connection resource
-    let rtc = rtc::State::new(db.clone(), backend_agent_id.clone());
+    let rtc = rtc::State::new(authz.clone(), db.clone(), backend_agent_id.clone());
 
     // Create Signal resource
-    let signal = signal::State::new(db.clone());
+    let signal = signal::State::new(authz.clone(), db.clone());
 
     // Create Backend resource
     let backend = janus::State::new(db.clone());
