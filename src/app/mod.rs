@@ -1,11 +1,10 @@
-use crate::authn::AgentId;
 use crate::authz;
 use crate::db::ConnectionPool;
 use crate::transport::mqtt::compat;
 use crate::transport::mqtt::{
     Agent, AgentBuilder, EventSubscription, Publish, QoS, RequestSubscription,
 };
-use crate::transport::{SharedGroup, Source};
+use crate::transport::{AgentId, SharedGroup, Source};
 use failure::{format_err, Error};
 use log::{error, info};
 

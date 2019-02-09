@@ -1,5 +1,4 @@
 use crate::app::janus;
-use crate::authn::{AgentId, Authenticable};
 use crate::authz;
 use crate::db::{janus_session_shadow, location, room, rtc, ConnectionPool};
 use crate::transport::mqtt::compat::IntoEnvelope;
@@ -7,7 +6,7 @@ use crate::transport::mqtt::{
     IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
     OutgoingResponseStatus, Publishable,
 };
-use crate::transport::Destination;
+use crate::transport::{AgentId, Destination};
 use failure::{format_err, Error};
 use serde_derive::Deserialize;
 use uuid::Uuid;
@@ -70,7 +69,6 @@ impl State {
 
 impl State {
     pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
-        let agent_id = inreq.properties().agent_id();
         let room_id = &inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -84,7 +82,7 @@ impl State {
             let room_id = room.id().to_string();
             self.authz.authorize(
                 room.audience(),
-                agent_id.account_id(),
+                inreq.properties(),
                 vec!["rooms", &room_id, "rtcs"],
                 "create",
             )?;
@@ -105,7 +103,7 @@ impl State {
     }
 
     pub(crate) fn read(&self, inreq: &ReadRequest) -> Result<impl Publishable, Error> {
-        let agent_id = inreq.properties().agent_id();
+        let agent_id = AgentId::from(inreq.properties());
         let id = inreq.payload().id;
 
         // Authorization: room's owner has to allow the action
@@ -114,7 +112,7 @@ impl State {
             let rtc_id = id.to_string();
             self.authz.authorize(
                 audience,
-                agent_id.account_id(),
+                inreq.properties(),
                 vec!["rooms", &room_id, "rtcs", &rtc_id],
                 "read",
             )
@@ -176,7 +174,6 @@ impl State {
     }
 
     pub(crate) fn list(&self, inreq: &ListRequest) -> Result<impl Publishable, Error> {
-        let agent_id = inreq.properties().agent_id();
         let room_id = &inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -190,7 +187,7 @@ impl State {
             let room_id = room.id().to_string();
             self.authz.authorize(
                 room.audience(),
-                agent_id.account_id(),
+                inreq.properties(),
                 vec!["rooms", &room_id, "rtcs"],
                 "list",
             )?;

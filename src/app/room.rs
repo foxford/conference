@@ -4,7 +4,6 @@ use chrono::{DateTime, Utc};
 use failure::Error;
 use serde_derive::Deserialize;
 
-use crate::authn::Authenticable;
 use crate::authz;
 use crate::db::{room, ConnectionPool};
 use crate::transport::mqtt::{
@@ -39,12 +38,10 @@ impl State {
 
 impl State {
     pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
-        let agent_id = inreq.properties().agent_id();
-
         // Authorization: future room's owner has to allow the action
         self.authz.authorize(
             &inreq.payload().audience,
-            agent_id.account_id(),
+            inreq.properties(),
             vec!["rooms"],
             "create",
         )?;

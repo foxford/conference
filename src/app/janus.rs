@@ -1,4 +1,3 @@
-use crate::authn::{AgentId, Authenticable};
 use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
     TrickleRequest,
@@ -10,7 +9,7 @@ use crate::transport::mqtt::{
     Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties,
     OutgoingResponseStatus, Publish,
 };
-use crate::transport::Destination;
+use crate::transport::{AgentId, Destination};
 use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -253,8 +252,8 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                 // Session has been created
                 Transaction::CreateSession(tn) => {
                     // Creating a shadow of Janus Gateway Session
+                    let location_id = AgentId::from(message.properties());
                     let session_id = inresp.data().id();
-                    let location_id = message.properties().agent_id();
                     let conn = janus.db.get()?;
                     let _ = janus_session_shadow::InsertQuery::new(
                         &tn.rtc_id,
@@ -268,13 +267,14 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                 }
                 // Handle has been created
                 Transaction::CreateHandle(tn) => {
+                    let agent_id = AgentId::from(&tn.reqp);
                     let reqp = tn.reqp;
                     let rtc_id = tn.rtc_id;
                     let id = inresp.data().id();
 
                     // Creating a shadow of Janus Gateway Session
                     let conn = janus.db.get()?;
-                    let _ = janus_handle_shadow::InsertQuery::new(id, &rtc_id, &reqp.agent_id())
+                    let _ = janus_handle_shadow::InsertQuery::new(id, &rtc_id, &agent_id)
                         .execute(&conn)?;
 
                     // Returning Real-Time connection
@@ -284,7 +284,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     let resp = crate::app::rtc::ObjectResponse::new(
                         object,
                         reqp.to_response(&OutgoingResponseStatus::OK),
-                        Destination::Unicast(reqp.agent_id()),
+                        Destination::Unicast(agent_id),
                     );
 
                     resp.into_envelope()?.publish(tx)
@@ -305,11 +305,11 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                 )),
                 // Trickle message has been received by Janus Gateway
                 Transaction::Trickle(tn) => {
-                    let reqp = tn.reqp;
+                    let agent_id = AgentId::from(&tn.reqp);
                     let resp = crate::app::signal::CreateResponse::new(
                         crate::app::signal::CreateResponseData::new(None),
-                        reqp.to_response(&OutgoingResponseStatus::OK),
-                        Destination::Unicast(reqp.agent_id()),
+                        tn.reqp.to_response(&OutgoingResponseStatus::OK),
+                        Destination::Unicast(agent_id),
                     );
 
                     resp.into_envelope()?.publish(tx)
@@ -325,52 +325,52 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             match from_base64::<Transaction>(&inresp.transaction())? {
                 // Conference Stream has been created (an answer received)
                 Transaction::CreateStream(tn) => {
-                    let reqp = tn.reqp;
+                    let agent_id = AgentId::from(&tn.reqp);
 
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
                     let status = plugin_data.get("status").ok_or_else(|| {
-                        format_err!("missing status in a response on {}", reqp.method())
+                        format_err!("missing status in a response on {}", tn.reqp.method())
                     })?;
                     if status != 200 {
-                        return Err(format_err!("error received on {}", reqp.method()));
+                        return Err(format_err!("error received on {}", tn.reqp.method()));
                     }
 
                     // Getting answer (as JSEP)
                     let jsep = inresp.jsep().ok_or_else(|| {
-                        format_err!("missing jsep in a response on {}", reqp.method())
+                        format_err!("missing jsep in a response on {}", tn.reqp.method())
                     })?;
 
                     let resp = crate::app::signal::CreateResponse::new(
                         crate::app::signal::CreateResponseData::new(Some(jsep.clone())),
-                        reqp.to_response(&OutgoingResponseStatus::OK),
-                        Destination::Unicast(reqp.agent_id()),
+                        tn.reqp.to_response(&OutgoingResponseStatus::OK),
+                        Destination::Unicast(agent_id),
                     );
 
                     resp.into_envelope()?.publish(tx)
                 }
                 // Conference Stream has been read (an answer received)
                 Transaction::ReadStream(tn) => {
-                    let reqp = tn.reqp;
+                    let agent_id = AgentId::from(&tn.reqp);
 
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
                     let status = plugin_data.get("status").ok_or_else(|| {
-                        format_err!("missing status in a response on {}", reqp.method())
+                        format_err!("missing status in a response on {}", tn.reqp.method())
                     })?;
                     if status != 200 {
-                        return Err(format_err!("error received on {}", reqp.method()));
+                        return Err(format_err!("error received on {}", tn.reqp.method()));
                     }
 
                     // Getting answer (as JSEP)
                     let jsep = inresp.jsep().ok_or_else(|| {
-                        format_err!("missing jsep in a response on {}", reqp.method())
+                        format_err!("missing jsep in a response on {}", tn.reqp.method())
                     })?;
 
                     let resp = crate::app::signal::CreateResponse::new(
                         crate::app::signal::CreateResponseData::new(Some(jsep.clone())),
-                        reqp.to_response(&OutgoingResponseStatus::OK),
-                        Destination::Unicast(reqp.agent_id()),
+                        tn.reqp.to_response(&OutgoingResponseStatus::OK),
+                        Destination::Unicast(agent_id),
                     );
 
                     resp.into_envelope()?.publish(tx)
@@ -400,16 +400,16 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             // return value is always 'Nullable' when the 'rtc_id' value
             // for the following statement can't be null.
             let session_id = inev.session_id();
-            let location_id = &message.properties().agent_id();
+            let location_id = AgentId::from(message.properties());
             let session = janus_session_shadow::FindQuery::new()
                 .session_id(session_id)
-                .location_id(location_id)
+                .location_id(&location_id)
                 .execute(&conn)?
                 .ok_or_else(|| {
                     format_err!(
                         "session = '{}' within location = '{}' is not found",
                         session_id,
-                        location_id,
+                        &location_id,
                     )
                 })?;
             let rtc = rtc::update_state(session.rtc_id(), &conn)?;
@@ -427,16 +427,16 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             // return value is always 'Nullable' when the 'rtc_id' value
             // for the following statement can't be null.
             let session_id = inev.session_id();
-            let location_id = &message.properties().agent_id();
+            let location_id = AgentId::from(message.properties());
             let session = janus_session_shadow::FindQuery::new()
                 .session_id(session_id)
-                .location_id(location_id)
+                .location_id(&location_id)
                 .execute(&conn)?
                 .ok_or_else(|| {
                     format_err!(
                         "session = '{}' within location = '{}' is not found",
                         session_id,
-                        location_id,
+                        &location_id,
                     )
                 })?;
             let rtc = rtc::delete_state(session.rtc_id(), &conn)?;

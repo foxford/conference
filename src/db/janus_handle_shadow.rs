@@ -1,5 +1,5 @@
-use crate::authn::AgentId;
 use crate::schema::{janus_handle_shadow, rtc};
+use crate::transport::AgentId;
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use uuid::Uuid;

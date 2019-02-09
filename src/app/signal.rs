@@ -1,9 +1,9 @@
 use crate::app::janus;
-use crate::authn::Authenticable;
 use crate::authz;
 use crate::db::{location, rtc, ConnectionPool};
 use crate::transport::mqtt::compat::IntoEnvelope;
 use crate::transport::mqtt::{IncomingRequest, OutgoingResponse, Publishable};
+use crate::transport::AgentId;
 use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -49,7 +49,7 @@ impl State {
 
 impl State {
     pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
-        let agent_id = inreq.properties().agent_id();
+        let agent_id = AgentId::from(inreq.properties());
         let rtc_id = &inreq.payload().rtc_id;
         let jsep = &inreq.payload().jsep;
         let sdp_type = parse_sdp_type(jsep)?;
@@ -74,7 +74,7 @@ impl State {
             let rtc_id = loc.rtc_id().to_string();
             self.authz.authorize(
                 loc.audience(),
-                agent_id.account_id(),
+                inreq.properties(),
                 vec!["rooms", &room_id, "rtcs", &rtc_id],
                 action,
             )
@@ -107,8 +107,7 @@ impl State {
                             .label
                             .as_ref()
                             .ok_or_else(|| err_msg("missing label"))?;
-                        let state =
-                            rtc::RtcState::new(label, Some(inreq.properties().agent_id()), None);
+                        let state = rtc::RtcState::new(label, Some(agent_id), None);
                         let _ = rtc::UpdateQuery::new(rtc_id).state(&state).execute(&conn)?;
                     }
 

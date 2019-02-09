@@ -1,5 +1,5 @@
-use crate::authn::AgentId;
 use crate::schema::{room, rtc};
+use crate::transport::AgentId;
 use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
@@ -224,8 +224,8 @@ pub(crate) fn delete_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Err
 pub mod sql {
 
     use super::RtcState;
-    use crate::authn::sql::Agent_id;
-    use crate::authn::AgentId;
+    use crate::transport::sql::Agent_id;
+    use crate::transport::AgentId;
     use chrono::{DateTime, Utc};
 
     use diesel::deserialize::{self, FromSql};

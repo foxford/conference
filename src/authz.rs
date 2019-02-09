@@ -1,5 +1,5 @@
 use crate::authn::jose::token::TokenBuilder;
-use crate::authn::AccountId;
+use crate::authn::Authenticable;
 use failure::{format_err, Error};
 use jsonwebtoken::Algorithm;
 use serde_derive::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use std::fmt;
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) trait Authorize: Sync + Send {
-    fn authorize(&self, subject: &AccountId, object: Vec<&str>, action: &str) -> Result<(), Error>;
+    fn authorize(&self, intent: &Intent) -> Result<(), Error>;
     fn box_clone(&self) -> Box<dyn Authorize>;
 }
 
@@ -43,11 +43,15 @@ impl Clone for Client {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ClientMap {
+    object_ns: String,
     inner: HashMap<String, Client>,
 }
 
 impl ClientMap {
-    pub(crate) fn from_config(me: &AccountId, m: ConfigMap) -> Result<Self, Error> {
+    pub(crate) fn from_config<A>(me: &A, m: ConfigMap) -> Result<Self, Error>
+    where
+        A: Authenticable,
+    {
         let mut inner: HashMap<String, Client> = HashMap::new();
         for (audience, config) in m {
             match config {
@@ -62,28 +66,46 @@ impl ClientMap {
             }
         }
 
-        Ok(Self { inner })
+        Ok(Self {
+            object_ns: me.audience().to_owned(),
+            inner,
+        })
     }
 
-    pub(crate) fn authorize(
+    pub(crate) fn authorize<A>(
         &self,
         audience: &str,
-        subject: &AccountId,
+        subject: &A,
         object: Vec<&str>,
         action: &str,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Error>
+    where
+        A: Authenticable,
+    {
         let client = self
             .inner
             .get(audience)
             .ok_or_else(|| format_err!("no authz configuration for the audience = {}", audience))?;
-        client.authorize(subject, object, action)
+
+        let intent = Intent::new(
+            Entity::new(
+                subject.audience(),
+                vec!["accounts", subject.account_label()],
+            ),
+            Entity::new(&self.object_ns, object),
+            action,
+        );
+
+        client.authorize(&intent)
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 trait IntoClient {
-    fn into_client(self, me: &AccountId, audience: &str) -> Result<Client, Error>;
+    fn into_client<A>(self, me: &A, audience: &str) -> Result<Client, Error>
+    where
+        A: Authenticable;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -129,7 +151,7 @@ impl<'a> Intent<'a> {
 pub(crate) struct TrustedConfig {}
 
 impl Authorize for TrustedConfig {
-    fn authorize(&self, _: &AccountId, _: Vec<&str>, _: &str) -> Result<(), Error> {
+    fn authorize(&self, _intent: &Intent) -> Result<(), Error> {
         Ok(())
     }
 
@@ -139,7 +161,10 @@ impl Authorize for TrustedConfig {
 }
 
 impl IntoClient for TrustedConfig {
-    fn into_client(self, _me: &AccountId, _audience: &str) -> Result<Client, Error> {
+    fn into_client<A>(self, _me: &A, _audience: &str) -> Result<Client, Error>
+    where
+        A: Authenticable,
+    {
         Ok(Box::new(self))
     }
 }
@@ -157,26 +182,19 @@ pub(crate) struct HttpConfig {
 
 #[derive(Debug, Clone)]
 pub(crate) struct HttpClient {
-    me: AccountId,
-    pub(crate) uri: String,
-    pub(crate) token: String,
+    uri: String,
+    token: String,
 }
 
 impl Authorize for HttpClient {
-    fn authorize(&self, subject: &AccountId, object: Vec<&str>, action: &str) -> Result<(), Error> {
+    fn authorize(&self, intent: &Intent) -> Result<(), Error> {
         use reqwest;
-
-        let intent = Intent::new(
-            Entity::new(subject.audience(), vec!["accounts", subject.label()]),
-            Entity::new(self.me.audience(), object),
-            action,
-        );
 
         let client = reqwest::Client::new();
         let resp: Vec<String> = client
             .post(&self.uri)
             .bearer_auth(&self.token)
-            .json(&intent)
+            .json(intent)
             .send()
             .map_err(|err| format_err!("error sending the authorization request, {}", &err))?
             .json()
@@ -200,10 +218,13 @@ impl Authorize for HttpClient {
 }
 
 impl IntoClient for HttpConfig {
-    fn into_client(self, me: &AccountId, audience: &str) -> Result<Client, Error> {
+    fn into_client<A>(self, me: &A, audience: &str) -> Result<Client, Error>
+    where
+        A: Authenticable,
+    {
         let token = TokenBuilder::new()
             .issuer(me.audience())
-            .subject(me.label())
+            .subject(me.account_label())
             .audience(&format!("{}:{}", me.audience(), audience))
             .key(&self.algorithm, &self.key)
             .build()
@@ -216,7 +237,6 @@ impl IntoClient for HttpConfig {
             })?;
 
         Ok(Box::new(HttpClient {
-            me: me.clone(),
             uri: self.uri,
             token,
         }))
