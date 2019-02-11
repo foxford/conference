@@ -1,12 +1,13 @@
-use crate::app::janus;
-use crate::db::{location, rtc, ConnectionPool};
-use crate::transport::mqtt::compat::IntoEnvelope;
-use crate::transport::mqtt::{IncomingRequest, OutgoingResponse, Publishable};
-use crate::transport::AgentId;
 use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
+
+use crate::app::janus;
+use crate::db::{location, rtc, ConnectionPool};
+use crate::transport::util::mqtt::compat::IntoEnvelope;
+use crate::transport::util::mqtt::{IncomingRequest, OutgoingResponse, Publishable};
+use crate::transport::util::AgentId;
 
 ////////////////////////////////////////////////////////////////////////////////
 

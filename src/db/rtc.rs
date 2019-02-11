@@ -1,11 +1,12 @@
-use crate::schema::{room, rtc};
-use crate::transport::AgentId;
 use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use crate::schema::{room, rtc};
+use crate::transport::util::AgentId;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -223,16 +224,16 @@ pub(crate) fn delete_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Err
 
 pub mod sql {
 
-    use super::RtcState;
-    use crate::transport::sql::Agent_id;
-    use crate::transport::AgentId;
     use chrono::{DateTime, Utc};
-
     use diesel::deserialize::{self, FromSql};
     use diesel::pg::Pg;
     use diesel::serialize::{self, Output, ToSql, WriteTuple};
     use diesel::sql_types::{Nullable, Record, Text, Timestamptz};
     use std::io::Write;
+
+    use super::RtcState;
+    use crate::transport::util::sql::Agent_id;
+    use crate::transport::util::AgentId;
 
     #[derive(SqlType, QueryId)]
     #[postgres(type_name = "rtc_state")]

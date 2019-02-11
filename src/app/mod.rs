@@ -1,11 +1,10 @@
-use crate::db::ConnectionPool;
-use crate::transport::mqtt::compat;
-use crate::transport::mqtt::{
-    Agent, AgentBuilder, EventSubscription, Publish, QoS, RequestSubscription,
-};
-use crate::transport::{AgentId, SharedGroup, Source};
 use failure::{format_err, Error};
 use log::{error, info};
+
+use crate::db::ConnectionPool;
+use crate::transport::util::mqtt::{compat, Agent, AgentBuilder, Publish, QoS};
+use crate::transport::util::{AgentId, SharedGroup};
+use crate::transport::Subscription;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -26,13 +25,13 @@ pub(crate) fn run(db: &ConnectionPool) {
         .start(&config.mqtt)
         .expect("Failed to create an agent");
     tx.subscribe(
-        &EventSubscription::new(Source::Broadcast(&config.backend_id, "responses")),
+        &Subscription::broadcast_events(&config.backend_id, "responses"),
         QoS::AtLeastOnce,
         Some(&group),
     )
     .expect("Error subscribing to backend responses");
     tx.subscribe(
-        &RequestSubscription::new(Source::Multicast),
+        &Subscription::multicast_requests(),
         QoS::AtLeastOnce,
         Some(&group),
     )
