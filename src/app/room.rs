@@ -4,7 +4,6 @@ use chrono::{DateTime, Utc};
 use failure::Error;
 use serde_derive::Deserialize;
 
-use crate::authz;
 use crate::db::{room, ConnectionPool};
 use crate::transport::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable,

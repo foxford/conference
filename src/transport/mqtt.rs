@@ -1,5 +1,6 @@
-use super::{AccountId, Addressable, AgentId, Destination, SharedGroup, Source};
-use crate::authn::Authenticable;
+use crate::transport::{
+    AccountId, Addressable, AgentId, Authenticable, Destination, SharedGroup, Source,
+};
 use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
@@ -71,7 +72,7 @@ impl AgentBuilder {
     pub(crate) fn start(
         self,
         config: &AgentConfig,
-    ) -> Result<(Agent, crossbeam_channel::Receiver<rumqtt::Notification>), Error> {
+    ) -> Result<(Agent, rumqtt::Receiver<rumqtt::Notification>), Error> {
         let options = Self::mqtt_options(&self.mqtt_client_id(), &config)?;
         let (tx, rx) = rumqtt::MqttClient::start(options)?;
 

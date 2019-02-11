@@ -1,4 +1,3 @@
-use crate::authz;
 use crate::db::ConnectionPool;
 use crate::transport::mqtt::compat;
 use crate::transport::mqtt::{
@@ -16,8 +15,8 @@ pub(crate) fn run(db: &ConnectionPool) {
     info!("App config: {:?}", config);
 
     // Authz
-    let authz = authz::ClientMap::from_config(&config.id, config.authz)
-        .expect("Error converting authn config to clients");
+    let authz = authz::ClientMap::new(&config.id, config.authz)
+        .expect("Error converting authz config to clients");
 
     // Agent
     let agent_id = AgentId::new(&generate_agent_label(), config.id);

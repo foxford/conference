@@ -1,5 +1,4 @@
 use crate::app::janus;
-use crate::authz;
 use crate::db::{janus_session_shadow, location, room, rtc, ConnectionPool};
 use crate::transport::mqtt::compat::IntoEnvelope;
 use crate::transport::mqtt::{

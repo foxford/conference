@@ -1,14 +1,12 @@
-use crate::transport::mqtt::AgentConfig;
-use crate::transport::AccountId;
 use config;
 use serde_derive::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Config {
-    pub(crate) id: AccountId,
-    pub(crate) backend_id: AccountId,
-    pub(crate) authz: crate::authz::ConfigMap,
-    pub(crate) mqtt: AgentConfig,
+    pub(crate) id: crate::transport::AccountId,
+    pub(crate) backend_id: crate::transport::AccountId,
+    pub(crate) authz: authz::ConfigMap,
+    pub(crate) mqtt: crate::transport::mqtt::AgentConfig,
 }
 
 pub(crate) fn load() -> Result<Config, config::ConfigError> {

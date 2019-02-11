@@ -1,5 +1,4 @@
 use crate::app::janus;
-use crate::authz;
 use crate::db::{location, rtc, ConnectionPool};
 use crate::transport::mqtt::compat::IntoEnvelope;
 use crate::transport::mqtt::{IncomingRequest, OutgoingResponse, Publishable};
