@@ -1,14 +1,15 @@
-use crate::app::janus;
-use crate::db::{janus_session_shadow, location, room, rtc, ConnectionPool};
-use crate::transport::mqtt::compat::IntoEnvelope;
-use crate::transport::mqtt::{
-    IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
-    OutgoingResponseStatus, Publishable,
-};
-use crate::transport::{AgentId, Destination};
 use failure::{format_err, Error};
 use serde_derive::Deserialize;
 use uuid::Uuid;
+
+use crate::app::janus;
+use crate::db::{janus_session_shadow, location, room, rtc, ConnectionPool};
+use crate::transport::util::mqtt::compat::IntoEnvelope;
+use crate::transport::util::mqtt::{
+    IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
+    OutgoingResponseStatus, Publishable,
+};
+use crate::transport::util::AgentId;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -215,9 +216,5 @@ impl State {
 
 pub(crate) fn update_event(object: rtc::Object) -> ObjectUpdateEvent {
     let uri = format!("rooms/{}/events", object.room_id());
-    OutgoingEvent::new(
-        object,
-        OutgoingEventProperties::new("rtc.update"),
-        Destination::Broadcast(uri),
-    )
+    OutgoingEvent::broadcast(object, OutgoingEventProperties::new("rtc.update"), &uri)
 }

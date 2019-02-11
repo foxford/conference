@@ -1,9 +1,11 @@
-use crate::transport::{
-    AccountId, Addressable, AgentId, Authenticable, Destination, SharedGroup, Source,
-};
 use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
+
+use crate::transport::util::{AccountId, AgentId, Destination, SharedGroup, Source};
+use crate::transport::{
+    Addressable, Authenticable, EventSubscription, RequestSubscription, ResponseSubscription,
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -425,12 +427,74 @@ impl<T, P> OutgoingMessage<T, P>
 where
     T: serde::Serialize,
 {
-    pub(crate) fn new(payload: T, properties: P, destination: Destination) -> Self {
+    fn new(payload: T, properties: P, destination: Destination) -> Self {
         Self {
             payload,
             properties,
             destination,
         }
+    }
+}
+
+impl<T> OutgoingEvent<T>
+where
+    T: serde::Serialize,
+{
+    pub(crate) fn broadcast(payload: T, properties: OutgoingEventProperties, to_uri: &str) -> Self {
+        OutgoingMessage::new(
+            payload,
+            properties,
+            Destination::Broadcast(to_uri.to_owned()),
+        )
+    }
+}
+
+impl<T> OutgoingRequest<T>
+where
+    T: serde::Serialize,
+{
+    pub(crate) fn multicast<A>(payload: T, properties: OutgoingRequestProperties, to: &A) -> Self
+    where
+        A: Authenticable,
+    {
+        OutgoingMessage::new(
+            payload,
+            properties,
+            Destination::Multicast(AccountId::new(to.account_label(), to.audience())),
+        )
+    }
+
+    pub(crate) fn unicast<A>(payload: T, properties: OutgoingRequestProperties, to: &A) -> Self
+    where
+        A: Addressable,
+    {
+        OutgoingMessage::new(
+            payload,
+            properties,
+            Destination::Unicast(AgentId::new(
+                to.agent_label(),
+                AccountId::new(to.account_label(), to.audience()),
+            )),
+        )
+    }
+}
+
+impl<T> OutgoingResponse<T>
+where
+    T: serde::Serialize,
+{
+    pub(crate) fn unicast<A>(payload: T, properties: OutgoingResponseProperties, to: &A) -> Self
+    where
+        A: Addressable,
+    {
+        OutgoingMessage::new(
+            payload,
+            properties,
+            Destination::Unicast(AgentId::new(
+                to.agent_label(),
+                AccountId::new(to.account_label(), to.audience()),
+            )),
+        )
     }
 }
 
@@ -586,16 +650,6 @@ pub(crate) trait SubscriptionTopic {
     fn subscription_topic(&self, agent_id: &AgentId) -> Result<String, Error>;
 }
 
-pub(crate) struct EventSubscription<'a> {
-    source: Source<'a>,
-}
-
-impl<'a> EventSubscription<'a> {
-    pub(crate) fn new(source: Source<'a>) -> Self {
-        Self { source }
-    }
-}
-
 impl<'a> SubscriptionTopic for EventSubscription<'a> {
     fn subscription_topic(&self, _me: &AgentId) -> Result<String, Error> {
         match self.source {
@@ -612,41 +666,21 @@ impl<'a> SubscriptionTopic for EventSubscription<'a> {
     }
 }
 
-pub(crate) struct RequestSubscription<'a> {
-    source: Source<'a>,
-}
-
-impl<'a> RequestSubscription<'a> {
-    pub(crate) fn new(source: Source<'a>) -> Self {
-        Self { source }
-    }
-}
-
 impl<'a> SubscriptionTopic for RequestSubscription<'a> {
     fn subscription_topic(&self, me: &AgentId) -> Result<String, Error> {
         match self.source {
+            Source::Multicast => Ok(format!("agents/+/api/v1/out/{app}", app = me.account_id())),
             Source::Unicast(Some(ref account_id)) => Ok(format!(
                 "agents/{agent_id}/api/v1/in/{app}",
                 agent_id = me,
                 app = account_id,
             )),
             Source::Unicast(None) => Ok(format!("agents/{agent_id}/api/v1/in/+", agent_id = me)),
-            Source::Multicast => Ok(format!("agents/+/api/v1/out/{app}", app = me.account_id())),
             _ => Err(format_err!(
                 "source = '{:?}' is incompatible with request subscription",
                 self.source,
             )),
         }
-    }
-}
-
-pub(crate) struct ResponseSubscription<'a> {
-    source: Source<'a>,
-}
-
-impl<'a> ResponseSubscription<'a> {
-    pub(crate) fn new(source: Source<'a>) -> Self {
-        Self { source }
     }
 }
 

@@ -1,10 +1,11 @@
-use crate::schema::{room, rtc};
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::Serialize;
 use std::ops::Bound;
 use uuid::Uuid;
+
+use crate::schema::{room, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
