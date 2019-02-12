@@ -1,10 +1,15 @@
-use crate::schema::room;
+use crate::schema::{room, rtc};
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::Serialize;
 use std::ops::Bound;
 use uuid::Uuid;
+
+////////////////////////////////////////////////////////////////////////////////
+
+type AllColumns = (room::id, room::time, room::audience, room::created_at);
+const ALL_COLUMNS: AllColumns = (room::id, room::time, room::audience, room::created_at);
 
 #[derive(Debug, Identifiable, Queryable, Serialize, QueryableByName)]
 #[table_name = "room"]
@@ -30,7 +35,75 @@ impl Object {
     }
 }
 
-/////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct FindQuery {
+    id: Option<Uuid>,
+    rtc_id: Option<Uuid>,
+    finished: Option<bool>,
+}
+
+impl FindQuery {
+    pub(crate) fn new() -> Self {
+        Self {
+            id: None,
+            rtc_id: None,
+            finished: None,
+        }
+    }
+
+    pub(crate) fn id(mut self, id: Uuid) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    pub(crate) fn rtc_id(mut self, rtc_id: Uuid) -> Self {
+        self.rtc_id = Some(rtc_id);
+        self
+    }
+
+    pub(crate) fn finished(mut self, finished: bool) -> Self {
+        self.finished = Some(finished);
+        self
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+        use diesel::prelude::*;
+
+        match (self.id, self.rtc_id) {
+            (Some(ref id), None) => room::table.find(id).get_result(conn).optional(),
+            (None, Some(ref rtc_id)) => room::table
+                .inner_join(rtc::table)
+                .filter(rtc::id.eq(rtc_id))
+                .select(ALL_COLUMNS)
+                .get_result(conn)
+                .optional(),
+            _ => Err(Error::QueryBuilderError(
+                "id or rtc_id are required parameters of the query".into(),
+            )),
+        }
+    }
+
+    pub(crate) fn many(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+        use diesel::{dsl::sql, prelude::*};
+
+        match self.finished {
+            Some(finished) => {
+                let predicate = if finished {
+                    sql("upper(time) < now()")
+                } else {
+                    sql("time @> now()")
+                };
+                room::table.filter(predicate).load(conn)
+            }
+            _ => Err(Error::QueryBuilderError(
+                "finished is required parameter of the query".into(),
+            )),
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Insertable)]
 #[table_name = "room"]
@@ -65,61 +138,5 @@ impl<'a> InsertQuery<'a> {
         use diesel::RunQueryDsl;
 
         diesel::insert_into(room).values(self).get_result(conn)
-    }
-}
-
-/////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug)]
-pub(crate) struct FindQuery<'a> {
-    id: Option<&'a Uuid>,
-    finished: Option<bool>,
-}
-
-impl<'a> FindQuery<'a> {
-    pub(crate) fn new() -> Self {
-        Self {
-            id: None,
-            finished: None,
-        }
-    }
-
-    pub(crate) fn id(mut self, id: &'a Uuid) -> Self {
-        self.id = Some(id);
-        self
-    }
-
-    pub(crate) fn finished(mut self, finished: bool) -> Self {
-        self.finished = Some(finished);
-        self
-    }
-
-    pub(crate) fn one(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        match self.id {
-            Some(id) => room::table.find(id).get_result(conn).optional(),
-            _ => Err(Error::QueryBuilderError(
-                "rtc_id or session_id and location_id are required parameters of the query".into(),
-            )),
-        }
-    }
-
-    pub(crate) fn many(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use diesel::{dsl::sql, prelude::*};
-
-        match self.finished {
-            Some(finished) => {
-                let predicate = if finished {
-                    sql("upper(time) < now()")
-                } else {
-                    sql("time @> now()")
-                };
-                room::table.filter(predicate).load(conn)
-            }
-            _ => Err(Error::QueryBuilderError(
-                "finished is required parameter of the query".into(),
-            )),
-        }
     }
 }

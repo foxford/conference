@@ -2,9 +2,9 @@ use diesel::pg::PgConnection;
 use diesel::result::Error;
 use uuid::Uuid;
 
-use crate::authn::AgentId;
-use crate::schema::janus_session_shadow;
 use super::rtc::Object as Rtc;
+use crate::schema::janus_session_shadow;
+use crate::transport::AgentId;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -107,11 +107,11 @@ impl<'a> FindQuery<'a> {
         use diesel::prelude::*;
 
         match (self.rtc_id, (self.session_id, self.location_id)) {
-            (Some(rtc_id), _) => janus_session_shadow::table
+            (Some(ref rtc_id), _) => janus_session_shadow::table
                 .find(rtc_id)
                 .get_result(conn)
                 .optional(),
-            (None, (Some(session_id), Some(location_id))) => janus_session_shadow::table
+            (None, (Some(ref session_id), Some(ref location_id))) => janus_session_shadow::table
                 .filter(janus_session_shadow::session_id.eq(session_id))
                 .filter(janus_session_shadow::location_id.eq(location_id))
                 .get_result(conn)

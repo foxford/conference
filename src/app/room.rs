@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use failure::Error;
 use serde_derive::Deserialize;
 
+use crate::authz;
 use crate::db::{room, ConnectionPool};
 use crate::transport::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable,
@@ -25,22 +26,32 @@ pub(crate) type ObjectResponse = OutgoingResponse<room::Object>;
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct State {
+    authz: authz::ClientMap,
     db: ConnectionPool,
 }
 
 impl State {
-    pub(crate) fn new(db: ConnectionPool) -> Self {
-        Self { db }
+    pub(crate) fn new(authz: authz::ClientMap, db: ConnectionPool) -> Self {
+        Self { authz, db }
     }
 }
 
 impl State {
     pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
-        // Creating a Room
-        let conn = self.db.get()?;
+        // Authorization: future room's owner has to allow the action
+        self.authz.authorize(
+            &inreq.payload().audience,
+            inreq.properties(),
+            vec!["rooms"],
+            "create",
+        )?;
 
-        let object = room::InsertQuery::new(inreq.payload().time, &inreq.payload().audience)
-            .execute(&conn)?;
+        // Creating a Room
+        let object = {
+            let conn = self.db.get()?;
+            room::InsertQuery::new(inreq.payload().time, &inreq.payload().audience)
+                .execute(&conn)?
+        };
 
         let resp = inreq.to_response(object, &OutgoingResponseStatus::OK);
         resp.into_envelope()

@@ -1,5 +1,5 @@
-use super::{AuthnProperties, Destination, SharedGroup, Source};
-use crate::authn::{AccountId, AgentId, Authenticable};
+use super::{AccountId, Addressable, AgentId, Destination, SharedGroup, Source};
+use crate::authn::Authenticable;
 use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
@@ -32,7 +32,7 @@ impl fmt::Display for ConnectionMode {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct AgentOptions {
+pub(crate) struct AgentConfig {
     pub(crate) uri: String,
 }
 
@@ -70,7 +70,7 @@ impl AgentBuilder {
 
     pub(crate) fn start(
         self,
-        config: &AgentOptions,
+        config: &AgentConfig,
     ) -> Result<(Agent, crossbeam_channel::Receiver<rumqtt::Notification>), Error> {
         let options = Self::mqtt_options(&self.mqtt_client_id(), &config)?;
         let (tx, rx) = rumqtt::MqttClient::start(options)?;
@@ -88,7 +88,7 @@ impl AgentBuilder {
         )
     }
 
-    fn mqtt_options(client_id: &str, config: &AgentOptions) -> Result<rumqtt::MqttOptions, Error> {
+    fn mqtt_options(client_id: &str, config: &AgentConfig) -> Result<rumqtt::MqttOptions, Error> {
         let uri = config.uri.parse::<http::Uri>()?;
         let host = uri.host().ok_or_else(|| err_msg("missing MQTT host"))?;
         let port = uri
@@ -148,10 +148,78 @@ impl Agent {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub(crate) struct AuthnProperties {
+    agent_label: String,
+    account_label: String,
+    audience: String,
+}
+
+impl Authenticable for AuthnProperties {
+    fn account_label(&self) -> &str {
+        &self.account_label
+    }
+
+    fn audience(&self) -> &str {
+        &self.audience
+    }
+}
+
+impl Addressable for AuthnProperties {
+    fn agent_label(&self) -> &str {
+        &self.agent_label
+    }
+}
+
+impl From<&AuthnProperties> for AgentId {
+    fn from(value: &AuthnProperties) -> Self {
+        AgentId::new(
+            value.agent_label(),
+            AccountId::new(value.account_label(), value.audience()),
+        )
+    }
+}
+
+impl From<&AuthnProperties> for AccountId {
+    fn from(value: &AuthnProperties) -> Self {
+        AccountId::new(value.account_label(), value.audience())
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct IncomingEventProperties {
     #[serde(flatten)]
     authn: AuthnProperties,
+}
+
+impl Authenticable for IncomingEventProperties {
+    fn account_label(&self) -> &str {
+        self.authn.account_label()
+    }
+
+    fn audience(&self) -> &str {
+        self.authn.audience()
+    }
+}
+
+impl Addressable for IncomingEventProperties {
+    fn agent_label(&self) -> &str {
+        self.authn.agent_label()
+    }
+}
+
+impl From<&IncomingEventProperties> for AgentId {
+    fn from(value: &IncomingEventProperties) -> Self {
+        (&value.authn).into()
+    }
+}
+
+impl From<&IncomingEventProperties> for AccountId {
+    fn from(value: &IncomingEventProperties) -> Self {
+        (&value.authn).into()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -176,6 +244,34 @@ impl IncomingRequestProperties {
     }
 }
 
+impl Authenticable for IncomingRequestProperties {
+    fn account_label(&self) -> &str {
+        self.authn.account_label()
+    }
+
+    fn audience(&self) -> &str {
+        self.authn.audience()
+    }
+}
+
+impl Addressable for IncomingRequestProperties {
+    fn agent_label(&self) -> &str {
+        self.authn.agent_label()
+    }
+}
+
+impl From<&IncomingRequestProperties> for AgentId {
+    fn from(value: &IncomingRequestProperties) -> Self {
+        (&value.authn).into()
+    }
+}
+
+impl From<&IncomingRequestProperties> for AccountId {
+    fn from(value: &IncomingRequestProperties) -> Self {
+        (&value.authn).into()
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct IncomingResponseProperties {
     correlation_data: String,
@@ -183,33 +279,31 @@ pub(crate) struct IncomingResponseProperties {
     authn: AuthnProperties,
 }
 
-impl Authenticable for IncomingEventProperties {
-    fn account_id(&self) -> AccountId {
-        AccountId::from(&self.authn)
-    }
-
-    fn agent_id(&self) -> AgentId {
-        AgentId::from(&self.authn)
-    }
-}
-
-impl Authenticable for IncomingRequestProperties {
-    fn account_id(&self) -> AccountId {
-        AccountId::from(&self.authn)
-    }
-
-    fn agent_id(&self) -> AgentId {
-        AgentId::from(&self.authn)
-    }
-}
-
 impl Authenticable for IncomingResponseProperties {
-    fn account_id(&self) -> AccountId {
-        AccountId::from(&self.authn)
+    fn account_label(&self) -> &str {
+        self.authn.account_label()
     }
 
-    fn agent_id(&self) -> AgentId {
-        AgentId::from(&self.authn)
+    fn audience(&self) -> &str {
+        self.authn.audience()
+    }
+}
+
+impl Addressable for IncomingResponseProperties {
+    fn agent_label(&self) -> &str {
+        self.authn.agent_label()
+    }
+}
+
+impl From<IncomingResponseProperties> for AgentId {
+    fn from(value: IncomingResponseProperties) -> Self {
+        (&value.authn).into()
+    }
+}
+
+impl From<IncomingResponseProperties> for AccountId {
+    fn from(value: IncomingResponseProperties) -> Self {
+        (&value.authn).into()
     }
 }
 
@@ -218,7 +312,7 @@ impl Authenticable for IncomingResponseProperties {
 #[derive(Debug)]
 pub(crate) struct IncomingMessage<T, P>
 where
-    P: Authenticable,
+    P: Addressable,
 {
     payload: T,
     properties: P,
@@ -226,7 +320,7 @@ where
 
 impl<T, P> IncomingMessage<T, P>
 where
-    P: Authenticable,
+    P: Addressable,
 {
     pub(crate) fn new(payload: T, properties: P) -> Self {
         Self {
@@ -256,7 +350,7 @@ impl<T> IncomingRequest<T> {
         OutgoingMessage::new(
             data,
             self.properties.to_response(status),
-            Destination::Unicast(self.properties.agent_id()),
+            Destination::Unicast(self.properties().into()),
         )
     }
 }
@@ -593,7 +687,7 @@ pub mod compat {
         OutgoingEventProperties, OutgoingRequestProperties, OutgoingResponseProperties,
         Publishable,
     };
-    use crate::authn::AgentId;
+    use crate::transport::AgentId;
     use failure::{err_msg, format_err, Error};
     use serde_derive::{Deserialize, Serialize};
 

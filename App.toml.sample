@@ -1,10 +1,16 @@
 [id]
 label = "conference"
-audience = "example.org"
+audience = "svc.example.org"
 
 [backend_id]
 label = "janus-gateway"
-audience = "example.org"
+audience = "svc.example.org"
+
+[authz."example.net"]
+type = "http"
+uri = "https://iam.example.net/authz"
+algorithm = "ES256"
+key = "data/keys/svc.public_key.p8.der.sample"
 
 [mqtt]
 uri = "mqtt://192.168.99.100:1883"
