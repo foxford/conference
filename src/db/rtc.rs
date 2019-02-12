@@ -6,7 +6,7 @@ use serde_derive::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::schema::{room, rtc};
-use crate::transport::util::AgentId;
+use crate::transport::AgentId;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -232,8 +232,8 @@ pub mod sql {
     use std::io::Write;
 
     use super::RtcState;
-    use crate::transport::util::sql::Agent_id;
-    use crate::transport::util::AgentId;
+    use crate::transport::sql::Agent_id;
+    use crate::transport::AgentId;
 
     #[derive(SqlType, QueryId)]
     #[postgres(type_name = "rtc_state")]

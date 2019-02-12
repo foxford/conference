@@ -3,10 +3,10 @@ use serde_derive::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Config {
-    pub(crate) id: crate::transport::util::AccountId,
-    pub(crate) backend_id: crate::transport::util::AccountId,
+    pub(crate) id: crate::transport::AccountId,
+    pub(crate) backend_id: crate::transport::AccountId,
     pub(crate) authz: authz::ConfigMap,
-    pub(crate) mqtt: crate::transport::util::mqtt::AgentConfig,
+    pub(crate) mqtt: crate::transport::mqtt::AgentConfig,
 }
 
 pub(crate) fn load() -> Result<Config, config::ConfigError> {

@@ -3,7 +3,7 @@ use diesel::result::Error;
 use uuid::Uuid;
 
 use crate::schema::{janus_handle_shadow, janus_session_shadow, room, rtc};
-use crate::transport::util::AgentId;
+use crate::transport::AgentId;
 
 ////////////////////////////////////////////////////////////////////////////////
 
