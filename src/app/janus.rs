@@ -3,7 +3,7 @@ use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
     TrickleRequest,
 };
-use crate::db::{janus_handle_shadow, janus_session_shadow, room, rtc, ConnectionPool};
+use crate::db::{janus_handle_shadow, janus_session_shadow, recording, room, rtc, ConnectionPool};
 use crate::transport::correlation_data::{from_base64, to_base64};
 use crate::transport::mqtt::compat::{into_event, IncomingEnvelope, IntoEnvelope};
 use crate::transport::mqtt::{
@@ -387,15 +387,27 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
                     let status = plugin_data.get("status").ok_or_else(|| {
-                        format_err!("missing status in a response on {}", reqp.method())
+                        format_err!(
+                            "missing status in a response on method = {}, transaction = {}",
+                            reqp.method(),
+                            inresp.transaction()
+                        )
                     })?;
                     if status != 200 {
-                        return Err(format_err!("error received on {}", reqp.method()));
+                        return Err(format_err!(
+                            "error received on method = {}, transaction = {}",
+                            reqp.method(),
+                            inresp.transaction()
+                        ));
                     }
 
                     // Getting answer (as JSEP)
                     let jsep = inresp.jsep().ok_or_else(|| {
-                        format_err!("missing jsep in a response on {}", reqp.method())
+                        format_err!(
+                            "missing jsep in a response on method = {}, transaction = {}",
+                            reqp.method(),
+                            inresp.transaction()
+                        )
                     })?;
 
                     let resp = crate::app::signal::CreateResponse::new(
@@ -413,15 +425,27 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
                     let status = plugin_data.get("status").ok_or_else(|| {
-                        format_err!("missing status in a response on {}", reqp.method())
+                        format_err!(
+                            "missing status in a response on method = {}, transaction = {}",
+                            reqp.method(),
+                            inresp.transaction()
+                        )
                     })?;
                     if status != 200 {
-                        return Err(format_err!("error received on {}", reqp.method()));
+                        return Err(format_err!(
+                            "error received on method = {}, transaction = {}",
+                            reqp.method(),
+                            inresp.transaction()
+                        ));
                     }
 
                     // Getting answer (as JSEP)
                     let jsep = inresp.jsep().ok_or_else(|| {
-                        format_err!("missing jsep in a response on {}", reqp.method())
+                        format_err!(
+                            "missing jsep in a response on method = {}, transaction = {}",
+                            reqp.method(),
+                            inresp.transaction()
+                        )
                     })?;
 
                     let resp = crate::app::signal::CreateResponse::new(
@@ -438,20 +462,24 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     let response = inresp.plugin().data();
                     let status = response.get("status").ok_or_else(|| {
                         format_err!(
-                            "missing status in a response on {}:{}",
+                            "missing status in a response on method = {}, transaction = {}",
                             reqp.method(),
                             inresp.transaction(),
                         )
                     })?;
                     if status != 200 {
-                        return Err(format_err!("error received on {}", reqp.method()));
+                        return Err(format_err!(
+                            "error received on method = {}, transaction = {}",
+                            reqp.method(),
+                            inresp.transaction()
+                        ));
                     }
 
                     let rtc_id = response
                         .get("id")
                         .ok_or_else(|| {
                             format_err!(
-                                "missing rtc id in a response on {}:{}",
+                                "missing rtc id in a response on method = {}, transaction = {}",
                                 reqp.method(),
                                 inresp.transaction()
                             )
@@ -459,7 +487,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                         .as_str()
                         .ok_or_else(|| {
                             format_err!(
-                                "rtc_id is not a string on {}:{}",
+                                "rtc_id is not a string on method = {}, transaction = {}",
                                 reqp.method(),
                                 inresp.transaction()
                             )
@@ -480,9 +508,8 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                             format_err!("a room for rtc = '{}' is not found", &rtc.id())
                         })?;
 
-                    rtc::UpdateQuery::new(&rtc.id())
-                        .stored(true)
-                        .execute(&conn)?;
+                    // TODO: set real time intervals from Janus
+                    recording::InsertQuery::new(rtc_id, Vec::new()).execute(&conn)?;
 
                     let store_event = super::rtc::store_event(rtc, room);
 

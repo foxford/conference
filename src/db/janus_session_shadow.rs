@@ -1,13 +1,15 @@
-use crate::authn::AgentId;
-use crate::schema::{janus_session_shadow, rtc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use uuid::Uuid;
 
+use crate::authn::AgentId;
+use crate::schema::janus_session_shadow;
+use super::rtc::Object as Rtc;
+
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Identifiable, Queryable, Associations)]
-#[belongs_to(rtc::Object, foreign_key = "rtc_id")]
+#[belongs_to(Rtc, foreign_key = "rtc_id")]
 #[primary_key(rtc_id)]
 #[table_name = "janus_session_shadow"]
 pub(crate) struct Object {

@@ -119,7 +119,7 @@ fn handle_message(
                 let next = rtc.list(&req)?;
                 next.publish(tx)
             }
-            "rtc.store" => {
+            "rtc.upload" => {
                 let req = compat::into_request(envelope)?;
                 let next = rtc.store(&req)?;
                 next.publish(tx)

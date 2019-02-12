@@ -106,16 +106,16 @@ impl<'a> FindQuery<'a> {
     }
 
     pub(crate) fn many(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use diesel::prelude::*;
+        use diesel::{dsl::sql, prelude::*};
 
         match self.finished {
             Some(finished) => {
-                let q = if finished {
-                    "select room where upper(time) < now()"
+                let predicate = if finished {
+                    sql("upper(time) < now()")
                 } else {
-                    "select room where time @> now()"
+                    sql("time @> now()")
                 };
-                diesel::sql_query(q).load(conn)
+                room::table.filter(predicate).load(conn)
             }
             _ => Err(Error::QueryBuilderError(
                 "finished is required parameter of the query".into(),

@@ -1,15 +1,19 @@
+use failure::{format_err, Error};
+use itertools::izip;
+use serde_derive::{Deserialize, Serialize};
+use uuid::Uuid;
+
 use crate::app::janus;
 use crate::authn::{AgentId, Authenticable};
-use crate::db::{janus_handle_shadow, janus_session_shadow, location, room, rtc, ConnectionPool};
+use crate::db::{
+    janus_handle_shadow, janus_session_shadow, location, recording, room, rtc, ConnectionPool,
+};
 use crate::transport::mqtt::compat::IntoEnvelope;
 use crate::transport::mqtt::{
     IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
     OutgoingResponseStatus, Publish, Publishable,
 };
 use crate::transport::Destination;
-use failure::{format_err, Error};
-use serde_derive::{Deserialize, Serialize};
-use uuid::Uuid;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -143,35 +147,42 @@ impl State {
     }
 
     pub(crate) fn store(&self, inreq: &StoreRequest) -> Result<impl Publish, Error> {
-        use diesel::BelongingToDsl;
+        use diesel::prelude::*;
 
         let conn = self.db.get()?;
 
-        let rooms_to_process = room::FindQuery::new().finished(true).many(&conn)?;
-        // TODO: why belonging_to is not working?
-        // TODO: filter here?
-        let rtcs = rtc::Object::belonging_to(&rooms_to_process).load(&conn);
-        let rtcs = rtcs.grouped_by(&rooms_to_process);
+        let rooms = room::FindQuery::new().finished(true).many(&conn)?;
+        let rtcs: Vec<rtc::Object> = rtc::Object::belonging_to(&rooms).load(&conn)?;
+        let recordings: Vec<recording::Object> =
+            recording::Object::belonging_to(&rtcs).load(&conn)?;
+        let sessions: Vec<janus_session_shadow::Object> =
+            janus_session_shadow::Object::belonging_to(&rtcs).load(&conn)?;
+        let handles: Vec<janus_handle_shadow::Object> =
+            janus_handle_shadow::Object::belonging_to(&rtcs).load(&conn)?;
+
+        let recordings = recordings.grouped_by(&rtcs);
+        let sessions = sessions.grouped_by(&rtcs);
+        let handles = handles.grouped_by(&rtcs);
+        let rtcs_and_related = rtcs
+            .into_iter()
+            .zip(izip!(recordings, sessions, handles))
+            .grouped_by(&rooms);
 
         let mut requests = Vec::new();
 
-        for (room, rtcs) in rooms_to_process.into_iter().zip(rtcs) {
-            for rtc in rtcs.iter().filter(|rtc| !rtc.stored) {
-                // TODO: optimize if there will be such a need
+        for (room, rtcs_and_related) in rooms.into_iter().zip(rtcs_and_related) {
+            for (rtc, (recording, session, handle)) in rtcs_and_related {
+                if !recording.is_empty() {
+                    continue;
+                }
 
-                let session = janus_session_shadow::FindQuery::new()
-                    .rtc_id(&rtc.id())
-                    .execute(&conn)?
-                    .ok_or_else(|| {
-                        format_err!("a session for rtc = '{}' is not found", &rtc.id())
-                    })?;
+                let session = session.into_iter().next().ok_or_else(|| {
+                    format_err!("a session for rtc = '{}' is not found", &rtc.id())
+                })?;
 
-                let handle = janus_handle_shadow::FindQuery::new()
-                    .rtc_id(&rtc.id())
-                    .one(&conn)?
-                    .ok_or_else(|| {
-                        format_err!("a handle for rtc = '{}' is not found", &rtc.id())
-                    })?;
+                let handle = handle.into_iter().next().ok_or_else(|| {
+                    format_err!("a handle for rtc = '{}' is not found", &rtc.id())
+                })?;
 
                 let req = janus::upload_stream_request(
                     inreq.properties().clone(),
@@ -207,7 +218,7 @@ pub(crate) fn update_event(object: rtc::Object) -> ObjectUpdateEvent {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) fn store_event(rtc: rtc::Object, room: room::Object) -> ObjectStoreEvent {
-    let uri = format!("audiences/{}", room.audience());
+    let uri = format!("audiences/{}/events", room.audience());
     let event = StoreEventData {
         id: *rtc.id(),
         uri: format!("s3://{}/{}", room.bucket_name(), rtc.record_name()),
