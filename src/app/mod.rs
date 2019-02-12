@@ -2,9 +2,8 @@ use failure::{format_err, Error};
 use log::{error, info};
 
 use crate::db::ConnectionPool;
-use crate::transport::util::mqtt::{compat, Agent, AgentBuilder, Publish, QoS};
-use crate::transport::util::{AgentId, SharedGroup};
-use crate::transport::Subscription;
+use crate::transport::mqtt::{compat, Agent, AgentBuilder, Publish, QoS};
+use crate::transport::{AgentId, SharedGroup, Subscription};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -17,7 +16,7 @@ pub(crate) fn run(db: &ConnectionPool) {
     let authz = authz::ClientMap::new(&config.id, config.authz)
         .expect("Error converting authz config to clients");
 
-    // Agent
+    // agent
     let agent_id = AgentId::new(&generate_agent_label(), config.id);
     info!("Agent id: {:?}", &agent_id);
     let group = SharedGroup::new("loadbalancer", agent_id.account_id().clone());

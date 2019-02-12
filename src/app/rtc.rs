@@ -4,12 +4,12 @@ use uuid::Uuid;
 
 use crate::app::janus;
 use crate::db::{janus_session_shadow, location, room, rtc, ConnectionPool};
-use crate::transport::util::mqtt::compat::IntoEnvelope;
-use crate::transport::util::mqtt::{
+use crate::transport::mqtt::compat::IntoEnvelope;
+use crate::transport::mqtt::{
     IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
     OutgoingResponseStatus, Publishable,
 };
-use crate::transport::util::AgentId;
+use crate::transport::{Addressable, AgentId};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -95,15 +95,17 @@ impl State {
         };
 
         // Building a Create Janus Gateway Session request
-        let to = self.backend_agent_id.clone();
-        let backreq =
-            janus::create_session_request(inreq.properties().clone(), rtc.id().clone(), to)?;
+        let backreq = janus::create_session_request(
+            inreq.properties().clone(),
+            rtc.id().clone(),
+            &self.backend_agent_id,
+        )?;
 
         backreq.into_envelope()
     }
 
     pub(crate) fn read(&self, inreq: &ReadRequest) -> Result<impl Publishable, Error> {
-        let agent_id = AgentId::from(inreq.properties());
+        let agent_id = inreq.properties().agent_id();
         let id = inreq.payload().id;
 
         // Authorization: room's owner has to allow the action
@@ -112,7 +114,7 @@ impl State {
             let rtc_id = id.to_string();
             self.authz.authorize(
                 audience,
-                inreq.properties(),
+                agent_id,
                 vec!["rooms", &room_id, "rtcs", &rtc_id],
                 "read",
             )
@@ -121,7 +123,7 @@ impl State {
         // Looking up for Janus Gateway Handle
         let maybe_location = {
             let conn = self.db.get()?;
-            location::FindQuery::new(&agent_id, &id).execute(&conn)?
+            location::FindQuery::new(agent_id, &id).execute(&conn)?
         };
 
         match maybe_location {
@@ -165,7 +167,7 @@ impl State {
                     inreq.properties().clone(),
                     id,
                     session.session_id(),
-                    session.location_id().clone(),
+                    session.location_id(),
                 )?;
 
                 backreq.into_envelope()

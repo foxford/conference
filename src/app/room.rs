@@ -5,7 +5,7 @@ use failure::Error;
 use serde_derive::Deserialize;
 
 use crate::db::{room, ConnectionPool};
-use crate::transport::util::mqtt::{
+use crate::transport::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable,
 };
 
