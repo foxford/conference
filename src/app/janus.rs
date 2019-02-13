@@ -13,7 +13,7 @@ use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
     TrickleRequest,
 };
-use crate::db::{janus_handle_shadow, janus_session_shadow, recording, room, rtc, ConnectionPool};
+use crate::db::{janus_handle_shadow, janus_session_shadow, recording, location,room, rtc, ConnectionPool};
 use crate::util::{from_base64, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -563,22 +563,28 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             // return value is always 'Nullable' when the 'rtc_id' value
             // for the following statement can't be null.
             let session_id = inev.session_id();
-            let location_id = message.properties().agent_id();
-            let session = janus_session_shadow::FindQuery::new()
+            let agent_id = message.properties().agent_id();
+            let location = location::FindQuery::new()
+                .reply_to(&agent_id)
                 .session_id(session_id)
-                .location_id(&location_id)
                 .execute(&conn)?
                 .ok_or_else(|| {
                     format_err!(
                         "session = '{}' within location = '{}' is not found",
                         session_id,
-                        &location_id,
+                        agent_id,
                     )
                 })?;
-            let rtc = rtc::delete_state(session.rtc_id(), &conn)?;
 
-            let event = crate::app::rtc::update_event(rtc);
-            event.into_envelope()?.publish(tx)
+            match rtc::delete_state(location.rtc_id(), agent_id, &conn) {
+                // Hangup came from publisher, so send update event.
+                Ok(rtc) => {
+                    let event = crate::app::rtc::update_event(rtc);
+                    event.into_envelope()?.publish(tx)
+                }
+                // Hangup came from subscriber, so ignore.
+                Err(..) => Ok(()),
+            }
         }
         IncomingMessage::Media(ref inev) => Err(format_err!(
             "received an unexpected Media message: {:?}",
