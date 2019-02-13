@@ -86,7 +86,7 @@ impl<'a> FindQuery<'a> {
         self
     }
 
-    pub(crate) fn one(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         match self.rtc_id {

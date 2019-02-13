@@ -1,16 +1,13 @@
 use failure::{format_err, Error};
-use itertools::izip;
-use serde_derive::{Deserialize, Serialize};
+use serde_derive::Deserialize;
 use uuid::Uuid;
 
 use crate::app::janus;
 use crate::authz;
-use crate::db::{
-    janus_handle_shadow, janus_session_shadow, location, recording, room, rtc, ConnectionPool,
-};
+use crate::db::{janus_session_shadow, location, room, rtc, ConnectionPool};
 use crate::transport::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
-    OutgoingResponse, OutgoingResponseStatus, Publish, Publishable,
+    OutgoingResponse, OutgoingResponseStatus, Publishable,
 };
 use crate::transport::{AgentId, Destination};
 
@@ -43,21 +40,9 @@ pub(crate) struct ListRequestData {
     limit: Option<i64>,
 }
 
-pub(crate) type StoreRequest = IncomingRequest<StoreRequestData>;
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct StoreRequestData {}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct StoreEventData {
-    id: Uuid,
-    uri: String,
-}
-
 pub(crate) type ObjectResponse = OutgoingResponse<rtc::Object>;
 pub(crate) type ObjectListResponse = OutgoingResponse<Vec<rtc::Object>>;
 pub(crate) type ObjectUpdateEvent = OutgoingEvent<rtc::Object>;
-pub(crate) type ObjectStoreEvent = OutgoingEvent<StoreEventData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -111,8 +96,7 @@ impl State {
 
         // Building a Create Janus Gateway Session request
         let to = self.backend_agent_id.clone();
-        let backreq =
-            janus::create_session_request(inreq.properties().clone(), rtc.id().clone(), to)?;
+        let backreq = janus::create_session_request(inreq.properties().clone(), *rtc.id(), to)?;
 
         backreq.into_envelope()
     }
@@ -149,7 +133,7 @@ impl State {
                     let conn = self.db.get()?;
                     rtc::FindQuery::new()
                         .id(&id)
-                        .one(&conn)?
+                        .execute(&conn)?
                         .ok_or_else(|| format_err!("the rtc = '{}' is not found", &id))?
                 };
                 let resp = inreq.to_response(rtc, &OutgoingResponseStatus::OK);
@@ -226,63 +210,6 @@ impl State {
         let resp = inreq.to_response(objects, &OutgoingResponseStatus::OK);
         resp.into_envelope()
     }
-
-    pub(crate) fn store(&self, inreq: &StoreRequest) -> Result<impl Publish, Error> {
-        use diesel::prelude::*;
-
-        let conn = self.db.get()?;
-
-        let rooms = room::FindQuery::new().finished(true).many(&conn)?;
-        let rtcs: Vec<rtc::Object> = rtc::Object::belonging_to(&rooms).load(&conn)?;
-        let recordings: Vec<recording::Object> =
-            recording::Object::belonging_to(&rtcs).load(&conn)?;
-        let sessions: Vec<janus_session_shadow::Object> =
-            janus_session_shadow::Object::belonging_to(&rtcs).load(&conn)?;
-        let handles: Vec<janus_handle_shadow::Object> =
-            janus_handle_shadow::Object::belonging_to(&rtcs).load(&conn)?;
-
-        let recordings = recordings.grouped_by(&rtcs);
-        let sessions = sessions.grouped_by(&rtcs);
-        let handles = handles.grouped_by(&rtcs);
-        let rtcs_and_related = rtcs
-            .into_iter()
-            .zip(izip!(recordings, sessions, handles))
-            .grouped_by(&rooms);
-
-        let mut requests = Vec::new();
-
-        for (room, rtcs_and_related) in rooms.into_iter().zip(rtcs_and_related) {
-            for (rtc, (recording, session, handle)) in rtcs_and_related {
-                if !recording.is_empty() {
-                    continue;
-                }
-
-                let session = session.into_iter().next().ok_or_else(|| {
-                    format_err!("a session for rtc = '{}' is not found", &rtc.id())
-                })?;
-
-                let handle = handle.into_iter().next().ok_or_else(|| {
-                    format_err!("a handle for rtc = '{}' is not found", &rtc.id())
-                })?;
-
-                let req = janus::upload_stream_request(
-                    inreq.properties().clone(),
-                    session.session_id(),
-                    handle.handle_id(),
-                    janus::UploadStreamRequestBody::new(
-                        *rtc.id(),
-                        room.bucket_name(),
-                        rtc.record_name(),
-                    ),
-                    session.location_id().clone(),
-                )?;
-
-                requests.push(req.into_envelope()?);
-            }
-        }
-
-        Ok(requests)
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -292,22 +219,6 @@ pub(crate) fn update_event(object: rtc::Object) -> ObjectUpdateEvent {
     OutgoingEvent::new(
         object,
         OutgoingEventProperties::new("rtc.update"),
-        Destination::Broadcast(uri),
-    )
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub(crate) fn store_event(rtc: rtc::Object, room: room::Object) -> ObjectStoreEvent {
-    let uri = format!("audiences/{}/events", room.audience());
-    let event = StoreEventData {
-        id: *rtc.id(),
-        uri: format!("s3://{}/{}", room.bucket_name(), rtc.record_name()),
-    };
-
-    OutgoingEvent::new(
-        event,
-        OutgoingEventProperties::new("rtc.store"),
         Destination::Broadcast(uri),
     )
 }

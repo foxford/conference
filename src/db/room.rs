@@ -29,10 +29,6 @@ impl Object {
     pub(crate) fn id(&self) -> Uuid {
         self.id
     }
-
-    pub(crate) fn bucket_name(&self) -> String {
-        format!("origin.webinar.{}", self.audience())
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -40,10 +36,53 @@ impl Object {
 pub(crate) struct FindQuery {
     id: Option<Uuid>,
     rtc_id: Option<Uuid>,
-    finished: Option<bool>,
 }
 
 impl FindQuery {
+    pub(crate) fn new() -> Self {
+        Self {
+            id: None,
+            rtc_id: None,
+        }
+    }
+
+    pub(crate) fn id(mut self, id: Uuid) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    pub(crate) fn rtc_id(mut self, rtc_id: Uuid) -> Self {
+        self.rtc_id = Some(rtc_id);
+        self
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+        use diesel::prelude::*;
+
+        match (self.id, self.rtc_id) {
+            (Some(ref id), None) => room::table.find(id).get_result(conn).optional(),
+            (None, Some(ref rtc_id)) => room::table
+                .inner_join(rtc::table)
+                .filter(rtc::id.eq(rtc_id))
+                .select(ALL_COLUMNS)
+                .get_result(conn)
+                .optional(),
+            _ => Err(Error::QueryBuilderError(
+                "id or rtc_id are required parameters of the query".into(),
+            )),
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct ListQuery {
+    id: Option<Uuid>,
+    rtc_id: Option<Uuid>,
+    finished: Option<bool>,
+}
+
+impl ListQuery {
     pub(crate) fn new() -> Self {
         Self {
             id: None,
@@ -67,24 +106,7 @@ impl FindQuery {
         self
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        match (self.id, self.rtc_id) {
-            (Some(ref id), None) => room::table.find(id).get_result(conn).optional(),
-            (None, Some(ref rtc_id)) => room::table
-                .inner_join(rtc::table)
-                .filter(rtc::id.eq(rtc_id))
-                .select(ALL_COLUMNS)
-                .get_result(conn)
-                .optional(),
-            _ => Err(Error::QueryBuilderError(
-                "id or rtc_id are required parameters of the query".into(),
-            )),
-        }
-    }
-
-    pub(crate) fn many(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::{dsl::sql, prelude::*};
 
         match self.finished {

@@ -4,13 +4,13 @@ use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
 use uuid::Uuid;
 
-use super::rtc::Object as RTC;
+use super::rtc::Object as Rtc;
 use crate::schema::recording;
 
 type TimeIntervals = Vec<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>;
 
 #[derive(Debug, Identifiable, Associations, Queryable)]
-#[belongs_to(RTC, foreign_key = "rtc_id")]
+#[belongs_to(Rtc, foreign_key = "rtc_id")]
 #[primary_key(rtc_id)]
 #[table_name = "recording"]
 pub(crate) struct Object {

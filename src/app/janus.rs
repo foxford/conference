@@ -224,12 +224,12 @@ pub(crate) struct UploadStreamRequestBody {
 }
 
 impl UploadStreamRequestBody {
-    pub(crate) fn new(id: Uuid, bucket: String, object: String) -> Self {
+    pub(crate) fn new(id: Uuid, bucket: &str, object: &str) -> Self {
         Self {
             method: "stream.upload",
             id,
-            bucket,
-            object,
+            bucket: bucket.to_owned(),
+            object: object.to_owned(),
         }
     }
 }
@@ -336,7 +336,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     // Returning Real-Time connection
                     let object = rtc::FindQuery::new()
                         .id(&rtc_id)
-                        .one(&conn)?
+                        .execute(&conn)?
                         .ok_or_else(|| format_err!("the rtc = '{}' is not found", &rtc_id))?;
                     let resp = crate::app::rtc::ObjectResponse::new(
                         object,
@@ -498,7 +498,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
 
                     let rtc = rtc::FindQuery::new()
                         .id(&rtc_id)
-                        .one(&conn)?
+                        .execute(&conn)?
                         .ok_or_else(|| format_err!("the rtc = '{}' is not found", &rtc_id))?;
 
                     let room = room::FindQuery::new()
@@ -511,7 +511,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     // TODO: set real time intervals from Janus
                     recording::InsertQuery::new(rtc_id, Vec::new()).execute(&conn)?;
 
-                    let store_event = super::rtc::store_event(rtc, room);
+                    let store_event = super::room::upload_event(rtc, room);
 
                     store_event.into_envelope()?.publish(tx)
                 }

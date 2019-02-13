@@ -29,10 +29,6 @@ impl Object {
     pub(crate) fn room_id(&self) -> &Uuid {
         &self.room_id
     }
-
-    pub(crate) fn record_name(&self) -> String {
-        format!("{}.source.mp4", self.id())
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -78,7 +74,7 @@ impl<'a> FindQuery<'a> {
         self
     }
 
-    pub(crate) fn one(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         match self.id {

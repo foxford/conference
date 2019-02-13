@@ -105,6 +105,11 @@ fn handle_message(
                 let next = room.create(&req)?;
                 next.publish(tx)
             }
+            "room.upload" => {
+                let req = compat::into_request(envelope)?;
+                let next = room.upload(&req)?;
+                next.publish(tx)
+            }
             "rtc.create" => {
                 // TODO: catch and process errors: unprocessable entry
                 let req = compat::into_request(envelope)?;
@@ -121,11 +126,6 @@ fn handle_message(
                 // TODO: catch and process errors: unprocessable entry
                 let req = compat::into_request(envelope)?;
                 let next = rtc.list(&req)?;
-                next.publish(tx)
-            }
-            "rtc.upload" => {
-                let req = compat::into_request(envelope)?;
-                let next = rtc.store(&req)?;
                 next.publish(tx)
             }
             "signal.create" => {
