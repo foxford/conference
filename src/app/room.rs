@@ -4,16 +4,17 @@ use chrono::{DateTime, Utc};
 use failure::{format_err, Error};
 use itertools::izip;
 use serde_derive::{Deserialize, Serialize};
+use svc_agent::{
+    mqtt::{
+        compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
+        OutgoingResponse, OutgoingResponseStatus, Publish, Publishable,
+    },
+    Destination,
+};
 use uuid::Uuid;
 
-use crate::app::janus;
-use crate::authz;
+use super::janus;
 use crate::db::{janus_handle_shadow, janus_session_shadow, recording, room, rtc, ConnectionPool};
-use crate::transport::mqtt::{
-    compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
-    OutgoingResponse, OutgoingResponseStatus, Publish, Publishable,
-};
-use crate::transport::Destination;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -43,12 +44,12 @@ pub(crate) type ObjectUploadEvent = OutgoingEvent<UploadEventData>;
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct State {
-    authz: authz::ClientMap,
+    authz: svc_authz::ClientMap,
     db: ConnectionPool,
 }
 
 impl State {
-    pub(crate) fn new(authz: authz::ClientMap, db: ConnectionPool) -> Self {
+    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
         Self { authz, db }
     }
 }

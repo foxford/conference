@@ -1,15 +1,15 @@
 use failure::{format_err, Error};
 use serde_derive::Deserialize;
+use svc_agent::mqtt::compat::IntoEnvelope;
+use svc_agent::mqtt::{
+    IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
+    OutgoingResponseStatus, Publishable,
+};
+use svc_agent::{Addressable, AgentId};
 use uuid::Uuid;
 
 use crate::app::janus;
-use crate::authz;
 use crate::db::{janus_session_shadow, location, room, rtc, ConnectionPool};
-use crate::transport::mqtt::{
-    compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
-    OutgoingResponse, OutgoingResponseStatus, Publishable,
-};
-use crate::transport::{AgentId, Destination};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -47,7 +47,7 @@ pub(crate) type ObjectUpdateEvent = OutgoingEvent<rtc::Object>;
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct State {
-    authz: authz::ClientMap,
+    authz: svc_authz::ClientMap,
     db: ConnectionPool,
     // TODO: replace with backend agent registry
     backend_agent_id: AgentId,
@@ -55,7 +55,7 @@ pub(crate) struct State {
 
 impl State {
     pub(crate) fn new(
-        authz: authz::ClientMap,
+        authz: svc_authz::ClientMap,
         db: ConnectionPool,
         backend_agent_id: AgentId,
     ) -> Self {
@@ -95,14 +95,17 @@ impl State {
         };
 
         // Building a Create Janus Gateway Session request
-        let to = self.backend_agent_id.clone();
-        let backreq = janus::create_session_request(inreq.properties().clone(), *rtc.id(), to)?;
+        let backreq = janus::create_session_request(
+            inreq.properties().clone(),
+            *rtc.id(),
+            &self.backend_agent_id,
+        )?;
 
         backreq.into_envelope()
     }
 
     pub(crate) fn read(&self, inreq: &ReadRequest) -> Result<impl Publishable, Error> {
-        let agent_id = AgentId::from(inreq.properties());
+        let agent_id = inreq.properties().agent_id();
         let id = inreq.payload().id;
 
         // Authorization: room's owner has to allow the action
@@ -111,7 +114,7 @@ impl State {
             let rtc_id = id.to_string();
             self.authz.authorize(
                 audience,
-                inreq.properties(),
+                agent_id,
                 vec!["rooms", &room_id, "rtcs", &rtc_id],
                 "read",
             )
@@ -120,7 +123,7 @@ impl State {
         // Looking up for Janus Gateway Handle
         let maybe_location = {
             let conn = self.db.get()?;
-            location::FindQuery::new(&agent_id, &id).execute(&conn)?
+            location::FindQuery::new(agent_id, &id).execute(&conn)?
         };
 
         match maybe_location {
@@ -165,7 +168,7 @@ impl State {
                     inreq.properties().clone(),
                     id,
                     session.session_id(),
-                    session.location_id().clone(),
+                    session.location_id(),
                 )?;
 
                 backreq.into_envelope()
@@ -216,9 +219,5 @@ impl State {
 
 pub(crate) fn update_event(object: rtc::Object) -> ObjectUpdateEvent {
     let uri = format!("rooms/{}/events", object.room_id());
-    OutgoingEvent::new(
-        object,
-        OutgoingEventProperties::new("rtc.update"),
-        Destination::Broadcast(uri),
-    )
+    OutgoingEvent::broadcast(object, OutgoingEventProperties::new("rtc.update"), &uri)
 }

@@ -1,12 +1,9 @@
-use crate::authz;
-use crate::db::ConnectionPool;
-use crate::transport::mqtt::compat;
-use crate::transport::mqtt::{
-    Agent, AgentBuilder, EventSubscription, Publish, QoS, RequestSubscription,
-};
-use crate::transport::{AgentId, SharedGroup, Source};
 use failure::{format_err, Error};
 use log::{error, info};
+use svc_agent::mqtt::{compat, Agent, AgentBuilder, Publish, QoS};
+use svc_agent::{AgentId, SharedGroup, Subscription};
+
+use crate::db::ConnectionPool;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -16,8 +13,8 @@ pub(crate) fn run(db: &ConnectionPool) {
     info!("App config: {:?}", config);
 
     // Authz
-    let authz = authz::ClientMap::from_config(&config.id, config.authz)
-        .expect("Error converting authn config to clients");
+    let authz = svc_authz::ClientMap::new(&config.id, config.authz)
+        .expect("Error converting authz config to clients");
 
     // Agent
     let agent_id = AgentId::new(&generate_agent_label(), config.id);
@@ -27,13 +24,13 @@ pub(crate) fn run(db: &ConnectionPool) {
         .start(&config.mqtt)
         .expect("Failed to create an agent");
     tx.subscribe(
-        &EventSubscription::new(Source::Broadcast(&config.backend_id, "responses")),
+        &Subscription::broadcast_events(&config.backend_id, "responses"),
         QoS::AtLeastOnce,
         Some(&group),
     )
     .expect("Error subscribing to backend responses");
     tx.subscribe(
-        &RequestSubscription::new(Source::Multicast),
+        &Subscription::multicast_requests(),
         QoS::AtLeastOnce,
         Some(&group),
     )
@@ -56,7 +53,7 @@ pub(crate) fn run(db: &ConnectionPool) {
 
     for message in rx {
         match message {
-            rumqtt::client::Notification::Publish(ref message) => {
+            svc_agent::mqtt::Notification::Publish(ref message) => {
                 let topic = &message.topic_name;
                 let bytes = &message.payload.as_slice();
 

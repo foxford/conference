@@ -1,10 +1,10 @@
 use diesel::pg::PgConnection;
 use diesel::result::Error;
+use svc_agent::AgentId;
 use uuid::Uuid;
 
 use super::rtc::Object as Rtc;
-use crate::schema::janus_session_shadow;
-use crate::transport::AgentId;
+use crate::schema::{janus_session_shadow, rtc};
 
 ///////////////////////////////////////////////////////////////////////////////
 

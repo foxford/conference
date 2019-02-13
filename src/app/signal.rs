@@ -1,13 +1,13 @@
-use crate::app::janus;
-use crate::authz;
-use crate::db::{location, rtc, ConnectionPool};
-use crate::transport::mqtt::compat::IntoEnvelope;
-use crate::transport::mqtt::{IncomingRequest, OutgoingResponse, Publishable};
-use crate::transport::AgentId;
 use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use svc_agent::mqtt::compat::IntoEnvelope;
+use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, Publishable};
+use svc_agent::Addressable;
 use uuid::Uuid;
+
+use crate::app::janus;
+use crate::db::{location, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -37,19 +37,19 @@ impl CreateResponseData {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct State {
-    authz: authz::ClientMap,
+    authz: svc_authz::ClientMap,
     db: ConnectionPool,
 }
 
 impl State {
-    pub(crate) fn new(authz: authz::ClientMap, db: ConnectionPool) -> Self {
+    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
         Self { authz, db }
     }
 }
 
 impl State {
     pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
-        let agent_id = AgentId::from(inreq.properties());
+        let agent_id = inreq.properties().agent_id();
         let rtc_id = &inreq.payload().rtc_id;
         let jsep = &inreq.payload().jsep;
         let sdp_type = parse_sdp_type(jsep)?;
@@ -57,13 +57,13 @@ impl State {
         // Looking up for Janus Gateway Handle
         let loc = {
             let conn = self.db.get()?;
-            location::FindQuery::new(&agent_id, rtc_id)
+            location::FindQuery::new(agent_id, rtc_id)
                 .execute(&conn)?
                 .ok_or_else(|| {
                     format_err!(
                         "the location of the rtc = '{}' for the agent = '{}' is not found",
                         rtc_id,
-                        &agent_id,
+                        agent_id,
                     )
                 })?
         };
@@ -92,7 +92,7 @@ impl State {
                         loc.handle_id(),
                         rtc_id.clone(),
                         jsep.clone(),
-                        loc.location_id().clone(),
+                        loc.location_id(),
                     )?;
                     backreq.into_envelope()
                 } else {
@@ -107,7 +107,7 @@ impl State {
                             .label
                             .as_ref()
                             .ok_or_else(|| err_msg("missing label"))?;
-                        let state = rtc::RtcState::new(label, Some(agent_id), None);
+                        let state = rtc::RtcState::new(label, Some(agent_id.clone()), None);
                         let _ = rtc::UpdateQuery::new(rtc_id).state(&state).execute(&conn)?;
                     }
 
@@ -117,7 +117,7 @@ impl State {
                         loc.handle_id(),
                         rtc_id.clone(),
                         jsep.clone(),
-                        loc.location_id().clone(),
+                        loc.location_id(),
                     )?;
                     backreq.into_envelope()
                 }
@@ -132,7 +132,7 @@ impl State {
                     loc.session_id(),
                     loc.handle_id(),
                     jsep.clone(),
-                    loc.location_id().clone(),
+                    loc.location_id(),
                 )?;
                 backreq.into_envelope()
             }
