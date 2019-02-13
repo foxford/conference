@@ -32,4 +32,4 @@ svc-agent = { version = "0.1", features = ["diesel"] }
 # + jsonwebtoken = { git = "https://github.com/manifest/jsonwebtoken", branch = "feature/ec" }
 # + ring = "1.14.4"
 rumqtt = { git = "https://github.com/manifest/rumqtt.git", branch = "feature/update-tls-deps" }
-svc-agent = { git = "https://github.com/netology-group/svc-agent-rs.git", branch = "improve-publish-trait" }
+svc-agent = { git = "https://github.com/netology-group/svc-agent-rs.git", branch = "master" }

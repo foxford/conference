@@ -49,7 +49,12 @@ pub(crate) fn create_session_request(
 ) -> Result<OutgoingRequest<CreateSessionRequest>, Error> {
     let transaction = Transaction::CreateSession(CreateSessionTransaction::new(reqp, rtc_id));
     let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
-    let props = OutgoingRequestProperties::new("janus_session.create");
+    let props = OutgoingRequestProperties::new(
+        "janus_session.create".to_owned(),
+        String::new(),
+        String::new(),
+        None,
+    );
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -85,7 +90,12 @@ pub(crate) fn create_handle_request(
         session_id,
         "janus.plugin.conference",
     );
-    let props = OutgoingRequestProperties::new("janus_handle.create");
+    let props = OutgoingRequestProperties::new(
+        "janus_handle.create".to_owned(),
+        String::new(),
+        String::new(),
+        None,
+    );
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -134,7 +144,12 @@ pub(crate) fn create_stream_request(
         serde_json::to_value(&body)?,
         Some(jsep),
     );
-    let props = OutgoingRequestProperties::new("janus_conference_stream.create");
+    let props = OutgoingRequestProperties::new(
+        "janus_conference_stream.create".to_owned(),
+        String::new(),
+        String::new(),
+        None,
+    );
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -183,7 +198,12 @@ pub(crate) fn read_stream_request(
         serde_json::to_value(&body)?,
         Some(jsep),
     );
-    let props = OutgoingRequestProperties::new("janus_conference_stream.create");
+    let props = OutgoingRequestProperties::new(
+        "janus_conference_stream.create".to_owned(),
+        String::new(),
+        String::new(),
+        None,
+    );
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -234,12 +254,13 @@ pub(crate) fn upload_stream_request(
         serde_json::to_value(&body)?,
         None,
     );
-    let props = OutgoingRequestProperties::new("janus_conference_stream.upload");
-    Ok(OutgoingRequest::new(
-        payload,
-        props,
-        Destination::Unicast(to),
-    ))
+    let props = OutgoingRequestProperties::new(
+        "janus_conference_stream.upload".to_owned(),
+        String::new(),
+        String::new(),
+        None,
+    );
+    Ok(OutgoingRequest::unicast(payload, props, &to))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -264,7 +285,12 @@ pub(crate) fn trickle_request(
 ) -> Result<OutgoingRequest<TrickleRequest>, Error> {
     let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
     let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
-    let props = OutgoingRequestProperties::new("janus_trickle.create");
+    let props = OutgoingRequestProperties::new(
+        "janus_trickle.create".to_owned(),
+        String::new(),
+        String::new(),
+        None,
+    );
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 

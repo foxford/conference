@@ -142,11 +142,7 @@ pub(crate) fn upload_event(rtc: rtc::Object, room: room::Object) -> ObjectUpload
         uri: format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)),
     };
 
-    OutgoingEvent::new(
-        event,
-        OutgoingEventProperties::new("rtc.store"),
-        Destination::Broadcast(uri),
-    )
+    OutgoingEvent::broadcast(event, OutgoingEventProperties::new("rtc.store"), &uri)
 }
 
 fn bucket_name(room: &room::Object) -> String {
