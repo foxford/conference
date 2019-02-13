@@ -22,3 +22,9 @@ diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_jso
 svc-authz = "0.1"
 svc-authn = { version = "0.1", features = ["jose", "diesel"] }
 svc-agent = { version = "0.1", features = ["diesel"] }
+
+[patch.crates-io]
+# ES256 support:
+# + jsonwebtoken = { git = "https://github.com/manifest/jsonwebtoken", branch = "feature/ec" }
+# + ring = "1.14.4"
+rumqtt = { git = "https://github.com/manifest/rumqtt.git", branch = "feature/update-tls-deps" }
