@@ -6,7 +6,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use super::room::Object as Room;
-use crate::schema::{room, rtc};
+use crate::schema::rtc;
 
 ////////////////////////////////////////////////////////////////////////////////
 

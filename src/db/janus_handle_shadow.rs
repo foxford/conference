@@ -4,7 +4,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use super::rtc::Object as Rtc;
-use crate::schema::{janus_handle_shadow, rtc};
+use crate::schema::janus_handle_shadow;
 
 ////////////////////////////////////////////////////////////////////////////////
 
