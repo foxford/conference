@@ -1,9 +1,9 @@
 use diesel::pg::PgConnection;
 use diesel::result::Error;
+use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::schema::{janus_session_shadow, rtc};
-use crate::transport::AgentId;
 
 ///////////////////////////////////////////////////////////////////////////////
 

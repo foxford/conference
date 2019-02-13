@@ -1,15 +1,15 @@
 use failure::{format_err, Error};
 use serde_derive::Deserialize;
+use svc_agent::mqtt::compat::IntoEnvelope;
+use svc_agent::mqtt::{
+    IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
+    OutgoingResponseStatus, Publishable,
+};
+use svc_agent::{Addressable, AgentId};
 use uuid::Uuid;
 
 use crate::app::janus;
 use crate::db::{janus_session_shadow, location, room, rtc, ConnectionPool};
-use crate::transport::mqtt::compat::IntoEnvelope;
-use crate::transport::mqtt::{
-    IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
-    OutgoingResponseStatus, Publishable,
-};
-use crate::transport::{Addressable, AgentId};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -47,7 +47,7 @@ pub(crate) type ObjectUpdateEvent = OutgoingEvent<rtc::Object>;
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct State {
-    authz: authz::ClientMap,
+    authz: svc_authz::ClientMap,
     db: ConnectionPool,
     // TODO: replace with backend agent registry
     backend_agent_id: AgentId,
@@ -55,7 +55,7 @@ pub(crate) struct State {
 
 impl State {
     pub(crate) fn new(
-        authz: authz::ClientMap,
+        authz: svc_authz::ClientMap,
         db: ConnectionPool,
         backend_agent_id: AgentId,
     ) -> Self {

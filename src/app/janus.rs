@@ -1,6 +1,12 @@
 use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use svc_agent::mqtt::compat::{into_event, IncomingEnvelope, IntoEnvelope};
+use svc_agent::mqtt::{
+    Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties,
+    OutgoingResponseStatus, Publish,
+};
+use svc_agent::Addressable;
 use uuid::Uuid;
 
 use crate::backend::janus::{
@@ -8,13 +14,7 @@ use crate::backend::janus::{
     TrickleRequest,
 };
 use crate::db::{janus_handle_shadow, janus_session_shadow, rtc, ConnectionPool};
-use crate::transport::correlation_data::{from_base64, to_base64};
-use crate::transport::mqtt::compat::{into_event, IncomingEnvelope, IntoEnvelope};
-use crate::transport::mqtt::{
-    Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties,
-    OutgoingResponseStatus, Publish,
-};
-use crate::transport::Addressable;
+use crate::util::{from_base64, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
 

@@ -3,10 +3,10 @@ use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
+use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::schema::{room, rtc};
-use crate::transport::AgentId;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -230,10 +230,10 @@ pub mod sql {
     use diesel::serialize::{self, Output, ToSql, WriteTuple};
     use diesel::sql_types::{Nullable, Record, Text, Timestamptz};
     use std::io::Write;
+    use svc_agent::sql::Agent_id;
+    use svc_agent::AgentId;
 
     use super::RtcState;
-    use crate::transport::sql::Agent_id;
-    use crate::transport::AgentId;
 
     #[derive(SqlType, QueryId)]
     #[postgres(type_name = "rtc_state")]
