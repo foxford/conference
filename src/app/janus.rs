@@ -13,7 +13,9 @@ use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
     TrickleRequest,
 };
-use crate::db::{janus_handle_shadow, janus_session_shadow, recording, location,room, rtc, ConnectionPool};
+use crate::db::{
+    janus_handle_shadow, janus_session_shadow, location, recording, room, rtc, ConnectionPool,
+};
 use crate::util::{from_base64, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
