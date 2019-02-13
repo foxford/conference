@@ -1,13 +1,12 @@
-use std::ops::Bound;
-
 use chrono::{DateTime, Utc};
 use failure::Error;
 use serde_derive::Deserialize;
-
-use crate::db::{room, ConnectionPool};
-use crate::transport::mqtt::{
+use std::ops::Bound;
+use svc_agent::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable,
 };
+
+use crate::db::{room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -25,12 +24,12 @@ pub(crate) type ObjectResponse = OutgoingResponse<room::Object>;
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct State {
-    authz: authz::ClientMap,
+    authz: svc_authz::ClientMap,
     db: ConnectionPool,
 }
 
 impl State {
-    pub(crate) fn new(authz: authz::ClientMap, db: ConnectionPool) -> Self {
+    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
         Self { authz, db }
     }
 }

@@ -1,9 +1,9 @@
 use failure::{format_err, Error};
 use log::{error, info};
+use svc_agent::mqtt::{compat, Agent, AgentBuilder, Publish, QoS};
+use svc_agent::{AgentId, SharedGroup, Subscription};
 
 use crate::db::ConnectionPool;
-use crate::transport::mqtt::{compat, Agent, AgentBuilder, Publish, QoS};
-use crate::transport::{AgentId, SharedGroup, Subscription};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -13,10 +13,10 @@ pub(crate) fn run(db: &ConnectionPool) {
     info!("App config: {:?}", config);
 
     // Authz
-    let authz = authz::ClientMap::new(&config.id, config.authz)
+    let authz = svc_authz::ClientMap::new(&config.id, config.authz)
         .expect("Error converting authz config to clients");
 
-    // agent
+    // Agent
     let agent_id = AgentId::new(&generate_agent_label(), config.id);
     info!("Agent id: {:?}", &agent_id);
     let group = SharedGroup::new("loadbalancer", agent_id.account_id().clone());
@@ -53,7 +53,7 @@ pub(crate) fn run(db: &ConnectionPool) {
 
     for message in rx {
         match message {
-            rumqtt::client::Notification::Publish(ref message) => {
+            svc_agent::mqtt::Notification::Publish(ref message) => {
                 let topic = &message.topic_name;
                 let bytes = &message.payload.as_slice();
 
