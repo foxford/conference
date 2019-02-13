@@ -210,12 +210,17 @@ pub(crate) fn update_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Err
 }
 
 // NOTE: erase all state fields but 'label' in order to be able to recognize a previously created rtc
-pub(crate) fn delete_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Error> {
+pub(crate) fn delete_state(
+    id: &Uuid,
+    agent_id: &AgentId,
+    conn: &PgConnection,
+) -> Result<Object, Error> {
     use diesel::prelude::*;
 
     let q = format!(
-        "update rtc set state.sent_by = null, state.sent_at = null where id = '{}' ::uuid returning *",
-        id,
+        "update rtc set state.sent_by = null, state.sent_at = null where id = '{id}' ::uuid and state.sent_by = '{agent_id}' ::agent_id returning *",
+        id = id,
+        agent_id = agent_id,
     );
     diesel::sql_query(q).get_result(conn)
 }

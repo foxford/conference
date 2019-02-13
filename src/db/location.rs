@@ -48,23 +48,37 @@ impl Object {
 #[derive(Debug)]
 pub(crate) struct FindQuery<'a> {
     reply_to: &'a AgentId,
-    rtc_id: &'a Uuid,
+    rtc_id: Option<&'a Uuid>,
+    session_id: Option<i64>,
 }
 
 impl<'a> FindQuery<'a> {
-    pub(crate) fn new(reply_to: &'a AgentId, rtc_id: &'a Uuid) -> Self {
-        Self { reply_to, rtc_id }
+    pub(crate) fn new(reply_to: &'a AgentId) -> Self {
+        Self {
+            reply_to,
+            rtc_id: None,
+            session_id: None,
+        }
+    }
+
+    pub(crate) fn rtc_id(mut self, rtc_id: &'a Uuid) -> Self {
+        self.rtc_id = Some(rtc_id);
+        self
+    }
+
+    pub(crate) fn session_id(mut self, session_id: i64) -> Self {
+        self.session_id = Some(session_id);
+        self
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
-        rtc::table
+        let mut q = rtc::table
             .inner_join(janus_handle_shadow::table)
             .inner_join(janus_session_shadow::table)
             .inner_join(room::table)
             .filter(janus_handle_shadow::reply_to.eq(self.reply_to))
-            .filter(janus_handle_shadow::rtc_id.eq(self.rtc_id))
             .select((
                 janus_handle_shadow::handle_id,
                 janus_session_shadow::session_id,
@@ -73,7 +87,16 @@ impl<'a> FindQuery<'a> {
                 room::id,
                 room::audience,
             ))
-            .get_result(conn)
-            .optional()
+            .into_boxed();
+
+        if let Some(session_id) = self.session_id {
+            q = q.filter(janus_session_shadow::session_id.eq(session_id));
+        }
+
+        if let Some(rtc_id) = self.rtc_id {
+            q = q.filter(janus_handle_shadow::rtc_id.eq(rtc_id));
+        }
+
+        q.get_result(conn).optional()
     }
 }
