@@ -47,18 +47,23 @@ impl Object {
 
 #[derive(Debug)]
 pub(crate) struct FindQuery<'a> {
-    reply_to: &'a AgentId,
+    reply_to: Option<&'a AgentId>,
     rtc_id: Option<&'a Uuid>,
     session_id: Option<i64>,
 }
 
 impl<'a> FindQuery<'a> {
-    pub(crate) fn new(reply_to: &'a AgentId) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            reply_to,
+            reply_to: None,
             rtc_id: None,
             session_id: None,
         }
+    }
+
+    pub(crate) fn reply_to(mut self, reply_to: &'a AgentId) -> Self {
+        self.reply_to = Some(reply_to);
+        self
     }
 
     pub(crate) fn rtc_id(mut self, rtc_id: &'a Uuid) -> Self {
@@ -78,7 +83,6 @@ impl<'a> FindQuery<'a> {
             .inner_join(janus_handle_shadow::table)
             .inner_join(janus_session_shadow::table)
             .inner_join(room::table)
-            .filter(janus_handle_shadow::reply_to.eq(self.reply_to))
             .select((
                 janus_handle_shadow::handle_id,
                 janus_session_shadow::session_id,
@@ -88,6 +92,10 @@ impl<'a> FindQuery<'a> {
                 room::audience,
             ))
             .into_boxed();
+
+        if let Some(reply_to) = self.reply_to {
+            q = q.filter(janus_handle_shadow::reply_to.eq(reply_to));
+        }
 
         if let Some(session_id) = self.session_id {
             q = q.filter(janus_session_shadow::session_id.eq(session_id));

@@ -398,7 +398,8 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             // for the following statement can't be null.
             let session_id = inev.session_id();
             let agent_id = message.properties().agent_id();
-            let location = location::FindQuery::new(&agent_id)
+            let location = location::FindQuery::new()
+                .reply_to(&agent_id)
                 .session_id(session_id)
                 .execute(&conn)?
                 .ok_or_else(|| {
@@ -410,12 +411,12 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                 })?;
 
             match rtc::delete_state(location.rtc_id(), agent_id, &conn) {
-                // Hangup came from publisher so send update event.
+                // Hangup came from publisher, so send update event.
                 Ok(rtc) => {
                     let event = crate::app::rtc::update_event(rtc);
                     event.into_envelope()?.publish(tx)
                 }
-                // Hangup came from subscriber so ignore.
+                // Hangup came from subscriber, so ignore.
                 Err(..) => Ok(()),
             }
         }

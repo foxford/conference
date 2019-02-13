@@ -123,7 +123,8 @@ impl State {
         // Looking up for Janus Gateway Handle
         let maybe_location = {
             let conn = self.db.get()?;
-            location::FindQuery::new(agent_id)
+            location::FindQuery::new()
+                .reply_to(agent_id)
                 .rtc_id(&id)
                 .execute(&conn)?
         };
