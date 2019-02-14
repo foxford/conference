@@ -51,7 +51,7 @@ impl State {
                 .execute(&conn)?
         };
 
-        let resp = inreq.to_response(object, &OutgoingResponseStatus::OK);
+        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
         resp.into_envelope()
     }
 }

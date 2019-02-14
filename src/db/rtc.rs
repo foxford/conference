@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::AgentId;
+use svc_agent::{AgentId, Authenticable};
 use uuid::Uuid;
 
 use crate::schema::{room, rtc};
@@ -210,8 +210,8 @@ pub(crate) fn update_state(
         "update rtc set state.sent_at = now() where id = '{id}' ::uuid and (state).sent_by = '(\"({agent_label},{audience})\",\"{label}\")' ::agent_id returning *",
         id = id,
         label = agent_id.label(),
-        audience = agent_id.account_id().audience(),
-        agent_label = agent_id.account_id().label(),
+        audience = agent_id.as_account_id().audience(),
+        agent_label = agent_id.as_account_id().label(),
     );
     diesel::sql_query(q).get_result(conn)
 }
@@ -228,8 +228,8 @@ pub(crate) fn delete_state(
         "update rtc set state.sent_by = null, state.sent_at = null where id = '{id}' ::uuid and (state).sent_by = '(\"({agent_label},{audience})\",\"{label}\")' ::agent_id returning *",
         id = id,
         label = agent_id.label(),
-        audience = agent_id.account_id().audience(),
-        agent_label = agent_id.account_id().label(),
+        audience = agent_id.as_account_id().audience(),
+        agent_label = agent_id.as_account_id().label(),
     );
     diesel::sql_query(q).get_result(conn)
 }
