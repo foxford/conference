@@ -311,6 +311,10 @@ impl WebRtcUpEvent {
     pub(crate) fn session_id(&self) -> i64 {
         self.session_id
     }
+
+    pub(crate) fn sender(&self) -> i64 {
+        self.sender
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -327,6 +331,10 @@ pub(crate) struct HangUpEvent {
 impl HangUpEvent {
     pub(crate) fn session_id(&self) -> i64 {
         self.session_id
+    }
+
+    pub(crate) fn sender(&self) -> i64 {
+        self.sender
     }
 }
 

@@ -10,6 +10,7 @@ use crate::schema::{janus_handle_shadow, janus_session_shadow, room, rtc};
 #[derive(Debug, Queryable)]
 pub(crate) struct Object {
     handle_id: i64,
+    reply_to: AgentId,
     session_id: i64,
     location_id: AgentId,
     rtc_id: Uuid,
@@ -20,6 +21,10 @@ pub(crate) struct Object {
 impl Object {
     pub(crate) fn handle_id(&self) -> i64 {
         self.handle_id
+    }
+
+    pub(crate) fn reply_to(&self) -> &AgentId {
+        &self.reply_to
     }
 
     pub(crate) fn session_id(&self) -> i64 {
@@ -50,6 +55,8 @@ pub(crate) struct FindQuery<'a> {
     reply_to: Option<&'a AgentId>,
     rtc_id: Option<&'a Uuid>,
     session_id: Option<i64>,
+    location_id: Option<&'a AgentId>,
+    handle_id: Option<i64>,
 }
 
 impl<'a> FindQuery<'a> {
@@ -58,11 +65,18 @@ impl<'a> FindQuery<'a> {
             reply_to: None,
             rtc_id: None,
             session_id: None,
+            location_id: None,
+            handle_id: None,
         }
     }
 
     pub(crate) fn reply_to(mut self, reply_to: &'a AgentId) -> Self {
         self.reply_to = Some(reply_to);
+        self
+    }
+
+    pub(crate) fn location_id(mut self, location_id: &'a AgentId) -> Self {
+        self.location_id = Some(location_id);
         self
     }
 
@@ -76,6 +90,11 @@ impl<'a> FindQuery<'a> {
         self
     }
 
+    pub(crate) fn handle_id(mut self, handle_id: i64) -> Self {
+        self.handle_id = Some(handle_id);
+        self
+    }
+
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
@@ -85,6 +104,7 @@ impl<'a> FindQuery<'a> {
             .inner_join(room::table)
             .select((
                 janus_handle_shadow::handle_id,
+                janus_handle_shadow::reply_to,
                 janus_session_shadow::session_id,
                 janus_session_shadow::location_id,
                 janus_session_shadow::rtc_id,
@@ -103,6 +123,10 @@ impl<'a> FindQuery<'a> {
 
         if let Some(rtc_id) = self.rtc_id {
             q = q.filter(janus_handle_shadow::rtc_id.eq(rtc_id));
+        }
+
+        if let Some(handle_id) = self.handle_id {
+            q = q.filter(janus_handle_shadow::handle_id.eq(handle_id));
         }
 
         q.get_result(conn).optional()

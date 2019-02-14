@@ -218,9 +218,11 @@ pub(crate) fn delete_state(
     use diesel::prelude::*;
 
     let q = format!(
-        "update rtc set state.sent_by = null, state.sent_at = null where id = '{id}' ::uuid and state.sent_by = '{agent_id}' ::agent_id returning *",
+        "update rtc set state.sent_by = null, state.sent_at = null where id = '{id}' ::uuid and (state).sent_by = '(\"({agent_label},{audience})\",\"{label}\")' ::agent_id returning *",
         id = id,
-        agent_id = agent_id,
+        label = agent_id.label(),
+        audience = agent_id.account_id().audience(),
+        agent_label = agent_id.account_id().label(),
     );
     diesel::sql_query(q).get_result(conn)
 }
