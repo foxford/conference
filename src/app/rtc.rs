@@ -105,7 +105,7 @@ impl State {
     }
 
     pub(crate) fn read(&self, inreq: &ReadRequest) -> Result<impl Publishable, Error> {
-        let agent_id = inreq.properties().agent_id();
+        let agent_id = inreq.properties().as_agent_id();
         let id = inreq.payload().id;
 
         // Authorization: room's owner has to allow the action
@@ -141,7 +141,7 @@ impl State {
                         .execute(&conn)?
                         .ok_or_else(|| format_err!("the rtc = '{}' is not found", &id))?
                 };
-                let resp = inreq.to_response(rtc, &OutgoingResponseStatus::OK);
+                let resp = inreq.to_response(rtc, OutgoingResponseStatus::OK);
                 resp.into_envelope()
             }
             None => {
@@ -212,7 +212,7 @@ impl State {
             .execute(&conn)?
         };
 
-        let resp = inreq.to_response(objects, &OutgoingResponseStatus::OK);
+        let resp = inreq.to_response(objects, OutgoingResponseStatus::OK);
         resp.into_envelope()
     }
 }
