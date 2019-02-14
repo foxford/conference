@@ -539,8 +539,8 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             // for the following statement can't be null.
             let session_id = inev.session_id();
             let location_id = message.properties().agent_id();
-            let session = janus_session_shadow::FindQuery::new()
-                .session_id(session_id)
+            let location = location::FindQuery::new()
+                .handle_id(inev.sender())
                 .location_id(&location_id)
                 .execute(&conn)?
                 .ok_or_else(|| {
@@ -550,10 +550,27 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                         &location_id,
                     )
                 })?;
-            let rtc = rtc::update_state(session.rtc_id(), &conn)?;
 
-            let event = crate::app::rtc::update_event(rtc);
-            event.into_envelope()?.publish(tx)
+            match rtc::update_state(location.rtc_id(), location.reply_to(), &conn) {
+                // webrtcup came from publisher, so send event.
+                Ok(rtc) => {
+                    let event = crate::app::rtc::update_event(rtc);
+                    event.into_envelope()?.publish(tx)
+                }
+                // webrtcup came from subscriber, so ignore.
+                Err(err) => {
+                    use log::error;
+                    error!(
+                        "id = {}, reply_to = {}, handle id = {}, hangup err = {}",
+                        location.rtc_id(),
+                        location.reply_to(),
+                        location.handle_id(),
+                        err
+                    );
+
+                    Ok(())
+                }
+            }
         }
         IncomingMessage::HangUp(ref inev) => {
             let conn = janus.db.get()?;
@@ -567,7 +584,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             let session_id = inev.session_id();
             let agent_id = message.properties().agent_id();
             let location = location::FindQuery::new()
-                .reply_to(&agent_id)
+                .handle_id(inev.sender())
                 .session_id(session_id)
                 .execute(&conn)?
                 .ok_or_else(|| {
@@ -578,14 +595,25 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     )
                 })?;
 
-            match rtc::delete_state(location.rtc_id(), agent_id, &conn) {
+            match rtc::delete_state(location.rtc_id(), location.reply_to(), &conn) {
                 // Hangup came from publisher, so send update event.
                 Ok(rtc) => {
                     let event = crate::app::rtc::update_event(rtc);
                     event.into_envelope()?.publish(tx)
                 }
                 // Hangup came from subscriber, so ignore.
-                Err(..) => Ok(()),
+                Err(err) => {
+                    use log::error;
+                    error!(
+                        "id = {}, reply_to = {}, handle id = {}, hangup err = {}",
+                        location.rtc_id(),
+                        location.reply_to(),
+                        location.handle_id(),
+                        err
+                    );
+
+                    Ok(())
+                }
             }
         }
         IncomingMessage::Media(ref inev) => Err(format_err!(
