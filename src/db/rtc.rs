@@ -199,12 +199,19 @@ impl<'a> UpdateQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn update_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Error> {
+pub(crate) fn update_state(
+    id: &Uuid,
+    agent_id: &AgentId,
+    conn: &PgConnection,
+) -> Result<Object, Error> {
     use diesel::prelude::*;
 
     let q = format!(
-        "update rtc set state.sent_at = now() where id = '{}' ::uuid returning *",
-        id,
+        "update rtc set state.sent_at = now() where id = '{id}' ::uuid and (state).sent_by = '(\"({agent_label},{audience})\",\"{label}\")' ::agent_id returning *",
+        id = id,
+        label = agent_id.label(),
+        audience = agent_id.account_id().audience(),
+        agent_label = agent_id.account_id().label(),
     );
     diesel::sql_query(q).get_result(conn)
 }
