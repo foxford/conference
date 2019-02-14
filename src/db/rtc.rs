@@ -23,12 +23,12 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub(crate) fn id(&self) -> &Uuid {
-        &self.id
+    pub(crate) fn id(&self) -> Uuid {
+        self.id
     }
 
-    pub(crate) fn room_id(&self) -> &Uuid {
-        &self.room_id
+    pub(crate) fn room_id(&self) -> Uuid {
+        self.room_id
     }
 }
 
@@ -61,16 +61,16 @@ impl RtcState {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct FindQuery<'a> {
-    id: Option<&'a Uuid>,
+pub(crate) struct FindQuery {
+    id: Option<Uuid>,
 }
 
-impl<'a> FindQuery<'a> {
+impl FindQuery {
     pub(crate) fn new() -> Self {
         Self { id: None }
     }
 
-    pub(crate) fn id(mut self, id: &'a Uuid) -> Self {
+    pub(crate) fn id(mut self, id: Uuid) -> Self {
         self.id = Some(id);
         self
     }
@@ -89,13 +89,13 @@ impl<'a> FindQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct ListQuery<'a> {
-    room_id: Option<&'a Uuid>,
+pub(crate) struct ListQuery {
+    room_id: Option<Uuid>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
-impl<'a> ListQuery<'a> {
+impl ListQuery {
     pub(crate) fn new() -> Self {
         Self {
             room_id: None,
@@ -105,7 +105,7 @@ impl<'a> ListQuery<'a> {
     }
 
     pub(crate) fn from_options(
-        room_id: Option<&'a Uuid>,
+        room_id: Option<Uuid>,
         offset: Option<i64>,
         limit: Option<i64>,
     ) -> Self {
@@ -116,7 +116,7 @@ impl<'a> ListQuery<'a> {
         }
     }
 
-    pub(crate) fn room_id(self, room_id: &'a Uuid) -> Self {
+    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
         Self {
             room_id: Some(room_id),
             offset: self.offset,
@@ -161,13 +161,13 @@ impl<'a> ListQuery<'a> {
 
 #[derive(Debug, Insertable)]
 #[table_name = "rtc"]
-pub(crate) struct InsertQuery<'a> {
-    id: Option<&'a Uuid>,
-    room_id: &'a Uuid,
+pub(crate) struct InsertQuery {
+    id: Option<Uuid>,
+    room_id: Uuid,
 }
 
-impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(room_id: &'a Uuid) -> Self {
+impl InsertQuery {
+    pub(crate) fn new(room_id: Uuid) -> Self {
         Self { id: None, room_id }
     }
 
@@ -184,12 +184,12 @@ impl<'a> InsertQuery<'a> {
 #[derive(Debug, Identifiable, AsChangeset)]
 #[table_name = "rtc"]
 pub(crate) struct UpdateQuery<'a> {
-    id: &'a Uuid,
+    id: Uuid,
     state: Option<&'a RtcState>,
 }
 
 impl<'a> UpdateQuery<'a> {
-    pub(crate) fn new(id: &'a Uuid) -> Self {
+    pub(crate) fn new(id: Uuid) -> Self {
         Self { id, state: None }
     }
 
@@ -207,7 +207,7 @@ impl<'a> UpdateQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn update_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Error> {
+pub(crate) fn update_state(id: Uuid, conn: &PgConnection) -> Result<Object, Error> {
     use diesel::prelude::*;
 
     let q = format!(
@@ -219,7 +219,7 @@ pub(crate) fn update_state(id: &Uuid, conn: &PgConnection) -> Result<Object, Err
 
 // NOTE: erase all state fields but 'label' in order to be able to recognize a previously created rtc
 pub(crate) fn delete_state(
-    id: &Uuid,
+    id: Uuid,
     agent_id: &AgentId,
     conn: &PgConnection,
 ) -> Result<Object, Error> {

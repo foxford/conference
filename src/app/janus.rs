@@ -321,7 +321,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     let session_id = inresp.data().id();
                     let conn = janus.db.get()?;
                     let _ =
-                        janus_session_shadow::InsertQuery::new(&tn.rtc_id, session_id, location_id)
+                        janus_session_shadow::InsertQuery::new(tn.rtc_id, session_id, location_id)
                             .execute(&conn)?;
 
                     let req = create_handle_request(tn.reqp, tn.rtc_id, session_id, location_id)?;
@@ -336,12 +336,12 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
 
                     // Creating a shadow of Janus Gateway Session
                     let conn = janus.db.get()?;
-                    let _ = janus_handle_shadow::InsertQuery::new(id, &rtc_id, &agent_id)
+                    let _ = janus_handle_shadow::InsertQuery::new(id, rtc_id, &agent_id)
                         .execute(&conn)?;
 
                     // Returning Real-Time connection
                     let object = rtc::FindQuery::new()
-                        .id(&rtc_id)
+                        .id(rtc_id)
                         .execute(&conn)?
                         .ok_or_else(|| format_err!("the rtc = '{}' is not found", &rtc_id))?;
                     let props = reqp.to_response(&OutgoingResponseStatus::OK);
@@ -495,12 +495,12 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     let conn = janus.db.get()?;
 
                     let rtc = rtc::FindQuery::new()
-                        .id(&rtc_id)
+                        .id(rtc_id)
                         .execute(&conn)?
                         .ok_or_else(|| format_err!("the rtc = '{}' is not found", &rtc_id))?;
 
                     let room = room::FindQuery::new()
-                        .id(*rtc.room_id())
+                        .id(rtc.room_id())
                         .execute(&conn)?
                         .ok_or_else(|| {
                             format_err!("a room for rtc = '{}' is not found", &rtc.id())

@@ -59,7 +59,7 @@ impl State {
             let conn = self.db.get()?;
             location::FindQuery::new()
                 .reply_to(agent_id)
-                .rtc_id(rtc_id)
+                .rtc_id(*rtc_id)
                 .execute(&conn)?
                 .ok_or_else(|| {
                     format_err!(
@@ -110,7 +110,9 @@ impl State {
                             .as_ref()
                             .ok_or_else(|| err_msg("missing label"))?;
                         let state = rtc::RtcState::new(label, Some(agent_id.clone()), None);
-                        let _ = rtc::UpdateQuery::new(rtc_id).state(&state).execute(&conn)?;
+                        let _ = rtc::UpdateQuery::new(*rtc_id)
+                            .state(&state)
+                            .execute(&conn)?;
                     }
 
                     let backreq = janus::create_stream_request(

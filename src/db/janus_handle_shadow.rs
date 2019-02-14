@@ -30,12 +30,12 @@ impl Object {
 #[table_name = "janus_handle_shadow"]
 pub(crate) struct InsertQuery<'a> {
     handle_id: i64,
-    rtc_id: &'a Uuid,
+    rtc_id: Uuid,
     reply_to: &'a AgentId,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(handle_id: i64, rtc_id: &'a Uuid, reply_to: &'a AgentId) -> Self {
+    pub(crate) fn new(handle_id: i64, rtc_id: Uuid, reply_to: &'a AgentId) -> Self {
         Self {
             handle_id,
             rtc_id,
@@ -58,7 +58,7 @@ impl<'a> InsertQuery<'a> {
 #[derive(Debug)]
 pub(crate) struct FindQuery<'a> {
     handle_id: Option<i64>,
-    rtc_id: Option<&'a Uuid>,
+    rtc_id: Option<Uuid>,
     reply_to: Option<&'a AgentId>,
 }
 
@@ -76,7 +76,7 @@ impl<'a> FindQuery<'a> {
         self
     }
 
-    pub(crate) fn rtc_id(mut self, rtc_id: &'a Uuid) -> Self {
+    pub(crate) fn rtc_id(mut self, rtc_id: Uuid) -> Self {
         self.rtc_id = Some(rtc_id);
         self
     }

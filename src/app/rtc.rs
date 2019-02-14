@@ -91,13 +91,13 @@ impl State {
         // Creating a Real-Time Connection
         let rtc = {
             let conn = self.db.get()?;
-            rtc::InsertQuery::new(room_id).execute(&conn)?
+            rtc::InsertQuery::new(*room_id).execute(&conn)?
         };
 
         // Building a Create Janus Gateway Session request
         let backreq = janus::create_session_request(
             inreq.properties().clone(),
-            *rtc.id(),
+            rtc.id(),
             &self.backend_agent_id,
         )?;
 
@@ -125,20 +125,20 @@ impl State {
             let conn = self.db.get()?;
             location::FindQuery::new()
                 .reply_to(agent_id)
-                .rtc_id(&id)
+                .rtc_id(id)
                 .execute(&conn)?
         };
 
         match maybe_location {
             Some(ref loc) => {
                 // Authorization
-                authorize(loc.audience(), *loc.room_id())?;
+                authorize(loc.audience(), loc.room_id())?;
 
                 // Returning Real-Time connection
                 let rtc = {
                     let conn = self.db.get()?;
                     rtc::FindQuery::new()
-                        .id(&id)
+                        .id(id)
                         .execute(&conn)?
                         .ok_or_else(|| format_err!("the rtc = '{}' is not found", &id))?
                 };
@@ -161,7 +161,7 @@ impl State {
                 let session = {
                     let conn = self.db.get()?;
                     janus_session_shadow::FindQuery::new()
-                        .rtc_id(&id)
+                        .rtc_id(id)
                         .execute(&conn)?
                         .ok_or_else(|| format_err!("a session for rtc = '{}' is not found", &id))?
                 };
@@ -203,7 +203,7 @@ impl State {
         let objects = {
             let conn = self.db.get()?;
             rtc::ListQuery::from_options(
-                Some(room_id),
+                Some(*room_id),
                 inreq.payload().offset,
                 Some(std::cmp::min(
                     inreq.payload().limit.unwrap_or_else(|| MAX_LIMIT),

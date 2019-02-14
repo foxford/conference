@@ -19,8 +19,8 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub(crate) fn rtc_id(&self) -> &Uuid {
-        &self.rtc_id
+    pub(crate) fn rtc_id(&self) -> Uuid {
+        self.rtc_id
     }
 
     pub(crate) fn session_id(&self) -> i64 {
@@ -37,13 +37,13 @@ impl Object {
 #[derive(Debug, Insertable)]
 #[table_name = "janus_session_shadow"]
 pub(crate) struct InsertQuery<'a> {
-    rtc_id: &'a Uuid,
+    rtc_id: Uuid,
     session_id: i64,
     location_id: &'a AgentId,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(rtc_id: &'a Uuid, session_id: i64, location_id: &'a AgentId) -> Self {
+    pub(crate) fn new(rtc_id: Uuid, session_id: i64, location_id: &'a AgentId) -> Self {
         Self {
             rtc_id,
             session_id,
@@ -65,7 +65,7 @@ impl<'a> InsertQuery<'a> {
 
 #[derive(Debug)]
 pub(crate) struct FindQuery<'a> {
-    rtc_id: Option<&'a Uuid>,
+    rtc_id: Option<Uuid>,
     session_id: Option<i64>,
     location_id: Option<&'a AgentId>,
 }
@@ -79,7 +79,7 @@ impl<'a> FindQuery<'a> {
         }
     }
 
-    pub(crate) fn rtc_id(self, rtc_id: &'a Uuid) -> Self {
+    pub(crate) fn rtc_id(self, rtc_id: Uuid) -> Self {
         Self {
             rtc_id: Some(rtc_id),
             session_id: self.session_id,

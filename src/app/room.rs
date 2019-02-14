@@ -118,7 +118,7 @@ impl State {
                     session.session_id(),
                     handle.handle_id(),
                     janus::UploadStreamRequestBody::new(
-                        *rtc.id(),
+                        rtc.id(),
                         &bucket_name(&room),
                         &record_name(&rtc),
                     ),
@@ -138,7 +138,7 @@ impl State {
 pub(crate) fn upload_event(rtc: rtc::Object, room: room::Object) -> ObjectUploadEvent {
     let uri = format!("audiences/{}/events", room.audience());
     let event = UploadEventData {
-        id: *rtc.id(),
+        id: rtc.id(),
         uri: format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)),
     };
 

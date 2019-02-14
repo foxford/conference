@@ -131,7 +131,7 @@ impl ListQuery {
 #[derive(Debug, Insertable)]
 #[table_name = "room"]
 pub(crate) struct InsertQuery<'a> {
-    id: Option<&'a Uuid>,
+    id: Option<Uuid>,
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: &'a str,
 }
@@ -148,7 +148,7 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub(crate) fn id(self, id: &'a Uuid) -> Self {
+    pub(crate) fn id(self, id: Uuid) -> Self {
         Self {
             id: Some(id),
             time: self.time,
