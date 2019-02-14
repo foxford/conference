@@ -27,4 +27,6 @@ svc-agent = { version = "0.1", features = ["diesel"] }
 # ES256 support:
 # + jsonwebtoken = { git = "https://github.com/manifest/jsonwebtoken", branch = "feature/ec" }
 # + ring = "1.14.4"
-rumqtt = { git = "https://github.com/manifest/rumqtt.git", branch = "feature/update-tls-deps" }
+# MQTTOptions:
+# + https://github.com/manifest/rumqtt/blob/feature/update-tls-deps%2Bdefaults/src/mqttoptions.rs#L116-L131
+rumqtt = { git = "https://github.com/manifest/rumqtt.git", branch = "feature/update-tls-deps+defaults" }
