@@ -4,12 +4,9 @@ use chrono::{DateTime, Utc};
 use failure::{format_err, Error};
 use itertools::izip;
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::{
-    mqtt::{
-        compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
-        OutgoingResponse, OutgoingResponseStatus, Publish, Publishable,
-    },
-    Destination,
+use svc_agent::mqtt::{
+    compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
+    OutgoingResponse, OutgoingResponseStatus, Publish, Publishable,
 };
 use uuid::Uuid;
 
@@ -76,7 +73,7 @@ impl State {
     }
 
     pub(crate) fn upload(&self, inreq: &UploadRequest) -> Result<impl Publish, Error> {
-        use diesel::prelude::*;
+        use diesel::prelude::{BelongingToDsl, GroupedBy, RunQueryDsl};
 
         let conn = self.db.get()?;
 

@@ -69,13 +69,13 @@ impl State {
 
 impl State {
     pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
-        let room_id = &inreq.payload().room_id;
+        let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
         {
             let conn = self.db.get()?;
             let room = room::FindQuery::new()
-                .id(*room_id)
+                .id(room_id)
                 .execute(&conn)?
                 .ok_or_else(|| format_err!("the room = '{}' is not found", &room_id))?;
 
@@ -91,7 +91,7 @@ impl State {
         // Creating a Real-Time Connection
         let rtc = {
             let conn = self.db.get()?;
-            rtc::InsertQuery::new(*room_id).execute(&conn)?
+            rtc::InsertQuery::new(room_id).execute(&conn)?
         };
 
         // Building a Create Janus Gateway Session request

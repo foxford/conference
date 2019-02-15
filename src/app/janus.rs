@@ -462,6 +462,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                         ));
                     }
 
+                    // TODO: deserialize response into struct
                     let rtc_id = response
                         .get("id")
                         .ok_or_else(|| {

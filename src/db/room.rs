@@ -78,28 +78,12 @@ impl FindQuery {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct ListQuery {
-    id: Option<Uuid>,
-    rtc_id: Option<Uuid>,
     finished: Option<bool>,
 }
 
 impl ListQuery {
     pub(crate) fn new() -> Self {
-        Self {
-            id: None,
-            rtc_id: None,
-            finished: None,
-        }
-    }
-
-    pub(crate) fn id(mut self, id: Uuid) -> Self {
-        self.id = Some(id);
-        self
-    }
-
-    pub(crate) fn rtc_id(mut self, rtc_id: Uuid) -> Self {
-        self.rtc_id = Some(rtc_id);
-        self
+        Self { finished: None }
     }
 
     pub(crate) fn finished(mut self, finished: bool) -> Self {
@@ -110,19 +94,18 @@ impl ListQuery {
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::{dsl::sql, prelude::*};
 
-        match self.finished {
-            Some(finished) => {
-                let predicate = if finished {
-                    sql("upper(time) < now()")
-                } else {
-                    sql("time @> now()")
-                };
-                room::table.filter(predicate).load(conn)
-            }
-            _ => Err(Error::QueryBuilderError(
-                "finished is required parameter of the query".into(),
-            )),
+        let mut q = room::table.into_boxed();
+
+        if let Some(finished) = self.finished {
+            let predicate = if finished {
+                sql("upper(time) < now()")
+            } else {
+                sql("time @> now()")
+            };
+            q = q.filter(predicate);
         }
+
+        q.load(conn)
     }
 }
 
