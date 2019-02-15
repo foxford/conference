@@ -23,9 +23,9 @@ crossbeam-channel = "0.3"
 itertools = "0.8"
 reqwest = "0.9"
 diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
-svc-authz = "0.1"
-svc-authn = { version = "0.1", features = ["jose", "diesel"] }
-svc-agent = { version = "0.1", features = ["diesel"] }
+svc-authz = "0.2"
+svc-authn = { version = "0.2", features = ["jose", "diesel"] }
+svc-agent = { version = "0.2", features = ["diesel"] }
 
 [patch.crates-io]
 # ES256 support:

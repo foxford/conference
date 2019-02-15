@@ -49,7 +49,7 @@ impl State {
 
 impl State {
     pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
-        let agent_id = inreq.properties().agent_id();
+        let agent_id = inreq.properties().as_agent_id();
         let rtc_id = &inreq.payload().rtc_id;
         let jsep = &inreq.payload().jsep;
         let sdp_type = parse_sdp_type(jsep)?;

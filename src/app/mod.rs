@@ -2,6 +2,7 @@ use failure::{format_err, Error};
 use log::{error, info};
 use svc_agent::mqtt::{compat, Agent, AgentBuilder, Publish, QoS};
 use svc_agent::{AgentId, SharedGroup, Subscription};
+use svc_authn::Authenticable;
 
 use crate::db::ConnectionPool;
 
@@ -19,7 +20,7 @@ pub(crate) fn run(db: &ConnectionPool) {
     // Agent
     let agent_id = AgentId::new(&generate_agent_label(), config.id);
     info!("Agent id: {:?}", &agent_id);
-    let group = SharedGroup::new("loadbalancer", agent_id.account_id().clone());
+    let group = SharedGroup::new("loadbalancer", agent_id.as_account_id().clone());
     let (mut tx, rx) = AgentBuilder::new(agent_id.clone())
         .start(&config.mqtt)
         .expect("Failed to create an agent");

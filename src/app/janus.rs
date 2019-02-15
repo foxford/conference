@@ -20,6 +20,10 @@ use crate::util::{from_base64, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
 
+const IGNORE: &str = "ignore";
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) enum Transaction {
     CreateSession(CreateSessionTransaction),
@@ -44,19 +48,17 @@ impl CreateSessionTransaction {
     }
 }
 
-pub(crate) fn create_session_request(
+pub(crate) fn create_session_request<A>(
     reqp: IncomingRequestProperties,
     rtc_id: Uuid,
-    to: &dyn Addressable,
-) -> Result<OutgoingRequest<CreateSessionRequest>, Error> {
+    to: &A,
+) -> Result<OutgoingRequest<CreateSessionRequest>, Error>
+where
+    A: Addressable,
+{
     let transaction = Transaction::CreateSession(CreateSessionTransaction::new(reqp, rtc_id));
     let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
-    let props = OutgoingRequestProperties::new(
-        "janus_session.create".to_owned(),
-        String::new(),
-        String::new(),
-        None,
-    );
+    let props = OutgoingRequestProperties::new("janus_session.create", IGNORE, IGNORE);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -79,12 +81,15 @@ impl CreateHandleTransaction {
     }
 }
 
-pub(crate) fn create_handle_request(
+pub(crate) fn create_handle_request<A>(
     reqp: IncomingRequestProperties,
     rtc_id: Uuid,
     session_id: i64,
-    to: &dyn Addressable,
-) -> Result<OutgoingRequest<CreateHandleRequest>, Error> {
+    to: &A,
+) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
+where
+    A: Addressable,
+{
     let transaction =
         Transaction::CreateHandle(CreateHandleTransaction::new(reqp, rtc_id, session_id));
     let payload = CreateHandleRequest::new(
@@ -92,12 +97,7 @@ pub(crate) fn create_handle_request(
         session_id,
         "janus.plugin.conference",
     );
-    let props = OutgoingRequestProperties::new(
-        "janus_handle.create".to_owned(),
-        String::new(),
-        String::new(),
-        None,
-    );
+    let props = OutgoingRequestProperties::new("janus_handle.create", IGNORE, IGNORE);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -129,14 +129,17 @@ impl CreateStreamRequestBody {
     }
 }
 
-pub(crate) fn create_stream_request(
+pub(crate) fn create_stream_request<A>(
     reqp: IncomingRequestProperties,
     session_id: i64,
     handle_id: i64,
     rtc_id: Uuid,
     jsep: JsonValue,
-    to: &dyn Addressable,
-) -> Result<OutgoingRequest<MessageRequest>, Error> {
+    to: &A,
+) -> Result<OutgoingRequest<MessageRequest>, Error>
+where
+    A: Addressable,
+{
     let transaction = Transaction::CreateStream(CreateStreamTransaction::new(reqp));
     let body = CreateStreamRequestBody::new(rtc_id);
     let payload = MessageRequest::new(
@@ -146,12 +149,7 @@ pub(crate) fn create_stream_request(
         serde_json::to_value(&body)?,
         Some(jsep),
     );
-    let props = OutgoingRequestProperties::new(
-        "janus_conference_stream.create".to_owned(),
-        String::new(),
-        String::new(),
-        None,
-    );
+    let props = OutgoingRequestProperties::new("janus_conference_stream.create", IGNORE, IGNORE);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -183,14 +181,17 @@ impl ReadStreamRequestBody {
     }
 }
 
-pub(crate) fn read_stream_request(
+pub(crate) fn read_stream_request<A>(
     reqp: IncomingRequestProperties,
     session_id: i64,
     handle_id: i64,
     rtc_id: Uuid,
     jsep: JsonValue,
-    to: &dyn Addressable,
-) -> Result<OutgoingRequest<MessageRequest>, Error> {
+    to: &A,
+) -> Result<OutgoingRequest<MessageRequest>, Error>
+where
+    A: Addressable,
+{
     let transaction = Transaction::ReadStream(ReadStreamTransaction::new(reqp));
     let body = ReadStreamRequestBody::new(rtc_id);
     let payload = MessageRequest::new(
@@ -200,12 +201,7 @@ pub(crate) fn read_stream_request(
         serde_json::to_value(&body)?,
         Some(jsep),
     );
-    let props = OutgoingRequestProperties::new(
-        "janus_conference_stream.create".to_owned(),
-        String::new(),
-        String::new(),
-        None,
-    );
+    let props = OutgoingRequestProperties::new("janus_conference_stream.create", IGNORE, IGNORE);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -278,21 +274,19 @@ impl TrickleTransaction {
     }
 }
 
-pub(crate) fn trickle_request(
+pub(crate) fn trickle_request<A>(
     reqp: IncomingRequestProperties,
     session_id: i64,
     handle_id: i64,
     jsep: JsonValue,
-    to: &dyn Addressable,
-) -> Result<OutgoingRequest<TrickleRequest>, Error> {
+    to: &A,
+) -> Result<OutgoingRequest<TrickleRequest>, Error>
+where
+    A: Addressable,
+{
     let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
     let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
-    let props = OutgoingRequestProperties::new(
-        "janus_trickle.create".to_owned(),
-        String::new(),
-        String::new(),
-        None,
-    );
+    let props = OutgoingRequestProperties::new("janus_trickle.create", IGNORE, IGNORE);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -317,7 +311,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                 // Session has been created
                 Transaction::CreateSession(tn) => {
                     // Creating a shadow of Janus Gateway Session
-                    let location_id = message.properties().agent_id();
+                    let location_id = message.properties().as_agent_id();
                     let session_id = inresp.data().id();
                     let conn = janus.db.get()?;
                     let _ =
@@ -330,7 +324,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                 // Handle has been created
                 Transaction::CreateHandle(tn) => {
                     let reqp = tn.reqp;
-                    let agent_id = reqp.agent_id();
+                    let agent_id = reqp.as_agent_id();
                     let rtc_id = tn.rtc_id;
                     let id = inresp.data().id();
 
@@ -344,7 +338,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                         .id(rtc_id)
                         .execute(&conn)?
                         .ok_or_else(|| format_err!("the rtc = '{}' is not found", &rtc_id))?;
-                    let props = reqp.to_response(&OutgoingResponseStatus::OK);
+                    let props = reqp.to_response(OutgoingResponseStatus::OK);
                     let resp = crate::app::rtc::ObjectResponse::unicast(object, props, agent_id);
 
                     resp.into_envelope()?.publish(tx)
@@ -367,8 +361,8 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                 Transaction::Trickle(tn) => {
                     let resp = crate::app::signal::CreateResponse::unicast(
                         crate::app::signal::CreateResponseData::new(None),
-                        tn.reqp.to_response(&OutgoingResponseStatus::OK),
-                        tn.reqp.agent_id(),
+                        tn.reqp.to_response(OutgoingResponseStatus::OK),
+                        tn.reqp.as_agent_id(),
                     );
 
                     resp.into_envelope()?.publish(tx)
@@ -412,8 +406,8 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
 
                     let resp = crate::app::signal::CreateResponse::unicast(
                         crate::app::signal::CreateResponseData::new(Some(jsep.clone())),
-                        tn.reqp.to_response(&OutgoingResponseStatus::OK),
-                        tn.reqp.agent_id(),
+                        tn.reqp.to_response(OutgoingResponseStatus::OK),
+                        tn.reqp.as_agent_id(),
                     );
 
                     resp.into_envelope()?.publish(tx)
@@ -448,8 +442,8 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
 
                     let resp = crate::app::signal::CreateResponse::unicast(
                         crate::app::signal::CreateResponseData::new(Some(jsep.clone())),
-                        tn.reqp.to_response(&OutgoingResponseStatus::OK),
-                        tn.reqp.agent_id(),
+                        tn.reqp.to_response(OutgoingResponseStatus::OK),
+                        tn.reqp.as_agent_id(),
                     );
 
                     resp.into_envelope()?.publish(tx)
@@ -538,7 +532,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             // return value is always 'Nullable' when the 'rtc_id' value
             // for the following statement can't be null.
             let session_id = inev.session_id();
-            let location_id = message.properties().agent_id();
+            let location_id = message.properties().as_agent_id();
             let location = location::FindQuery::new()
                 .handle_id(inev.sender())
                 .location_id(&location_id)
@@ -558,18 +552,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     event.into_envelope()?.publish(tx)
                 }
                 // webrtcup came from subscriber, so ignore.
-                Err(err) => {
-                    use log::error;
-                    error!(
-                        "id = {}, reply_to = {}, handle id = {}, hangup err = {}",
-                        location.rtc_id(),
-                        location.reply_to(),
-                        location.handle_id(),
-                        err
-                    );
-
-                    Ok(())
-                }
+                Err(_) => Ok(()),
             }
         }
         IncomingMessage::HangUp(ref inev) => {
@@ -582,7 +565,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
             // return value is always 'Nullable' when the 'rtc_id' value
             // for the following statement can't be null.
             let session_id = inev.session_id();
-            let agent_id = message.properties().agent_id();
+            let agent_id = message.properties().as_agent_id();
             let location = location::FindQuery::new()
                 .handle_id(inev.sender())
                 .session_id(session_id)
@@ -602,18 +585,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     event.into_envelope()?.publish(tx)
                 }
                 // Hangup came from subscriber, so ignore.
-                Err(err) => {
-                    use log::error;
-                    error!(
-                        "id = {}, reply_to = {}, handle id = {}, hangup err = {}",
-                        location.rtc_id(),
-                        location.reply_to(),
-                        location.handle_id(),
-                        err
-                    );
-
-                    Ok(())
-                }
+                Err(_) => Ok(()),
             }
         }
         IncomingMessage::Media(ref inev) => Err(format_err!(
