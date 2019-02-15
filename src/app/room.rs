@@ -28,7 +28,10 @@ pub(crate) struct ReadRequestData {
     id: Uuid,
 }
 
+pub(crate) type DeleteRequest = ReadRequest;
+
 pub(crate) type ObjectResponse = OutgoingResponse<room::Object>;
+pub(crate) type EmptyResponse = OutgoingResponse<()>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -82,6 +85,20 @@ impl State {
         };
 
         let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
+        resp.into_envelope()
+    }
+
+    pub(crate) fn delete(&self, inreq: &DeleteRequest) -> Result<impl Publishable, Error> {
+        let room_id = inreq.payload().id.to_string();
+
+        self.authz.authorize(
+            &inreq.properties().as_account_id().audience(),
+            inreq.properties(),
+            vec!["rooms", &room_id],
+            "delete",
+        )?;
+
+        let resp = inreq.to_response((), OutgoingResponseStatus::OK);
         resp.into_envelope()
     }
 }
