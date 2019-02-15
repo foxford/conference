@@ -30,6 +30,8 @@ pub(crate) struct ReadRequestData {
 
 pub(crate) type DeleteRequest = ReadRequest;
 
+pub(crate) type UpdateRequest = IncomingRequest<room::UpdateQuery>;
+
 pub(crate) type ObjectResponse = OutgoingResponse<room::Object>;
 pub(crate) type EmptyResponse = OutgoingResponse<()>;
 
@@ -98,7 +100,31 @@ impl State {
             "delete",
         )?;
 
+        let _ = {
+            let conn = self.db.get()?;
+            room::DeleteQuery::new(inreq.payload().id).execute(&conn)?
+        };
+
         let resp = inreq.to_response((), OutgoingResponseStatus::OK);
+        resp.into_envelope()
+    }
+
+    pub(crate) fn update(&self, inreq: &UpdateRequest) -> Result<impl Publishable, Error> {
+        let room_id = inreq.payload().id().to_string();
+
+        self.authz.authorize(
+            &inreq.properties().as_account_id().audience(),
+            inreq.properties(),
+            vec!["rooms", &room_id],
+            "update",
+        )?;
+
+        let object = {
+            let conn = self.db.get()?;
+            inreq.payload().execute(&conn)?
+        };
+
+        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
         resp.into_envelope()
     }
 }
