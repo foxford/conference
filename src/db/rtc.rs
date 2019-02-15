@@ -208,7 +208,7 @@ impl<'a> UpdateQuery<'a> {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) fn update_state(
-    id: &Uuid,
+    id: Uuid,
     agent_id: &AgentId,
     conn: &PgConnection,
 ) -> Result<Object, Error> {

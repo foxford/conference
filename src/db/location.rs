@@ -80,7 +80,7 @@ impl<'a> FindQuery<'a> {
         self
     }
 
-    pub(crate) fn rtc_id(mut self, rtc_id: &'a Uuid) -> Self {
+    pub(crate) fn rtc_id(mut self, rtc_id: Uuid) -> Self {
         self.rtc_id = Some(rtc_id);
         self
     }

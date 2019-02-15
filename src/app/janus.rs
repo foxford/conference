@@ -252,12 +252,7 @@ pub(crate) fn upload_stream_request(
         serde_json::to_value(&body)?,
         None,
     );
-    let props = OutgoingRequestProperties::new(
-        "janus_conference_stream.upload".to_owned(),
-        String::new(),
-        String::new(),
-        None,
-    );
+    let props = OutgoingRequestProperties::new("janus_conference_stream.upload", IGNORE, IGNORE);
     Ok(OutgoingRequest::unicast(payload, props, &to))
 }
 
