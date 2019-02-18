@@ -6,7 +6,7 @@ use svc_agent::mqtt::{
     Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties,
     OutgoingResponseStatus, Publish,
 };
-use svc_agent::{Addressable, AgentId, Destination};
+use svc_agent::{Addressable, AgentId, Authenticable};
 use uuid::Uuid;
 
 use crate::backend::janus::{
@@ -28,6 +28,8 @@ const IGNORE: &str = "ignore";
 pub(crate) enum Transaction {
     CreateSession(CreateSessionTransaction),
     CreateHandle(CreateHandleTransaction),
+    CreateSystemSession(CreateSystemSessionTransaction),
+    CreateSystemHandle(CreateSystemHandleTransaction),
     CreateStream(CreateStreamTransaction),
     ReadStream(ReadStreamTransaction),
     UploadStream(UploadStreamTransaction),
@@ -65,6 +67,29 @@ where
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct CreateSystemSessionTransaction {}
+
+impl CreateSystemSessionTransaction {
+    pub(crate) fn new() -> Self {
+        Self {}
+    }
+}
+
+pub(crate) fn create_system_session_request<A>(
+    to: &A,
+) -> Result<OutgoingRequest<CreateSessionRequest>, Error>
+where
+    A: Authenticable,
+{
+    let transaction = Transaction::CreateSystemSession(CreateSystemSessionTransaction::new());
+    let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
+    let props = OutgoingRequestProperties::new("janus_session.create", IGNORE, IGNORE);
+    Ok(OutgoingRequest::multicast(payload, props, to))
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateHandleTransaction {
     reqp: IncomingRequestProperties,
     rtc_id: Uuid,
@@ -92,6 +117,37 @@ where
 {
     let transaction =
         Transaction::CreateHandle(CreateHandleTransaction::new(reqp, rtc_id, session_id));
+    let payload = CreateHandleRequest::new(
+        &to_base64(&transaction)?,
+        session_id,
+        "janus.plugin.conference",
+    );
+    let props = OutgoingRequestProperties::new("janus_handle.create", IGNORE, IGNORE);
+    Ok(OutgoingRequest::unicast(payload, props, to))
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct CreateSystemHandleTransaction {
+    session_id: i64,
+}
+
+impl CreateSystemHandleTransaction {
+    pub(crate) fn new(session_id: i64) -> Self {
+        Self { session_id }
+    }
+}
+
+pub(crate) fn create_system_handle_request<A>(
+    session_id: i64,
+    to: &A,
+) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
+where
+    A: Addressable,
+{
+    let transaction =
+        Transaction::CreateSystemHandle(CreateSystemHandleTransaction::new(session_id));
     let payload = CreateHandleRequest::new(
         &to_base64(&transaction)?,
         session_id,
@@ -297,7 +353,12 @@ impl State {
     }
 }
 
-pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Result<(), Error> {
+pub(crate) fn handle_message(
+    tx: &mut Agent,
+    bytes: &[u8],
+    janus: &State,
+    system: &mut super::system::State,
+) -> Result<(), Error> {
     let envelope = serde_json::from_slice::<IncomingEnvelope>(bytes)?;
     let message = into_event::<IncomingMessage>(envelope)?;
     match message.payload() {
@@ -337,6 +398,24 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     let resp = crate::app::rtc::ObjectResponse::unicast(object, props, agent_id);
 
                     resp.into_envelope()?.publish(tx)
+                }
+                // System session has been created
+                Transaction::CreateSystemSession(_tn) => {
+                    let location_id = message.properties().as_agent_id();
+                    let session_id = inresp.data().id();
+
+                    system.set_session_id(session_id);
+
+                    let req = create_system_handle_request(session_id, location_id)?;
+                    req.into_envelope()?.publish(tx)
+                }
+                // System handle has been created
+                Transaction::CreateSystemHandle(_tn) => {
+                    let handle_id = inresp.data().id();
+
+                    system.set_handle_id(handle_id);
+
+                    Ok(())
                 }
                 // An unsupported incoming Success message has been received
                 _ => Err(format_err!(
@@ -499,7 +578,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     // TODO: set real time intervals from Janus
                     recording::InsertQuery::new(rtc_id, Vec::new()).execute(&conn)?;
 
-                    let store_event = super::room::upload_event(rtc, room);
+                    let store_event = super::system::upload_event(rtc, room);
 
                     store_event.into_envelope()?.publish(tx)
                 }

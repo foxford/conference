@@ -1,6 +1,9 @@
 use failure::{format_err, Error};
 use log::{error, info};
-use svc_agent::mqtt::{compat, Agent, AgentBuilder, Publish, QoS};
+use svc_agent::mqtt::{
+    compat::{self, IntoEnvelope},
+    Agent, AgentBuilder, Publish, QoS,
+};
 use svc_agent::{AgentId, SharedGroup, Subscription};
 use svc_authn::Authenticable;
 
@@ -49,8 +52,18 @@ pub(crate) fn run(db: &ConnectionPool) {
     // Create Signal resource
     let signal = signal::State::new(authz.clone(), db.clone());
 
+    // Create System resource
+    let mut system = system::State::new(authz.clone(), db.clone());
+
     // Create Backend resource
     let backend = janus::State::new(db.clone());
+
+    let system_session_request = janus::create_system_session_request(&config.backend_id)
+        .expect("Error preparing system session request")
+        .into_envelope()
+        .expect("Error preparing system session request envelope");
+    tx.publish(&system_session_request)
+        .expect("Error publishing system session request");
 
     for message in rx {
         match message {
@@ -68,9 +81,9 @@ pub(crate) fn run(db: &ConnectionPool) {
                 }
 
                 let result = if topic.starts_with(&format!("apps/{}", &config.backend_id)) {
-                    janus::handle_message(&mut tx, bytes, &backend)
+                    janus::handle_message(&mut tx, bytes, &backend, &mut system)
                 } else {
-                    handle_message(&mut tx, bytes, &rtc, &signal, &room)
+                    handle_message(&mut tx, bytes, &rtc, &signal, &room, &system)
                 };
 
                 if let Err(err) = result {
@@ -94,6 +107,7 @@ fn handle_message(
     rtc: &rtc::State,
     signal: &signal::State,
     room: &room::State,
+    system: &system::State,
 ) -> Result<(), Error> {
     let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(bytes)?;
     match envelope.properties() {
@@ -101,11 +115,6 @@ fn handle_message(
             "room.create" => {
                 let req = compat::into_request(envelope)?;
                 let next = room.create(&req)?;
-                next.publish(tx)
-            }
-            "room.upload" => {
-                let req = compat::into_request(envelope)?;
-                let next = room.upload(&req)?;
                 next.publish(tx)
             }
             "rtc.create" => {
@@ -132,6 +141,11 @@ fn handle_message(
                 let next = signal.create(&req)?;
                 next.publish(tx)
             }
+            "system.upload" => {
+                let req = compat::into_request(envelope)?;
+                let next = system.upload(&req)?;
+                next.publish(tx)
+            }
             _ => Err(format_err!("unsupported request method – {:?}", envelope)),
         },
         _ => Err(format_err!("unsupported message type – {:?}", envelope)),
@@ -150,3 +164,4 @@ mod janus;
 mod room;
 mod rtc;
 mod signal;
+mod system;
