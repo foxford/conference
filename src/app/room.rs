@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use failure::Error;
+use failure::{format_err, Error};
 use serde_derive::Deserialize;
 use std::ops::Bound;
 use svc_agent::mqtt::{
@@ -72,19 +72,20 @@ impl State {
     pub(crate) fn read(&self, inreq: &ReadRequest) -> Result<impl Publishable, Error> {
         let room_id = inreq.payload().id.to_string();
 
-        self.authz.authorize(
-            &inreq.properties().as_account_id().audience(),
-            inreq.properties(),
-            vec!["rooms", &room_id],
-            "read",
-        )?;
-
         let object = {
             let conn = self.db.get()?;
             room::FindQuery::new()
                 .id(&inreq.payload().id)
                 .execute(&conn)?
+                .ok_or_else(|| format_err!("room with Id = {} is not found", room_id))?
         };
+
+        self.authz.authorize(
+            object.audience(),
+            inreq.properties(),
+            vec!["rooms", &room_id],
+            "read",
+        )?;
 
         let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
         resp.into_envelope()
@@ -93,8 +94,16 @@ impl State {
     pub(crate) fn delete(&self, inreq: &DeleteRequest) -> Result<impl Publishable, Error> {
         let room_id = inreq.payload().id.to_string();
 
+        let object = {
+            let conn = self.db.get()?;
+            room::FindQuery::new()
+                .id(&inreq.payload().id)
+                .execute(&conn)?
+                .ok_or_else(|| format_err!("room with Id = {} is not found", room_id))?
+        };
+
         self.authz.authorize(
-            &inreq.properties().as_account_id().audience(),
+            object.audience(),
             inreq.properties(),
             vec!["rooms", &room_id],
             "delete",
@@ -112,8 +121,16 @@ impl State {
     pub(crate) fn update(&self, inreq: &UpdateRequest) -> Result<impl Publishable, Error> {
         let room_id = inreq.payload().id().to_string();
 
+        let object = {
+            let conn = self.db.get()?;
+            room::FindQuery::new()
+                .id(&inreq.payload().id())
+                .execute(&conn)?
+                .ok_or_else(|| format_err!("room with Id = {} is not found", room_id))?
+        };
+
         self.authz.authorize(
-            &inreq.properties().as_account_id().audience(),
+            object.audience(),
             inreq.properties(),
             vec!["rooms", &room_id],
             "update",
