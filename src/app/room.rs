@@ -33,7 +33,6 @@ pub(crate) type DeleteRequest = ReadRequest;
 pub(crate) type UpdateRequest = IncomingRequest<room::UpdateQuery>;
 
 pub(crate) type ObjectResponse = OutgoingResponse<room::Object>;
-pub(crate) type EmptyResponse = OutgoingResponse<()>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -114,7 +113,7 @@ impl State {
             room::DeleteQuery::new(inreq.payload().id).execute(&conn)?
         };
 
-        let resp = inreq.to_response((), OutgoingResponseStatus::OK);
+        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
         resp.into_envelope()
     }
 
