@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use std::ops::Bound;
 use uuid::Uuid;
 
@@ -114,5 +114,55 @@ impl<'a> InsertQuery<'a> {
         use diesel::RunQueryDsl;
 
         diesel::insert_into(room).values(self).get_result(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct DeleteQuery {
+    id: Uuid,
+}
+
+impl DeleteQuery {
+    pub(crate) fn new(id: Uuid) -> Self {
+        Self { id }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+        use diesel::prelude::*;
+
+        diesel::delete(room::table.filter(room::id.eq(self.id))).execute(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Identifiable, AsChangeset, Deserialize)]
+#[table_name = "room"]
+pub(crate) struct UpdateQuery {
+    id: Uuid,
+    #[serde(default)]
+    #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
+    time: Option<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>,
+    audience: Option<String>,
+}
+
+impl UpdateQuery {
+    pub(crate) fn new(id: Uuid) -> Self {
+        Self {
+            id,
+            time: None,
+            audience: None,
+        }
+    }
+
+    pub(crate) fn id(&self) -> Uuid {
+        self.id
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+        use diesel::prelude::*;
+
+        diesel::update(self).set(self).get_result(conn)
     }
 }

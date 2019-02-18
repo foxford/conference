@@ -103,6 +103,21 @@ fn handle_message(
                 let next = room.create(&req)?;
                 next.publish(tx)
             }
+            "room.read" => {
+                let req = compat::into_request(envelope)?;
+                let next = room.read(&req)?;
+                next.publish(tx)
+            }
+            "room.delete" => {
+                let req = compat::into_request(envelope)?;
+                let next = room.delete(&req)?;
+                next.publish(tx)
+            }
+            "room.update" => {
+                let req = compat::into_request(envelope)?;
+                let next = room.update(&req)?;
+                next.publish(tx)
+            }
             "rtc.create" => {
                 // TODO: catch and process errors: unprocessable entry
                 let req = compat::into_request(envelope)?;
