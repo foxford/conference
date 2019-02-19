@@ -30,6 +30,20 @@ impl Object {
     pub(crate) fn id(&self) -> Uuid {
         self.id
     }
+
+    pub(crate) fn time(&self) -> (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>) {
+        self.time
+    }
+
+    pub(crate) fn started_at(&self) -> Option<DateTime<Utc>> {
+        use std::ops::Bound;
+
+        let (started_at, _finished_at) = self.time();
+        match started_at {
+            Bound::Excluded(dt) | Bound::Included(dt) => Some(dt),
+            Bound::Unbounded => None,
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -101,6 +115,7 @@ impl ListQuery {
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+        use crate::schema;
         use diesel::{dsl::sql, prelude::*};
 
         let mut q = room::table.select(ALL_COLUMNS).into_boxed();
@@ -116,17 +131,13 @@ impl ListQuery {
 
         match self.with_records {
             Some(true) => {
-                let q = q.inner_join(
-                    crate::schema::rtc::table.inner_join(crate::schema::recording::table),
-                );
+                let q = q.inner_join(schema::rtc::table.inner_join(schema::recording::table));
                 return q.load(conn);
             }
             Some(false) => {
                 let q = q
-                    .left_join(
-                        crate::schema::rtc::table.inner_join(crate::schema::recording::table),
-                    )
-                    .filter(crate::schema::rtc::id.is_null());
+                    .left_join(schema::rtc::table.inner_join(schema::recording::table))
+                    .filter(schema::rtc::id.is_null());
                 return q.load(conn);
             }
             None => {}

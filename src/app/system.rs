@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
@@ -11,7 +12,7 @@ use svc_authn::{AccountId, Authenticable};
 use uuid::Uuid;
 
 use super::janus;
-use crate::db::{janus_session_shadow, room, rtc, ConnectionPool};
+use crate::db::{janus_session_shadow, recording, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -20,9 +21,17 @@ pub(crate) type UploadRequest = IncomingRequest<UploadRequestData>;
 #[derive(Debug, Deserialize)]
 pub(crate) struct UploadRequestData {}
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 pub(crate) struct UploadEventData {
+    rtcs: Vec<UploadEventEntry>,
+}
+
+#[derive(Debug, Serialize)]
+struct UploadEventEntry {
     id: Uuid,
+    time: recording::TimeIntervals,
+    #[serde(serialize_with = "crate::serde::ts_seconds_option")]
+    started_at: Option<DateTime<Utc>>,
     uri: String,
 }
 
@@ -122,14 +131,39 @@ impl State {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn upload_event(rtc: rtc::Object, room: room::Object) -> ObjectUploadEvent {
+pub(crate) fn upload_event<I>(room: room::Object, rtc_and_recordings: I) -> ObjectUploadEvent
+where
+    I: Iterator<Item = (rtc::Object, Vec<recording::Object>)>,
+{
+    let started_at = room.started_at();
+
+    let mut event_entries = Vec::new();
+
+    for (rtc, recordings) in rtc_and_recordings {
+        let time = recordings
+            .into_iter()
+            .flat_map(|r| {
+                let (_rtc_id, time) = r.decompose();
+                time
+            })
+            .collect();
+
+        let entry = UploadEventEntry {
+            id: rtc.id(),
+            uri: format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)),
+            time,
+            started_at,
+        };
+
+        event_entries.push(entry);
+    }
+
     let uri = format!("audiences/{}/events", room.audience());
     let event = UploadEventData {
-        id: rtc.id(),
-        uri: format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)),
+        rtcs: event_entries,
     };
 
-    OutgoingEvent::broadcast(event, OutgoingEventProperties::new("rtc.store"), &uri)
+    OutgoingEvent::broadcast(event, OutgoingEventProperties::new("room.upload"), &uri)
 }
 
 fn bucket_name(room: &room::Object) -> String {

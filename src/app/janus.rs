@@ -1,4 +1,5 @@
 use failure::{format_err, Error};
+use log::info;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::mqtt::compat::{into_event, IncomingEnvelope, IntoEnvelope};
@@ -578,9 +579,23 @@ pub(crate) fn handle_message(
                     // TODO: set real time intervals from Janus
                     recording::InsertQuery::new(rtc_id, Vec::new()).execute(&conn)?;
 
-                    // FIXME: send upload event only if there's no more empty recordings
-                    let store_event = super::system::upload_event(rtc, room);
+                    use diesel::prelude::*;
 
+                    let rtcs: Vec<rtc::Object> = rtc::Object::belonging_to(&room).load(&conn)?;
+                    let recordings: Vec<recording::Object> =
+                        recording::Object::belonging_to(&rtcs).load(&conn)?;
+                    let recordings = recordings.grouped_by(&rtcs);
+
+                    if recordings.iter().any(|r| r.is_empty()) {
+                        info!(
+                            "Some rtcs is not uploaded for room with Id = {} yet, so not sending 'room.upload' event",
+                            room.id()
+                        );
+                        return Ok(());
+                    }
+
+                    let rtcs_and_recordings = rtcs.into_iter().zip(recordings);
+                    let store_event = super::system::upload_event(room, rtcs_and_recordings);
                     store_event.into_envelope()?.publish(tx)
                 }
                 // An unsupported incoming Event message has been received

@@ -7,7 +7,7 @@ use uuid::Uuid;
 use super::rtc::Object as Rtc;
 use crate::schema::recording;
 
-type TimeIntervals = Vec<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>;
+pub type TimeIntervals = Vec<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>;
 
 #[derive(Debug, Identifiable, Associations, Queryable)]
 #[belongs_to(Rtc, foreign_key = "rtc_id")]
@@ -16,6 +16,12 @@ type TimeIntervals = Vec<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>;
 pub(crate) struct Object {
     rtc_id: Uuid,
     time: TimeIntervals,
+}
+
+impl Object {
+    pub fn decompose(self) -> (Uuid, TimeIntervals) {
+        (self.rtc_id, self.time)
+    }
 }
 
 #[derive(Debug, Insertable)]
