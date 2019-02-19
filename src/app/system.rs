@@ -1,14 +1,18 @@
 use failure::{format_err, Error};
 use itertools::izip;
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::mqtt::{
-    compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
-    OutgoingResponse, Publish,
+use svc_agent::{
+    mqtt::{
+        compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
+        OutgoingResponse, Publish,
+    },
+    Addressable,
 };
+use svc_authn::{AccountId, Authenticable};
 use uuid::Uuid;
 
 use super::janus;
-use crate::db::{janus_handle_shadow, janus_session_shadow, recording, room, rtc, ConnectionPool};
+use crate::db::{janus_session_shadow, recording, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -31,15 +35,17 @@ pub(crate) type ObjectUploadEvent = OutgoingEvent<UploadEventData>;
 pub(crate) struct State {
     authz: svc_authz::ClientMap,
     db: ConnectionPool,
+    id: AccountId,
     session_id: Option<i64>,
     handle_id: Option<i64>,
 }
 
 impl State {
-    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
+    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool, id: AccountId) -> Self {
         Self {
             authz,
             db,
+            id,
             session_id: None,
             handle_id: None,
         }
@@ -58,8 +64,16 @@ impl State {
     pub(crate) fn upload(&self, inreq: &UploadRequest) -> Result<impl Publish, Error> {
         use diesel::prelude::{BelongingToDsl, GroupedBy, RunQueryDsl};
 
+        if *inreq.properties().as_account_id() != self.id {
+            return Err(format_err!(
+                "Agent {} is not allowed to call system.upload method",
+                inreq.properties().as_agent_id()
+            ));
+        }
+
         let conn = self.db.get()?;
 
+        // FIXME: filter out rooms with non-empty recordings
         let rooms = room::ListQuery::new().finished(true).execute(&conn)?;
         let rtcs: Vec<rtc::Object> = rtc::Object::belonging_to(&rooms).load(&conn)?;
         let recordings: Vec<recording::Object> =

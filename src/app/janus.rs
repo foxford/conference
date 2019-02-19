@@ -578,6 +578,7 @@ pub(crate) fn handle_message(
                     // TODO: set real time intervals from Janus
                     recording::InsertQuery::new(rtc_id, Vec::new()).execute(&conn)?;
 
+                    // FIXME: send upload event only if there's no more empty recordings
                     let store_event = super::system::upload_event(rtc, room);
 
                     store_event.into_envelope()?.publish(tx)

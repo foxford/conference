@@ -21,7 +21,7 @@ pub(crate) fn run(db: &ConnectionPool) {
         .expect("Error converting authz config to clients");
 
     // Agent
-    let agent_id = AgentId::new(&generate_agent_label(), config.id);
+    let agent_id = AgentId::new(&generate_agent_label(), config.id.clone());
     info!("Agent id: {:?}", &agent_id);
     let group = SharedGroup::new("loadbalancer", agent_id.as_account_id().clone());
     let (mut tx, rx) = AgentBuilder::new(agent_id.clone())
@@ -53,7 +53,7 @@ pub(crate) fn run(db: &ConnectionPool) {
     let signal = signal::State::new(authz.clone(), db.clone());
 
     // Create System resource
-    let mut system = system::State::new(authz.clone(), db.clone());
+    let mut system = system::State::new(authz.clone(), db.clone(), config.id.clone());
 
     // Create Backend resource
     let backend = janus::State::new(db.clone());
