@@ -79,11 +79,15 @@ impl FindQuery {
 
 pub(crate) struct ListQuery {
     finished: Option<bool>,
+    with_records: Option<bool>,
 }
 
 impl ListQuery {
     pub(crate) fn new() -> Self {
-        Self { finished: None }
+        Self {
+            finished: None,
+            with_records: None,
+        }
     }
 
     pub(crate) fn finished(mut self, finished: bool) -> Self {
@@ -91,18 +95,41 @@ impl ListQuery {
         self
     }
 
+    pub(crate) fn with_records(mut self, with_records: bool) -> Self {
+        self.with_records = Some(with_records);
+        self
+    }
+
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::{dsl::sql, prelude::*};
 
-        let mut q = room::table.into_boxed();
+        let mut q = room::table.select(ALL_COLUMNS).into_boxed();
 
         if let Some(finished) = self.finished {
             let predicate = if finished {
-                sql("upper(time) < now()")
+                sql("upper(\"room\".\"time\") < now()")
             } else {
-                sql("time @> now()")
+                sql("\"room\".\"time\" @> now()")
             };
             q = q.filter(predicate);
+        }
+
+        match self.with_records {
+            Some(true) => {
+                let q = q.inner_join(
+                    crate::schema::rtc::table.inner_join(crate::schema::recording::table),
+                );
+                return q.load(conn);
+            }
+            Some(false) => {
+                let q = q
+                    .left_join(
+                        crate::schema::rtc::table.inner_join(crate::schema::recording::table),
+                    )
+                    .filter(crate::schema::rtc::id.is_null());
+                return q.load(conn);
+            }
+            None => {}
         }
 
         q.load(conn)

@@ -1,5 +1,4 @@
 use failure::{format_err, Error};
-use itertools::izip;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{
@@ -12,7 +11,7 @@ use svc_authn::{AccountId, Authenticable};
 use uuid::Uuid;
 
 use super::janus;
-use crate::db::{janus_session_shadow, recording, room, rtc, ConnectionPool};
+use crate::db::{janus_session_shadow, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -73,29 +72,21 @@ impl State {
 
         let conn = self.db.get()?;
 
-        // FIXME: filter out rooms with non-empty recordings
-        let rooms = room::ListQuery::new().finished(true).execute(&conn)?;
+        let rooms = room::ListQuery::new()
+            .finished(true)
+            .with_records(false)
+            .execute(&conn)?;
         let rtcs: Vec<rtc::Object> = rtc::Object::belonging_to(&rooms).load(&conn)?;
-        let recordings: Vec<recording::Object> =
-            recording::Object::belonging_to(&rtcs).load(&conn)?;
         let sessions: Vec<janus_session_shadow::Object> =
             janus_session_shadow::Object::belonging_to(&rtcs).load(&conn)?;
 
-        let recordings = recordings.grouped_by(&rtcs);
         let sessions = sessions.grouped_by(&rtcs);
-        let rtcs_and_related = rtcs
-            .into_iter()
-            .zip(izip!(recordings, sessions))
-            .grouped_by(&rooms);
+        let rtcs_and_related = rtcs.into_iter().zip(sessions).grouped_by(&rooms);
 
         let mut requests = Vec::new();
 
         for (room, rtcs_and_related) in rooms.into_iter().zip(rtcs_and_related) {
-            for (rtc, (recording, session)) in rtcs_and_related {
-                if !recording.is_empty() {
-                    continue;
-                }
-
+            for (rtc, session) in rtcs_and_related {
                 let session_id = self
                     .session_id
                     .ok_or_else(|| format_err!("a system session is not ready yet"))?;
