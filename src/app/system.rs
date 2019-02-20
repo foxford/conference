@@ -6,13 +6,13 @@ use svc_agent::{
         compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
         OutgoingResponse, Publish,
     },
-    Addressable,
+    Addressable, AgentId,
 };
 use svc_authn::{AccountId, Authenticable};
 use uuid::Uuid;
 
 use super::janus;
-use crate::db::{janus_session_shadow, recording, room, rtc, ConnectionPool};
+use crate::db::{recording, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -46,14 +46,21 @@ pub(crate) struct State {
     id: AccountId,
     session_id: Option<i64>,
     handle_id: Option<i64>,
+    backend_id: AgentId,
 }
 
 impl State {
-    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool, id: AccountId) -> Self {
+    pub(crate) fn new(
+        authz: svc_authz::ClientMap,
+        db: ConnectionPool,
+        id: AccountId,
+        backend_id: AgentId,
+    ) -> Self {
         Self {
             authz,
             db,
             id,
+            backend_id,
             session_id: None,
             handle_id: None,
         }
@@ -70,7 +77,13 @@ impl State {
 
 impl State {
     pub(crate) fn upload(&self, inreq: &UploadRequest) -> Result<impl Publish, Error> {
-        use diesel::prelude::{BelongingToDsl, GroupedBy, RunQueryDsl};
+        let session_id = self
+            .session_id
+            .ok_or_else(|| format_err!("a system session is not ready yet"))?;
+
+        let handle_id = self
+            .handle_id
+            .ok_or_else(|| format_err!("a system handle is not ready yet"))?;
 
         if *inreq.properties().as_account_id() != self.id {
             return Err(format_err!(
@@ -82,50 +95,29 @@ impl State {
         let conn = self.db.get()?;
 
         // Retrieve all the finished rooms without recordings.
-        let rooms = room::ListQuery::new()
-            .finished(true)
-            .with_recordings(false)
-            .execute(&conn)?;
-        // Retrieve all the rtcs belonging to these rooms.
-        let rtcs: Vec<rtc::Object> = rtc::Object::belonging_to(&rooms).load(&conn)?;
-        // And sessions too (to extract Janus Gateway instance location).
-        let sessions: Vec<janus_session_shadow::Object> =
-            janus_session_shadow::Object::belonging_to(&rtcs).load(&conn)?;
-
-        let sessions = sessions.grouped_by(&rtcs);
-        let rtcs_and_related = rtcs.into_iter().zip(sessions).grouped_by(&rooms);
+        let rooms = room::finished_without_recordings(&conn)?;
 
         let mut requests = Vec::new();
 
-        for (room, rtcs_and_related) in rooms.into_iter().zip(rtcs_and_related) {
-            for (rtc, session) in rtcs_and_related {
-                let session_id = self
-                    .session_id
-                    .ok_or_else(|| format_err!("a system session is not ready yet"))?;
-
-                let handle_id = self
-                    .handle_id
-                    .ok_or_else(|| format_err!("a system handle is not ready yet"))?;
-
-                let session = session
-                    .iter()
-                    .next()
-                    .ok_or_else(|| format_err!("a session for rtc = {} is not found", rtc.id()))?;
-
-                let req = janus::upload_stream_request(
-                    inreq.properties().clone(),
-                    session_id,
-                    handle_id,
-                    janus::UploadStreamRequestBody::new(
-                        rtc.id(),
-                        &bucket_name(&room),
-                        &record_name(&rtc),
-                    ),
-                    session.location_id().clone(),
-                )?;
-
-                requests.push(req.into_envelope()?);
+        for (room, (rtc, empty_recording)) in rooms.into_iter() {
+            // Non-sense but who knows.
+            if empty_recording.is_some() {
+                continue;
             }
+
+            let req = janus::upload_stream_request(
+                inreq.properties().clone(),
+                session_id,
+                handle_id,
+                janus::UploadStreamRequestBody::new(
+                    rtc.id(),
+                    &bucket_name(&room),
+                    &record_name(&rtc),
+                ),
+                &self.backend_id,
+            )?;
+
+            requests.push(req.into_envelope()?);
         }
 
         Ok(requests)

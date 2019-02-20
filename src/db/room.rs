@@ -93,15 +93,11 @@ impl FindQuery {
 
 pub(crate) struct ListQuery {
     finished: Option<bool>,
-    with_recordings: Option<bool>,
 }
 
 impl ListQuery {
     pub(crate) fn new() -> Self {
-        Self {
-            finished: None,
-            with_recordings: None,
-        }
+        Self { finished: None }
     }
 
     pub(crate) fn finished(mut self, finished: bool) -> Self {
@@ -109,16 +105,10 @@ impl ListQuery {
         self
     }
 
-    pub(crate) fn with_recordings(mut self, with_recordings: bool) -> Self {
-        self.with_recordings = Some(with_recordings);
-        self
-    }
-
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use crate::schema;
         use diesel::{dsl::sql, prelude::*};
 
-        let mut q = room::table.select(ALL_COLUMNS).into_boxed();
+        let mut q = room::table.into_boxed();
 
         if let Some(finished) = self.finished {
             let predicate = if finished {
@@ -129,22 +119,35 @@ impl ListQuery {
             q = q.filter(predicate);
         }
 
-        match self.with_recordings {
-            Some(true) => {
-                let q = q.inner_join(schema::rtc::table.inner_join(schema::recording::table));
-                return q.load(conn);
-            }
-            Some(false) => {
-                let q = q
-                    .left_join(schema::rtc::table.inner_join(schema::recording::table))
-                    .filter(schema::rtc::id.is_null());
-                return q.load(conn);
-            }
-            None => {}
-        }
-
         q.load(conn)
     }
+}
+
+// Filtering out rooms with every recording ready using left and inner joins
+// and condition that recording.rtc_id is null. In diagram below room1
+// and room3 will be selected (room1 - there's one recording that is not
+// ready, room3 - there's no ready recordings at all).
+// room1 | rtc1 | null           room1 | null | null
+// room1 | rtc2 | recording1  -> room1 | rtc2 | recording1
+// room2 | rtc3 | recording2     room2 | rtc3 | recording2
+// room3 | rtc4 | null           room3 | null | null
+pub(crate) fn finished_without_recordings(
+    conn: &PgConnection,
+) -> Result<
+    Vec<(
+        self::Object,
+        (super::rtc::Object, Option<super::recording::Object>),
+    )>,
+    Error,
+> {
+    use crate::schema;
+    use diesel::{dsl::sql, prelude::*};
+
+    schema::room::table
+        .inner_join(schema::rtc::table.left_join(schema::recording::table))
+        .filter(schema::recording::rtc_id.is_null())
+        .filter(sql("upper(\"room\".\"time\") < now()"))
+        .load(conn)
 }
 
 ////////////////////////////////////////////////////////////////////////////////

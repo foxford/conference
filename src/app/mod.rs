@@ -53,7 +53,12 @@ pub(crate) fn run(db: &ConnectionPool) {
     let signal = signal::State::new(authz.clone(), db.clone());
 
     // Create System resource
-    let mut system = system::State::new(authz.clone(), db.clone(), config.id.clone());
+    let mut system = system::State::new(
+        authz.clone(),
+        db.clone(),
+        config.id.clone(),
+        backend_agent_id.clone(),
+    );
 
     // Create Backend resource
     let backend = janus::State::new(db.clone());

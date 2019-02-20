@@ -299,7 +299,7 @@ pub(crate) fn upload_stream_request(
     session_id: i64,
     handle_id: i64,
     body: UploadStreamRequestBody,
-    to: AgentId,
+    to: &AgentId,
 ) -> Result<OutgoingRequest<MessageRequest>, Error> {
     let transaction = Transaction::UploadStream(UploadStreamTransaction::new(reqp));
     let payload = MessageRequest::new(
@@ -310,7 +310,7 @@ pub(crate) fn upload_stream_request(
         None,
     );
     let props = OutgoingRequestProperties::new("janus_conference_stream.upload", IGNORE, IGNORE);
-    Ok(OutgoingRequest::unicast(payload, props, &to))
+    Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
