@@ -81,11 +81,14 @@ impl State {
 
         let conn = self.db.get()?;
 
+        // Retrieve all the finished rooms without recordings.
         let rooms = room::ListQuery::new()
             .finished(true)
-            .with_records(false)
+            .with_recordings(false)
             .execute(&conn)?;
+        // Retrieve all the rtcs belonging to these rooms.
         let rtcs: Vec<rtc::Object> = rtc::Object::belonging_to(&rooms).load(&conn)?;
+        // And sessions too (to extract Janus Gateway instance location).
         let sessions: Vec<janus_session_shadow::Object> =
             janus_session_shadow::Object::belonging_to(&rtcs).load(&conn)?;
 

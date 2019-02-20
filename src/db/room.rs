@@ -93,14 +93,14 @@ impl FindQuery {
 
 pub(crate) struct ListQuery {
     finished: Option<bool>,
-    with_records: Option<bool>,
+    with_recordings: Option<bool>,
 }
 
 impl ListQuery {
     pub(crate) fn new() -> Self {
         Self {
             finished: None,
-            with_records: None,
+            with_recordings: None,
         }
     }
 
@@ -109,8 +109,8 @@ impl ListQuery {
         self
     }
 
-    pub(crate) fn with_records(mut self, with_records: bool) -> Self {
-        self.with_records = Some(with_records);
+    pub(crate) fn with_recordings(mut self, with_recordings: bool) -> Self {
+        self.with_recordings = Some(with_recordings);
         self
     }
 
@@ -129,7 +129,7 @@ impl ListQuery {
             q = q.filter(predicate);
         }
 
-        match self.with_records {
+        match self.with_recordings {
             Some(true) => {
                 let q = q.inner_join(schema::rtc::table.inner_join(schema::recording::table));
                 return q.load(conn);
