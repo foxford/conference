@@ -12,7 +12,7 @@ use crate::schema::{room, rtc};
 type AllColumns = (room::id, room::time, room::audience, room::created_at);
 const ALL_COLUMNS: AllColumns = (room::id, room::time, room::audience, room::created_at);
 
-#[derive(Debug, Identifiable, Queryable, Serialize)]
+#[derive(Debug, Identifiable, Queryable, Serialize, QueryableByName)]
 #[table_name = "room"]
 pub(crate) struct Object {
     id: Uuid,
@@ -23,23 +23,37 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub(crate) fn id(&self) -> &Uuid {
-        &self.id
-    }
-
     pub(crate) fn audience(&self) -> &str {
         &self.audience
+    }
+
+    pub(crate) fn id(&self) -> Uuid {
+        self.id
+    }
+
+    pub(crate) fn time(&self) -> (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>) {
+        self.time
+    }
+
+    pub(crate) fn started_at(&self) -> Option<DateTime<Utc>> {
+        use std::ops::Bound;
+
+        let (started_at, _finished_at) = self.time();
+        match started_at {
+            Bound::Excluded(dt) | Bound::Included(dt) => Some(dt),
+            Bound::Unbounded => None,
+        }
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct FindQuery<'a> {
-    id: Option<&'a Uuid>,
-    rtc_id: Option<&'a Uuid>,
+pub(crate) struct FindQuery {
+    id: Option<Uuid>,
+    rtc_id: Option<Uuid>,
 }
 
-impl<'a> FindQuery<'a> {
+impl FindQuery {
     pub(crate) fn new() -> Self {
         Self {
             id: None,
@@ -47,18 +61,14 @@ impl<'a> FindQuery<'a> {
         }
     }
 
-    pub(crate) fn id(&self, id: &'a Uuid) -> Self {
-        Self {
-            id: Some(id),
-            rtc_id: self.rtc_id,
-        }
+    pub(crate) fn id(mut self, id: Uuid) -> Self {
+        self.id = Some(id);
+        self
     }
 
-    pub(crate) fn rtc_id(&self, rtc_id: &'a Uuid) -> Self {
-        Self {
-            id: self.id,
-            rtc_id: Some(rtc_id),
-        }
+    pub(crate) fn rtc_id(mut self, rtc_id: Uuid) -> Self {
+        self.rtc_id = Some(rtc_id);
+        self
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
@@ -81,10 +91,66 @@ impl<'a> FindQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+pub(crate) struct ListQuery {
+    finished: Option<bool>,
+}
+
+impl ListQuery {
+    pub(crate) fn new() -> Self {
+        Self { finished: None }
+    }
+
+    pub(crate) fn finished(mut self, finished: bool) -> Self {
+        self.finished = Some(finished);
+        self
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+        use diesel::{dsl::sql, prelude::*};
+
+        let mut q = room::table.into_boxed();
+
+        if let Some(finished) = self.finished {
+            let predicate = if finished {
+                sql("upper(\"room\".\"time\") < now()")
+            } else {
+                sql("\"room\".\"time\" @> now()")
+            };
+            q = q.filter(predicate);
+        }
+
+        q.load(conn)
+    }
+}
+
+// Filtering out rooms with every recording ready using left and inner joins
+// and condition that recording.rtc_id is null. In diagram below room1
+// and room3 will be selected (room1 - there's one recording that is not
+// ready, room3 - there's no ready recordings at all).
+// room1 | rtc1 | null           room1 | null | null
+// room1 | rtc2 | recording1  -> room1 | rtc2 | recording1
+// room2 | rtc3 | recording2     room2 | rtc3 | recording2
+// room3 | rtc4 | null           room3 | null | null
+pub(crate) fn finished_without_recordings(
+    conn: &PgConnection,
+) -> Result<Vec<(self::Object, super::rtc::Object)>, Error> {
+    use crate::schema;
+    use diesel::{dsl::sql, prelude::*};
+
+    schema::room::table
+        .inner_join(schema::rtc::table.left_join(schema::recording::table))
+        .filter(schema::recording::rtc_id.is_null())
+        .filter(sql("upper(\"room\".\"time\") < now()"))
+        .select((self::ALL_COLUMNS, super::rtc::ALL_COLUMNS))
+        .load(conn)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Insertable)]
 #[table_name = "room"]
 pub(crate) struct InsertQuery<'a> {
-    id: Option<&'a Uuid>,
+    id: Option<Uuid>,
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: &'a str,
 }
@@ -101,7 +167,7 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub(crate) fn id(self, id: &'a Uuid) -> Self {
+    pub(crate) fn id(self, id: Uuid) -> Self {
         Self {
             id: Some(id),
             time: self.time,

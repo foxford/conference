@@ -1,7 +1,8 @@
+use std::ops::Bound;
+
 use chrono::{DateTime, Utc};
 use failure::{format_err, Error};
 use serde_derive::Deserialize;
-use std::ops::Bound;
 use svc_agent::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable,
 };

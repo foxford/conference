@@ -35,12 +35,12 @@ impl Object {
         &self.location_id
     }
 
-    pub(crate) fn rtc_id(&self) -> &Uuid {
-        &self.rtc_id
+    pub(crate) fn rtc_id(&self) -> Uuid {
+        self.rtc_id
     }
 
-    pub(crate) fn room_id(&self) -> &Uuid {
-        &self.room_id
+    pub(crate) fn room_id(&self) -> Uuid {
+        self.room_id
     }
 
     pub(crate) fn audience(&self) -> &str {
@@ -53,7 +53,7 @@ impl Object {
 #[derive(Debug)]
 pub(crate) struct FindQuery<'a> {
     reply_to: Option<&'a AgentId>,
-    rtc_id: Option<&'a Uuid>,
+    rtc_id: Option<Uuid>,
     session_id: Option<i64>,
     location_id: Option<&'a AgentId>,
     handle_id: Option<i64>,
@@ -80,7 +80,7 @@ impl<'a> FindQuery<'a> {
         self
     }
 
-    pub(crate) fn rtc_id(mut self, rtc_id: &'a Uuid) -> Self {
+    pub(crate) fn rtc_id(mut self, rtc_id: Uuid) -> Self {
         self.rtc_id = Some(rtc_id);
         self
     }

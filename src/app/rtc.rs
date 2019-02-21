@@ -69,7 +69,7 @@ impl State {
 
 impl State {
     pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
-        let room_id = &inreq.payload().room_id;
+        let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
         {
@@ -97,7 +97,7 @@ impl State {
         // Building a Create Janus Gateway Session request
         let backreq = janus::create_session_request(
             inreq.properties().clone(),
-            rtc.id().clone(),
+            rtc.id(),
             &self.backend_agent_id,
         )?;
 
@@ -109,7 +109,7 @@ impl State {
         let id = inreq.payload().id;
 
         // Authorization: room's owner has to allow the action
-        let authorize = |audience: &str, room_id: &Uuid| -> Result<(), Error> {
+        let authorize = |audience: &str, room_id: Uuid| -> Result<(), Error> {
             let room_id = room_id.to_string();
             let rtc_id = id.to_string();
             self.authz.authorize(
@@ -125,7 +125,7 @@ impl State {
             let conn = self.db.get()?;
             location::FindQuery::new()
                 .reply_to(agent_id)
-                .rtc_id(&id)
+                .rtc_id(id)
                 .execute(&conn)?
         };
 
@@ -137,7 +137,8 @@ impl State {
                 // Returning Real-Time connection
                 let rtc = {
                     let conn = self.db.get()?;
-                    rtc::FindQuery::new(&id)
+                    rtc::FindQuery::new()
+                        .id(id)
                         .execute(&conn)?
                         .ok_or_else(|| format_err!("the rtc = '{}' is not found", &id))?
                 };
@@ -149,7 +150,7 @@ impl State {
                 {
                     let conn = self.db.get()?;
                     let room = room::FindQuery::new()
-                        .rtc_id(&id)
+                        .rtc_id(id)
                         .execute(&conn)?
                         .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &id))?;
 
@@ -160,7 +161,7 @@ impl State {
                 let session = {
                     let conn = self.db.get()?;
                     janus_session_shadow::FindQuery::new()
-                        .rtc_id(&id)
+                        .rtc_id(id)
                         .execute(&conn)?
                         .ok_or_else(|| format_err!("a session for rtc = '{}' is not found", &id))?
                 };
@@ -185,7 +186,7 @@ impl State {
         {
             let conn = self.db.get()?;
             let room = room::FindQuery::new()
-                .id(room_id)
+                .id(*room_id)
                 .execute(&conn)?
                 .ok_or_else(|| format_err!("the room = '{}' is not found", &room_id))?;
 
@@ -202,7 +203,7 @@ impl State {
         let objects = {
             let conn = self.db.get()?;
             rtc::ListQuery::from_options(
-                Some(room_id),
+                Some(*room_id),
                 inreq.payload().offset,
                 Some(std::cmp::min(
                     inreq.payload().limit.unwrap_or_else(|| MAX_LIMIT),

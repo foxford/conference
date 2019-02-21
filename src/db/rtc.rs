@@ -1,17 +1,20 @@
 use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
-use diesel::pg::PgConnection;
-use diesel::result::Error;
+use diesel::{pg::PgConnection, result::Error};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{AgentId, Authenticable};
 use uuid::Uuid;
 
-use crate::schema::{room, rtc};
+use super::room::Object as Room;
+use crate::schema::rtc;
+
+pub type AllColumns = (rtc::id, rtc::state, rtc::room_id, rtc::created_at);
+pub const ALL_COLUMNS: AllColumns = (rtc::id, rtc::state, rtc::room_id, rtc::created_at);
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
-#[belongs_to(room::Object, foreign_key = "room_id")]
+#[belongs_to(Room, foreign_key = "room_id")]
 #[table_name = "rtc"]
 pub(crate) struct Object {
     id: Uuid,
@@ -23,12 +26,12 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub(crate) fn id(&self) -> &Uuid {
-        &self.id
+    pub(crate) fn id(&self) -> Uuid {
+        self.id
     }
 
-    pub(crate) fn room_id(&self) -> &Uuid {
-        &self.room_id
+    pub(crate) fn room_id(&self) -> Uuid {
+        self.room_id
     }
 }
 
@@ -61,31 +64,41 @@ impl RtcState {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct FindQuery<'a> {
-    id: &'a Uuid,
+pub(crate) struct FindQuery {
+    id: Option<Uuid>,
 }
 
-impl<'a> FindQuery<'a> {
-    pub(crate) fn new(id: &'a Uuid) -> Self {
-        Self { id }
+impl FindQuery {
+    pub(crate) fn new() -> Self {
+        Self { id: None }
+    }
+
+    pub(crate) fn id(mut self, id: Uuid) -> Self {
+        self.id = Some(id);
+        self
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
-        rtc::table.find(self.id).get_result(conn).optional()
+        match self.id {
+            Some(rtc_id) => rtc::table.find(rtc_id).get_result(conn).optional(),
+            _ => Err(Error::QueryBuilderError(
+                "id or stored are required parameters of the query".into(),
+            )),
+        }
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct ListQuery<'a> {
-    room_id: Option<&'a Uuid>,
+pub(crate) struct ListQuery {
+    room_id: Option<Uuid>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
-impl<'a> ListQuery<'a> {
+impl ListQuery {
     pub(crate) fn new() -> Self {
         Self {
             room_id: None,
@@ -95,7 +108,7 @@ impl<'a> ListQuery<'a> {
     }
 
     pub(crate) fn from_options(
-        room_id: Option<&'a Uuid>,
+        room_id: Option<Uuid>,
         offset: Option<i64>,
         limit: Option<i64>,
     ) -> Self {
@@ -106,7 +119,7 @@ impl<'a> ListQuery<'a> {
         }
     }
 
-    pub(crate) fn room_id(self, room_id: &'a Uuid) -> Self {
+    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
         Self {
             room_id: Some(room_id),
             offset: self.offset,
@@ -151,13 +164,13 @@ impl<'a> ListQuery<'a> {
 
 #[derive(Debug, Insertable)]
 #[table_name = "rtc"]
-pub(crate) struct InsertQuery<'a> {
-    id: Option<&'a Uuid>,
-    room_id: &'a Uuid,
+pub(crate) struct InsertQuery {
+    id: Option<Uuid>,
+    room_id: Uuid,
 }
 
-impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(room_id: &'a Uuid) -> Self {
+impl InsertQuery {
+    pub(crate) fn new(room_id: Uuid) -> Self {
         Self { id: None, room_id }
     }
 
@@ -174,20 +187,18 @@ impl<'a> InsertQuery<'a> {
 #[derive(Debug, Identifiable, AsChangeset)]
 #[table_name = "rtc"]
 pub(crate) struct UpdateQuery<'a> {
-    id: &'a Uuid,
+    id: Uuid,
     state: Option<&'a RtcState>,
 }
 
 impl<'a> UpdateQuery<'a> {
-    pub(crate) fn new(id: &'a Uuid) -> Self {
+    pub(crate) fn new(id: Uuid) -> Self {
         Self { id, state: None }
     }
 
-    pub(crate) fn state(self, state: &'a RtcState) -> Self {
-        Self {
-            id: self.id,
-            state: Some(state),
-        }
+    pub(crate) fn state(mut self, state: &'a RtcState) -> Self {
+        self.state = Some(state);
+        self
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
@@ -200,7 +211,7 @@ impl<'a> UpdateQuery<'a> {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) fn update_state(
-    id: &Uuid,
+    id: Uuid,
     agent_id: &AgentId,
     conn: &PgConnection,
 ) -> Result<Object, Error> {
@@ -218,7 +229,7 @@ pub(crate) fn update_state(
 
 // NOTE: erase all state fields but 'label' in order to be able to recognize a previously created rtc
 pub(crate) fn delete_state(
-    id: &Uuid,
+    id: Uuid,
     agent_id: &AgentId,
     conn: &PgConnection,
 ) -> Result<Object, Error> {

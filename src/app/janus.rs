@@ -1,4 +1,5 @@
 use failure::{format_err, Error};
+use log::info;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::mqtt::compat::{into_event, IncomingEnvelope, IntoEnvelope};
@@ -6,14 +7,16 @@ use svc_agent::mqtt::{
     Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties,
     OutgoingResponseStatus, Publish,
 };
-use svc_agent::Addressable;
+use svc_agent::{Addressable, AgentId, Authenticable};
 use uuid::Uuid;
 
 use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
     TrickleRequest,
 };
-use crate::db::{janus_handle_shadow, janus_session_shadow, location, rtc, ConnectionPool};
+use crate::db::{
+    janus_handle_shadow, janus_session_shadow, location, recording, room, rtc, ConnectionPool,
+};
 use crate::util::{from_base64, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -26,8 +29,11 @@ const IGNORE: &str = "ignore";
 pub(crate) enum Transaction {
     CreateSession(CreateSessionTransaction),
     CreateHandle(CreateHandleTransaction),
+    CreateSystemSession(CreateSystemSessionTransaction),
+    CreateSystemHandle(CreateSystemHandleTransaction),
     CreateStream(CreateStreamTransaction),
     ReadStream(ReadStreamTransaction),
+    UploadStream(UploadStreamTransaction),
     Trickle(TrickleTransaction),
 }
 
@@ -62,6 +68,29 @@ where
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct CreateSystemSessionTransaction {}
+
+impl CreateSystemSessionTransaction {
+    pub(crate) fn new() -> Self {
+        Self {}
+    }
+}
+
+pub(crate) fn create_system_session_request<A>(
+    to: &A,
+) -> Result<OutgoingRequest<CreateSessionRequest>, Error>
+where
+    A: Authenticable,
+{
+    let transaction = Transaction::CreateSystemSession(CreateSystemSessionTransaction::new());
+    let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
+    let props = OutgoingRequestProperties::new("janus_session.create", IGNORE, IGNORE);
+    Ok(OutgoingRequest::multicast(payload, props, to))
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateHandleTransaction {
     reqp: IncomingRequestProperties,
     rtc_id: Uuid,
@@ -89,6 +118,37 @@ where
 {
     let transaction =
         Transaction::CreateHandle(CreateHandleTransaction::new(reqp, rtc_id, session_id));
+    let payload = CreateHandleRequest::new(
+        &to_base64(&transaction)?,
+        session_id,
+        "janus.plugin.conference",
+    );
+    let props = OutgoingRequestProperties::new("janus_handle.create", IGNORE, IGNORE);
+    Ok(OutgoingRequest::unicast(payload, props, to))
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct CreateSystemHandleTransaction {
+    session_id: i64,
+}
+
+impl CreateSystemHandleTransaction {
+    pub(crate) fn new(session_id: i64) -> Self {
+        Self { session_id }
+    }
+}
+
+pub(crate) fn create_system_handle_request<A>(
+    session_id: i64,
+    to: &A,
+) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
+where
+    A: Addressable,
+{
+    let transaction =
+        Transaction::CreateSystemHandle(CreateSystemHandleTransaction::new(session_id));
     let payload = CreateHandleRequest::new(
         &to_base64(&transaction)?,
         session_id,
@@ -205,6 +265,57 @@ where
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct UploadStreamTransaction {
+    reqp: IncomingRequestProperties,
+}
+
+impl UploadStreamTransaction {
+    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
+        Self { reqp }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct UploadStreamRequestBody {
+    method: &'static str,
+    id: Uuid,
+    bucket: String,
+    object: String,
+}
+
+impl UploadStreamRequestBody {
+    pub(crate) fn new(id: Uuid, bucket: &str, object: &str) -> Self {
+        Self {
+            method: "stream.upload",
+            id,
+            bucket: bucket.to_owned(),
+            object: object.to_owned(),
+        }
+    }
+}
+
+pub(crate) fn upload_stream_request(
+    reqp: IncomingRequestProperties,
+    session_id: i64,
+    handle_id: i64,
+    body: UploadStreamRequestBody,
+    to: &AgentId,
+) -> Result<OutgoingRequest<MessageRequest>, Error> {
+    let transaction = Transaction::UploadStream(UploadStreamTransaction::new(reqp));
+    let payload = MessageRequest::new(
+        &to_base64(&transaction)?,
+        session_id,
+        handle_id,
+        serde_json::to_value(&body)?,
+        None,
+    );
+    let props = OutgoingRequestProperties::new("janus_conference_stream.upload", IGNORE, IGNORE);
+    Ok(OutgoingRequest::unicast(payload, props, to))
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct TrickleTransaction {
     reqp: IncomingRequestProperties,
 }
@@ -243,7 +354,12 @@ impl State {
     }
 }
 
-pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Result<(), Error> {
+pub(crate) fn handle_message(
+    tx: &mut Agent,
+    bytes: &[u8],
+    janus: &State,
+    system: &mut super::system::State,
+) -> Result<(), Error> {
     let envelope = serde_json::from_slice::<IncomingEnvelope>(bytes)?;
     let message = into_event::<IncomingMessage>(envelope)?;
     match message.payload() {
@@ -256,7 +372,7 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     let session_id = inresp.data().id();
                     let conn = janus.db.get()?;
                     let _ =
-                        janus_session_shadow::InsertQuery::new(&tn.rtc_id, session_id, location_id)
+                        janus_session_shadow::InsertQuery::new(tn.rtc_id, session_id, location_id)
                             .execute(&conn)?;
 
                     let req = create_handle_request(tn.reqp, tn.rtc_id, session_id, location_id)?;
@@ -271,17 +387,36 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
 
                     // Creating a shadow of Janus Gateway Session
                     let conn = janus.db.get()?;
-                    let _ = janus_handle_shadow::InsertQuery::new(id, &rtc_id, &agent_id)
+                    let _ = janus_handle_shadow::InsertQuery::new(id, rtc_id, &agent_id)
                         .execute(&conn)?;
 
                     // Returning Real-Time connection
-                    let object = rtc::FindQuery::new(&rtc_id)
+                    let object = rtc::FindQuery::new()
+                        .id(rtc_id)
                         .execute(&conn)?
                         .ok_or_else(|| format_err!("the rtc = '{}' is not found", &rtc_id))?;
                     let props = reqp.to_response(OutgoingResponseStatus::OK);
                     let resp = crate::app::rtc::ObjectResponse::unicast(object, props, agent_id);
 
                     resp.into_envelope()?.publish(tx)
+                }
+                // System session has been created
+                Transaction::CreateSystemSession(_tn) => {
+                    let location_id = message.properties().as_agent_id();
+                    let session_id = inresp.data().id();
+
+                    system.set_session_id(session_id);
+
+                    let req = create_system_handle_request(session_id, location_id)?;
+                    req.into_envelope()?.publish(tx)
+                }
+                // System handle has been created
+                Transaction::CreateSystemHandle(_tn) => {
+                    let handle_id = inresp.data().id();
+
+                    system.set_handle_id(handle_id);
+
+                    Ok(())
                 }
                 // An unsupported incoming Success message has been received
                 _ => Err(format_err!(
@@ -321,15 +456,27 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
                     let status = plugin_data.get("status").ok_or_else(|| {
-                        format_err!("missing status in a response on {}", tn.reqp.method())
+                        format_err!(
+                            "missing status in a response on method = {}, transaction = {}",
+                            tn.reqp.method(),
+                            inresp.transaction()
+                        )
                     })?;
                     if status != 200 {
-                        return Err(format_err!("error received on {}", tn.reqp.method()));
+                        return Err(format_err!(
+                            "error received on method = {}, transaction = {}",
+                            tn.reqp.method(),
+                            inresp.transaction()
+                        ));
                     }
 
                     // Getting answer (as JSEP)
                     let jsep = inresp.jsep().ok_or_else(|| {
-                        format_err!("missing jsep in a response on {}", tn.reqp.method())
+                        format_err!(
+                            "missing jsep in a response on method = {}, transaction = {}",
+                            tn.reqp.method(),
+                            inresp.transaction()
+                        )
                     })?;
 
                     let resp = crate::app::signal::CreateResponse::unicast(
@@ -345,15 +492,27 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
                     let status = plugin_data.get("status").ok_or_else(|| {
-                        format_err!("missing status in a response on {}", tn.reqp.method())
+                        format_err!(
+                            "missing status in a response on method = {}, transaction = {}",
+                            tn.reqp.method(),
+                            inresp.transaction()
+                        )
                     })?;
                     if status != 200 {
-                        return Err(format_err!("error received on {}", tn.reqp.method()));
+                        return Err(format_err!(
+                            "error received on method = {}, transaction = {}",
+                            tn.reqp.method(),
+                            inresp.transaction()
+                        ));
                     }
 
                     // Getting answer (as JSEP)
                     let jsep = inresp.jsep().ok_or_else(|| {
-                        format_err!("missing jsep in a response on {}", tn.reqp.method())
+                        format_err!(
+                            "missing jsep in a response on method = {}, transaction = {}",
+                            tn.reqp.method(),
+                            inresp.transaction()
+                        )
                     })?;
 
                     let resp = crate::app::signal::CreateResponse::unicast(
@@ -363,6 +522,81 @@ pub(crate) fn handle_message(tx: &mut Agent, bytes: &[u8], janus: &State) -> Res
                     );
 
                     resp.into_envelope()?.publish(tx)
+                }
+                Transaction::UploadStream(tn) => {
+                    let reqp = tn.reqp;
+
+                    let response = inresp.plugin().data();
+                    let status = response.get("status").ok_or_else(|| {
+                        format_err!(
+                            "missing status in a response on method = {}, transaction = {}",
+                            reqp.method(),
+                            inresp.transaction(),
+                        )
+                    })?;
+                    if status != 200 {
+                        return Err(format_err!(
+                            "error received on method = {}, transaction = {}",
+                            reqp.method(),
+                            inresp.transaction()
+                        ));
+                    }
+
+                    // TODO: deserialize response into struct
+                    let rtc_id = response
+                        .get("id")
+                        .ok_or_else(|| {
+                            format_err!(
+                                "missing rtc id in a response on method = {}, transaction = {}",
+                                reqp.method(),
+                                inresp.transaction()
+                            )
+                        })?
+                        .as_str()
+                        .ok_or_else(|| {
+                            format_err!(
+                                "rtc_id is not a string on method = {}, transaction = {}",
+                                reqp.method(),
+                                inresp.transaction()
+                            )
+                        })?;
+                    let rtc_id = uuid::Uuid::parse_str(rtc_id)?;
+
+                    let conn = janus.db.get()?;
+
+                    let rtc = rtc::FindQuery::new()
+                        .id(rtc_id)
+                        .execute(&conn)?
+                        .ok_or_else(|| format_err!("the rtc = '{}' is not found", &rtc_id))?;
+
+                    let room = room::FindQuery::new()
+                        .id(rtc.room_id())
+                        .execute(&conn)?
+                        .ok_or_else(|| {
+                            format_err!("a room for rtc = '{}' is not found", &rtc.id())
+                        })?;
+
+                    // TODO: set real time intervals from Janus
+                    recording::InsertQuery::new(rtc_id, Vec::new()).execute(&conn)?;
+
+                    use diesel::prelude::*;
+
+                    let rtcs: Vec<rtc::Object> = rtc::Object::belonging_to(&room).load(&conn)?;
+                    let recordings: Vec<recording::Object> =
+                        recording::Object::belonging_to(&rtcs).load(&conn)?;
+                    let recordings = recordings.grouped_by(&rtcs);
+
+                    if recordings.iter().any(|r| r.is_empty()) {
+                        info!(
+                            "Some rtcs is not uploaded for room with Id = {} yet, so not sending 'room.upload' event",
+                            room.id()
+                        );
+                        return Ok(());
+                    }
+
+                    let rtcs_and_recordings = rtcs.into_iter().zip(recordings);
+                    let store_event = super::system::upload_event(room, rtcs_and_recordings);
+                    store_event.into_envelope()?.publish(tx)
                 }
                 // An unsupported incoming Event message has been received
                 _ => Err(format_err!(
