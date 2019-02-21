@@ -99,12 +99,7 @@ impl State {
 
         let mut requests = Vec::new();
 
-        for (room, (rtc, empty_recording)) in rooms.into_iter() {
-            // Non-sense but who knows.
-            if empty_recording.is_some() {
-                continue;
-            }
-
+        for (room, rtc) in rooms.into_iter() {
             let req = janus::upload_stream_request(
                 inreq.properties().clone(),
                 session_id,

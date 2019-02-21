@@ -8,6 +8,9 @@ use uuid::Uuid;
 use super::room::Object as Room;
 use crate::schema::rtc;
 
+pub type AllColumns = (rtc::id, rtc::state, rtc::room_id, rtc::created_at);
+pub const ALL_COLUMNS: AllColumns = (rtc::id, rtc::state, rtc::room_id, rtc::created_at);
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]

@@ -133,13 +133,7 @@ impl ListQuery {
 // room3 | rtc4 | null           room3 | null | null
 pub(crate) fn finished_without_recordings(
     conn: &PgConnection,
-) -> Result<
-    Vec<(
-        self::Object,
-        (super::rtc::Object, Option<super::recording::Object>),
-    )>,
-    Error,
-> {
+) -> Result<Vec<(self::Object, super::rtc::Object)>, Error> {
     use crate::schema;
     use diesel::{dsl::sql, prelude::*};
 
@@ -147,6 +141,7 @@ pub(crate) fn finished_without_recordings(
         .inner_join(schema::rtc::table.left_join(schema::recording::table))
         .filter(schema::recording::rtc_id.is_null())
         .filter(sql("upper(\"room\".\"time\") < now()"))
+        .select((self::ALL_COLUMNS, super::rtc::ALL_COLUMNS))
         .load(conn)
 }
 
