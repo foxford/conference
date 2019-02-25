@@ -16,24 +16,20 @@ where
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) mod ts_seconds_bound_tuple {
+    use chrono::{DateTime, NaiveDateTime, Utc};
+    use serde::{de, ser};
     use std::fmt;
     use std::ops::Bound;
-
-    use serde::{
-        de::{self, Error},
-        ser::SerializeTuple,
-    };
-
-    use chrono::{DateTime, NaiveDateTime, Utc};
-    use serde::ser::Serializer;
 
     pub(crate) fn serialize<S>(
         range: &(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: ser::Serializer,
     {
+        use ser::SerializeTuple;
+
         let (start, end) = range;
         let mut tup = serializer.serialize_tuple(2)?;
 
@@ -65,20 +61,16 @@ pub(crate) mod ts_seconds_bound_tuple {
     where
         D: de::Deserializer<'de>,
     {
-        let (start, end) = d.deserialize_tuple(2, TupleSecondsTimestampVisitor)?;
-        let start = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(start, 0), Utc);
-        let end = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(end, 0), Utc);
-        Ok((Bound::Included(start), Bound::Included(end)))
+        d.deserialize_tuple(2, TupleSecondsTimestampVisitor)
     }
 
     struct TupleSecondsTimestampVisitor;
 
     impl<'de> de::Visitor<'de> for TupleSecondsTimestampVisitor {
-        type Value = (i64, i64);
+        type Value = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter
-                .write_str("a tuple (or list in some formats) with 2 unix timestamps in seconds")
+            formatter.write_str("a sequence of 2 elements: unix timestamp in seconds or null")
         }
 
         /// Deserialize a tuple of two Bounded DateTime<Utc>
@@ -86,24 +78,36 @@ pub(crate) mod ts_seconds_bound_tuple {
         where
             A: de::SeqAccess<'de>,
         {
-            let start = seq.next_element()?;
-            let end = seq.next_element()?;
+            let lt = match seq.next_element()? {
+                Some(Some(val)) => {
+                    let dt = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(val, 0), Utc);
+                    Bound::Included(dt)
+                }
+                Some(None) => Bound::Unbounded,
+                None => return Err(de::Error::invalid_length(1, &self)),
+            };
 
-            match (start, end) {
-                (Some(start), Some(end)) => Ok((start, end)),
-                _ => Err(A::Error::custom("failed to deserialize tuple of Bounds")),
-            }
+            let rt = match seq.next_element()? {
+                Some(Some(val)) => {
+                    let dt = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(val, 0), Utc);
+                    Bound::Excluded(dt)
+                }
+                Some(None) => Bound::Unbounded,
+                None => return Err(de::Error::invalid_length(2, &self)),
+            };
+
+            return Ok((lt, rt));
         }
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 pub(crate) mod ts_seconds_option_bound_tuple {
+    use chrono::{DateTime, Utc};
+    use serde::de;
     use std::fmt;
     use std::ops::Bound;
-
-    use serde::de::{self, Error};
-
-    use chrono::{DateTime, Utc};
 
     pub fn deserialize<'de, D>(
         d: D,
@@ -121,12 +125,12 @@ pub(crate) mod ts_seconds_option_bound_tuple {
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
             formatter
-                .write_str("a tuple (or list in some formats) with 2 unix timestamps in seconds")
+                .write_str("none or a sequence of 2 elements: unix timestamp in seconds or null")
         }
 
         fn visit_none<E>(self) -> Result<Self::Value, E>
         where
-            E: Error,
+            E: de::Error,
         {
             Ok(None)
         }
@@ -179,7 +183,7 @@ mod test {
         let (start, end) = data.time;
 
         assert_eq!(start, Bound::Included(now));
-        assert_eq!(end, Bound::Included(now));
+        assert_eq!(end, Bound::Excluded(now));
 
         let data = serde_json::to_value(data).unwrap();
 
@@ -212,7 +216,7 @@ mod test {
         let (start, end) = data.time.unwrap();
 
         assert_eq!(start, Bound::Included(now));
-        assert_eq!(end, Bound::Included(now));
+        assert_eq!(end, Bound::Excluded(now));
 
         let val = json!({});
 
