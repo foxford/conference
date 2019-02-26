@@ -627,7 +627,7 @@ pub(crate) fn handle_message(
                     }
 
                     let rtcs_and_recordings = rtcs.into_iter().zip(recordings);
-                    let store_event = super::system::upload_event(room, rtcs_and_recordings);
+                    let store_event = super::system::upload_event(room, rtcs_and_recordings)?;
                     store_event.into_envelope()?.publish(tx)
                 }
                 // An unsupported incoming Event message has been received

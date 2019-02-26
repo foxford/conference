@@ -35,14 +35,9 @@ impl Object {
         self.time
     }
 
-    pub(crate) fn started_at(&self) -> Option<DateTime<Utc>> {
-        use std::ops::Bound;
-
+    pub(crate) fn started_at(&self) -> Bound<DateTime<Utc>> {
         let (started_at, _finished_at) = self.time();
-        match started_at {
-            Bound::Excluded(dt) | Bound::Included(dt) => Some(dt),
-            Bound::Unbounded => None,
-        }
+        started_at
     }
 }
 

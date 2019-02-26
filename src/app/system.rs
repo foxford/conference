@@ -121,13 +121,23 @@ impl State {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn upload_event<I>(room: room::Object, rtc_and_recordings: I) -> ObjectUploadEvent
+pub(crate) fn upload_event<I>(
+    room: room::Object,
+    rtc_and_recordings: I,
+) -> Result<ObjectUploadEvent, Error>
 where
     I: Iterator<Item = (rtc::Object, Vec<recording::Object>)>,
 {
     use std::ops::Bound;
 
-    let started_at = room.started_at();
+    let started_at = match room.started_at() {
+        Bound::Excluded(started_at) | Bound::Included(started_at) => Some(started_at),
+        Bound::Unbounded => {
+            return Err(format_err!(
+                "unexpected Bound::Unbounded in room's 'started_at' value"
+            ));
+        }
+    };
 
     let mut event_entries = Vec::new();
 
@@ -175,7 +185,11 @@ where
         rtcs: event_entries,
     };
 
-    OutgoingEvent::broadcast(event, OutgoingEventProperties::new("room.upload"), &uri)
+    Ok(OutgoingEvent::broadcast(
+        event,
+        OutgoingEventProperties::new("room.upload"),
+        &uri,
+    ))
 }
 
 fn bucket_name(room: &room::Object) -> String {
