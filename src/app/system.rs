@@ -29,7 +29,7 @@ pub(crate) struct UploadEventData {
 #[derive(Debug, Serialize)]
 struct UploadEventEntry {
     id: Uuid,
-    time: recording::TimeIntervals,
+    time: Vec<(i64, i64)>,
     #[serde(serialize_with = "crate::serde::ts_seconds_option")]
     started_at: Option<DateTime<Utc>>,
     uri: String,
@@ -125,18 +125,40 @@ pub(crate) fn upload_event<I>(room: room::Object, rtc_and_recordings: I) -> Obje
 where
     I: Iterator<Item = (rtc::Object, Vec<recording::Object>)>,
 {
+    use std::ops::Bound;
+
     let started_at = room.started_at();
 
     let mut event_entries = Vec::new();
 
     for (rtc, recordings) in rtc_and_recordings {
-        let time = recordings
-            .into_iter()
-            .flat_map(|r| {
-                let (_rtc_id, time) = r.decompose();
-                time
-            })
-            .collect();
+        let time = match started_at {
+            Some(started_at) => recordings
+                .into_iter()
+                .flat_map(|r| {
+                    let (_rtc_id, time) = r.decompose();
+                    time
+                })
+                .map(|(start, end)| {
+                    let start = match start {
+                        Bound::Included(start) | Bound::Excluded(start) => {
+                            start.timestamp() - started_at.timestamp()
+                        }
+                        Bound::Unbounded => 0,
+                    };
+
+                    let end = match end {
+                        Bound::Included(end) | Bound::Excluded(end) => {
+                            end.timestamp() - started_at.timestamp()
+                        }
+                        Bound::Unbounded => 0,
+                    };
+
+                    (start, end)
+                })
+                .collect(),
+            None => Vec::new(),
+        };
 
         let entry = UploadEventEntry {
             id: rtc.id(),

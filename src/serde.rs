@@ -103,7 +103,7 @@ pub(crate) mod ts_seconds_option_bound_tuple {
 
     use serde::de::{self, Error};
 
-    use chrono::{DateTime, NaiveDateTime, Utc};
+    use chrono::{DateTime, Utc};
 
     pub fn deserialize<'de, D>(
         d: D,

@@ -1,3 +1,6 @@
+use std::ops::Bound;
+
+use chrono::{DateTime, NaiveDateTime, Utc};
 use failure::{format_err, Error};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
@@ -576,8 +579,37 @@ pub(crate) fn handle_message(
                             format_err!("a room for rtc = '{}' is not found", &rtc.id())
                         })?;
 
-                    // TODO: set real time intervals from Janus
-                    recording::InsertQuery::new(rtc_id, Vec::new()).execute(&conn)?;
+                    let raw_value = response
+                        .get("time")
+                        .ok_or_else(|| {
+                            format_err!(
+                                "missing time in a response on method = {}, transaction = {}",
+                                reqp.method(),
+                                inresp.transaction()
+                            )
+                        })?
+                        .clone();
+                    let mut start_stop_timestamps: Vec<(i64, i64)> =
+                        serde_json::from_value(raw_value)?;
+                    start_stop_timestamps.sort();
+
+                    let start_stop_timestamps = start_stop_timestamps
+                        .into_iter()
+                        .map(|(start, end)| {
+                            let start = Bound::Included(DateTime::<Utc>::from_utc(
+                                NaiveDateTime::from_timestamp(start, 0),
+                                Utc,
+                            ));
+                            let end = Bound::Included(DateTime::<Utc>::from_utc(
+                                NaiveDateTime::from_timestamp(end, 0),
+                                Utc,
+                            ));
+
+                            (start, end)
+                        })
+                        .collect();
+
+                    recording::InsertQuery::new(rtc_id, start_stop_timestamps).execute(&conn)?;
 
                     use diesel::prelude::*;
 

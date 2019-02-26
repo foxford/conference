@@ -75,7 +75,7 @@ impl State {
         let object = {
             let conn = self.db.get()?;
             room::FindQuery::new()
-                .id(&inreq.payload().id)
+                .id(inreq.payload().id)
                 .execute(&conn)?
                 .ok_or_else(|| format_err!("room with Id = {} is not found", room_id))?
         };
@@ -97,7 +97,7 @@ impl State {
         let object = {
             let conn = self.db.get()?;
             room::FindQuery::new()
-                .id(&inreq.payload().id)
+                .id(inreq.payload().id)
                 .execute(&conn)?
                 .ok_or_else(|| format_err!("room with Id = {} is not found", room_id))?
         };
@@ -124,7 +124,7 @@ impl State {
         let object = {
             let conn = self.db.get()?;
             room::FindQuery::new()
-                .id(&inreq.payload().id())
+                .id(inreq.payload().id())
                 .execute(&conn)?
                 .ok_or_else(|| format_err!("room with Id = {} is not found", room_id))?
         };
