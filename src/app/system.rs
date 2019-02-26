@@ -30,8 +30,8 @@ pub(crate) struct UploadEventData {
 struct UploadEventEntry {
     id: Uuid,
     time: Vec<(i64, i64)>,
-    #[serde(serialize_with = "crate::serde::ts_seconds_option")]
-    started_at: Option<DateTime<Utc>>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    started_at: DateTime<Utc>,
     uri: String,
 }
 
@@ -131,7 +131,7 @@ where
     use std::ops::Bound;
 
     let started_at = match room.started_at() {
-        Bound::Excluded(started_at) | Bound::Included(started_at) => Some(started_at),
+        Bound::Excluded(started_at) | Bound::Included(started_at) => started_at,
         Bound::Unbounded => {
             return Err(format_err!(
                 "unexpected Bound::Unbounded in room's 'started_at' value"
@@ -142,33 +142,30 @@ where
     let mut event_entries = Vec::new();
 
     for (rtc, recordings) in rtc_and_recordings {
-        let time = match started_at {
-            Some(started_at) => recordings
-                .into_iter()
-                .flat_map(|r| {
-                    let (_rtc_id, time) = r.decompose();
-                    time
-                })
-                .map(|(start, end)| {
-                    let start = match start {
-                        Bound::Included(start) | Bound::Excluded(start) => {
-                            start.timestamp() - started_at.timestamp()
-                        }
-                        Bound::Unbounded => 0,
-                    };
+        let time = recordings
+            .into_iter()
+            .flat_map(|r| {
+                let (_rtc_id, time) = r.decompose();
+                time
+            })
+            .map(|(start, end)| {
+                let start = match start {
+                    Bound::Included(start) | Bound::Excluded(start) => {
+                        start.timestamp_millis() - started_at.timestamp_millis()
+                    }
+                    Bound::Unbounded => 0,
+                };
 
-                    let end = match end {
-                        Bound::Included(end) | Bound::Excluded(end) => {
-                            end.timestamp() - started_at.timestamp()
-                        }
-                        Bound::Unbounded => 0,
-                    };
+                let end = match end {
+                    Bound::Included(end) | Bound::Excluded(end) => {
+                        end.timestamp_millis() - started_at.timestamp_millis()
+                    }
+                    Bound::Unbounded => 0,
+                };
 
-                    (start, end)
-                })
-                .collect(),
-            None => Vec::new(),
-        };
+                (start, end)
+            })
+            .collect();
 
         let entry = UploadEventEntry {
             id: rtc.id(),
