@@ -6,7 +6,6 @@ use serde_derive::Deserialize;
 use svc_agent::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable,
 };
-use svc_authn::Authenticable;
 use uuid::Uuid;
 
 use crate::db::{room, ConnectionPool};

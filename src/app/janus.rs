@@ -589,29 +589,28 @@ pub(crate) fn handle_message(
                             )
                         })?
                         .clone();
-                    let mut start_stop_timestamps: Vec<(u64, u64)> =
-                        serde_json::from_value(raw_value)?;
 
-                    let start_stop_timestamps = start_stop_timestamps
-                        .into_iter()
-                        .map(|(start, end)| {
-                            let start_secs = start as i64 / 1000;
-                            let start_nanos = ((start % 1000) * 1_000_000) as u32;
-                            let start = Bound::Included(DateTime::<Utc>::from_utc(
-                                NaiveDateTime::from_timestamp(start_secs, start_nanos),
-                                Utc,
-                            ));
+                    let start_stop_timestamps =
+                        serde_json::from_value::<Vec<(u64, u64)>>(raw_value)?
+                            .into_iter()
+                            .map(|(start, end)| {
+                                let start_secs = start as i64 / 1000;
+                                let start_nanos = ((start % 1000) * 1_000_000) as u32;
+                                let start = Bound::Included(DateTime::<Utc>::from_utc(
+                                    NaiveDateTime::from_timestamp(start_secs, start_nanos),
+                                    Utc,
+                                ));
 
-                            let end_secs = end as i64 / 1000;
-                            let end_nanos = ((end % 1000) * 1_000_000) as u32;
-                            let end = Bound::Included(DateTime::<Utc>::from_utc(
-                                NaiveDateTime::from_timestamp(end_secs, end_nanos),
-                                Utc,
-                            ));
+                                let end_secs = end as i64 / 1000;
+                                let end_nanos = ((end % 1000) * 1_000_000) as u32;
+                                let end = Bound::Included(DateTime::<Utc>::from_utc(
+                                    NaiveDateTime::from_timestamp(end_secs, end_nanos),
+                                    Utc,
+                                ));
 
-                            (start, end)
-                        })
-                        .collect();
+                                (start, end)
+                            })
+                            .collect();
 
                     recording::InsertQuery::new(rtc_id, start_stop_timestamps).execute(&conn)?;
 
