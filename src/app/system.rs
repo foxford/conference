@@ -130,7 +130,8 @@ where
 {
     use std::ops::Bound;
 
-    let started_at = match room.started_at() {
+    let (started_at, _finished_at) = room.time();
+    let started_at = match started_at {
         Bound::Excluded(started_at) | Bound::Included(started_at) => started_at,
         Bound::Unbounded => {
             return Err(format_err!(

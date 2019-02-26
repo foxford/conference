@@ -34,11 +34,6 @@ impl Object {
     pub(crate) fn time(&self) -> (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>) {
         self.time
     }
-
-    pub(crate) fn started_at(&self) -> Bound<DateTime<Utc>> {
-        let (started_at, _finished_at) = self.time();
-        started_at
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
