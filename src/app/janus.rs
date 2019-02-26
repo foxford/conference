@@ -1,3 +1,6 @@
+use std::ops::Bound;
+
+use chrono::{DateTime, NaiveDateTime, Utc};
 use failure::{format_err, Error};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
@@ -576,8 +579,41 @@ pub(crate) fn handle_message(
                             format_err!("a room for rtc = '{}' is not found", &rtc.id())
                         })?;
 
-                    // TODO: set real time intervals from Janus
-                    recording::InsertQuery::new(rtc_id, Vec::new()).execute(&conn)?;
+                    let raw_value = response
+                        .get("time")
+                        .ok_or_else(|| {
+                            format_err!(
+                                "missing time in a response on method = {}, transaction = {}",
+                                reqp.method(),
+                                inresp.transaction()
+                            )
+                        })?
+                        .clone();
+                    let mut start_stop_timestamps: Vec<(u64, u64)> =
+                        serde_json::from_value(raw_value)?;
+
+                    let start_stop_timestamps = start_stop_timestamps
+                        .into_iter()
+                        .map(|(start, end)| {
+                            let start_secs = start as i64 / 1000;
+                            let start_nanos = ((start % 1000) * 1_000_000) as u32;
+                            let start = Bound::Included(DateTime::<Utc>::from_utc(
+                                NaiveDateTime::from_timestamp(start_secs, start_nanos),
+                                Utc,
+                            ));
+
+                            let end_secs = end as i64 / 1000;
+                            let end_nanos = ((end % 1000) * 1_000_000) as u32;
+                            let end = Bound::Included(DateTime::<Utc>::from_utc(
+                                NaiveDateTime::from_timestamp(end_secs, end_nanos),
+                                Utc,
+                            ));
+
+                            (start, end)
+                        })
+                        .collect();
+
+                    recording::InsertQuery::new(rtc_id, start_stop_timestamps).execute(&conn)?;
 
                     use diesel::prelude::*;
 
@@ -595,7 +631,7 @@ pub(crate) fn handle_message(
                     }
 
                     let rtcs_and_recordings = rtcs.into_iter().zip(recordings);
-                    let store_event = super::system::upload_event(room, rtcs_and_recordings);
+                    let store_event = super::system::upload_event(room, rtcs_and_recordings)?;
                     store_event.into_envelope()?.publish(tx)
                 }
                 // An unsupported incoming Event message has been received

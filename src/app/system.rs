@@ -29,9 +29,9 @@ pub(crate) struct UploadEventData {
 #[derive(Debug, Serialize)]
 struct UploadEventEntry {
     id: Uuid,
-    time: recording::TimeIntervals,
-    #[serde(serialize_with = "crate::serde::ts_seconds_option")]
-    started_at: Option<DateTime<Utc>>,
+    time: Vec<(i64, i64)>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    started_at: DateTime<Utc>,
     uri: String,
 }
 
@@ -121,11 +121,24 @@ impl State {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn upload_event<I>(room: room::Object, rtc_and_recordings: I) -> ObjectUploadEvent
+pub(crate) fn upload_event<I>(
+    room: room::Object,
+    rtc_and_recordings: I,
+) -> Result<ObjectUploadEvent, Error>
 where
     I: Iterator<Item = (rtc::Object, Vec<recording::Object>)>,
 {
-    let started_at = room.started_at();
+    use std::ops::Bound;
+
+    let (started_at, _finished_at) = room.time();
+    let started_at = match started_at {
+        Bound::Excluded(started_at) | Bound::Included(started_at) => started_at,
+        Bound::Unbounded => {
+            return Err(format_err!(
+                "unexpected Bound::Unbounded in room's 'started_at' value"
+            ));
+        }
+    };
 
     let mut event_entries = Vec::new();
 
@@ -135,6 +148,23 @@ where
             .flat_map(|r| {
                 let (_rtc_id, time) = r.decompose();
                 time
+            })
+            .map(|(start, end)| {
+                let start = match start {
+                    Bound::Included(start) | Bound::Excluded(start) => {
+                        start.timestamp_millis() - started_at.timestamp_millis()
+                    }
+                    Bound::Unbounded => 0,
+                };
+
+                let end = match end {
+                    Bound::Included(end) | Bound::Excluded(end) => {
+                        end.timestamp_millis() - started_at.timestamp_millis()
+                    }
+                    Bound::Unbounded => 0,
+                };
+
+                (start, end)
             })
             .collect();
 
@@ -153,7 +183,11 @@ where
         rtcs: event_entries,
     };
 
-    OutgoingEvent::broadcast(event, OutgoingEventProperties::new("room.upload"), &uri)
+    Ok(OutgoingEvent::broadcast(
+        event,
+        OutgoingEventProperties::new("room.upload"),
+        &uri,
+    ))
 }
 
 fn bucket_name(room: &room::Object) -> String {
