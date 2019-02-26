@@ -158,23 +158,36 @@ impl State {
                 };
 
                 // Looking up for Janus Gateway Session
-                let session = {
+                let maybe_session = {
                     let conn = self.db.get()?;
                     janus_session_shadow::FindQuery::new()
                         .rtc_id(id)
                         .execute(&conn)?
-                        .ok_or_else(|| format_err!("a session for rtc = '{}' is not found", &id))?
                 };
 
-                // Building a Create Janus Gateway Handle request
-                let backreq = janus::create_handle_request(
-                    inreq.properties().clone(),
-                    id,
-                    session.session_id(),
-                    session.location_id(),
-                )?;
+                match maybe_session {
+                    Some(session) => {
+                        // Building a Create Janus Gateway Handle request
+                        let backreq = janus::create_handle_request(
+                            inreq.properties().clone(),
+                            id,
+                            session.session_id(),
+                            session.location_id(),
+                        )?;
 
-                backreq.into_envelope()
+                        backreq.into_envelope()
+                    }
+                    None => {
+                        // Building a Create Janus Gateway Session request
+                        let backreq = janus::create_session_request(
+                            inreq.properties().clone(),
+                            id,
+                            &self.backend_agent_id,
+                        )?;
+
+                        backreq.into_envelope()
+                    }
+                }
             }
         }
     }
