@@ -1,6 +1,6 @@
-FROM netologygroup/mqtt-gateway:v0.6.0 as mqtt-gateway-plugin
+FROM netologygroup/mqtt-gateway:v0.8.1 as mqtt-gateway-plugin
 FROM netologygroup/janus-gateway:14ade6b as janus-gateway-plugin
-FROM ubuntu:18.04
+FROM debian:stretch
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -28,6 +28,7 @@ RUN set -xe \
         libtool \
         automake \
         cmake \
+        make \
         git \
         vim-nox \
     && PAHO_MQTT_BUILD_DIR=$(mktemp -d) \
@@ -66,13 +67,13 @@ RUN set -xe \
     && JANUS_MQTT_TRANSPORT_CONF='/opt/janus/etc/janus/janus.transport.mqtt.jcfg' \
     && perl -pi -e 's/\t(enabled = ).*/\t${1}true/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t(json = ).*/\t${1}\"plain\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
-    && perl -pi -e 's/\t#(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/agents\/alpha.janus-gateway.svc.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
+    && perl -pi -e 's/\t#(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/service-agents\/alpha.janus-gateway.svc.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t(subscribe_topic = ).*/\t${1}\"agents\/alpha.janus-gateway.svc.example.org\/api\/v1\/in\/conference.svc.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t(publish_topic = ).*/\t${1}\"apps\/janus-gateway.svc.example.org\/api\/v1\/responses\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && JANUS_MQTT_EVENTS_CONF='/opt/janus/etc/janus/janus.eventhandler.mqttevh.jcfg' \
     && perl -pi -e 's/\t(enabled = ).*/\t${1}true/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t(json = ).*/\t${1}\"plain\"/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && perl -pi -e 's/\t(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/agents\/events-alpha.janus-gateway.svc.example.org\"/' "${JANUS_MQTT_EVENTS_CONF}" \
+    && perl -pi -e 's/\t(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/service-agents\/events-alpha.janus-gateway.svc.example.org\"/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(topic = ).*/\t${1}\"apps\/janus-gateway.svc.example.org\/api\/v1\/events\"/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(will_enabled = ).*/\t${1}true/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(will_retain = ).*/\t${1}1/' "${JANUS_MQTT_EVENTS_CONF}" \
@@ -84,8 +85,8 @@ RUN set -xe \
 ## Installing VerneMQ
 ## -----------------------------------------------------------------------------
 RUN set -xe \
-    && VERNEMQ_URI='https://bintray.com/artifact/download/erlio/vernemq/deb/bionic/vernemq_1.6.1-1_amd64.deb' \
-    && VERNEMQ_SHA='2aec003035996928d9d4bb7c40221acda36fcbf6a670671afd6d42028083be18' \
+    && VERNEMQ_URI='https://github.com/vernemq/vernemq/releases/download/1.7.1/vernemq-1.7.1.stretch.x86_64.deb' \
+    && VERNEMQ_SHA='f705246a3390c506013921e67b2701f28b9acbd6585a318cfc537a84ed430024' \
     && curl -fSL -o vernemq.deb "${VERNEMQ_URI}" \
         && echo "${VERNEMQ_SHA} vernemq.deb" | sha1sum -c - \
         && set +e; dpkg -i vernemq.deb || apt-get -y -f --no-install-recommends install; set -e \
@@ -96,6 +97,8 @@ COPY --from=mqtt-gateway-plugin "/app" "/app"
 ## -----------------------------------------------------------------------------
 ## Configuring VerneMQ
 ## -----------------------------------------------------------------------------
+ENV APP_AUTHN_ENABLED "0"
+ENV APP_AUTHZ_ENABLED "0"
 RUN set -xe \
     && VERNEMQ_ENV='/usr/lib/vernemq/lib/env.sh' \
     && perl -pi -e 's/(RUNNER_USER=).*/${1}root\n/s' "${VERNEMQ_ENV}" \
