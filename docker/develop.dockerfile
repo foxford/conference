@@ -37,7 +37,10 @@ RUN set -xe \
         && git clone "https://github.com/eclipse/paho.mqtt.c.git" . \
         && git checkout "v${PAHO_MQTT_VERSION}" \
         && make \
-        && make install
+        && make install \
+    && echo /usr/local/openssl/lib >> /etc/ld.so.conf \
+    && ldconfig
+
 
 ## -----------------------------------------------------------------------------
 ## Installing Janus Gateway
