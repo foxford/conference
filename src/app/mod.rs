@@ -2,7 +2,7 @@ use failure::{format_err, Error};
 use log::{error, info};
 use svc_agent::mqtt::{
     compat::{self, IntoEnvelope},
-    Agent, AgentBuilder, Publish, QoS,
+    Agent, AgentBuilder, ConnectionMode, Publish, QoS,
 };
 use svc_agent::{AgentId, SharedGroup, Subscription};
 use svc_authn::Authenticable;
@@ -25,6 +25,7 @@ pub(crate) fn run(db: &ConnectionPool) {
     info!("Agent id: {:?}", &agent_id);
     let group = SharedGroup::new("loadbalancer", agent_id.as_account_id().clone());
     let (mut tx, rx) = AgentBuilder::new(agent_id.clone())
+        .mode(ConnectionMode::Service)
         .start(&config.mqtt)
         .expect("Failed to create an agent");
     tx.subscribe(
@@ -118,21 +119,25 @@ fn handle_message(
     match envelope.properties() {
         compat::IncomingEnvelopeProperties::Request(ref req) => match req.method() {
             "room.create" => {
+                // TODO: catch and process errors: unprocessable entry
                 let req = compat::into_request(envelope)?;
                 let next = room.create(&req)?;
                 next.publish(tx)
             }
             "room.read" => {
+                // TODO: catch and process errors: not found, unprocessable entry
                 let req = compat::into_request(envelope)?;
                 let next = room.read(&req)?;
                 next.publish(tx)
             }
             "room.delete" => {
+                // TODO: catch and process errors: not found, unprocessable entry
                 let req = compat::into_request(envelope)?;
                 let next = room.delete(&req)?;
                 next.publish(tx)
             }
             "room.update" => {
+                // TODO: catch and process errors: not found, unprocessable entry
                 let req = compat::into_request(envelope)?;
                 let next = room.update(&req)?;
                 next.publish(tx)
@@ -162,6 +167,7 @@ fn handle_message(
                 next.publish(tx)
             }
             "system.upload" => {
+                // TODO: catch and process errors: unprocessable entry
                 let req = compat::into_request(envelope)?;
                 let next = system.upload(&req)?;
                 next.publish(tx)

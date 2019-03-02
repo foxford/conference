@@ -23,15 +23,14 @@ crossbeam-channel = "0.3"
 itertools = "0.8"
 reqwest = "0.9"
 diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
-svc-authz = "0.2"
-svc-authn = { version = "0.2", features = ["jose", "diesel"] }
-svc-agent = { version = "0.2", features = ["diesel"] }
+svc-authz = "0.3"
+svc-authn = { version = "0.3", features = ["jose", "diesel"] }
+svc-agent = { version = "0.3", features = ["diesel"] }
 
 [patch.crates-io]
 # ES256 support:
 # + jsonwebtoken = { git = "https://github.com/manifest/jsonwebtoken", branch = "feature/ec" }
 # + ring = "1.14.4"
-svc-agent = { git = "https://github.com/netology-group/svc-agent-rs.git", branch = "master" }
 # MQTTOptions:
 # + https://github.com/manifest/rumqtt/blob/feature/update-tls-deps%2Bdefaults/src/mqttoptions.rs#L116-L131
 rumqtt = { git = "https://github.com/manifest/rumqtt.git", branch = "feature/update-tls-deps+defaults" }
