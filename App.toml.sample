@@ -1,10 +1,5 @@
-[id]
-label = "conference"
-audience = "svc.example.org"
-
-[backend_id]
-label = "janus-gateway"
-audience = "svc.example.org"
+id = "conference.svc.example.org"
+backend_id = "janus-gateway.svc.example.org"
 
 [authz."example.net"]
 type = "http"
