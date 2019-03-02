@@ -1,4 +1,4 @@
-FROM netologygroup/mqtt-gateway:v0.8.1 as mqtt-gateway-plugin
+FROM netologygroup/mqtt-gateway:v0.9.0 as mqtt-gateway-plugin
 FROM netologygroup/janus-gateway:14ade6b as janus-gateway-plugin
 FROM debian:stretch
 
