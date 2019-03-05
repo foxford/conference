@@ -9,3 +9,4 @@ key = "data/keys/svc.public_key.p8.der.sample"
 
 [mqtt]
 uri = "mqtt://192.168.99.100:1883"
+clean_session = false
