@@ -372,3 +372,18 @@ pub(crate) struct SlowLinkEvent {
     uplink: bool,
     nacks: i32,
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+// Janus Gateway actual status
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct StatusEvent {
+    online: bool,
+}
+
+impl StatusEvent {
+    pub(crate) fn online(&self) -> bool {
+        self.online
+    }
+}
