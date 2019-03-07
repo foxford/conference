@@ -95,7 +95,7 @@ impl State {
         };
 
         // Building a Create Janus Gateway Session request
-        let backreq = janus::create_session_request(
+        let backreq = janus::create_rtc_session_request(
             inreq.properties().clone(),
             rtc.id(),
             &self.backend_agent_id,
