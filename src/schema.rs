@@ -2,6 +2,17 @@ table! {
     use diesel::sql_types::*;
     use crate::db::sql::*;
 
+    janus_backend (id) {
+        id -> Agent_id,
+        session_id -> Int8,
+        created_at -> Timestamptz,
+    }
+}
+
+table! {
+    use diesel::sql_types::*;
+    use crate::db::sql::*;
+
     janus_handle_shadow (handle_id, rtc_id) {
         handle_id -> Int8,
         rtc_id -> Uuid,
@@ -60,6 +71,7 @@ joinable!(recording -> rtc (rtc_id));
 joinable!(rtc -> room (room_id));
 
 allow_tables_to_appear_in_same_query!(
+    janus_backend,
     janus_handle_shadow,
     janus_session_shadow,
     recording,
