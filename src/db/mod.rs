@@ -19,6 +19,7 @@ pub mod sql {
     pub use svc_agent::sql::{Account_id, Agent_id};
 }
 
+pub(crate) mod janus_backend;
 pub(crate) mod janus_handle_shadow;
 pub(crate) mod janus_session_shadow;
 pub(crate) mod location;

@@ -2,7 +2,7 @@ use failure::{format_err, Error};
 use log::{error, info};
 use svc_agent::mqtt::{
     compat::{self, IntoEnvelope},
-    Agent, AgentBuilder, ConnectionMode, Publish, QoS,
+    Agent, AgentBuilder, ConnectionMode, Publish, QoS, SubscriptionTopic,
 };
 use svc_agent::{AgentId, SharedGroup, Subscription};
 use svc_authn::Authenticable;
@@ -28,12 +28,25 @@ pub(crate) fn run(db: &ConnectionPool) {
         .mode(ConnectionMode::Service)
         .start(&config.mqtt)
         .expect("Failed to create an agent");
-    tx.subscribe(
-        &Subscription::broadcast_events(&config.backend_id, "responses"),
-        QoS::AtLeastOnce,
-        Some(&group),
-    )
-    .expect("Error subscribing to backend responses");
+
+    let janus_events_subscription_topic = {
+        let subscription = Subscription::broadcast_events(&config.backend_id, "events/status");
+        tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
+            .expect("Error subscribing to backend events");
+
+        subscription
+            .subscription_topic(&agent_id)
+            .expect("Error building janus events subscription topic")
+    };
+    let janus_responses_subscription_topic = {
+        let subscription = Subscription::broadcast_events(&config.backend_id, "responses");
+        tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
+            .expect("Error subscribing to backend responses");
+
+        subscription
+            .subscription_topic(&agent_id)
+            .expect("Error building janus responses subscription topic")
+    };
     tx.subscribe(
         &Subscription::multicast_requests(),
         QoS::AtLeastOnce,
@@ -74,7 +87,7 @@ pub(crate) fn run(db: &ConnectionPool) {
     for message in rx {
         match message {
             svc_agent::mqtt::Notification::Publish(ref message) => {
-                let topic = &message.topic_name;
+                let topic: &str = &message.topic_name;
                 let bytes = &message.payload.as_slice();
 
                 {
@@ -86,10 +99,14 @@ pub(crate) fn run(db: &ConnectionPool) {
                     )
                 }
 
-                let result = if topic.starts_with(&format!("apps/{}", &config.backend_id)) {
-                    janus::handle_message(&mut tx, bytes, &backend, &mut system)
-                } else {
-                    handle_message(&mut tx, bytes, &rtc, &signal, &room, &system)
+                let result = match topic {
+                    val if val == &janus_events_subscription_topic => {
+                        janus::handle_events(&mut tx, bytes, &backend)
+                    }
+                    val if val == &janus_responses_subscription_topic => {
+                        janus::handle_responses(&mut tx, bytes, &backend, &mut system)
+                    }
+                    _ => handle_message(&mut tx, bytes, &rtc, &signal, &room, &system),
                 };
 
                 if let Err(err) = result {

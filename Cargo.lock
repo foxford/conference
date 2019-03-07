@@ -1840,7 +1840,7 @@ dependencies = [
 [[patch.unused]]
 name = "rumqtt"
 version = "0.30.1"
-source = "git+https://github.com/manifest/rumqtt.git?branch=feature/update-tls-deps+defaults#58178bc649b69bac91f357d8a6759721a94c6a43"
+source = "git+https://github.com/manifest/rumqtt.git?branch=feature/update-tls-deps+defaults#e605e6cc0fb97f558b7f344564516046168bf9f0"
 
 [metadata]
 "checksum MacTypes-sys 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "eaf9f0d0b1cc33a4d2aee14fb4b2eac03462ef4db29c8ac4057327d8a71ad86f"
