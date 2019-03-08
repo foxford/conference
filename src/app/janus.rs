@@ -17,10 +17,7 @@ use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
     StatusEvent, TrickleRequest,
 };
-use crate::db::{
-    janus_backend, janus_handle_shadow, janus_session_shadow, location, recording, room, rtc,
-    ConnectionPool,
-};
+use crate::db::{janus_backend, janus_handle_shadow, location, recording, room, rtc, ConnectionPool};
 use crate::util::{from_base64, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -32,7 +29,6 @@ const IGNORE: &str = "ignore";
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) enum Transaction {
     CreateSession(CreateSessionTransaction),
-    CreateRtcSession(CreateRtcSessionTransaction),
     CreateHandle(CreateHandleTransaction),
     CreateSystemSession(CreateSystemSessionTransaction),
     CreateSystemHandle(CreateSystemHandleTransaction),
@@ -62,34 +58,6 @@ where
     let transaction = Transaction::CreateSession(CreateSessionTransaction::new());
     let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
     let props = OutgoingRequestProperties::new("janus_session.create", IGNORE, IGNORE);
-    Ok(OutgoingRequest::unicast(payload, props, to))
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CreateRtcSessionTransaction {
-    reqp: IncomingRequestProperties,
-    rtc_id: Uuid,
-}
-
-impl CreateRtcSessionTransaction {
-    pub(crate) fn new(reqp: IncomingRequestProperties, rtc_id: Uuid) -> Self {
-        Self { reqp, rtc_id }
-    }
-}
-
-pub(crate) fn create_rtc_session_request<A>(
-    reqp: IncomingRequestProperties,
-    rtc_id: Uuid,
-    to: &A,
-) -> Result<OutgoingRequest<CreateSessionRequest>, Error>
-where
-    A: Addressable,
-{
-    let transaction = Transaction::CreateRtcSession(CreateRtcSessionTransaction::new(reqp, rtc_id));
-    let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
-    let props = OutgoingRequestProperties::new("janus_rtc_session.create", IGNORE, IGNORE);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -401,19 +369,6 @@ pub(crate) fn handle_responses(
                     let _ = janus_backend::InsertQuery::new(agent_id, session_id).execute(&conn)?;
 
                     Ok(())
-                }
-                // Session has been created
-                Transaction::CreateRtcSession(tn) => {
-                    // Creating a shadow of Janus Gateway Session
-                    let location_id = message.properties().as_agent_id();
-                    let session_id = inresp.data().id();
-                    let conn = janus.db.get()?;
-                    let _ =
-                        janus_session_shadow::InsertQuery::new(tn.rtc_id, session_id, location_id)
-                            .execute(&conn)?;
-
-                    let req = create_handle_request(tn.reqp, tn.rtc_id, session_id, location_id)?;
-                    req.into_envelope()?.publish(tx)
                 }
                 // Handle has been created
                 Transaction::CreateHandle(tn) => {
