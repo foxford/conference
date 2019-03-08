@@ -61,7 +61,7 @@ pub(crate) fn run(db: &ConnectionPool) {
     let room = room::State::new(authz.clone(), db.clone());
 
     // Create Real-Time Connection resource
-    let rtc = rtc::State::new(authz.clone(), db.clone(), backend_agent_id.clone());
+    let rtc = rtc::State::new(authz.clone(), db.clone());
 
     // Create Signal resource
     let signal = signal::State::new(authz.clone(), db.clone());

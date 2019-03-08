@@ -5,7 +5,7 @@ use svc_agent::mqtt::{
     IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
     OutgoingResponseStatus, Publishable,
 };
-use svc_agent::{Addressable, AgentId};
+use svc_agent::Addressable;
 use uuid::Uuid;
 
 use crate::app::janus;
@@ -49,21 +49,11 @@ pub(crate) type ObjectUpdateEvent = OutgoingEvent<rtc::Object>;
 pub(crate) struct State {
     authz: svc_authz::ClientMap,
     db: ConnectionPool,
-    // TODO: replace with backend agent registry
-    backend_agent_id: AgentId,
 }
 
 impl State {
-    pub(crate) fn new(
-        authz: svc_authz::ClientMap,
-        db: ConnectionPool,
-        backend_agent_id: AgentId,
-    ) -> Self {
-        Self {
-            authz,
-            db,
-            backend_agent_id,
-        }
+    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
+        Self { authz, db }
     }
 }
 
@@ -89,19 +79,13 @@ impl State {
         };
 
         // Creating a Real-Time Connection
-        let rtc = {
+        let object = {
             let conn = self.db.get()?;
             rtc::InsertQuery::new(room_id).execute(&conn)?
         };
 
-        // Building a Create Janus Gateway Session request
-        let backreq = janus::create_rtc_session_request(
-            inreq.properties().clone(),
-            rtc.id(),
-            &self.backend_agent_id,
-        )?;
-
-        backreq.into_envelope()
+        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
+        resp.into_envelope()
     }
 
     pub(crate) fn read(&self, inreq: &ReadRequest) -> Result<impl Publishable, Error> {
@@ -135,14 +119,14 @@ impl State {
                 authorize(loc.audience(), loc.room_id())?;
 
                 // Returning Real-Time connection
-                let rtc = {
+                let object = {
                     let conn = self.db.get()?;
                     rtc::FindQuery::new()
                         .id(id)
                         .execute(&conn)?
                         .ok_or_else(|| format_err!("the rtc = '{}' is not found", &id))?
                 };
-                let resp = inreq.to_response(rtc, OutgoingResponseStatus::OK);
+                let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
                 resp.into_envelope()
             }
             None => {
