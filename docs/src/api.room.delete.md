@@ -28,7 +28,7 @@ correlation_data | string | _required_ | The same value will be in a response
 
 Name   | Type | Default    | Description
 ------ | ---- | ---------- | ------------------
-id     | UUID | _required_ | Room Id
+id     | uuid | _required_ | Room Id
 
 **Response**
 

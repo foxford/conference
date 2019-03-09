@@ -1,6 +1,8 @@
-# Read
+# Connect
 
-Read the real-time connection.
+Connect to the real-time connection to send signal messages and media.
+
+*NOTE: If Janus Gateway is used as a backend, a handle to the conference plugin for the patricular agent will be created.*
 
 **Request**
 
@@ -20,7 +22,7 @@ APP_NAME | string | _required_ | Name of the application
 Name             | Type   | Default    | Description
 ---------------- | ------ | ---------- | ------------------
 type             | string | _required_ | Always `request`
-method           | string | _required_ | Always `rtc.read`
+method           | string | _required_ | Always `rtc.connect`
 response_topic   | string | _required_ | Always `agents/${ME}/api/v1/in/${APP_NAME}`
 correlation_data | string | _required_ | The same value will be in a response
 
@@ -32,4 +34,4 @@ id         | string | _required_ | Real-time connection identifier
 
 **Response**
 
-If successful, the response payload contains the **Real-Time Connection** instance.
+If successful, the response payload contains a **Real-Time Connection Handle Identifier**.
