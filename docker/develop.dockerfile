@@ -64,6 +64,7 @@ COPY --from=janus-gateway-plugin /opt/janus/lib/janus/plugins/*.so /opt/janus/li
 RUN set -xe \
     && JANUS_CONF='/opt/janus/etc/janus/janus.jcfg' \
     && perl -pi -e 's/\t#(session_timeout = ).*/\t${1}0/' "${JANUS_CONF}" \
+    && perl -pi -e 's/\t#(opaqueid_in_api = ).*/\t${1}true/' "${JANUS_CONF}" \
     && JANUS_MQTT_TRANSPORT_CONF='/opt/janus/etc/janus/janus.transport.mqtt.jcfg' \
     && perl -pi -e 's/\t(enabled = ).*/\t${1}true/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t(json = ).*/\t${1}\"compact\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
