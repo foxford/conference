@@ -59,15 +59,18 @@ pub(crate) struct CreateHandleRequest {
     session_id: i64,
     plugin: String,
     janus: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    opaque_id: Option<String>,
 }
 
 impl CreateHandleRequest {
-    pub(crate) fn new(transaction: &str, session_id: i64, plugin: &str) -> Self {
+    pub(crate) fn new(transaction: &str, session_id: i64, plugin: &str, opaque_id: Option<&str>) -> Self {
         Self {
             transaction: transaction.to_owned(),
             session_id,
             plugin: plugin.to_owned(),
             janus: "attach",
+            opaque_id: opaque_id.map(|val| val.to_owned()),
         }
     }
 }
@@ -236,6 +239,7 @@ pub(crate) struct EventResponse {
     transaction: String,
     session_id: i64,
     sender: i64,
+    opaque_id: String,
     plugindata: EventResponsePluginData,
     jsep: Option<JsonValue>,
 }
@@ -305,6 +309,7 @@ impl SuccessResponseData {
 pub(crate) struct WebRtcUpEvent {
     session_id: i64,
     sender: i64,
+    opaque_id: String,
 }
 
 impl WebRtcUpEvent {
@@ -314,6 +319,10 @@ impl WebRtcUpEvent {
 
     pub(crate) fn sender(&self) -> i64 {
         self.sender
+    }
+
+    pub(crate) fn opaque_id(&self) -> &str {
+        &self.opaque_id
     }
 }
 
@@ -325,6 +334,7 @@ impl WebRtcUpEvent {
 pub(crate) struct HangUpEvent {
     session_id: i64,
     sender: i64,
+    opaque_id: String,
     reason: String,
 }
 
@@ -336,6 +346,10 @@ impl HangUpEvent {
     pub(crate) fn sender(&self) -> i64 {
         self.sender
     }
+
+    pub(crate) fn opaque_id(&self) -> &str {
+        &self.opaque_id
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -346,6 +360,7 @@ impl HangUpEvent {
 pub(crate) struct MediaEvent {
     session_id: i64,
     sender: i64,
+    opaque_id: String,
     #[serde(rename = "type")]
     kind: String,
     receiving: bool,
@@ -369,6 +384,7 @@ pub(crate) struct TimeoutEvent {
 pub(crate) struct SlowLinkEvent {
     session_id: i64,
     sender: i64,
+    opaque_id: String,
     uplink: bool,
     nacks: i32,
 }
