@@ -1,8 +1,6 @@
 # Create
 
-Create a real-time connection to send signal messages and then media.
-
-*NOTE: If Janus Gateway is used as a backend, a handle to the conference plugin for the patricular agent and a session will be created when necessary.*
+Create a real-time connection.
 
 **Request**
 
