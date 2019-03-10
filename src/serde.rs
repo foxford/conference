@@ -22,7 +22,7 @@ pub(crate) mod ts_seconds_bound_tuple {
     use std::ops::Bound;
 
     pub(crate) fn serialize<S>(
-        range: &(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
+        value: &(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
@@ -30,25 +30,38 @@ pub(crate) mod ts_seconds_bound_tuple {
     {
         use ser::SerializeTuple;
 
-        let (start, end) = range;
+        let (lt, rt) = value;
         let mut tup = serializer.serialize_tuple(2)?;
 
-        match start {
-            Bound::Included(start) | Bound::Excluded(start) => {
-                tup.serialize_element(&start.timestamp())?;
+        match lt {
+            Bound::Included(lt) => {
+                let val = lt.timestamp();
+                tup.serialize_element(&val)?;
             }
-
-            b @ Bound::Unbounded => {
-                tup.serialize_element(b)?;
+            Bound::Excluded(lt) => {
+                // Adjusting the range to '[lt, rt)'
+                let val = lt.timestamp() +1;
+                tup.serialize_element(&val)?;
+            }
+            Bound::Unbounded => {
+                let val: Option<i64> = None;
+                tup.serialize_element(&val)?;
             }
         }
 
-        match end {
-            Bound::Included(end) | Bound::Excluded(end) => {
-                tup.serialize_element(&end.timestamp())?;
+        match rt {
+            Bound::Included(rt) => {
+                // Adjusting the range to '[lt, rt)'
+                let val = rt.timestamp() -1;
+                tup.serialize_element(&val)?;
             }
-            b @ Bound::Unbounded => {
-                tup.serialize_element(b)?;
+            Bound::Excluded(rt) => {
+                let val = rt.timestamp();
+                tup.serialize_element(&val)?;
+            }
+            Bound::Unbounded => {
+                let val: Option<i64> = None;
+                tup.serialize_element(&val)?;
             }
         }
 
@@ -70,7 +83,7 @@ pub(crate) mod ts_seconds_bound_tuple {
         type Value = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a sequence of 2 elements: unix timestamp in seconds or null")
+            formatter.write_str("a [lt, rt) range of unix time (seconds) or null (unbounded)")
         }
 
         /// Deserialize a tuple of two Bounded DateTime<Utc>
@@ -105,9 +118,22 @@ pub(crate) mod ts_seconds_bound_tuple {
 
 pub(crate) mod ts_seconds_option_bound_tuple {
     use chrono::{DateTime, Utc};
-    use serde::de;
+    use serde::{de, ser};
     use std::fmt;
     use std::ops::Bound;
+
+    pub(crate) fn serialize<S>(
+        option: &Option<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        match option {
+            Some(value) => super::ts_seconds_bound_tuple::serialize(value, serializer),
+            None => serializer.serialize_none()
+        }
+    }
 
     pub fn deserialize<'de, D>(
         d: D,
@@ -125,7 +151,7 @@ pub(crate) mod ts_seconds_option_bound_tuple {
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
             formatter
-                .write_str("none or a sequence of 2 elements: unix timestamp in seconds or null")
+                .write_str("none or a [lt, rt) range of unix time (seconds) or null (unbounded)")
         }
 
         fn visit_none<E>(self) -> Result<Self::Value, E>
