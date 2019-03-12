@@ -1,6 +1,6 @@
 # List
 
-List real-time connections.
+List of real-time connections.
 
 **Request**
 
@@ -12,25 +12,25 @@ pub agents/${ME}/api/v1/out/${APP_NAME}
 
 Name     | Type   | Default    | Description
 -------- | ------ | ---------- | ------------------
-ME       | string | _required_ | Agent identifier
-APP_NAME | string | _required_ | Name of the application
+ME       | string | _required_ | Agent identifier.
+APP_NAME | string | _required_ | Name of the application.
 
 **Properties**
 
 Name             | Type   | Default    | Description
 ---------------- | ------ | ---------- | ------------------
-type             | string | _required_ | Always `request`
-method           | string | _required_ | Always `rtc.list`
-response_topic   | string | _required_ | Always `agents/${ME}/api/v1/in/${APP_NAME}`
-correlation_data | string | _required_ | The same value will be in a response
+type             | string | _required_ | Always `request`.
+method           | string | _required_ | Always `rtc.list`.
+response_topic   | string | _required_ | Always `agents/${ME}/api/v1/in/${APP_NAME}`.
+correlation_data | string | _required_ | The same value will be in a response.
 
 **Payload**
 
 Name       | Type   | Default    | Description
 ---------- | ------ | ---------- | ------------------
-room_id    | string | _required_ | Room identifier
-offset     | int    | _optional_ | Returns objects starting from the specified index
-limit      | int    |         25 | Limits the number of objects in the response
+room_id    | string | _required_ | Returns only objects that belong to the room.
+offset     | int    | _optional_ | Returns only objects starting from the specified index.
+limit      | int    |         25 | Limits the number of objects in the response.
 
 **Response**
 

@@ -15,3 +15,5 @@
         - [List](api.rtc.list.md)
     - [RTC Signal](api.rtc_signal.md)
         - [Create](api.rtc_signal.create.md)
+    - [RTC Stream](api.rtc_stream.md)
+        - [List](api.rtc_stream.list.md)
