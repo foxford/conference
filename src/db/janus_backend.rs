@@ -11,8 +11,66 @@ use crate::schema::janus_backend;
 #[table_name = "janus_backend"]
 pub(crate) struct Object {
     id: AgentId,
+    handle_id: i64,
     session_id: i64,
     created_at: DateTime<Utc>,
+}
+
+impl Object {
+    pub(crate) fn id(&self) -> &AgentId {
+        &self.id
+    }
+
+    pub(crate) fn handle_id(&self) -> i64 {
+        self.handle_id
+    }
+
+    pub(crate) fn session_id(&self) -> i64 {
+        self.session_id
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct ListQuery {
+    offset: Option<i64>,
+    limit: Option<i64>,
+}
+
+impl ListQuery {
+    pub(crate) fn new() -> Self {
+        Self {
+            offset: None,
+            limit: None,
+        }
+    }
+
+    pub(crate) fn offset(self, offset: i64) -> Self {
+        Self {
+            offset: Some(offset),
+            ..self
+        }
+    }
+
+    pub(crate) fn limit(self, limit: i64) -> Self {
+        Self {
+            limit: Some(limit),
+            ..self
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+        use diesel::prelude::*;
+
+        let mut q = janus_backend::table.into_boxed();
+        if let Some(offset) = self.offset {
+            q = q.offset(offset);
+        }
+        if let Some(limit) = self.limit {
+            q = q.limit(limit);
+        }
+        q.order_by(janus_backend::created_at).get_results(conn)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -21,12 +79,13 @@ pub(crate) struct Object {
 #[table_name = "janus_backend"]
 pub(crate) struct InsertQuery<'a> {
     id: &'a AgentId,
+    handle_id: i64,
     session_id: i64,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(id: &'a AgentId, session_id: i64) -> Self {
-        Self { id, session_id }
+    pub(crate) fn new(id: &'a AgentId, handle_id: i64, session_id: i64) -> Self {
+        Self { id, handle_id, session_id }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
