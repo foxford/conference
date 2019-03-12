@@ -1,0 +1,1 @@
+drop table if exists janus_rtc_stream cascade;
