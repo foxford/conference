@@ -1,13 +1,15 @@
 use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::fmt;
+use std::str::FromStr;
 use svc_agent::mqtt::compat::IntoEnvelope;
 use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, Publishable};
-use svc_agent::Addressable;
+use svc_agent::{Addressable, AgentId};
 use uuid::Uuid;
 
 use crate::app::janus;
-use crate::db::{location, rtc, ConnectionPool};
+use crate::db::{janus_rtc_stream, room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -15,7 +17,7 @@ pub(crate) type CreateRequest = IncomingRequest<CreateRequestData>;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct CreateRequestData {
-    rtc_id: Uuid,
+    handle_id: HandleId,
     jsep: JsonValue,
     label: Option<String>,
 }
@@ -49,33 +51,25 @@ impl State {
 
 impl State {
     pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
-        let agent_id = inreq.properties().as_agent_id();
-        let rtc_id = &inreq.payload().rtc_id;
+        let handle_id = &inreq.payload().handle_id;
         let jsep = &inreq.payload().jsep;
         let sdp_type = parse_sdp_type(jsep)?;
 
-        // Looking up for Janus Gateway Handle
-        let loc = {
-            let conn = self.db.get()?;
-            location::FindQuery::new()
-                .reply_to(agent_id)
-                .rtc_id(*rtc_id)
-                .execute(&conn)?
-                .ok_or_else(|| {
-                    format_err!(
-                        "the location of the rtc = '{}' for the agent = '{}' is not found",
-                        rtc_id,
-                        agent_id,
-                    )
-                })?
-        };
-
         // Authorization: room's owner has to allow the action
         let authorize = |action| -> Result<(), Error> {
-            let room_id = loc.room_id().to_string();
-            let rtc_id = loc.rtc_id().to_string();
+            let rtc_id = handle_id.rtc_id();
+            let room = {
+                let conn = self.db.get()?;
+                room::FindQuery::new()
+                    .rtc_id(rtc_id)
+                    .execute(&conn)?
+                    .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?
+            };
+
+            let room_id = room.id().to_string();
+            let rtc_id = rtc_id.to_string();
             self.authz.authorize(
-                loc.audience(),
+                room.audience(),
                 inreq.properties(),
                 vec!["rooms", &room_id, "rtcs", &rtc_id],
                 action,
@@ -90,11 +84,11 @@ impl State {
 
                     let backreq = janus::read_stream_request(
                         inreq.properties().clone(),
-                        loc.session_id(),
-                        loc.handle_id(),
-                        rtc_id.clone(),
+                        handle_id.janus_session_id(),
+                        handle_id.janus_handle_id(),
+                        handle_id.rtc_id(),
                         jsep.clone(),
-                        loc.location_id(),
+                        handle_id.backend_id(),
                     )?;
                     backreq.into_envelope()
                 } else {
@@ -103,25 +97,31 @@ impl State {
 
                     // Updating the Real-Time Connection state
                     {
-                        let conn = self.db.get()?;
                         let label = inreq
                             .payload()
                             .label
                             .as_ref()
                             .ok_or_else(|| err_msg("missing label"))?;
-                        let state = rtc::RtcState::new(label, Some(agent_id.clone()), None);
-                        let _ = rtc::UpdateQuery::new(*rtc_id)
-                            .state(&state)
-                            .execute(&conn)?;
+
+                        let conn = self.db.get()?;
+                        janus_rtc_stream::InsertQuery::new(
+                            handle_id.rtc_stream_id(),
+                            handle_id.janus_handle_id(),
+                            handle_id.rtc_id(),
+                            handle_id.backend_id(),
+                            label,
+                            inreq.properties().as_agent_id(),
+                        )
+                        .execute(&conn)?;
                     }
 
                     let backreq = janus::create_stream_request(
                         inreq.properties().clone(),
-                        loc.session_id(),
-                        loc.handle_id(),
-                        rtc_id.clone(),
+                        handle_id.janus_session_id(),
+                        handle_id.janus_handle_id(),
+                        handle_id.rtc_id(),
                         jsep.clone(),
-                        loc.location_id(),
+                        handle_id.backend_id(),
                     )?;
                     backreq.into_envelope()
                 }
@@ -133,10 +133,10 @@ impl State {
 
                 let backreq = janus::trickle_request(
                     inreq.properties().clone(),
-                    loc.session_id(),
-                    loc.handle_id(),
+                    handle_id.janus_session_id(),
+                    handle_id.janus_handle_id(),
                     jsep.clone(),
-                    loc.location_id(),
+                    handle_id.backend_id(),
                 )?;
                 backreq.into_envelope()
             }
@@ -197,4 +197,136 @@ fn is_sdp_recvonly(jsep: &JsonValue) -> Result<bool, Error> {
             _ => false,
         }
     }))
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
+pub(crate) struct HandleId {
+    rtc_stream_id: Uuid,
+    rtc_id: Uuid,
+    janus_handle_id: i64,
+    janus_session_id: i64,
+    backend_id: AgentId,
+}
+
+impl HandleId {
+    pub(crate) fn rtc_stream_id(&self) -> Uuid {
+        self.rtc_stream_id
+    }
+
+    pub(crate) fn rtc_id(&self) -> Uuid {
+        self.rtc_id
+    }
+
+    pub(crate) fn janus_handle_id(&self) -> i64 {
+        self.janus_handle_id
+    }
+
+    pub(crate) fn janus_session_id(&self) -> i64 {
+        self.janus_session_id
+    }
+
+    pub(crate) fn backend_id(&self) -> &AgentId {
+        &self.backend_id
+    }
+}
+
+impl HandleId {
+    pub(crate) fn new(
+        rtc_stream_id: Uuid,
+        rtc_id: Uuid,
+        janus_handle_id: i64,
+        janus_session_id: i64,
+        backend_id: AgentId,
+    ) -> Self {
+        Self {
+            rtc_stream_id,
+            rtc_id,
+            janus_handle_id,
+            janus_session_id,
+            backend_id,
+        }
+    }
+}
+
+impl fmt::Display for HandleId {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            fmt,
+            "{}.{}.{}.{}.{}",
+            self.rtc_stream_id,
+            self.rtc_id,
+            self.janus_handle_id,
+            self.janus_session_id,
+            self.backend_id
+        )
+    }
+}
+
+impl FromStr for HandleId {
+    type Err = Error;
+
+    fn from_str(val: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = val.splitn(5, '.').collect();
+        match parts[..] {
+            [ref rtc_stream_id, ref rtc_id, ref janus_handle_id, ref janus_session_id, ref rest] => {
+                Ok(Self::new(
+                    Uuid::from_str(rtc_stream_id)?,
+                    Uuid::from_str(rtc_id)?,
+                    janus_handle_id.parse::<i64>()?,
+                    janus_session_id.parse::<i64>()?,
+                    rest.parse::<AgentId>()?,
+                ))
+            }
+            _ => Err(format_err!("invalid value for the agent id: {}", val)),
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+mod serde {
+    use serde::{de, ser};
+    use std::fmt;
+
+    use super::HandleId;
+
+    impl ser::Serialize for HandleId {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: ser::Serializer,
+        {
+            serializer.serialize_str(&self.to_string())
+        }
+    }
+
+    impl<'de> de::Deserialize<'de> for HandleId {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: de::Deserializer<'de>,
+        {
+            struct AgentIdVisitor;
+
+            impl<'de> de::Visitor<'de> for AgentIdVisitor {
+                type Value = HandleId;
+
+                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                    formatter.write_str("struct HandleId")
+                }
+
+                fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                where
+                    E: de::Error,
+                {
+                    use std::str::FromStr;
+
+                    HandleId::from_str(v)
+                        .map_err(|_| de::Error::invalid_value(de::Unexpected::Str(v), &self))
+                }
+            }
+
+            deserializer.deserialize_str(AgentIdVisitor)
+        }
+    }
 }

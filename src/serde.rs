@@ -40,7 +40,7 @@ pub(crate) mod ts_seconds_bound_tuple {
             }
             Bound::Excluded(lt) => {
                 // Adjusting the range to '[lt, rt)'
-                let val = lt.timestamp() +1;
+                let val = lt.timestamp() + 1;
                 tup.serialize_element(&val)?;
             }
             Bound::Unbounded => {
@@ -52,7 +52,7 @@ pub(crate) mod ts_seconds_bound_tuple {
         match rt {
             Bound::Included(rt) => {
                 // Adjusting the range to '[lt, rt)'
-                let val = rt.timestamp() -1;
+                let val = rt.timestamp() - 1;
                 tup.serialize_element(&val)?;
             }
             Bound::Excluded(rt) => {
@@ -131,7 +131,7 @@ pub(crate) mod ts_seconds_option_bound_tuple {
     {
         match option {
             Some(value) => super::ts_seconds_bound_tuple::serialize(value, serializer),
-            None => serializer.serialize_none()
+            None => serializer.serialize_none(),
         }
     }
 

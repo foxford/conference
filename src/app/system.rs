@@ -1,18 +1,16 @@
 use chrono::{DateTime, Utc};
 use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::{
-    mqtt::{
-        compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
-        OutgoingResponse, Publish,
-    },
-    Addressable, AgentId,
+use svc_agent::mqtt::{
+    compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
+    OutgoingResponse, Publish,
 };
+use svc_agent::Addressable;
 use svc_authn::{AccountId, Authenticable};
 use uuid::Uuid;
 
 use super::janus;
-use crate::db::{recording, room, rtc, ConnectionPool};
+use crate::db::{janus_backend, recording, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -44,47 +42,17 @@ pub(crate) struct State {
     authz: svc_authz::ClientMap,
     db: ConnectionPool,
     id: AccountId,
-    session_id: Option<i64>,
-    handle_id: Option<i64>,
-    backend_id: AgentId,
 }
 
 impl State {
-    pub(crate) fn new(
-        authz: svc_authz::ClientMap,
-        db: ConnectionPool,
-        id: AccountId,
-        backend_id: AgentId,
-    ) -> Self {
-        Self {
-            authz,
-            db,
-            id,
-            backend_id,
-            session_id: None,
-            handle_id: None,
-        }
-    }
-
-    pub(crate) fn set_session_id(&mut self, session_id: i64) {
-        self.session_id = Some(session_id);
-    }
-
-    pub(crate) fn set_handle_id(&mut self, handle_id: i64) {
-        self.handle_id = Some(handle_id);
+    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool, id: AccountId) -> Self {
+        Self { authz, db, id }
     }
 }
 
 impl State {
     pub(crate) fn upload(&self, inreq: &UploadRequest) -> Result<impl Publish, Error> {
-        let session_id = self
-            .session_id
-            .ok_or_else(|| format_err!("a system session is not ready yet"))?;
-
-        let handle_id = self
-            .handle_id
-            .ok_or_else(|| format_err!("a system handle is not ready yet"))?;
-
+        // TODO: Use 'local' authz mode instead
         if *inreq.properties().as_account_id() != self.id {
             return Err(format_err!(
                 "Agent {} is not allowed to call system.upload method",
@@ -92,27 +60,35 @@ impl State {
             ));
         }
 
-        let conn = self.db.get()?;
-
-        // Retrieve all the finished rooms without recordings.
-        let rooms = room::finished_without_recordings(&conn)?;
+        // TODO: Update 'finished_without_recordings' in order to return (backend,room,rtc)
+        let backends = {
+            let conn = self.db.get()?;
+            janus_backend::ListQuery::new().execute(&conn)?
+        };
 
         let mut requests = Vec::new();
+        for backend in backends {
+            // Retrieve all the finished rooms without recordings.
+            let rooms = {
+                let conn = self.db.get()?;
+                room::finished_without_recordings(&conn)?
+            };
 
-        for (room, rtc) in rooms.into_iter() {
-            let req = janus::upload_stream_request(
-                inreq.properties().clone(),
-                session_id,
-                handle_id,
-                janus::UploadStreamRequestBody::new(
-                    rtc.id(),
-                    &bucket_name(&room),
-                    &record_name(&rtc),
-                ),
-                &self.backend_id,
-            )?;
+            for (room, rtc) in rooms.into_iter() {
+                let req = janus::upload_stream_request(
+                    inreq.properties().clone(),
+                    backend.session_id(),
+                    backend.handle_id(),
+                    janus::UploadStreamRequestBody::new(
+                        rtc.id(),
+                        &bucket_name(&room),
+                        &record_name(&rtc),
+                    ),
+                    backend.id(),
+                )?;
 
-            requests.push(req.into_envelope()?);
+                requests.push(req.into_envelope()?);
+            }
         }
 
         Ok(requests)

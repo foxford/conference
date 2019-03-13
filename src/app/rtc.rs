@@ -1,15 +1,13 @@
-use failure::{format_err, Error};
-use serde_derive::Deserialize;
+use failure::{err_msg, format_err, Error};
+use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::compat::IntoEnvelope;
-use svc_agent::mqtt::{
-    IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
-    OutgoingResponseStatus, Publishable,
-};
-use svc_agent::Addressable;
+use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable};
+
 use uuid::Uuid;
 
 use crate::app::janus;
-use crate::db::{janus_session_shadow, location, room, rtc, ConnectionPool};
+use crate::app::rtc_signal::HandleId;
+use crate::db::{janus_backend, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -40,9 +38,27 @@ pub(crate) struct ListRequestData {
     limit: Option<i64>,
 }
 
+pub(crate) type ConnectRequest = IncomingRequest<ConnectRequestData>;
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ConnectRequestData {
+    id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ConnectResponseData {
+    handle_id: HandleId,
+}
+
+impl ConnectResponseData {
+    pub(crate) fn new(handle_id: HandleId) -> Self {
+        Self { handle_id }
+    }
+}
+
+pub(crate) type ConnectResponse = OutgoingResponse<ConnectResponseData>;
 pub(crate) type ObjectResponse = OutgoingResponse<rtc::Object>;
 pub(crate) type ObjectListResponse = OutgoingResponse<Vec<rtc::Object>>;
-pub(crate) type ObjectUpdateEvent = OutgoingEvent<rtc::Object>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -88,89 +104,88 @@ impl State {
         resp.into_envelope()
     }
 
-    pub(crate) fn read(&self, inreq: &ReadRequest) -> Result<impl Publishable, Error> {
-        let agent_id = inreq.properties().as_agent_id();
+    pub(crate) fn connect(&self, inreq: &ConnectRequest) -> Result<impl Publishable, Error> {
         let id = inreq.payload().id;
 
-        // Authorization: room's owner has to allow the action
-        let authorize = |audience: &str, room_id: Uuid| -> Result<(), Error> {
-            let room_id = room_id.to_string();
-            let rtc_id = id.to_string();
-            self.authz.authorize(
-                audience,
-                agent_id,
-                vec!["rooms", &room_id, "rtcs", &rtc_id],
-                "read",
-            )
-        };
-
-        // Looking up for Janus Gateway Handle
-        let maybe_location = {
+        // Authorization
+        {
             let conn = self.db.get()?;
-            location::FindQuery::new()
-                .reply_to(agent_id)
+            let room = room::FindQuery::new()
                 .rtc_id(id)
                 .execute(&conn)?
+                .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &id))?;
+
+            let room_id = room.id().to_string();
+            self.authz.authorize(
+                room.audience(),
+                inreq.properties(),
+                vec!["rooms", &room_id, "rtcs"],
+                "read",
+            )?;
         };
 
-        match maybe_location {
-            Some(ref loc) => {
-                // Authorization
-                authorize(loc.audience(), loc.room_id())?;
+        // TODO: implement resource management
+        // Picking up first available backend
+        let backends = {
+            let conn = self.db.get()?;
+            janus_backend::ListQuery::new().limit(1).execute(&conn)?
+        };
+        let backend = backends
+            .first()
+            .ok_or_else(|| err_msg("No backends are available"))?;
 
-                // Returning Real-Time connection
-                let object = {
-                    let conn = self.db.get()?;
-                    rtc::FindQuery::new()
-                        .id(id)
-                        .execute(&conn)?
-                        .ok_or_else(|| format_err!("the rtc = '{}' is not found", &id))?
-                };
-                let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
-                resp.into_envelope()
-            }
-            None => {
-                // Authorization
-                {
-                    let conn = self.db.get()?;
-                    let room = room::FindQuery::new()
-                        .rtc_id(id)
-                        .execute(&conn)?
-                        .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &id))?;
+        // Building a Create Janus Gateway Handle request
+        let backreq = janus::create_rtc_handle_request(
+            inreq.properties().clone(),
+            Uuid::new_v4(),
+            id,
+            backend.session_id(),
+            backend.id(),
+        )?;
 
-                    authorize(room.audience(), room.id())?;
-                };
+        backreq.into_envelope()
+    }
 
-                // Looking up for Janus Gateway Session
-                let session = {
-                    let conn = self.db.get()?;
-                    janus_session_shadow::FindQuery::new()
-                        .rtc_id(id)
-                        .execute(&conn)?
-                        .ok_or_else(|| format_err!("a session for rtc = '{}' is not found", &id))?
-                };
+    pub(crate) fn read(&self, inreq: &ReadRequest) -> Result<impl Publishable, Error> {
+        let id = inreq.payload().id;
 
-                // Building a Create Janus Gateway Handle request
-                let backreq = janus::create_handle_request(
-                    inreq.properties().clone(),
-                    id,
-                    session.session_id(),
-                    session.location_id(),
-                )?;
+        // Authorization
+        {
+            let conn = self.db.get()?;
+            let room = room::FindQuery::new()
+                .rtc_id(id)
+                .execute(&conn)?
+                .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &id))?;
 
-                backreq.into_envelope()
-            }
-        }
+            let room_id = room.id().to_string();
+            self.authz.authorize(
+                room.audience(),
+                inreq.properties(),
+                vec!["rooms", &room_id, "rtcs"],
+                "read",
+            )?;
+        };
+
+        // Returning Real-Time connection
+        let object = {
+            let conn = self.db.get()?;
+            rtc::FindQuery::new()
+                .id(id)
+                .execute(&conn)?
+                .ok_or_else(|| format_err!("the rtc = '{}' is not found", &id))?
+        };
+        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
+        resp.into_envelope()
     }
 
     pub(crate) fn list(&self, inreq: &ListRequest) -> Result<impl Publishable, Error> {
-        let room_id = &inreq.payload().room_id;
+        let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
         {
             let conn = self.db.get()?;
             let room = room::FindQuery::new()
-                .id(*room_id)
+                .id(room_id)
                 .execute(&conn)?
                 .ok_or_else(|| format_err!("the room = '{}' is not found", &room_id))?;
 
@@ -187,7 +202,7 @@ impl State {
         let objects = {
             let conn = self.db.get()?;
             rtc::ListQuery::from_options(
-                Some(*room_id),
+                Some(room_id),
                 inreq.payload().offset,
                 Some(std::cmp::min(
                     inreq.payload().limit.unwrap_or_else(|| MAX_LIMIT),
@@ -200,11 +215,4 @@ impl State {
         let resp = inreq.to_response(objects, OutgoingResponseStatus::OK);
         resp.into_envelope()
     }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub(crate) fn update_event(object: rtc::Object) -> ObjectUpdateEvent {
-    let uri = format!("rooms/{}/events", object.room_id());
-    OutgoingEvent::broadcast(object, OutgoingEventProperties::new("rtc.update"), &uri)
 }

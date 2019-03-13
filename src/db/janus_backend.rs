@@ -85,7 +85,11 @@ pub(crate) struct InsertQuery<'a> {
 
 impl<'a> InsertQuery<'a> {
     pub(crate) fn new(id: &'a AgentId, handle_id: i64, session_id: i64) -> Self {
-        Self { id, handle_id, session_id }
+        Self {
+            id,
+            handle_id,
+            session_id,
+        }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {

@@ -79,6 +79,7 @@ impl State {
                 .ok_or_else(|| format_err!("room with Id = {} is not found", room_id))?
         };
 
+        // Authorization: room's owner has to allow the action
         self.authz.authorize(
             object.audience(),
             inreq.properties(),
@@ -101,6 +102,7 @@ impl State {
                 .ok_or_else(|| format_err!("room with Id = {} is not found", room_id))?
         };
 
+        // Authorization: room's owner has to allow the action
         self.authz.authorize(
             object.audience(),
             inreq.properties(),
@@ -128,6 +130,7 @@ impl State {
                 .ok_or_else(|| format_err!("room with Id = {} is not found", room_id))?
         };
 
+        // Authorization: room's owner has to allow the action
         self.authz.authorize(
             object.audience(),
             inreq.properties(),

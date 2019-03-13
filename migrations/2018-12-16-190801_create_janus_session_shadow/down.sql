@@ -1,1 +1,0 @@
-drop table if exists janus_session_shadow cascade;
