@@ -17,7 +17,7 @@ use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
     StatusEvent, TrickleRequest,
 };
-use crate::db::{janus_backend, janus_handle_shadow, location, recording, room, rtc, ConnectionPool};
+use crate::db::{janus_backend, janus_rtc_stream, recording, room, rtc, ConnectionPool};
 use crate::util::{from_base64, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -30,8 +30,7 @@ const IGNORE: &str = "ignore";
 pub(crate) enum Transaction {
     CreateSession(CreateSessionTransaction),
     CreateHandle(CreateHandleTransaction),
-    CreateSystemSession(CreateSystemSessionTransaction),
-    CreateSystemHandle(CreateSystemHandleTransaction),
+    CreateRtcHandle(CreateRtcHandleTransaction),
     CreateStream(CreateStreamTransaction),
     ReadStream(ReadStreamTransaction),
     UploadStream(UploadStreamTransaction),
@@ -64,60 +63,29 @@ where
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CreateSystemSessionTransaction {}
-
-impl CreateSystemSessionTransaction {
-    pub(crate) fn new() -> Self {
-        Self {}
-    }
-}
-
-pub(crate) fn create_system_session_request<A>(
-    to: &A,
-) -> Result<OutgoingRequest<CreateSessionRequest>, Error>
-where
-    A: Authenticable,
-{
-    let transaction = Transaction::CreateSystemSession(CreateSystemSessionTransaction::new());
-    let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
-    let props = OutgoingRequestProperties::new("janus_system_session.create", IGNORE, IGNORE);
-    Ok(OutgoingRequest::multicast(payload, props, to))
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateHandleTransaction {
-    reqp: IncomingRequestProperties,
-    rtc_id: Uuid,
     session_id: i64,
 }
 
 impl CreateHandleTransaction {
-    pub(crate) fn new(reqp: IncomingRequestProperties, rtc_id: Uuid, session_id: i64) -> Self {
-        Self {
-            reqp,
-            rtc_id,
-            session_id,
-        }
+    pub(crate) fn new(session_id: i64) -> Self {
+        Self { session_id }
     }
 }
 
 pub(crate) fn create_handle_request<A>(
-    reqp: IncomingRequestProperties,
-    rtc_id: Uuid,
     session_id: i64,
     to: &A,
 ) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
 where
     A: Addressable,
 {
-    let transaction =
-        Transaction::CreateHandle(CreateHandleTransaction::new(reqp, rtc_id, session_id));
+    let transaction = Transaction::CreateHandle(CreateHandleTransaction::new(session_id));
     let payload = CreateHandleRequest::new(
         &to_base64(&transaction)?,
         session_id,
         "janus.plugin.conference",
+        None,
     );
     let props = OutgoingRequestProperties::new("janus_handle.create", IGNORE, IGNORE);
     Ok(OutgoingRequest::unicast(payload, props, to))
@@ -126,29 +94,50 @@ where
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CreateSystemHandleTransaction {
+pub(crate) struct CreateRtcHandleTransaction {
+    reqp: IncomingRequestProperties,
+    rtc_stream_id: Uuid,
+    rtc_id: Uuid,
     session_id: i64,
 }
 
-impl CreateSystemHandleTransaction {
-    pub(crate) fn new(session_id: i64) -> Self {
-        Self { session_id }
+impl CreateRtcHandleTransaction {
+    pub(crate) fn new(
+        reqp: IncomingRequestProperties,
+        rtc_stream_id: Uuid,
+        rtc_id: Uuid,
+        session_id: i64,
+    ) -> Self {
+        Self {
+            reqp,
+            rtc_stream_id,
+            rtc_id,
+            session_id,
+        }
     }
 }
 
-pub(crate) fn create_system_handle_request<A>(
+pub(crate) fn create_rtc_handle_request<A>(
+    reqp: IncomingRequestProperties,
+    rtc_handle_id: Uuid,
+    rtc_id: Uuid,
     session_id: i64,
     to: &A,
 ) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
 where
     A: Addressable,
 {
-    let transaction =
-        Transaction::CreateSystemHandle(CreateSystemHandleTransaction::new(session_id));
+    let transaction = Transaction::CreateRtcHandle(CreateRtcHandleTransaction::new(
+        reqp,
+        rtc_handle_id,
+        rtc_id,
+        session_id,
+    ));
     let payload = CreateHandleRequest::new(
         &to_base64(&transaction)?,
         session_id,
         "janus.plugin.conference",
+        Some(&rtc_handle_id.to_string()),
     );
     let props = OutgoingRequestProperties::new("janus_handle.create", IGNORE, IGNORE);
     Ok(OutgoingRequest::unicast(payload, props, to))
@@ -350,12 +339,7 @@ impl State {
     }
 }
 
-pub(crate) fn handle_responses(
-    tx: &mut Agent,
-    bytes: &[u8],
-    janus: &State,
-    system: &mut super::system::State,
-) -> Result<(), Error> {
+pub(crate) fn handle_responses(tx: &mut Agent, bytes: &[u8], janus: &State) -> Result<(), Error> {
     let envelope = serde_json::from_slice::<IncomingEnvelope>(bytes)?;
     let message = into_event::<IncomingMessage>(envelope)?;
     match message.payload() {
@@ -363,52 +347,44 @@ pub(crate) fn handle_responses(
             match from_base64::<Transaction>(&inresp.transaction())? {
                 // Session has been created
                 Transaction::CreateSession(_tn) => {
-                    let agent_id = message.properties().as_agent_id();
                     let session_id = inresp.data().id();
-                    let conn = janus.db.get()?;
-                    let _ = janus_backend::InsertQuery::new(agent_id, session_id).execute(&conn)?;
 
-                    Ok(())
+                    // Creating Handle
+                    let backreq = create_handle_request(session_id, message.properties())?;
+                    backreq.into_envelope()?.publish(tx)
                 }
                 // Handle has been created
                 Transaction::CreateHandle(tn) => {
-                    let reqp = tn.reqp;
-                    let agent_id = reqp.as_agent_id();
-                    let rtc_id = tn.rtc_id;
-                    let id = inresp.data().id();
-
-                    // Creating a shadow of Janus Gateway Session
-                    let conn = janus.db.get()?;
-                    let _ = janus_handle_shadow::InsertQuery::new(id, rtc_id, &agent_id)
-                        .execute(&conn)?;
-
-                    // Returning Real-Time connection
-                    let object = rtc::FindQuery::new()
-                        .id(rtc_id)
-                        .execute(&conn)?
-                        .ok_or_else(|| format_err!("the rtc = '{}' is not found", &rtc_id))?;
-                    let props = reqp.to_response(OutgoingResponseStatus::OK);
-                    let resp = crate::app::rtc::ObjectResponse::unicast(object, props, agent_id);
-
-                    resp.into_envelope()?.publish(tx)
-                }
-                // System session has been created
-                Transaction::CreateSystemSession(_tn) => {
-                    let location_id = message.properties().as_agent_id();
-                    let session_id = inresp.data().id();
-
-                    system.set_session_id(session_id);
-
-                    let req = create_system_handle_request(session_id, location_id)?;
-                    req.into_envelope()?.publish(tx)
-                }
-                // System handle has been created
-                Transaction::CreateSystemHandle(_tn) => {
+                    let backend_id = message.properties().as_agent_id();
                     let handle_id = inresp.data().id();
 
-                    system.set_handle_id(handle_id);
+                    let conn = janus.db.get()?;
+                    let _ = janus_backend::InsertQuery::new(backend_id, handle_id, tn.session_id)
+                        .execute(&conn)?;
 
                     Ok(())
+                }
+                // Rtc Handle has been created
+                Transaction::CreateRtcHandle(tn) => {
+                    let agent_id = message.properties().as_agent_id();
+                    let reqp = tn.reqp;
+
+                    // Returning Real-Time connection handle
+                    let resp = crate::app::rtc::ConnectResponse::unicast(
+                        crate::app::rtc::ConnectResponseData::new(
+                            crate::app::rtc_signal::HandleId::new(
+                                tn.rtc_stream_id,
+                                tn.rtc_id,
+                                inresp.data().id(),
+                                tn.session_id,
+                                agent_id.clone(),
+                            ),
+                        ),
+                        reqp.to_response(OutgoingResponseStatus::OK),
+                        &reqp,
+                    );
+
+                    resp.into_envelope()?.publish(tx)
                 }
                 // An unsupported incoming Success message has been received
                 _ => Err(format_err!(
@@ -426,8 +402,8 @@ pub(crate) fn handle_responses(
                 )),
                 // Trickle message has been received by Janus Gateway
                 Transaction::Trickle(tn) => {
-                    let resp = crate::app::signal::CreateResponse::unicast(
-                        crate::app::signal::CreateResponseData::new(None),
+                    let resp = crate::app::rtc_signal::CreateResponse::unicast(
+                        crate::app::rtc_signal::CreateResponseData::new(None),
                         tn.reqp.to_response(OutgoingResponseStatus::OK),
                         tn.reqp.as_agent_id(),
                     );
@@ -471,8 +447,8 @@ pub(crate) fn handle_responses(
                         )
                     })?;
 
-                    let resp = crate::app::signal::CreateResponse::unicast(
-                        crate::app::signal::CreateResponseData::new(Some(jsep.clone())),
+                    let resp = crate::app::rtc_signal::CreateResponse::unicast(
+                        crate::app::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
                         tn.reqp.to_response(OutgoingResponseStatus::OK),
                         tn.reqp.as_agent_id(),
                     );
@@ -507,8 +483,8 @@ pub(crate) fn handle_responses(
                         )
                     })?;
 
-                    let resp = crate::app::signal::CreateResponse::unicast(
-                        crate::app::signal::CreateResponseData::new(Some(jsep.clone())),
+                    let resp = crate::app::rtc_signal::CreateResponse::unicast(
+                        crate::app::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
                         tn.reqp.to_response(OutgoingResponseStatus::OK),
                         tn.reqp.as_agent_id(),
                     );
@@ -638,70 +614,46 @@ pub(crate) fn handle_responses(
             inresp,
         )),
         IncomingMessage::WebRtcUp(ref inev) => {
+            use std::str::FromStr;
+            let rtc_stream_id = Uuid::from_str(inev.opaque_id())?;
+
             let conn = janus.db.get()?;
+            // If the event relates to a publisher's handle,
+            // we will find the corresponding stream and send event w/ updated stream object
+            // to the room's topic.
+            if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
+                let rtc_id = rtc_stream.rtc_id();
+                let room = room::FindQuery::new()
+                    .rtc_id(rtc_id)
+                    .execute(&conn)?
+                    .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
 
-            // Updating Rtc State
-            // TODO: replace with one query
-            // Could've implemented in one query using '.single_value()'
-            // for the first select statement. The problem is that its
-            // return value is always 'Nullable' when the 'rtc_id' value
-            // for the following statement can't be null.
-            let session_id = inev.session_id();
-            let location_id = message.properties().as_agent_id();
-            let location = location::FindQuery::new()
-                .handle_id(inev.sender())
-                .location_id(&location_id)
-                .execute(&conn)?
-                .ok_or_else(|| {
-                    format_err!(
-                        "session = '{}' within location = '{}' is not found",
-                        session_id,
-                        &location_id,
-                    )
-                })?;
+                let event = crate::app::rtc_stream::update_event(room.id(), rtc_stream);
+                return event.into_envelope()?.publish(tx);
+            };
 
-            match rtc::update_state(location.rtc_id(), location.reply_to(), &conn) {
-                // webrtcup came from publisher, so send event.
-                Ok(rtc) => {
-                    let event = crate::app::rtc::update_event(rtc);
-                    event.into_envelope()?.publish(tx)
-                }
-                // webrtcup came from subscriber, so ignore.
-                Err(_) => Ok(()),
-            }
+            Ok(())
         }
         IncomingMessage::HangUp(ref inev) => {
+            use std::str::FromStr;
+            let rtc_stream_id = Uuid::from_str(inev.opaque_id())?;
+
             let conn = janus.db.get()?;
+            // If the event relates to a publisher's handle,
+            // we will find the corresponding stream and send event w/ updated stream object
+            // to the room's topic.
+            if let Some(rtc_stream) = janus_rtc_stream::stop(rtc_stream_id, &conn)? {
+                let rtc_id = rtc_stream.rtc_id();
+                let room = room::FindQuery::new()
+                    .rtc_id(rtc_id)
+                    .execute(&conn)?
+                    .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
 
-            // Deleting Rtc State
-            // TODO: replace with one query
-            // Could've implemented in one query using '.single_value()'
-            // for the first select statement. The problem is that its
-            // return value is always 'Nullable' when the 'rtc_id' value
-            // for the following statement can't be null.
-            let session_id = inev.session_id();
-            let agent_id = message.properties().as_agent_id();
-            let location = location::FindQuery::new()
-                .handle_id(inev.sender())
-                .session_id(session_id)
-                .execute(&conn)?
-                .ok_or_else(|| {
-                    format_err!(
-                        "session = '{}' within location = '{}' is not found",
-                        session_id,
-                        agent_id,
-                    )
-                })?;
-
-            match rtc::delete_state(location.rtc_id(), location.reply_to(), &conn) {
-                // Hangup came from publisher, so send update event.
-                Ok(rtc) => {
-                    let event = crate::app::rtc::update_event(rtc);
-                    event.into_envelope()?.publish(tx)
-                }
-                // Hangup came from subscriber, so ignore.
-                Err(_) => Ok(()),
+                let event = crate::app::rtc_stream::update_event(room.id(), rtc_stream);
+                return event.into_envelope()?.publish(tx);
             }
+
+            Ok(())
         }
         IncomingMessage::Media(ref inev) => Err(format_err!(
             "received an unexpected Media message: {:?}",

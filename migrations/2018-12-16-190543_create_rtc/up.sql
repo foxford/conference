@@ -1,7 +1,6 @@
 create table rtc (
     id uuid default gen_random_uuid(),
 
-    state rtc_state,
     room_id uuid not null,
     created_at timestamptz not null default now(),
 

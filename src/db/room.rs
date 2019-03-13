@@ -12,7 +12,7 @@ use crate::schema::{room, rtc};
 type AllColumns = (room::id, room::time, room::audience, room::created_at);
 const ALL_COLUMNS: AllColumns = (room::id, room::time, room::audience, room::created_at);
 
-#[derive(Debug, Identifiable, Queryable, Serialize, QueryableByName)]
+#[derive(Debug, Serialize, Identifiable, Queryable, QueryableByName)]
 #[table_name = "room"]
 pub(crate) struct Object {
     id: Uuid,

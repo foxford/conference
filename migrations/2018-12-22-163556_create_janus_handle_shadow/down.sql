@@ -1,1 +1,0 @@
-drop table if exists janus_handle_shadow cascade;

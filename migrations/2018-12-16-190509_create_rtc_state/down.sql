@@ -1,1 +1,0 @@
-drop type rtc_state cascade;

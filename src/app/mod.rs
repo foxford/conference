@@ -1,8 +1,7 @@
 use failure::{format_err, Error};
 use log::{error, info};
 use svc_agent::mqtt::{
-    compat::{self, IntoEnvelope},
-    Agent, AgentBuilder, ConnectionMode, Publish, QoS, SubscriptionTopic,
+    compat, Agent, AgentBuilder, ConnectionMode, Publish, QoS, SubscriptionTopic,
 };
 use svc_agent::{AgentId, SharedGroup, Subscription};
 use svc_authn::Authenticable;
@@ -54,35 +53,23 @@ pub(crate) fn run(db: &ConnectionPool) {
     )
     .expect("Error subscribing to everyone's output messages");
 
-    // TODO: derive a backend agent id from a status message
-    let backend_agent_id = AgentId::new("alpha", config.backend_id.clone());
-
     // Create Room resource
     let room = room::State::new(authz.clone(), db.clone());
 
     // Create Real-Time Connection resource
     let rtc = rtc::State::new(authz.clone(), db.clone());
 
-    // Create Signal resource
-    let signal = signal::State::new(authz.clone(), db.clone());
+    // Create Rtc Stream resource
+    let rtc_stream = rtc_stream::State::new(authz.clone(), db.clone());
+
+    // Create Rtc Signal resource
+    let rtc_signal = rtc_signal::State::new(authz.clone(), db.clone());
 
     // Create System resource
-    let mut system = system::State::new(
-        authz.clone(),
-        db.clone(),
-        config.id.clone(),
-        backend_agent_id.clone(),
-    );
+    let system = system::State::new(authz.clone(), db.clone(), config.id.clone());
 
     // Create Backend resource
     let backend = janus::State::new(db.clone());
-
-    let system_session_request = janus::create_system_session_request(&config.backend_id)
-        .expect("Error preparing system session request")
-        .into_envelope()
-        .expect("Error preparing system session request envelope");
-    tx.publish(&system_session_request)
-        .expect("Error publishing system session request");
 
     for message in rx {
         match message {
@@ -104,9 +91,17 @@ pub(crate) fn run(db: &ConnectionPool) {
                         janus::handle_events(&mut tx, bytes, &backend)
                     }
                     val if val == &janus_responses_subscription_topic => {
-                        janus::handle_responses(&mut tx, bytes, &backend, &mut system)
+                        janus::handle_responses(&mut tx, bytes, &backend)
                     }
-                    _ => handle_message(&mut tx, bytes, &rtc, &signal, &room, &system),
+                    _ => handle_message(
+                        &mut tx,
+                        bytes,
+                        &rtc,
+                        &rtc_signal,
+                        &rtc_stream,
+                        &room,
+                        &system,
+                    ),
                 };
 
                 if let Err(err) = result {
@@ -128,7 +123,8 @@ fn handle_message(
     tx: &mut Agent,
     bytes: &[u8],
     rtc: &rtc::State,
-    signal: &signal::State,
+    rtc_signal: &rtc_signal::State,
+    rtc_stream: &rtc_stream::State,
     room: &room::State,
     system: &system::State,
 ) -> Result<(), Error> {
@@ -165,6 +161,12 @@ fn handle_message(
                 let next = rtc.create(&req)?;
                 next.publish(tx)
             }
+            "rtc.connect" => {
+                // TODO: catch and process errors: unprocessable entry
+                let req = compat::into_request(envelope)?;
+                let next = rtc.connect(&req)?;
+                next.publish(tx)
+            }
             "rtc.read" => {
                 // TODO: catch and process errors: not found, unprocessable entry
                 let req = compat::into_request(envelope)?;
@@ -177,10 +179,16 @@ fn handle_message(
                 let next = rtc.list(&req)?;
                 next.publish(tx)
             }
-            "signal.create" => {
+            "rtc_signal.create" => {
                 // TODO: catch and process errors: unprocessable entry
                 let req = compat::into_request(envelope)?;
-                let next = signal.create(&req)?;
+                let next = rtc_signal.create(&req)?;
+                next.publish(tx)
+            }
+            "rtc_stream.list" => {
+                // TODO: catch and process errors: unprocessable entry
+                let req = compat::into_request(envelope)?;
+                let next = rtc_stream.list(&req)?;
                 next.publish(tx)
             }
             "system.upload" => {
@@ -206,5 +214,6 @@ mod config;
 mod janus;
 mod room;
 mod rtc;
-mod signal;
+mod rtc_signal;
+mod rtc_stream;
 mod system;

@@ -64,7 +64,12 @@ pub(crate) struct CreateHandleRequest {
 }
 
 impl CreateHandleRequest {
-    pub(crate) fn new(transaction: &str, session_id: i64, plugin: &str, opaque_id: Option<&str>) -> Self {
+    pub(crate) fn new(
+        transaction: &str,
+        session_id: i64,
+        plugin: &str,
+        opaque_id: Option<&str>,
+    ) -> Self {
         Self {
             transaction: transaction.to_owned(),
             session_id,

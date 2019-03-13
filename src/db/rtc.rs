@@ -2,14 +2,13 @@ use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::{AgentId, Authenticable};
 use uuid::Uuid;
 
 use super::room::Object as Room;
 use crate::schema::rtc;
 
-pub type AllColumns = (rtc::id, rtc::state, rtc::room_id, rtc::created_at);
-pub const ALL_COLUMNS: AllColumns = (rtc::id, rtc::state, rtc::room_id, rtc::created_at);
+pub(crate) type AllColumns = (rtc::id, rtc::room_id, rtc::created_at);
+pub(crate) const ALL_COLUMNS: AllColumns = (rtc::id, rtc::room_id, rtc::created_at);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -18,8 +17,6 @@ pub const ALL_COLUMNS: AllColumns = (rtc::id, rtc::state, rtc::room_id, rtc::cre
 #[table_name = "rtc"]
 pub(crate) struct Object {
     id: Uuid,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    state: Option<RtcState>,
     room_id: Uuid,
     #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
@@ -32,33 +29,6 @@ impl Object {
 
     pub(crate) fn room_id(&self) -> Uuid {
         self.room_id
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Clone, Deserialize, Serialize, FromSqlRow, AsExpression)]
-#[sql_type = "sql::Rtc_state"]
-pub(crate) struct RtcState {
-    label: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sent_by: Option<AgentId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(serialize_with = "crate::serde::ts_seconds_option")]
-    sent_at: Option<DateTime<Utc>>,
-}
-
-impl RtcState {
-    pub(crate) fn new(
-        label: &str,
-        sent_by: Option<AgentId>,
-        sent_at: Option<DateTime<Utc>>,
-    ) -> Self {
-        Self {
-            label: label.to_owned(),
-            sent_by,
-            sent_at,
-        }
     }
 }
 
@@ -82,9 +52,9 @@ impl FindQuery {
         use diesel::prelude::*;
 
         match self.id {
-            Some(rtc_id) => rtc::table.find(rtc_id).get_result(conn).optional(),
+            Some(id) => rtc::table.find(id).get_result(conn).optional(),
             _ => Err(Error::QueryBuilderError(
-                "id or stored are required parameters of the query".into(),
+                "id is required parameters of the query".into(),
             )),
         }
     }
@@ -156,7 +126,7 @@ impl ListQuery {
         if let Some(limit) = self.limit {
             q = q.limit(limit);
         }
-        q.order_by(rtc::created_at).get_results(conn)
+        q.order_by(rtc::created_at.desc()).get_results(conn)
     }
 }
 
@@ -180,108 +150,4 @@ impl InsertQuery {
 
         diesel::insert_into(rtc).values(self).get_result(conn)
     }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Identifiable, AsChangeset)]
-#[table_name = "rtc"]
-pub(crate) struct UpdateQuery<'a> {
-    id: Uuid,
-    state: Option<&'a RtcState>,
-}
-
-impl<'a> UpdateQuery<'a> {
-    pub(crate) fn new(id: Uuid) -> Self {
-        Self { id, state: None }
-    }
-
-    pub(crate) fn state(mut self, state: &'a RtcState) -> Self {
-        self.state = Some(state);
-        self
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use diesel::prelude::*;
-
-        diesel::update(self).set(self).get_result(conn)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub(crate) fn update_state(
-    id: Uuid,
-    agent_id: &AgentId,
-    conn: &PgConnection,
-) -> Result<Object, Error> {
-    use diesel::prelude::*;
-
-    let q = format!(
-        "update rtc set state.sent_at = now() where id = '{id}' ::uuid and (state).sent_by = '(\"({agent_label},{audience})\",\"{label}\")' ::agent_id returning *",
-        id = id,
-        label = agent_id.label(),
-        audience = agent_id.as_account_id().audience(),
-        agent_label = agent_id.as_account_id().label(),
-    );
-    diesel::sql_query(q).get_result(conn)
-}
-
-// NOTE: erase all state fields but 'label' in order to be able to recognize a previously created rtc
-pub(crate) fn delete_state(
-    id: Uuid,
-    agent_id: &AgentId,
-    conn: &PgConnection,
-) -> Result<Object, Error> {
-    use diesel::prelude::*;
-
-    let q = format!(
-        "update rtc set state.sent_by = null, state.sent_at = null where id = '{id}' ::uuid and (state).sent_by = '(\"({agent_label},{audience})\",\"{label}\")' ::agent_id returning *",
-        id = id,
-        label = agent_id.label(),
-        audience = agent_id.as_account_id().audience(),
-        agent_label = agent_id.as_account_id().label(),
-    );
-    diesel::sql_query(q).get_result(conn)
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub mod sql {
-
-    use chrono::{DateTime, Utc};
-    use diesel::deserialize::{self, FromSql};
-    use diesel::pg::Pg;
-    use diesel::serialize::{self, Output, ToSql, WriteTuple};
-    use diesel::sql_types::{Nullable, Record, Text, Timestamptz};
-    use std::io::Write;
-    use svc_agent::sql::Agent_id;
-    use svc_agent::AgentId;
-
-    use super::RtcState;
-
-    #[derive(SqlType, QueryId)]
-    #[postgres(type_name = "rtc_state")]
-    #[allow(non_camel_case_types)]
-    pub struct Rtc_state;
-
-    impl ToSql<Rtc_state, Pg> for RtcState {
-        fn to_sql<W: Write>(&self, out: &mut Output<W, Pg>) -> serialize::Result {
-            WriteTuple::<(Text, Nullable<Agent_id>, Nullable<Timestamptz>)>::write_tuple(
-                &(&self.label, &self.sent_by, &self.sent_at),
-                out,
-            )
-        }
-    }
-
-    impl FromSql<Rtc_state, Pg> for RtcState {
-        fn from_sql(bytes: Option<&[u8]>) -> deserialize::Result<Self> {
-            let (label, sent_by, sent_at): (String, Option<AgentId>, Option<DateTime<Utc>>) =
-                FromSql::<Record<(Text, Nullable<Agent_id>, Nullable<Timestamptz>)>, Pg>::from_sql(
-                    bytes,
-                )?;
-            Ok(RtcState::new(&label, sent_by, sent_at))
-        }
-    }
-
 }

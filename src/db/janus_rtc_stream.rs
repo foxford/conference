@@ -2,11 +2,11 @@ use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::Serialize;
-use svc_agent::AgentId;
 use std::ops::Bound;
+use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::schema::{rtc, janus_rtc_stream};
+use crate::schema::{janus_rtc_stream, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -156,19 +156,37 @@ impl ListQuery {
         }
 
         if let Some(room_id) = self.room_id {
-            return q.inner_join(rtc::table)
+            return q
+                .inner_join(rtc::table)
                 .filter(rtc::room_id.eq(room_id))
                 .select(ALL_COLUMNS)
                 .order_by(janus_rtc_stream::created_at.desc())
                 .get_results(conn);
         }
 
-        q.order_by(janus_rtc_stream::created_at.desc()).get_results(conn)
+        q.order_by(janus_rtc_stream::created_at.desc())
+            .get_results(conn)
     }
 }
 
-impl From<(Option<Uuid>, Option<Uuid>, Option<Time>, Option<i64>, Option<i64>)> for ListQuery {
-    fn from(value: (Option<Uuid>, Option<Uuid>, Option<Time>, Option<i64>, Option<i64>)) -> Self {
+impl
+    From<(
+        Option<Uuid>,
+        Option<Uuid>,
+        Option<Time>,
+        Option<i64>,
+        Option<i64>,
+    )> for ListQuery
+{
+    fn from(
+        value: (
+            Option<Uuid>,
+            Option<Uuid>,
+            Option<Time>,
+            Option<i64>,
+            Option<i64>,
+        ),
+    ) -> Self {
         Self {
             room_id: value.0,
             rtc_id: value.1,
@@ -215,7 +233,9 @@ impl<'a> InsertQuery<'a> {
         use crate::schema::janus_rtc_stream::dsl::janus_rtc_stream;
         use diesel::RunQueryDsl;
 
-        diesel::insert_into(janus_rtc_stream).values(self).get_result(conn)
+        diesel::insert_into(janus_rtc_stream)
+            .values(self)
+            .get_result(conn)
     }
 }
 
@@ -225,28 +245,32 @@ pub(crate) fn start(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Err
     use diesel::prelude::*;
     use diesel::sql_types::Uuid;
 
-    diesel::sql_query("\
-        update janus_rtc_stream \
-          set time = tstzrange(now(), null, '[)') \
-          where id = $1 \
-          returning *\
-        ")
-        .bind::<Uuid, _>(id)
-        .get_result(conn)
-        .optional()
+    diesel::sql_query(
+        "\
+         update janus_rtc_stream \
+         set time = tstzrange(now(), null, '[)') \
+         where id = $1 \
+         returning *\
+         ",
+    )
+    .bind::<Uuid, _>(id)
+    .get_result(conn)
+    .optional()
 }
 
 pub(crate) fn stop(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
     use diesel::prelude::*;
     use diesel::sql_types::Uuid;
 
-    diesel::sql_query("\
-          update janus_rtc_stream \
-            set time = case when time is not null then tstzrange(lower(time), now(), '[)') end \
-            where id = $1 \
-            returning *\
-        ")
-        .bind::<Uuid, _>(id)
-        .get_result(conn)
-        .optional()
+    diesel::sql_query(
+        "\
+         update janus_rtc_stream \
+         set time = case when time is not null then tstzrange(lower(time), now(), '[)') end \
+         where id = $1 \
+         returning *\
+         ",
+    )
+    .bind::<Uuid, _>(id)
+    .get_result(conn)
+    .optional()
 }
