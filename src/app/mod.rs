@@ -66,7 +66,7 @@ pub(crate) fn run(db: &ConnectionPool) {
     let rtc_signal = rtc_signal::State::new(authz.clone(), db.clone());
 
     // Create System resource
-    let system = system::State::new(authz.clone(), db.clone(), config.id.clone());
+    let system = system::State::new(config.id.clone(), authz.clone(), db.clone());
 
     // Create Backend resource
     let backend = janus::State::new(db.clone());
