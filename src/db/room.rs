@@ -12,12 +12,18 @@ use crate::schema::{room, rtc};
 type AllColumns = (room::id, room::time, room::audience, room::created_at);
 const ALL_COLUMNS: AllColumns = (room::id, room::time, room::audience, room::created_at);
 
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Serialize, Identifiable, Queryable, QueryableByName)]
 #[table_name = "room"]
 pub(crate) struct Object {
     id: Uuid,
     #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
-    time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
+    time: Time,
     audience: String,
     created_at: DateTime<Utc>,
 }
@@ -31,7 +37,7 @@ impl Object {
         self.id
     }
 
-    pub(crate) fn time(&self) -> (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>) {
+    pub(crate) fn time(&self) -> Time {
         self.time
     }
 }
@@ -141,15 +147,12 @@ pub(crate) fn finished_without_recordings(
 #[table_name = "room"]
 pub(crate) struct InsertQuery<'a> {
     id: Option<Uuid>,
-    time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
+    time: Time,
     audience: &'a str,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(
-        time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
-        audience: &'a str,
-    ) -> Self {
+    pub(crate) fn new(time: Time, audience: &'a str) -> Self {
         Self {
             id: None,
             time,
@@ -199,7 +202,7 @@ pub(crate) struct UpdateQuery {
     id: Uuid,
     #[serde(default)]
     #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
-    time: Option<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>,
+    time: Option<Time>,
     audience: Option<String>,
 }
 
