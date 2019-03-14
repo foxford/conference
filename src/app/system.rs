@@ -39,26 +39,26 @@ pub(crate) type ObjectUploadEvent = OutgoingEvent<UploadEventData>;
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct State {
+    me: AccountId,
     authz: svc_authz::ClientMap,
     db: ConnectionPool,
-    id: AccountId,
 }
 
 impl State {
-    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool, id: AccountId) -> Self {
-        Self { authz, db, id }
+    pub(crate) fn new(me: AccountId, authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
+        Self { me, authz, db }
     }
 }
 
 impl State {
     pub(crate) fn upload(&self, inreq: &UploadRequest) -> Result<impl Publish, Error> {
-        // TODO: Use 'local' authz mode instead
-        if *inreq.properties().as_account_id() != self.id {
-            return Err(format_err!(
-                "Agent {} is not allowed to call system.upload method",
-                inreq.properties().as_agent_id()
-            ));
-        }
+        // Authorization: only trusted subjects are allowed to perform operations with the system
+        self.authz.authorize(
+            self.me.audience(),
+            inreq.properties(),
+            vec!["system"],
+            "update",
+        )?;
 
         // TODO: Update 'finished_without_recordings' in order to return (backend,room,rtc)
         let backends = {
