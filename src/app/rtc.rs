@@ -201,14 +201,14 @@ impl State {
         // Looking up for Real-Time Connections
         let objects = {
             let conn = self.db.get()?;
-            rtc::ListQuery::from_options(
+            rtc::ListQuery::from((
                 Some(room_id),
                 inreq.payload().offset,
                 Some(std::cmp::min(
                     inreq.payload().limit.unwrap_or_else(|| MAX_LIMIT),
                     MAX_LIMIT,
                 )),
-            )
+            ))
             .execute(&conn)?
         };
 

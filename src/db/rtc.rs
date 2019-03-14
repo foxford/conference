@@ -79,18 +79,6 @@ impl ListQuery {
         }
     }
 
-    pub(crate) fn from_options(
-        room_id: Option<Uuid>,
-        offset: Option<i64>,
-        limit: Option<i64>,
-    ) -> Self {
-        Self {
-            room_id: room_id,
-            offset: offset,
-            limit: limit,
-        }
-    }
-
     pub(crate) fn room_id(self, room_id: Uuid) -> Self {
         Self {
             room_id: Some(room_id),
@@ -129,6 +117,16 @@ impl ListQuery {
             q = q.limit(limit);
         }
         q.order_by(rtc::created_at.desc()).get_results(conn)
+    }
+}
+
+impl From<(Option<Uuid>, Option<i64>, Option<i64>)> for ListQuery {
+    fn from(value: (Option<Uuid>, Option<i64>, Option<i64>)) -> Self {
+        Self {
+            room_id: value.0,
+            offset: value.1,
+            limit: value.2,
+        }
     }
 }
 
