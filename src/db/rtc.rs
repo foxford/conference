@@ -82,24 +82,21 @@ impl ListQuery {
     pub(crate) fn room_id(self, room_id: Uuid) -> Self {
         Self {
             room_id: Some(room_id),
-            offset: self.offset,
-            limit: self.limit,
+            ..self
         }
     }
 
     pub(crate) fn offset(self, offset: i64) -> Self {
         Self {
-            room_id: self.room_id,
             offset: Some(offset),
-            limit: self.limit,
+            ..self
         }
     }
 
     pub(crate) fn limit(self, limit: i64) -> Self {
         Self {
-            room_id: self.room_id,
-            offset: self.offset,
             limit: Some(limit),
+            ..self
         }
     }
 

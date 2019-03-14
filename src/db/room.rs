@@ -57,14 +57,18 @@ impl FindQuery {
         }
     }
 
-    pub(crate) fn id(mut self, id: Uuid) -> Self {
-        self.id = Some(id);
-        self
+    pub(crate) fn id(self, id: Uuid) -> Self {
+        Self {
+            id: Some(id),
+            ..self
+        }
     }
 
-    pub(crate) fn rtc_id(mut self, rtc_id: Uuid) -> Self {
-        self.rtc_id = Some(rtc_id);
-        self
+    pub(crate) fn rtc_id(self, rtc_id: Uuid) -> Self {
+        Self {
+            rtc_id: Some(rtc_id),
+            ..self
+        }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
@@ -96,9 +100,11 @@ impl ListQuery {
         Self { finished: None }
     }
 
-    pub(crate) fn finished(mut self, finished: bool) -> Self {
-        self.finished = Some(finished);
-        self
+    pub(crate) fn finished(self, finished: bool) -> Self {
+        Self {
+            finished: Some(finished),
+            ..self
+        }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
@@ -163,8 +169,7 @@ impl<'a> InsertQuery<'a> {
     pub(crate) fn id(self, id: Uuid) -> Self {
         Self {
             id: Some(id),
-            time: self.time,
-            audience: self.audience,
+            ..self
         }
     }
 
