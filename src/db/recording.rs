@@ -1,13 +1,16 @@
-use std::ops::Bound;
-
 use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
+use std::ops::Bound;
 use uuid::Uuid;
 
 use super::rtc::Object as Rtc;
 use crate::schema::recording;
 
-pub type TimeIntervals = Vec<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>;
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Identifiable, Associations, Queryable)]
 #[belongs_to(Rtc, foreign_key = "rtc_id")]
@@ -15,24 +18,26 @@ pub type TimeIntervals = Vec<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>;
 #[table_name = "recording"]
 pub(crate) struct Object {
     rtc_id: Uuid,
-    time: TimeIntervals,
+    time: Vec<Time>,
 }
 
 impl Object {
-    pub fn decompose(self) -> (Uuid, TimeIntervals) {
+    pub fn into_tuple(self) -> (Uuid, Vec<Time>) {
         (self.rtc_id, self.time)
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Insertable)]
 #[table_name = "recording"]
 pub(crate) struct InsertQuery {
     rtc_id: Uuid,
-    time: TimeIntervals,
+    time: Vec<Time>,
 }
 
 impl InsertQuery {
-    pub(crate) fn new(rtc_id: Uuid, time: TimeIntervals) -> Self {
+    pub(crate) fn new(rtc_id: Uuid, time: Vec<Time>) -> Self {
         Self { rtc_id, time }
     }
 
