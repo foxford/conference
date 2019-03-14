@@ -122,7 +122,7 @@ where
         let time = recordings
             .into_iter()
             .flat_map(|r| {
-                let (_rtc_id, time) = r.decompose();
+                let (_rtc_id, time) = r.into_tuple();
                 time
             })
             .map(|(start, end)| {
