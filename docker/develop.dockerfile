@@ -69,6 +69,7 @@ RUN set -xe \
     && perl -pi -e 's/\t(enabled = ).*/\t${1}true/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t(json = ).*/\t${1}\"compact\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t#(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/service-agents\/alpha.janus-gateway.svc.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
+    && perl -pi -e 's/\t#(retain = ).*/\t${1}false/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t(subscribe_topic = ).*/\t${1}\"agents\/alpha.janus-gateway.svc.example.org\/api\/v1\/in\/conference.svc.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && perl -pi -e 's/\t(publish_topic = ).*/\t${1}\"apps\/janus-gateway.svc.example.org\/api\/v1\/responses\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
     && JANUS_MQTT_EVENTS_CONF='/opt/janus/etc/janus/janus.eventhandler.mqttevh.jcfg' \
@@ -77,7 +78,7 @@ RUN set -xe \
     && perl -pi -e 's/\t(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/service-agents\/events-alpha.janus-gateway.svc.example.org\"/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(topic = ).*/\t${1}\"apps\/janus-gateway.svc.example.org\/api\/v1\/events\"/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(will_enabled = ).*/\t${1}true/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && perl -pi -e 's/\t#(will_retain = ).*/\t${1}0/' "${JANUS_MQTT_EVENTS_CONF}" \
+    && perl -pi -e 's/\t#(will_retain = ).*/\t${1}false/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(will_qos = ).*/\t${1}1/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(connect_status = ).*/\t${1}\"{\\\"online\\\":true}\"/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(disconnect_status = ).*/\t${1}\"{\\\"online\\\":false}\"/' "${JANUS_MQTT_EVENTS_CONF}"
