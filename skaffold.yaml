@@ -14,4 +14,6 @@ build:
 deploy:
   kubectl:
     manifests:
-      - k8s/conference.yaml
+    - deploy/k8s/conference.yaml
+    - deploy/k8s/conference-config.yaml
+    - deploy/k8s/conference-environment.yaml
