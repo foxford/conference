@@ -115,11 +115,12 @@ impl State {
                 .execute(&conn)?
                 .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &id))?;
 
+            let rtc_id = id.to_string();
             let room_id = room.id().to_string();
             self.authz.authorize(
                 room.audience(),
                 inreq.properties(),
-                vec!["rooms", &room_id, "rtcs"],
+                vec!["rooms", &room_id, "rtcs", &rtc_id],
                 "read",
             )?;
         };
@@ -157,11 +158,12 @@ impl State {
                 .execute(&conn)?
                 .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &id))?;
 
+            let rtc_id = id.to_string();
             let room_id = room.id().to_string();
             self.authz.authorize(
                 room.audience(),
                 inreq.properties(),
-                vec!["rooms", &room_id, "rtcs"],
+                vec!["rooms", &room_id, "rtcs", &rtc_id],
                 "read",
             )?;
         };
