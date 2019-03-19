@@ -20,7 +20,7 @@ pub(crate) fn run(db: &ConnectionPool) {
         .expect("Error converting authz config to clients");
 
     // Agent
-    let agent_id = AgentId::new(&generate_agent_label(), config.id.clone());
+    let agent_id = AgentId::new(&config.agent_label, config.id.clone());
     info!("Agent id: {:?}", &agent_id);
     let group = SharedGroup::new("loadbalancer", agent_id.as_account_id().clone());
     let (mut tx, rx) = AgentBuilder::new(agent_id.clone())
@@ -201,13 +201,6 @@ fn handle_message(
         },
         _ => Err(format_err!("unsupported message type – {:?}", envelope)),
     }
-}
-
-fn generate_agent_label() -> String {
-    use rand::distributions::Alphanumeric;
-    use rand::{thread_rng, Rng};
-
-    thread_rng().sample_iter(&Alphanumeric).take(32).collect()
 }
 
 mod config;
