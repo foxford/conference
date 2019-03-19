@@ -32,6 +32,7 @@ FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/ca.crt"
 FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/docs.sh"
 FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/travis-run.sh"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/conference/ns/_/conference.yaml"
+FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/conference/ns/_/conference-headless.yaml"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/conference/ns/${NAMESPACE}/conference-config.yaml"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/conference/ns/${NAMESPACE}/conference-environment.yaml"
 
