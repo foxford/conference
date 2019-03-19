@@ -17,3 +17,4 @@ deploy:
     - deploy/k8s/conference.yaml
     - deploy/k8s/conference-config.yaml
     - deploy/k8s/conference-environment.yaml
+    - deploy/k8s/conference-headless.yaml

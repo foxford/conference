@@ -1,14 +1,13 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: conference
-  labels:
-    app: conference
 spec:
-  replicas: 1
+  serviceName: conference-headless
   selector:
     matchLabels:
       app: conference
+  replicas: 1
   template:
     metadata:
       labels:
@@ -29,6 +28,10 @@ spec:
                 secretKeyRef:
                   name: postgresql-conference-credentials
                   key: database_url
+            - name: APP_AGENT_LABEL
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           volumeMounts:
             - name: config
               mountPath: /app/App.toml
