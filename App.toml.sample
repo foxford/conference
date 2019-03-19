@@ -1,4 +1,5 @@
 id = "conference.svc.example.org"
+agent_label = "alpha"
 backend_id = "janus-gateway.svc.example.org"
 
 [authz."example.net"]
