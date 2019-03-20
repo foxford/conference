@@ -28,6 +28,7 @@ correlation_data | string | _required_ | The same value will be in a response.
 
 Name     | Type       | Default    | Description
 -------- | ---------- | ---------- | ------------------
+id       | string     | _required_ | The room identifier.
 time     | [int, int] | _optional_ | A [lt, rt) range of unix time (seconds) or null (unbounded).
 audience | string     | _optional_ | The room audience.
 
