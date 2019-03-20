@@ -28,13 +28,13 @@ subject                     |
 
 Possible values for `OBJECT` and `ACTION`:
 
-object / action                        | create | read | update | delete | list | subscribe |
--------------------------------------- | ------ | ---- | ------ | ------ | ---- | --------- |
-["rooms"]                              |      + |      |        |        |    + |           |
-["rooms", ROOM_ID]                     |        |    + |      + |      + |      |           |
-["rooms", ROOM_ID, "agents"]           |        |      |        |        |    + |           |
-["rooms", ROOM_ID, "agents", AGENT_ID] |        |    + |      + |        |      |           |
-["rooms", ROOM_ID, "rtcs"]             |      + |      |        |        |    + |           |
-["rooms", ROOM_ID, "rtcs", RTC_ID]     |        |    + |      + |      + |      |           |
-["rooms", ROOM_ID, "events"]           |        |      |        |        |      |         + |
-["audiences", AUDIENCE, "events"]      |        |      |        |        |      |         + |
+object / action                        | create | read | update | delete | list | subscribe
+-------------------------------------- | ------ | ---- | ------ | ------ | ---- | ---------
+["rooms"]                              |      + |      |        |        |    + |
+["rooms", ROOM_ID]                     |        |    + |      + |      + |      |
+["rooms", ROOM_ID, "agents"]           |        |      |        |        |    + |
+["rooms", ROOM_ID, "agents", AGENT_ID] |        |    + |      + |        |      |
+["rooms", ROOM_ID, "rtcs"]             |      + |      |        |        |    + |
+["rooms", ROOM_ID, "rtcs", RTC_ID]     |        |    + |      + |      + |      |
+["rooms", ROOM_ID, "events"]           |        |      |        |        |      |         +
+["audiences", AUDIENCE, "events"]      |        |      |        |        |      |         +
