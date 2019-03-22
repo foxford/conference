@@ -21,6 +21,7 @@ pub(crate) type ListRequest = IncomingRequest<ListRequestData>;
 pub(crate) struct ListRequestData {
     room_id: Uuid,
     rtc_id: Option<Uuid>,
+    #[serde(default)]
     #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
     time: Option<Time>,
     offset: Option<i64>,
