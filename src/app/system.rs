@@ -5,8 +5,7 @@ use svc_agent::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
     OutgoingResponse, Publish,
 };
-use svc_agent::Addressable;
-use svc_authn::{AccountId, Authenticable};
+use svc_authn::AccountId;
 use uuid::Uuid;
 
 use super::janus;
