@@ -1,11 +1,10 @@
-use std::ops::Bound;
-
 use chrono::{DateTime, Utc};
-use failure::{format_err, Error};
 use serde_derive::Deserialize;
+use std::ops::Bound;
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable,
+    compat::IntoEnvelope, IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publish,
 };
+use svc_error::Error;
 use uuid::Uuid;
 
 use crate::db::{room, ConnectionPool};
@@ -36,6 +35,7 @@ pub(crate) type ObjectResponse = OutgoingResponse<room::Object>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Clone)]
 pub(crate) struct State {
     authz: svc_authz::ClientMap,
     db: ConnectionPool,
@@ -48,7 +48,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
+    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, Error> {
         // Authorization: future room's owner has to allow the action
         self.authz.authorize(
             &inreq.payload().audience,
@@ -65,10 +65,10 @@ impl State {
         };
 
         let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
-        resp.into_envelope()
+        resp.into_envelope().map_err(Into::into)
     }
 
-    pub(crate) fn read(&self, inreq: &ReadRequest) -> Result<impl Publishable, Error> {
+    pub(crate) async fn read(&self, inreq: ReadRequest) -> Result<impl Publish, Error> {
         let room_id = inreq.payload().id.to_string();
 
         let object = {
@@ -76,7 +76,12 @@ impl State {
             room::FindQuery::new()
                 .id(inreq.payload().id)
                 .execute(&conn)?
-                .ok_or_else(|| format_err!("room with Id = {} is not found", room_id))?
+                .ok_or_else(|| {
+                    Error::builder()
+                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .detail(&format!("the room = '{}' is not found", &room_id))
+                        .build()
+                })?
         };
 
         // Authorization: room's owner has to allow the action
@@ -88,38 +93,10 @@ impl State {
         )?;
 
         let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
-        resp.into_envelope()
+        resp.into_envelope().map_err(Into::into)
     }
 
-    pub(crate) fn delete(&self, inreq: &DeleteRequest) -> Result<impl Publishable, Error> {
-        let room_id = inreq.payload().id.to_string();
-
-        let object = {
-            let conn = self.db.get()?;
-            room::FindQuery::new()
-                .id(inreq.payload().id)
-                .execute(&conn)?
-                .ok_or_else(|| format_err!("room with Id = {} is not found", room_id))?
-        };
-
-        // Authorization: room's owner has to allow the action
-        self.authz.authorize(
-            object.audience(),
-            inreq.properties(),
-            vec!["rooms", &room_id],
-            "delete",
-        )?;
-
-        let _ = {
-            let conn = self.db.get()?;
-            room::DeleteQuery::new(inreq.payload().id).execute(&conn)?
-        };
-
-        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
-        resp.into_envelope()
-    }
-
-    pub(crate) fn update(&self, inreq: &UpdateRequest) -> Result<impl Publishable, Error> {
+    pub(crate) async fn update(&self, inreq: UpdateRequest) -> Result<impl Publish, Error> {
         let room_id = inreq.payload().id().to_string();
 
         let object = {
@@ -127,7 +104,12 @@ impl State {
             room::FindQuery::new()
                 .id(inreq.payload().id())
                 .execute(&conn)?
-                .ok_or_else(|| format_err!("room with Id = {} is not found", room_id))?
+                .ok_or_else(|| {
+                    Error::builder()
+                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .detail(&format!("the room = '{}' is not found", &room_id))
+                        .build()
+                })?
         };
 
         // Authorization: room's owner has to allow the action
@@ -144,6 +126,39 @@ impl State {
         };
 
         let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
-        resp.into_envelope()
+        resp.into_envelope().map_err(Into::into)
+    }
+
+    pub(crate) async fn delete(&self, inreq: DeleteRequest) -> Result<impl Publish, Error> {
+        let room_id = inreq.payload().id.to_string();
+
+        let object = {
+            let conn = self.db.get()?;
+            room::FindQuery::new()
+                .id(inreq.payload().id)
+                .execute(&conn)?
+                .ok_or_else(|| {
+                    Error::builder()
+                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .detail(&format!("the room = '{}' is not found", &room_id))
+                        .build()
+                })?
+        };
+
+        // Authorization: room's owner has to allow the action
+        self.authz.authorize(
+            object.audience(),
+            inreq.properties(),
+            vec!["rooms", &room_id],
+            "delete",
+        )?;
+
+        let _ = {
+            let conn = self.db.get()?;
+            room::DeleteQuery::new(inreq.payload().id).execute(&conn)?
+        };
+
+        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
+        resp.into_envelope().map_err(Into::into)
     }
 }

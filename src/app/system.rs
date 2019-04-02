@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
-use failure::{format_err, Error};
+use failure::format_err;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
-    OutgoingResponse, Publish,
+    OutgoingResponse, OutgoingResponseStatus, Publish,
 };
 use svc_authn::AccountId;
+use svc_error::Error;
 use uuid::Uuid;
 
 use super::janus;
@@ -50,7 +51,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) fn upload(&self, inreq: &UploadRequest) -> Result<impl Publish, Error> {
+    pub(crate) async fn upload(&self, inreq: UploadRequest) -> Result<impl Publish, Error> {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         self.authz.authorize(
             self.me.audience(),
@@ -74,7 +75,7 @@ impl State {
             };
 
             for (room, rtc) in rooms.into_iter() {
-                let req = janus::upload_stream_request(
+                let backreq = janus::upload_stream_request(
                     inreq.properties().clone(),
                     backend.session_id(),
                     backend.handle_id(),
@@ -84,9 +85,14 @@ impl State {
                         &record_name(&rtc),
                     ),
                     backend.id(),
-                )?;
-
-                requests.push(req.into_envelope()?);
+                )
+                .map_err(|_| {
+                    Error::builder()
+                        .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                        .detail("error creating a backend request")
+                        .build()
+                })?;
+                requests.push(backreq.into_envelope().map_err(Error::from)?);
             }
         }
 
@@ -99,7 +105,7 @@ impl State {
 pub(crate) fn upload_event<I>(
     room: room::Object,
     rtc_and_recordings: I,
-) -> Result<ObjectUploadEvent, Error>
+) -> Result<ObjectUploadEvent, failure::Error>
 where
     I: Iterator<Item = (rtc::Object, Vec<recording::Object>)>,
 {

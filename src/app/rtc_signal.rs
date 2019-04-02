@@ -1,11 +1,12 @@
-use failure::{err_msg, format_err, Error};
+use failure::{err_msg, format_err};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::fmt;
 use std::str::FromStr;
 use svc_agent::mqtt::compat::IntoEnvelope;
-use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, Publishable};
+use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publish};
 use svc_agent::{Addressable, AgentId};
+use svc_error::Error;
 use uuid::Uuid;
 
 use crate::app::janus;
@@ -50,10 +51,15 @@ impl State {
 }
 
 impl State {
-    pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
+    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, Error> {
         let handle_id = &inreq.payload().handle_id;
         let jsep = &inreq.payload().jsep;
-        let sdp_type = parse_sdp_type(jsep)?;
+        let sdp_type = parse_sdp_type(jsep).map_err(|e| {
+            Error::builder()
+                .status(OutgoingResponseStatus::BAD_REQUEST)
+                .detail(&format!("invalid jsep format, {}", &e))
+                .build()
+        })?;
 
         // Authorization: room's owner has to allow the action
         let authorize = |action| -> Result<(), Error> {
@@ -63,22 +69,34 @@ impl State {
                 room::FindQuery::new()
                     .rtc_id(rtc_id)
                     .execute(&conn)?
-                    .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?
+                    .ok_or_else(|| {
+                        Error::builder()
+                            .status(OutgoingResponseStatus::NOT_FOUND)
+                            .detail(&format!("a room for the rtc = '{}' is not found", &rtc_id))
+                            .build()
+                    })?
             };
 
             let room_id = room.id().to_string();
             let rtc_id = rtc_id.to_string();
-            self.authz.authorize(
-                room.audience(),
-                inreq.properties(),
-                vec!["rooms", &room_id, "rtcs", &rtc_id],
-                action,
-            )
+            self.authz
+                .authorize(
+                    room.audience(),
+                    inreq.properties(),
+                    vec!["rooms", &room_id, "rtcs", &rtc_id],
+                    action,
+                )
+                .map_err(Into::into)
         };
 
         match sdp_type {
             SdpType::Offer => {
-                if is_sdp_recvonly(jsep)? {
+                if is_sdp_recvonly(jsep).map_err(|e| {
+                    Error::builder()
+                        .status(OutgoingResponseStatus::BAD_REQUEST)
+                        .detail(&format!("invalid jsep format, {}", &e))
+                        .build()
+                })? {
                     // Authorization
                     authorize("read")?;
 
@@ -89,19 +107,26 @@ impl State {
                         handle_id.rtc_id(),
                         jsep.clone(),
                         handle_id.backend_id(),
-                    )?;
-                    backreq.into_envelope()
+                    )
+                    .map_err(|_| {
+                        Error::builder()
+                            .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                            .detail("error creating a backend request")
+                            .build()
+                    })?;
+                    backreq.into_envelope().map_err(Into::into)
                 } else {
                     // Authorization
                     authorize("update")?;
 
                     // Updating the Real-Time Connection state
                     {
-                        let label = inreq
-                            .payload()
-                            .label
-                            .as_ref()
-                            .ok_or_else(|| err_msg("missing label"))?;
+                        let label = inreq.payload().label.as_ref().ok_or_else(|| {
+                            Error::builder()
+                                .status(OutgoingResponseStatus::BAD_REQUEST)
+                                .detail("missing label")
+                                .build()
+                        })?;
 
                         let conn = self.db.get()?;
                         janus_rtc_stream::InsertQuery::new(
@@ -122,11 +147,20 @@ impl State {
                         handle_id.rtc_id(),
                         jsep.clone(),
                         handle_id.backend_id(),
-                    )?;
-                    backreq.into_envelope()
+                    )
+                    .map_err(|_| {
+                        Error::builder()
+                            .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                            .detail("error creating a backend request")
+                            .build()
+                    })?;
+                    backreq.into_envelope().map_err(Into::into)
                 }
             }
-            SdpType::Answer => Err(err_msg("sdp_type = 'answer' is not allowed")),
+            SdpType::Answer => Err(Error::builder()
+                .status(OutgoingResponseStatus::BAD_REQUEST)
+                .detail("sdp_type = 'answer' is not allowed")
+                .build()),
             SdpType::IceCandidate => {
                 // Authorization
                 authorize("read")?;
@@ -137,8 +171,14 @@ impl State {
                     handle_id.janus_handle_id(),
                     jsep.clone(),
                     handle_id.backend_id(),
-                )?;
-                backreq.into_envelope()
+                )
+                .map_err(|_| {
+                    Error::builder()
+                        .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                        .detail("error creating a backend request")
+                        .build()
+                })?;
+                backreq.into_envelope().map_err(Into::into)
             }
         }
     }
@@ -153,7 +193,7 @@ enum SdpType {
     IceCandidate,
 }
 
-fn parse_sdp_type(jsep: &JsonValue) -> Result<SdpType, Error> {
+fn parse_sdp_type(jsep: &JsonValue) -> Result<SdpType, failure::Error> {
     // '{"type": "offer", "sdp": _}' or '{"type": "answer", "sdp": _}'
     let sdp_type = jsep.get("type");
     // '{"sdpMid": _, "sdpMLineIndex": _, "candidate": _}' or '{"completed": true}' or 'null'
@@ -178,7 +218,7 @@ fn parse_sdp_type(jsep: &JsonValue) -> Result<SdpType, Error> {
     }
 }
 
-fn is_sdp_recvonly(jsep: &JsonValue) -> Result<bool, Error> {
+fn is_sdp_recvonly(jsep: &JsonValue) -> Result<bool, failure::Error> {
     use webrtc_sdp::{attribute_type::SdpAttributeType, parse_sdp};
 
     let sdp = jsep.get("sdp").ok_or_else(|| err_msg("missing sdp"))?;
@@ -265,7 +305,7 @@ impl fmt::Display for HandleId {
 }
 
 impl FromStr for HandleId {
-    type Err = Error;
+    type Err = failure::Error;
 
     fn from_str(val: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = val.splitn(5, '.').collect();

@@ -1,8 +1,7 @@
-use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::compat::IntoEnvelope;
-use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publishable};
-
+use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publish};
+use svc_error::Error;
 use uuid::Uuid;
 
 use crate::app::janus;
@@ -74,7 +73,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) fn create(&self, inreq: &CreateRequest) -> Result<impl Publishable, Error> {
+    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, Error> {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -83,7 +82,12 @@ impl State {
             let room = room::FindQuery::new()
                 .id(room_id)
                 .execute(&conn)?
-                .ok_or_else(|| format_err!("the room = '{}' is not found", &room_id))?;
+                .ok_or_else(|| {
+                    Error::builder()
+                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .detail(&format!("the room = '{}' is not found", &room_id))
+                        .build()
+                })?;
 
             let room_id = room.id().to_string();
             self.authz.authorize(
@@ -101,10 +105,10 @@ impl State {
         };
 
         let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
-        resp.into_envelope()
+        resp.into_envelope().map_err(Into::into)
     }
 
-    pub(crate) fn connect(&self, inreq: &ConnectRequest) -> Result<impl Publishable, Error> {
+    pub(crate) async fn connect(&self, inreq: ConnectRequest) -> Result<impl Publish, Error> {
         let id = inreq.payload().id;
 
         // Authorization
@@ -113,7 +117,12 @@ impl State {
             let room = room::FindQuery::new()
                 .rtc_id(id)
                 .execute(&conn)?
-                .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &id))?;
+                .ok_or_else(|| {
+                    Error::builder()
+                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .detail(&format!("a room for the rtc = '{}' is not found", &id))
+                        .build()
+                })?;
 
             let rtc_id = id.to_string();
             let room_id = room.id().to_string();
@@ -131,9 +140,12 @@ impl State {
             let conn = self.db.get()?;
             janus_backend::ListQuery::new().limit(1).execute(&conn)?
         };
-        let backend = backends
-            .first()
-            .ok_or_else(|| err_msg("No backends are available"))?;
+        let backend = backends.first().ok_or_else(|| {
+            Error::builder()
+                .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                .detail("no available backends")
+                .build()
+        })?;
 
         // Building a Create Janus Gateway Handle request
         let backreq = janus::create_rtc_handle_request(
@@ -142,12 +154,18 @@ impl State {
             id,
             backend.session_id(),
             backend.id(),
-        )?;
+        )
+        .map_err(|_| {
+            Error::builder()
+                .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                .detail("error creating a backend request")
+                .build()
+        })?;
 
-        backreq.into_envelope()
+        backreq.into_envelope().map_err(Into::into)
     }
 
-    pub(crate) fn read(&self, inreq: &ReadRequest) -> Result<impl Publishable, Error> {
+    pub(crate) async fn read(&self, inreq: ReadRequest) -> Result<impl Publish, Error> {
         let id = inreq.payload().id;
 
         // Authorization
@@ -156,7 +174,12 @@ impl State {
             let room = room::FindQuery::new()
                 .rtc_id(id)
                 .execute(&conn)?
-                .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &id))?;
+                .ok_or_else(|| {
+                    Error::builder()
+                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .detail(&format!("a room for the rtc = '{}' is not found", &id))
+                        .build()
+                })?;
 
             let rtc_id = id.to_string();
             let room_id = room.id().to_string();
@@ -174,13 +197,18 @@ impl State {
             rtc::FindQuery::new()
                 .id(id)
                 .execute(&conn)?
-                .ok_or_else(|| format_err!("the rtc = '{}' is not found", &id))?
+                .ok_or_else(|| {
+                    Error::builder()
+                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .detail(&format!("the rtc = '{}' is not found", &id))
+                        .build()
+                })?
         };
         let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
-        resp.into_envelope()
+        resp.into_envelope().map_err(Into::into)
     }
 
-    pub(crate) fn list(&self, inreq: &ListRequest) -> Result<impl Publishable, Error> {
+    pub(crate) async fn list(&self, inreq: ListRequest) -> Result<impl Publish, Error> {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -189,7 +217,12 @@ impl State {
             let room = room::FindQuery::new()
                 .id(room_id)
                 .execute(&conn)?
-                .ok_or_else(|| format_err!("the room = '{}' is not found", &room_id))?;
+                .ok_or_else(|| {
+                    Error::builder()
+                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .detail(&format!("the room = '{}' is not found", &room_id))
+                        .build()
+                })?;
 
             let room_id = room.id().to_string();
             self.authz.authorize(
@@ -215,6 +248,6 @@ impl State {
         };
 
         let resp = inreq.to_response(objects, OutgoingResponseStatus::OK);
-        resp.into_envelope()
+        resp.into_envelope().map_err(Into::into)
     }
 }
