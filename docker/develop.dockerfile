@@ -83,7 +83,8 @@ RUN set -xe \
     && perl -pi -e 's/\t#(connect_status = ).*/\t${1}\"{\\\"online\\\":true}\"/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(disconnect_status = ).*/\t${1}\"{\\\"online\\\":false}\"/' "${JANUS_MQTT_EVENTS_CONF}" \
     && JANUS_CONFERENCE_PLUGIN_CONF='/opt/janus/etc/janus/janus.plugin.conference.toml' \
-    && printf '[recordings]\ndirectory = "/recordings\nenabled = false\n"'
+    && printf '[recordings]\ndirectory = "/recordings"\nenabled = false\n' >> "${JANUS_CONFERENCE_PLUGIN_CONF}" \
+    && printf '[uploading]\nsecret_access_key=""\naccess_key_id=""\nendpoint=""\nregion=""\n' >> "${JANUS_CONFERENCE_PLUGIN_CONF}"
 
 ## -----------------------------------------------------------------------------
 ## Installing VerneMQ
@@ -111,3 +112,13 @@ RUN set -xe \
     && perl -pi -e 's/(plugins.vmq_passwd = ).*/${1}off/s' "${VERNEMQ_CONF}" \
     && perl -pi -e 's/(plugins.vmq_acl = ).*/${1}off/s' "${VERNEMQ_CONF}" \
     && printf "\nplugins.mqttgw = on\nplugins.mqttgw.path = /app\n" >> "${VERNEMQ_CONF}"
+
+## -----------------------------------------------------------------------------
+## Install GStreamer
+## -----------------------------------------------------------------------------
+RUN set -xe \
+    && apt-get install -y \
+        gdb libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+        gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+        gstreamer1.0-libav libgstrtspserver-1.0-dev
