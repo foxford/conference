@@ -10,12 +10,11 @@
 Session.vim
 
 # Rust
-/target/
+/target
 
 # Project
 App.toml
-/docs/book/
+/docs/book
 .idea
 .vscode
-.env
 deploy
