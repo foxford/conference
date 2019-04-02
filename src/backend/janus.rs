@@ -111,6 +111,7 @@ pub(crate) struct MessageRequest {
     session_id: i64,
     handle_id: i64,
     body: JsonValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
     jsep: Option<JsonValue>,
 }
 
