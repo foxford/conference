@@ -5,6 +5,7 @@ use failure::{format_err, Error};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::sync::Arc;
 use svc_agent::mqtt::compat::{into_event, IncomingEnvelope, IntoEnvelope};
 use svc_agent::mqtt::{
     Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties,
@@ -339,8 +340,12 @@ impl State {
     }
 }
 
-pub(crate) fn handle_responses(tx: &mut Agent, bytes: &[u8], janus: &State) -> Result<(), Error> {
-    let envelope = serde_json::from_slice::<IncomingEnvelope>(bytes)?;
+pub(crate) async fn handle_responses(
+    tx: &mut Agent,
+    payload: Arc<Vec<u8>>,
+    janus: Arc<State>,
+) -> Result<(), Error> {
+    let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
     let message = into_event::<IncomingMessage>(envelope)?;
     match message.payload() {
         IncomingMessage::Success(ref inresp) => {
@@ -351,7 +356,7 @@ pub(crate) fn handle_responses(tx: &mut Agent, bytes: &[u8], janus: &State) -> R
 
                     // Creating Handle
                     let backreq = create_handle_request(session_id, message.properties())?;
-                    backreq.into_envelope()?.publish(tx)
+                    backreq.into_envelope()?.publish(tx).map_err(Into::into)
                 }
                 // Handle has been created
                 Transaction::CreateHandle(tn) => {
@@ -384,7 +389,7 @@ pub(crate) fn handle_responses(tx: &mut Agent, bytes: &[u8], janus: &State) -> R
                         &reqp,
                     );
 
-                    resp.into_envelope()?.publish(tx)
+                    resp.into_envelope()?.publish(tx).map_err(Into::into)
                 }
                 // An unsupported incoming Success message has been received
                 _ => Err(format_err!(
@@ -408,7 +413,7 @@ pub(crate) fn handle_responses(tx: &mut Agent, bytes: &[u8], janus: &State) -> R
                         tn.reqp.as_agent_id(),
                     );
 
-                    resp.into_envelope()?.publish(tx)
+                    resp.into_envelope()?.publish(tx).map_err(Into::into)
                 }
                 // An unsupported incoming Ack message has been received
                 _ => Err(format_err!(
@@ -453,7 +458,7 @@ pub(crate) fn handle_responses(tx: &mut Agent, bytes: &[u8], janus: &State) -> R
                         tn.reqp.as_agent_id(),
                     );
 
-                    resp.into_envelope()?.publish(tx)
+                    resp.into_envelope()?.publish(tx).map_err(Into::into)
                 }
                 // Conference Stream has been read (an answer received)
                 Transaction::ReadStream(tn) => {
@@ -489,7 +494,7 @@ pub(crate) fn handle_responses(tx: &mut Agent, bytes: &[u8], janus: &State) -> R
                         tn.reqp.as_agent_id(),
                     );
 
-                    resp.into_envelope()?.publish(tx)
+                    resp.into_envelope()?.publish(tx).map_err(Into::into)
                 }
                 Transaction::UploadStream(tn) => {
                     let reqp = tn.reqp;
@@ -595,8 +600,8 @@ pub(crate) fn handle_responses(tx: &mut Agent, bytes: &[u8], janus: &State) -> R
                     }
 
                     let rtcs_and_recordings = rtcs.into_iter().zip(recordings);
-                    let store_event = super::system::upload_event(room, rtcs_and_recordings)?;
-                    store_event.into_envelope()?.publish(tx)
+                    let store_event = crate::app::system::upload_event(room, rtcs_and_recordings)?;
+                    store_event.into_envelope()?.publish(tx).map_err(Into::into)
                 }
                 // An unsupported incoming Event message has been received
                 _ => Err(format_err!(
@@ -629,7 +634,7 @@ pub(crate) fn handle_responses(tx: &mut Agent, bytes: &[u8], janus: &State) -> R
                     .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
 
                 let event = crate::app::rtc_stream::update_event(room.id(), rtc_stream);
-                return event.into_envelope()?.publish(tx);
+                return event.into_envelope()?.publish(tx).map_err(Into::into);
             };
 
             Ok(())
@@ -650,7 +655,7 @@ pub(crate) fn handle_responses(tx: &mut Agent, bytes: &[u8], janus: &State) -> R
                     .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
 
                 let event = crate::app::rtc_stream::update_event(room.id(), rtc_stream);
-                return event.into_envelope()?.publish(tx);
+                return event.into_envelope()?.publish(tx).map_err(Into::into);
             }
 
             Ok(())
@@ -672,18 +677,21 @@ pub(crate) fn handle_responses(tx: &mut Agent, bytes: &[u8], janus: &State) -> R
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn handle_events(tx: &mut Agent, bytes: &[u8], janus: &State) -> Result<(), Error> {
-    let envelope = serde_json::from_slice::<IncomingEnvelope>(bytes)?;
+pub(crate) async fn handle_events(
+    tx: &mut Agent,
+    payload: Arc<Vec<u8>>,
+    janus: Arc<State>,
+) -> Result<(), Error> {
+    let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
     let inev = into_event::<StatusEvent>(envelope)?;
     let agent_id = convert_agent_id(inev.properties().as_agent_id());
 
     if let true = inev.payload().online() {
         let backreq = create_session_request(&agent_id)?;
-        backreq.into_envelope()?.publish(tx)
+        backreq.into_envelope()?.publish(tx).map_err(Into::into)
     } else {
         let conn = janus.db.get()?;
         let _ = janus_backend::DeleteQuery::new(&agent_id).execute(&conn)?;
-
         Ok(())
     }
 }

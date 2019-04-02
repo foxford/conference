@@ -1,6 +1,9 @@
+#![feature(await_macro, async_await, futures_api)]
+
 #[macro_use]
 extern crate diesel;
 
+use futures::executor;
 use std::env::var;
 
 fn main() {
@@ -18,7 +21,7 @@ fn main() {
         crate::db::create_database_pool(&url, size)
     };
 
-    app::run(&db);
+    executor::block_on(app::run(&db)).expect("Error running an executor");
 }
 
 mod app;

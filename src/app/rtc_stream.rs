@@ -1,10 +1,10 @@
-use failure::{format_err, Error};
 use serde_derive::Deserialize;
 use svc_agent::mqtt::compat::IntoEnvelope;
 use svc_agent::mqtt::{
     IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
-    OutgoingResponseStatus, Publishable,
+    OutgoingResponseStatus, Publish,
 };
+use svc_error::Error;
 use uuid::Uuid;
 
 use crate::db::{janus_rtc_stream, janus_rtc_stream::Time, room, ConnectionPool};
@@ -45,7 +45,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) fn list(&self, inreq: &ListRequest) -> Result<impl Publishable, Error> {
+    pub(crate) async fn list(&self, inreq: ListRequest) -> Result<impl Publish, Error> {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -54,7 +54,12 @@ impl State {
             let room = room::FindQuery::new()
                 .id(room_id)
                 .execute(&conn)?
-                .ok_or_else(|| format_err!("the room = '{}' is not found", &room_id))?;
+                .ok_or_else(|| {
+                    Error::builder()
+                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .detail(&format!("the room = '{}' is not found", &room_id))
+                        .build()
+                })?;
 
             let room_id = room.id().to_string();
             self.authz.authorize(
@@ -81,7 +86,7 @@ impl State {
         };
 
         let resp = inreq.to_response(objects, OutgoingResponseStatus::OK);
-        resp.into_envelope()
+        resp.into_envelope().map_err(Into::into)
     }
 }
 
