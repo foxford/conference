@@ -1,5 +1,5 @@
 FROM netologygroup/mqtt-gateway:v0.9.0 as mqtt-gateway-plugin
-FROM netologygroup/janus-gateway:14ade6b as janus-gateway-plugin
+FROM netologygroup/janus-gateway:cbf60fa as janus-conference-plugin
 FROM debian:stretch
 
 ENV DEBIAN_FRONTEND noninteractive
@@ -56,7 +56,7 @@ RUN set -xe \
     && make configs \
     && rm -rf "${JANUS_GATEWAY_BUILD_DIR}"
 
-COPY --from=janus-gateway-plugin /opt/janus/lib/janus/plugins/*.so /opt/janus/lib/janus/plugins/
+COPY --from=janus-conference-plugin /opt/janus/lib/janus/plugins/*.so /opt/janus/lib/janus/plugins/
 
 ## -----------------------------------------------------------------------------
 ## Configuring Janus Gateway
@@ -81,7 +81,9 @@ RUN set -xe \
     && perl -pi -e 's/\t#(will_retain = ).*/\t${1}false/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(will_qos = ).*/\t${1}1/' "${JANUS_MQTT_EVENTS_CONF}" \
     && perl -pi -e 's/\t#(connect_status = ).*/\t${1}\"{\\\"online\\\":true}\"/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && perl -pi -e 's/\t#(disconnect_status = ).*/\t${1}\"{\\\"online\\\":false}\"/' "${JANUS_MQTT_EVENTS_CONF}"
+    && perl -pi -e 's/\t#(disconnect_status = ).*/\t${1}\"{\\\"online\\\":false}\"/' "${JANUS_MQTT_EVENTS_CONF}" \
+    && JANUS_CONFERENCE_PLUGIN_CONF='/opt/janus/etc/janus/janus.plugin.conference.toml' \
+    && printf '[recordings]\ndirectory = "/recordings\nenabled = false\n"'
 
 ## -----------------------------------------------------------------------------
 ## Installing VerneMQ
