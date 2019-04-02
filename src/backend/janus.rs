@@ -245,7 +245,6 @@ pub(crate) struct EventResponse {
     transaction: String,
     session_id: i64,
     sender: i64,
-    opaque_id: String,
     plugindata: EventResponsePluginData,
     jsep: Option<JsonValue>,
 }
