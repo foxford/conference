@@ -17,10 +17,10 @@ jobs:
   include:
     - stage: check
       name: Tests
-      script: cargo test
+      script: rustup override set nightly-2019-04-07 && cargo test
     - stage: check
       name : Rustfmt
-      install: rustup component add rustfmt
+      install: rustup override set nightly-2019-04-07 && rustup component add rustfmt
       script: cargo fmt -- --check
 #    - stage: check
 #      name: Clippy
