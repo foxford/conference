@@ -4,23 +4,21 @@ use log::{error, info};
 use std::sync::Arc;
 use std::thread;
 use svc_agent::mqtt::{
-    compat, compat::IntoEnvelope, Agent, AgentBuilder, ConnectionMode, IncomingRequestProperties,
-    Notification, OutgoingResponse, Publish, QoS, SubscriptionTopic,
+    compat, Agent, AgentBuilder, ConnectionMode, Notification, QoS, SubscriptionTopic,
 };
 use svc_agent::{AgentId, SharedGroup, Subscription};
 use svc_authn::Authenticable;
-use svc_error::ProblemDetails;
 
 use crate::db::ConnectionPool;
 
 ////////////////////////////////////////////////////////////////////////////////
 
 struct State {
-    room: room::State,
-    rtc: rtc::State,
-    rtc_signal: rtc_signal::State,
-    rtc_stream: rtc_stream::State,
-    system: system::State,
+    room: endpoint::room::State,
+    rtc: endpoint::rtc::State,
+    rtc_signal: endpoint::rtc_signal::State,
+    rtc_stream: endpoint::rtc_stream::State,
+    system: endpoint::system::State,
 }
 
 struct Route {
@@ -62,11 +60,11 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
 
     // Application resources
     let state = Arc::new(State {
-        room: room::State::new(authz.clone(), db.clone()),
-        rtc: rtc::State::new(authz.clone(), db.clone()),
-        rtc_signal: rtc_signal::State::new(authz.clone(), db.clone()),
-        rtc_stream: rtc_stream::State::new(authz.clone(), db.clone()),
-        system: system::State::new(config.id.clone(), authz.clone(), db.clone()),
+        room: endpoint::room::State::new(authz.clone(), db.clone()),
+        rtc: endpoint::rtc::State::new(authz.clone(), db.clone()),
+        rtc_signal: endpoint::rtc_signal::State::new(authz.clone(), db.clone()),
+        rtc_stream: endpoint::rtc_stream::State::new(authz.clone(), db.clone()),
+        system: endpoint::system::State::new(config.id.clone(), authz.clone(), db.clone()),
     });
 
     // Create Backend resource
@@ -119,7 +117,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
                         let bytes = &message.payload.as_slice();
                         let text = std::str::from_utf8(bytes).unwrap_or("[non-utf8 characters]");
                         info!(
-                            "incoming message = '{}' sent to the topic = '{}'",
+                            "Incoming message = '{}' sent to the topic = '{}'",
                             text, topic,
                         )
                     }
@@ -150,14 +148,14 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
                         let bytes = &message.payload.as_slice();
                         let text = std::str::from_utf8(bytes).unwrap_or("[non-utf8 characters]");
                         error!(
-                            "error processing a message = '{text}' sent to the topic = '{topic}', '{detail}'",
+                            "Error processing a message = '{text}' sent to the topic = '{topic}', '{detail}'",
                             text = text,
                             topic = topic,
                             detail = err,
                         )
                     }
                 }
-                _ => error!("an unsupported type of message = '{:?}'", message),
+                _ => error!("An unsupported type of message = '{:?}'", message),
             }
 
         }).unwrap();
@@ -171,6 +169,8 @@ async fn handle_message(
     payload: Arc<Vec<u8>>,
     state: Arc<State>,
 ) -> Result<(), Error> {
+    use endpoint::handle_error;
+
     let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(payload.as_slice())?;
     match envelope.properties() {
         compat::IncomingEnvelopeProperties::Request(ref req) => match req.method() {
@@ -306,32 +306,6 @@ async fn handle_message(
     }
 }
 
-fn handle_error(
-    kind: &str,
-    title: &str,
-    tx: &mut Agent,
-    props: &IncomingRequestProperties,
-    result: Result<impl Publish, impl svc_error::ProblemDetails>,
-) -> Result<(), Error> {
-    let next = match result {
-        Ok(val) => val.publish(tx),
-        Err(mut err) => {
-            // Wrapping the error
-            err.set_kind(kind, title);
-
-            let status = err.status_code();
-            OutgoingResponse::unicast(err, props.to_response(status), props)
-                .into_envelope()?
-                .publish(tx)
-        }
-    };
-    next.map_err(Into::into)
-}
-
 mod config;
+mod endpoint;
 mod janus;
-mod room;
-mod rtc;
-mod rtc_signal;
-mod rtc_stream;
-mod system;

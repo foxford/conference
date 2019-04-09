@@ -1,11 +1,9 @@
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::compat::IntoEnvelope;
 use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publish};
-use svc_error::Error;
+use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::janus;
-use crate::app::rtc_signal::HandleId;
 use crate::db::{janus_backend, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -46,11 +44,11 @@ pub(crate) struct ConnectRequestData {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct ConnectResponseData {
-    handle_id: HandleId,
+    handle_id: super::rtc_signal::HandleId,
 }
 
 impl ConnectResponseData {
-    pub(crate) fn new(handle_id: HandleId) -> Self {
+    pub(crate) fn new(handle_id: super::rtc_signal::HandleId) -> Self {
         Self { handle_id }
     }
 }
@@ -73,7 +71,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, Error> {
+    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, SvcError> {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -83,7 +81,7 @@ impl State {
                 .id(room_id)
                 .execute(&conn)?
                 .ok_or_else(|| {
-                    Error::builder()
+                    SvcError::builder()
                         .status(OutgoingResponseStatus::NOT_FOUND)
                         .detail(&format!("the room = '{}' is not found", &room_id))
                         .build()
@@ -105,10 +103,10 @@ impl State {
         };
 
         let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
-        resp.into_envelope().map_err(Into::into)
+        resp.into_envelope().map_err(SvcError::from)
     }
 
-    pub(crate) async fn connect(&self, inreq: ConnectRequest) -> Result<impl Publish, Error> {
+    pub(crate) async fn connect(&self, inreq: ConnectRequest) -> Result<impl Publish, SvcError> {
         let id = inreq.payload().id;
 
         // Authorization
@@ -118,7 +116,7 @@ impl State {
                 .rtc_id(id)
                 .execute(&conn)?
                 .ok_or_else(|| {
-                    Error::builder()
+                    SvcError::builder()
                         .status(OutgoingResponseStatus::NOT_FOUND)
                         .detail(&format!("a room for the rtc = '{}' is not found", &id))
                         .build()
@@ -141,14 +139,14 @@ impl State {
             janus_backend::ListQuery::new().limit(1).execute(&conn)?
         };
         let backend = backends.first().ok_or_else(|| {
-            Error::builder()
+            SvcError::builder()
                 .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
                 .detail("no available backends")
                 .build()
         })?;
 
         // Building a Create Janus Gateway Handle request
-        let backreq = janus::create_rtc_handle_request(
+        let backreq = crate::app::janus::create_rtc_handle_request(
             inreq.properties().clone(),
             Uuid::new_v4(),
             id,
@@ -156,16 +154,16 @@ impl State {
             backend.id(),
         )
         .map_err(|_| {
-            Error::builder()
+            SvcError::builder()
                 .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
                 .detail("error creating a backend request")
                 .build()
         })?;
 
-        backreq.into_envelope().map_err(Into::into)
+        backreq.into_envelope().map_err(SvcError::from)
     }
 
-    pub(crate) async fn read(&self, inreq: ReadRequest) -> Result<impl Publish, Error> {
+    pub(crate) async fn read(&self, inreq: ReadRequest) -> Result<impl Publish, SvcError> {
         let id = inreq.payload().id;
 
         // Authorization
@@ -175,7 +173,7 @@ impl State {
                 .rtc_id(id)
                 .execute(&conn)?
                 .ok_or_else(|| {
-                    Error::builder()
+                    SvcError::builder()
                         .status(OutgoingResponseStatus::NOT_FOUND)
                         .detail(&format!("a room for the rtc = '{}' is not found", &id))
                         .build()
@@ -198,17 +196,17 @@ impl State {
                 .id(id)
                 .execute(&conn)?
                 .ok_or_else(|| {
-                    Error::builder()
+                    SvcError::builder()
                         .status(OutgoingResponseStatus::NOT_FOUND)
                         .detail(&format!("the rtc = '{}' is not found", &id))
                         .build()
                 })?
         };
         let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
-        resp.into_envelope().map_err(Into::into)
+        resp.into_envelope().map_err(SvcError::from)
     }
 
-    pub(crate) async fn list(&self, inreq: ListRequest) -> Result<impl Publish, Error> {
+    pub(crate) async fn list(&self, inreq: ListRequest) -> Result<impl Publish, SvcError> {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -218,7 +216,7 @@ impl State {
                 .id(room_id)
                 .execute(&conn)?
                 .ok_or_else(|| {
-                    Error::builder()
+                    SvcError::builder()
                         .status(OutgoingResponseStatus::NOT_FOUND)
                         .detail(&format!("the room = '{}' is not found", &room_id))
                         .build()
@@ -248,6 +246,6 @@ impl State {
         };
 
         let resp = inreq.to_response(objects, OutgoingResponseStatus::OK);
-        resp.into_envelope().map_err(Into::into)
+        resp.into_envelope().map_err(SvcError::from)
     }
 }

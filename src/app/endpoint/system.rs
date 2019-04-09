@@ -1,15 +1,14 @@
 use chrono::{DateTime, Utc};
-use failure::format_err;
+use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
     OutgoingResponse, OutgoingResponseStatus, Publish,
 };
 use svc_authn::AccountId;
-use svc_error::Error;
+use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use super::janus;
 use crate::db::{janus_backend, recording, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -51,7 +50,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn upload(&self, inreq: UploadRequest) -> Result<impl Publish, Error> {
+    pub(crate) async fn upload(&self, inreq: UploadRequest) -> Result<impl Publish, SvcError> {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         self.authz.authorize(
             self.me.audience(),
@@ -75,11 +74,11 @@ impl State {
             };
 
             for (room, rtc) in rooms.into_iter() {
-                let backreq = janus::upload_stream_request(
+                let backreq = crate::app::janus::upload_stream_request(
                     inreq.properties().clone(),
                     backend.session_id(),
                     backend.handle_id(),
-                    janus::UploadStreamRequestBody::new(
+                    crate::app::janus::UploadStreamRequestBody::new(
                         rtc.id(),
                         &bucket_name(&room),
                         &record_name(&rtc),
@@ -88,12 +87,12 @@ impl State {
                 )
                 .map_err(|_| {
                     // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
-                    Error::builder()
+                    SvcError::builder()
                         .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
                         .detail("error creating a backend request")
                         .build()
                 })?;
-                requests.push(backreq.into_envelope().map_err(Error::from)?);
+                requests.push(backreq.into_envelope().map_err(SvcError::from)?);
             }
         }
 
@@ -106,7 +105,7 @@ impl State {
 pub(crate) fn upload_event<I>(
     room: room::Object,
     rtc_and_recordings: I,
-) -> Result<ObjectUploadEvent, failure::Error>
+) -> Result<ObjectUploadEvent, Error>
 where
     I: Iterator<Item = (rtc::Object, Vec<recording::Object>)>,
 {

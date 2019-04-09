@@ -12,8 +12,10 @@ use svc_agent::mqtt::{
     OutgoingResponseStatus, Publish,
 };
 use svc_agent::{Addressable, AgentId, Authenticable};
+use svc_error::Error as SvcError;
 use uuid::Uuid;
 
+use crate::app::endpoint;
 use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
     StatusEvent, TrickleRequest,
@@ -345,6 +347,8 @@ pub(crate) async fn handle_responses(
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
 ) -> Result<(), Error> {
+    use endpoint::handle_error;
+
     let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
     let message = into_event::<IncomingMessage>(envelope)?;
     match message.payload() {
@@ -375,9 +379,9 @@ pub(crate) async fn handle_responses(
                     let reqp = tn.reqp;
 
                     // Returning Real-Time connection handle
-                    let resp = crate::app::rtc::ConnectResponse::unicast(
-                        crate::app::rtc::ConnectResponseData::new(
-                            crate::app::rtc_signal::HandleId::new(
+                    let resp = endpoint::rtc::ConnectResponse::unicast(
+                        endpoint::rtc::ConnectResponseData::new(
+                            endpoint::rtc_signal::HandleId::new(
                                 tn.rtc_stream_id,
                                 tn.rtc_id,
                                 inresp.data().id(),
@@ -407,8 +411,8 @@ pub(crate) async fn handle_responses(
                 )),
                 // Trickle message has been received by Janus Gateway
                 Transaction::Trickle(tn) => {
-                    let resp = crate::app::rtc_signal::CreateResponse::unicast(
-                        crate::app::rtc_signal::CreateResponseData::new(None),
+                    let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                        endpoint::rtc_signal::CreateResponseData::new(None),
                         tn.reqp.to_response(OutgoingResponseStatus::OK),
                         tn.reqp.as_agent_id(),
                     );
@@ -428,75 +432,119 @@ pub(crate) async fn handle_responses(
                 Transaction::CreateStream(tn) => {
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
-                    let status = plugin_data.get("status").ok_or_else(|| {
-                        format_err!(
-                            "missing status in a response on method = {}, transaction = {}",
-                            tn.reqp.method(),
-                            inresp.transaction()
-                        )
-                    })?;
-                    if status != 200 {
-                        return Err(format_err!(
-                            "error received on method = {}, transaction = {}",
-                            tn.reqp.method(),
-                            inresp.transaction()
-                        ));
-                    }
+                    let next = plugin_data
+                        .get("status")
+                        .ok_or_else(|| {
+                            // We fail if response doesn't contain a status
+                            SvcError::builder()
+                                .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
+                                .detail(&format!(
+                                    "missing 'status' in a response on method = {}, transaction = {}",
+                                    tn.reqp.method(),
+                                    inresp.transaction()
+                                ))
+                                .build()
+                        })
+                        .and_then(|status| match status {
+                            // We fail if the status isn't equal to 200
+                            val if val == 200 => Ok(()),
+                            _ => Err(SvcError::builder()
+                                .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
+                                .detail(&format!(
+                                    "error received on method = {}, transaction = {}",
+                                    tn.reqp.method(),
+                                    inresp.transaction()
+                                ))
+                                .build()),
+                        })
+                        .and_then(|_| {
+                            // Getting answer (as JSEP)
+                            let jsep = inresp.jsep().ok_or_else(|| {
+                                SvcError::builder()
+                                    .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
+                                    .detail(&format!(
+                                        "missing 'jsep' in a response on method = {}, transaction = {}",
+                                        tn.reqp.method(),
+                                        inresp.transaction(),
+                                    ))
+                                    .build()
+                            })?;
 
-                    // Getting answer (as JSEP)
-                    let jsep = inresp.jsep().ok_or_else(|| {
-                        format_err!(
-                            "missing jsep in a response on method = {}, transaction = {}",
-                            tn.reqp.method(),
-                            inresp.transaction()
-                        )
-                    })?;
+                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                                tn.reqp.to_response(OutgoingResponseStatus::OK),
+                                tn.reqp.as_agent_id(),
+                            );
+                            resp.into_envelope().map_err(Into::into)
+                        });
 
-                    let resp = crate::app::rtc_signal::CreateResponse::unicast(
-                        crate::app::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                        tn.reqp.to_response(OutgoingResponseStatus::OK),
-                        tn.reqp.as_agent_id(),
-                    );
-
-                    resp.into_envelope()?.publish(tx).map_err(Into::into)
+                    handle_error(
+                        "error:janus_stream.create",
+                        "Error creating a Janus Conference plugin stream",
+                        tx,
+                        &tn.reqp,
+                        next,
+                    )
                 }
                 // Conference Stream has been read (an answer received)
                 Transaction::ReadStream(tn) => {
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
-                    let status = plugin_data.get("status").ok_or_else(|| {
-                        format_err!(
-                            "missing status in a response on method = {}, transaction = {}",
-                            tn.reqp.method(),
-                            inresp.transaction()
-                        )
-                    })?;
-                    if status != 200 {
-                        return Err(format_err!(
-                            "error received on method = {}, transaction = {}",
-                            tn.reqp.method(),
-                            inresp.transaction()
-                        ));
-                    }
+                    let next = plugin_data
+                        .get("status")
+                        .ok_or_else(|| {
+                            SvcError::builder()
+                                .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
+                                .detail(&format!(
+                                    "missing 'status' in a response on method = {}, transaction = {}",
+                                    tn.reqp.method(),
+                                    inresp.transaction()
+                                ))
+                                .build()
+                        })
+                        .and_then(|status| match status {
+                            val if val == 200 => Ok(()),
+                            _ => Err(SvcError::builder()
+                                .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
+                                .detail(&format!(
+                                    "error received on method = {}, transaction = {}",
+                                    tn.reqp.method(),
+                                    inresp.transaction()
+                                ))
+                                .build()),
+                        })
+                        .and_then(|_| {
+                            // Getting answer (as JSEP)
+                            let jsep = inresp.jsep().ok_or_else(|| {
+                                SvcError::builder()
+                                    .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
+                                    .detail(&format!(
+                                        "missing 'jsep' in a response on method = {}, transaction = {}",
+                                        tn.reqp.method(),
+                                        inresp.transaction(),
+                                    ))
+                                    .build()
+                            })?;
 
-                    // Getting answer (as JSEP)
-                    let jsep = inresp.jsep().ok_or_else(|| {
-                        format_err!(
-                            "missing jsep in a response on method = {}, transaction = {}",
-                            tn.reqp.method(),
-                            inresp.transaction()
-                        )
-                    })?;
+                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                                tn.reqp.to_response(OutgoingResponseStatus::OK),
+                                tn.reqp.as_agent_id(),
+                            );
+                            resp.into_envelope().map_err(Into::into)
+                        });
 
-                    let resp = crate::app::rtc_signal::CreateResponse::unicast(
-                        crate::app::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                        tn.reqp.to_response(OutgoingResponseStatus::OK),
-                        tn.reqp.as_agent_id(),
-                    );
-
-                    resp.into_envelope()?.publish(tx).map_err(Into::into)
+                    handle_error(
+                        "error:janus_stream.read",
+                        "Error reading a Janus Conference plugin stream",
+                        tx,
+                        &tn.reqp,
+                        next,
+                    )
                 }
+                // Conference Stream has been uploaded to a storage backend (a confirmation)
                 Transaction::UploadStream(tn) => {
+                    // TODO: improve error handling
                     let reqp = tn.reqp;
 
                     let response = inresp.plugin().data();
@@ -600,7 +648,7 @@ pub(crate) async fn handle_responses(
                     }
 
                     let rtcs_and_recordings = rtcs.into_iter().zip(recordings);
-                    let store_event = crate::app::system::upload_event(room, rtcs_and_recordings)?;
+                    let store_event = endpoint::system::upload_event(room, rtcs_and_recordings)?;
                     store_event.into_envelope()?.publish(tx).map_err(Into::into)
                 }
                 // An unsupported incoming Event message has been received
@@ -633,7 +681,7 @@ pub(crate) async fn handle_responses(
                     .execute(&conn)?
                     .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
 
-                let event = crate::app::rtc_stream::update_event(room.id(), rtc_stream);
+                let event = endpoint::rtc_stream::update_event(room.id(), rtc_stream);
                 return event.into_envelope()?.publish(tx).map_err(Into::into);
             };
 
@@ -654,7 +702,7 @@ pub(crate) async fn handle_responses(
                     .execute(&conn)?
                     .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
 
-                let event = crate::app::rtc_stream::update_event(room.id(), rtc_stream);
+                let event = endpoint::rtc_stream::update_event(room.id(), rtc_stream);
                 return event.into_envelope()?.publish(tx).map_err(Into::into);
             }
 
