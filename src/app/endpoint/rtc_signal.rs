@@ -1,4 +1,4 @@
-use failure::{err_msg, format_err};
+use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::fmt;
@@ -6,10 +6,9 @@ use std::str::FromStr;
 use svc_agent::mqtt::compat::IntoEnvelope;
 use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publish};
 use svc_agent::{Addressable, AgentId};
-use svc_error::Error;
+use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::janus;
 use crate::db::{janus_rtc_stream, room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -51,18 +50,18 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, Error> {
+    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, SvcError> {
         let handle_id = &inreq.payload().handle_id;
         let jsep = &inreq.payload().jsep;
         let sdp_type = parse_sdp_type(jsep).map_err(|e| {
-            Error::builder()
+            SvcError::builder()
                 .status(OutgoingResponseStatus::BAD_REQUEST)
                 .detail(&format!("invalid jsep format, {}", &e))
                 .build()
         })?;
 
         // Authorization: room's owner has to allow the action
-        let authorize = |action| -> Result<(), Error> {
+        let authorize = |action| -> Result<(), SvcError> {
             let rtc_id = handle_id.rtc_id();
             let room = {
                 let conn = self.db.get()?;
@@ -70,7 +69,7 @@ impl State {
                     .rtc_id(rtc_id)
                     .execute(&conn)?
                     .ok_or_else(|| {
-                        Error::builder()
+                        SvcError::builder()
                             .status(OutgoingResponseStatus::NOT_FOUND)
                             .detail(&format!("a room for the rtc = '{}' is not found", &rtc_id))
                             .build()
@@ -92,7 +91,7 @@ impl State {
         match sdp_type {
             SdpType::Offer => {
                 if is_sdp_recvonly(jsep).map_err(|e| {
-                    Error::builder()
+                    SvcError::builder()
                         .status(OutgoingResponseStatus::BAD_REQUEST)
                         .detail(&format!("invalid jsep format, {}", &e))
                         .build()
@@ -100,7 +99,7 @@ impl State {
                     // Authorization
                     authorize("read")?;
 
-                    let backreq = janus::read_stream_request(
+                    let backreq = crate::app::janus::read_stream_request(
                         inreq.properties().clone(),
                         handle_id.janus_session_id(),
                         handle_id.janus_handle_id(),
@@ -109,7 +108,7 @@ impl State {
                         handle_id.backend_id(),
                     )
                     .map_err(|_| {
-                        Error::builder()
+                        SvcError::builder()
                             .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
                             .detail("error creating a backend request")
                             .build()
@@ -122,7 +121,7 @@ impl State {
                     // Updating the Real-Time Connection state
                     {
                         let label = inreq.payload().label.as_ref().ok_or_else(|| {
-                            Error::builder()
+                            SvcError::builder()
                                 .status(OutgoingResponseStatus::BAD_REQUEST)
                                 .detail("missing label")
                                 .build()
@@ -140,7 +139,7 @@ impl State {
                         .execute(&conn)?;
                     }
 
-                    let backreq = janus::create_stream_request(
+                    let backreq = crate::app::janus::create_stream_request(
                         inreq.properties().clone(),
                         handle_id.janus_session_id(),
                         handle_id.janus_handle_id(),
@@ -149,7 +148,7 @@ impl State {
                         handle_id.backend_id(),
                     )
                     .map_err(|_| {
-                        Error::builder()
+                        SvcError::builder()
                             .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
                             .detail("error creating a backend request")
                             .build()
@@ -157,7 +156,7 @@ impl State {
                     backreq.into_envelope().map_err(Into::into)
                 }
             }
-            SdpType::Answer => Err(Error::builder()
+            SdpType::Answer => Err(SvcError::builder()
                 .status(OutgoingResponseStatus::BAD_REQUEST)
                 .detail("sdp_type = 'answer' is not allowed")
                 .build()),
@@ -165,7 +164,7 @@ impl State {
                 // Authorization
                 authorize("read")?;
 
-                let backreq = janus::trickle_request(
+                let backreq = crate::app::janus::trickle_request(
                     inreq.properties().clone(),
                     handle_id.janus_session_id(),
                     handle_id.janus_handle_id(),
@@ -173,7 +172,7 @@ impl State {
                     handle_id.backend_id(),
                 )
                 .map_err(|_| {
-                    Error::builder()
+                    SvcError::builder()
                         .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
                         .detail("error creating a backend request")
                         .build()
@@ -193,7 +192,7 @@ enum SdpType {
     IceCandidate,
 }
 
-fn parse_sdp_type(jsep: &JsonValue) -> Result<SdpType, failure::Error> {
+fn parse_sdp_type(jsep: &JsonValue) -> Result<SdpType, Error> {
     // '{"type": "offer", "sdp": _}' or '{"type": "answer", "sdp": _}'
     let sdp_type = jsep.get("type");
     // '{"sdpMid": _, "sdpMLineIndex": _, "candidate": _}' or '{"completed": true}' or 'null'
@@ -218,7 +217,7 @@ fn parse_sdp_type(jsep: &JsonValue) -> Result<SdpType, failure::Error> {
     }
 }
 
-fn is_sdp_recvonly(jsep: &JsonValue) -> Result<bool, failure::Error> {
+fn is_sdp_recvonly(jsep: &JsonValue) -> Result<bool, Error> {
     use webrtc_sdp::{attribute_type::SdpAttributeType, parse_sdp};
 
     let sdp = jsep.get("sdp").ok_or_else(|| err_msg("missing sdp"))?;
@@ -305,7 +304,7 @@ impl fmt::Display for HandleId {
 }
 
 impl FromStr for HandleId {
-    type Err = failure::Error;
+    type Err = Error;
 
     fn from_str(val: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = val.splitn(5, '.').collect();

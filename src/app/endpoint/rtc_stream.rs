@@ -4,7 +4,7 @@ use svc_agent::mqtt::{
     IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse,
     OutgoingResponseStatus, Publish,
 };
-use svc_error::Error;
+use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::db::{janus_rtc_stream, janus_rtc_stream::Time, room, ConnectionPool};
@@ -45,7 +45,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn list(&self, inreq: ListRequest) -> Result<impl Publish, Error> {
+    pub(crate) async fn list(&self, inreq: ListRequest) -> Result<impl Publish, SvcError> {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -55,7 +55,7 @@ impl State {
                 .id(room_id)
                 .execute(&conn)?
                 .ok_or_else(|| {
-                    Error::builder()
+                    SvcError::builder()
                         .status(OutgoingResponseStatus::NOT_FOUND)
                         .detail(&format!("the room = '{}' is not found", &room_id))
                         .build()

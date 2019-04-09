@@ -4,7 +4,7 @@ use std::ops::Bound;
 use svc_agent::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publish,
 };
-use svc_error::Error;
+use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::db::{room, ConnectionPool};
@@ -48,7 +48,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, Error> {
+    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, SvcError> {
         // Authorization: future room's owner has to allow the action
         self.authz.authorize(
             &inreq.payload().audience,
@@ -68,7 +68,7 @@ impl State {
         resp.into_envelope().map_err(Into::into)
     }
 
-    pub(crate) async fn read(&self, inreq: ReadRequest) -> Result<impl Publish, Error> {
+    pub(crate) async fn read(&self, inreq: ReadRequest) -> Result<impl Publish, SvcError> {
         let room_id = inreq.payload().id.to_string();
 
         let object = {
@@ -77,7 +77,7 @@ impl State {
                 .id(inreq.payload().id)
                 .execute(&conn)?
                 .ok_or_else(|| {
-                    Error::builder()
+                    SvcError::builder()
                         .status(OutgoingResponseStatus::NOT_FOUND)
                         .detail(&format!("the room = '{}' is not found", &room_id))
                         .build()
@@ -96,7 +96,7 @@ impl State {
         resp.into_envelope().map_err(Into::into)
     }
 
-    pub(crate) async fn update(&self, inreq: UpdateRequest) -> Result<impl Publish, Error> {
+    pub(crate) async fn update(&self, inreq: UpdateRequest) -> Result<impl Publish, SvcError> {
         let room_id = inreq.payload().id().to_string();
 
         let object = {
@@ -105,7 +105,7 @@ impl State {
                 .id(inreq.payload().id())
                 .execute(&conn)?
                 .ok_or_else(|| {
-                    Error::builder()
+                    SvcError::builder()
                         .status(OutgoingResponseStatus::NOT_FOUND)
                         .detail(&format!("the room = '{}' is not found", &room_id))
                         .build()
@@ -129,7 +129,7 @@ impl State {
         resp.into_envelope().map_err(Into::into)
     }
 
-    pub(crate) async fn delete(&self, inreq: DeleteRequest) -> Result<impl Publish, Error> {
+    pub(crate) async fn delete(&self, inreq: DeleteRequest) -> Result<impl Publish, SvcError> {
         let room_id = inreq.payload().id.to_string();
 
         let object = {
@@ -138,7 +138,7 @@ impl State {
                 .id(inreq.payload().id)
                 .execute(&conn)?
                 .ok_or_else(|| {
-                    Error::builder()
+                    SvcError::builder()
                         .status(OutgoingResponseStatus::NOT_FOUND)
                         .detail(&format!("the room = '{}' is not found", &room_id))
                         .build()
