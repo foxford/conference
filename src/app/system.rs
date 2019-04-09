@@ -87,6 +87,7 @@ impl State {
                     backend.id(),
                 )
                 .map_err(|_| {
+                    // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
                     Error::builder()
                         .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
                         .detail("error creating a backend request")
