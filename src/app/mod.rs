@@ -282,13 +282,13 @@ async fn handle_message(
                     next,
                 )
             }
-            "system.upload" => {
+            "system.vacuum" => {
                 let req = compat::into_request(envelope)?;
                 let props = req.properties().clone();
-                let next = await!(state.system.upload(req));
+                let next = await!(state.system.vacuum(req));
                 handle_error(
-                    "error:system.upload",
-                    "Error uploading recordings",
+                    "error:system.vacuum",
+                    "Error vacuuming data",
                     tx,
                     &props,
                     next,

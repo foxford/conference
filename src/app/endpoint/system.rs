@@ -19,12 +19,12 @@ pub(crate) type UploadRequest = IncomingRequest<UploadRequestData>;
 pub(crate) struct UploadRequestData {}
 
 #[derive(Debug, Serialize)]
-pub(crate) struct UploadEventData {
-    rtcs: Vec<UploadEventEntry>,
+pub(crate) struct RoomUploadEventData {
+    rtcs: Vec<RtcUploadEventData>,
 }
 
 #[derive(Debug, Serialize)]
-struct UploadEventEntry {
+struct RtcUploadEventData {
     id: Uuid,
     time: Vec<(i64, i64)>,
     #[serde(with = "chrono::serde::ts_milliseconds")]
@@ -32,8 +32,7 @@ struct UploadEventEntry {
     uri: String,
 }
 
-pub(crate) type ObjectResponse = OutgoingResponse<room::Object>;
-pub(crate) type ObjectUploadEvent = OutgoingEvent<UploadEventData>;
+pub(crate) type RoomUploadEvent = OutgoingEvent<RoomUploadEventData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -50,7 +49,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn upload(&self, inreq: UploadRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn vacuum(&self, inreq: UploadRequest) -> Result<impl Publish, SvcError> {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         self.authz.authorize(
             self.me.audience(),
@@ -103,9 +102,9 @@ impl State {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) fn upload_event<I>(
-    room: room::Object,
+    room: &room::Object,
     rtc_and_recordings: I,
-) -> Result<ObjectUploadEvent, Error>
+) -> Result<RoomUploadEvent, Error>
 where
     I: Iterator<Item = (rtc::Object, Vec<recording::Object>)>,
 {
@@ -149,7 +148,7 @@ where
             })
             .collect();
 
-        let entry = UploadEventEntry {
+        let entry = RtcUploadEventData {
             id: rtc.id(),
             uri: format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)),
             time,
@@ -160,7 +159,7 @@ where
     }
 
     let uri = format!("audiences/{}/events", room.audience());
-    let event = UploadEventData {
+    let event = RoomUploadEventData {
         rtcs: event_entries,
     };
 
