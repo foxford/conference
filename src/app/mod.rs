@@ -169,136 +169,129 @@ async fn handle_message(
     payload: Arc<Vec<u8>>,
     state: Arc<State>,
 ) -> Result<(), Error> {
-    use endpoint::handle_error;
+    use endpoint::{handle_badrequest, handle_response};
 
     let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(payload.as_slice())?;
     match envelope.properties() {
-        compat::IncomingEnvelopeProperties::Request(ref req) => match req.method() {
-            "room.create" => {
-                let req = compat::into_request(envelope)?;
-                let props = req.properties().clone();
-                let next = await!(state.room.create(req));
-                handle_error(
-                    "error:room.create",
-                    "Error creating a room",
-                    tx,
-                    &props,
-                    next,
-                )
+        compat::IncomingEnvelopeProperties::Request(ref reqp) => {
+            let reqp = reqp.clone();
+            match reqp.method() {
+                method @ "room.create" => {
+                    let error_title = "Error creating a room";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.room.create(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "room.read" => {
+                    let error_title = "Error reading the room";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.room.read(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "room.update" => {
+                    let error_title = "Error updating a room";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.room.update(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "room.delete" => {
+                    let error_title = "Error deleting a room";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.room.delete(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "rtc.create" => {
+                    let error_title = "Error creating the rtc";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.rtc.create(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "rtc.connect" => {
+                    let error_title = "Error connection to the rtc";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.rtc.connect(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "rtc.read" => {
+                    let error_title = "Error reading the rtc";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.rtc.read(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "rtc.list" => {
+                    let error_title = "Error listing rtcs";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.rtc.list(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "rtc_signal.create" => {
+                    let error_title = "Error creating a rtc signal";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.rtc_signal.create(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "rtc_stream.list" => {
+                    let error_title = "Error listing rtc streams";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.rtc_stream.list(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "system.vacuum" => {
+                    let error_title = "Error vacuuming data";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.system.vacuum(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                _ => Err(format_err!(
+                    "unsupported request method, envelope = '{:?}'",
+                    envelope
+                )),
             }
-            "room.read" => {
-                let req = compat::into_request(envelope)?;
-                let props = req.properties().clone();
-                let next = await!(state.room.read(req));
-                handle_error(
-                    "error:room.read",
-                    "Error reading the room",
-                    tx,
-                    &props,
-                    next,
-                )
-            }
-            "room.update" => {
-                let req = compat::into_request(envelope)?;
-                let props = req.properties().clone();
-                let next = await!(state.room.update(req));
-                handle_error(
-                    "error:room.update",
-                    "Error updating the room",
-                    tx,
-                    &props,
-                    next,
-                )
-            }
-            "room.delete" => {
-                let req = compat::into_request(envelope)?;
-                let props = req.properties().clone();
-                let next = await!(state.room.delete(req));
-                handle_error(
-                    "error:room.delete",
-                    "Error deleting the room",
-                    tx,
-                    &props,
-                    next,
-                )
-            }
-            "rtc.create" => {
-                let req = compat::into_request(envelope)?;
-                let props = req.properties().clone();
-                let next = await!(state.rtc.create(req));
-                handle_error(
-                    "error:rtc.create",
-                    "Error creating the rtc",
-                    tx,
-                    &props,
-                    next,
-                )
-            }
-            "rtc.connect" => {
-                let req = compat::into_request(envelope)?;
-                let props = req.properties().clone();
-                let next = await!(state.rtc.connect(req));
-                handle_error(
-                    "error:rtc.connect",
-                    "Error connection to the rtc",
-                    tx,
-                    &props,
-                    next,
-                )
-            }
-            "rtc.read" => {
-                let req = compat::into_request(envelope)?;
-                let props = req.properties().clone();
-                let next = await!(state.rtc.read(req));
-                handle_error("error:rtc.read", "Error reading the rtc", tx, &props, next)
-            }
-            "rtc.list" => {
-                let req = compat::into_request(envelope)?;
-                let props = req.properties().clone();
-                let next = await!(state.rtc.list(req));
-                handle_error("error:rtc.list", "Error listing rtcs", tx, &props, next)
-            }
-            "rtc_signal.create" => {
-                let req = compat::into_request(envelope)?;
-                let props = req.properties().clone();
-                let next = await!(state.rtc_signal.create(req));
-                handle_error(
-                    "error:rtc_signal.create",
-                    "Error creating a rtc signal",
-                    tx,
-                    &props,
-                    next,
-                )
-            }
-            "rtc_stream.list" => {
-                let req = compat::into_request(envelope)?;
-                let props = req.properties().clone();
-                let next = await!(state.rtc_stream.list(req));
-                handle_error(
-                    "error:rtc_stream.list",
-                    "Error listing rtc streams",
-                    tx,
-                    &props,
-                    next,
-                )
-            }
-            "system.vacuum" => {
-                let req = compat::into_request(envelope)?;
-                let props = req.properties().clone();
-                let next = await!(state.system.vacuum(req));
-                handle_error(
-                    "error:system.vacuum",
-                    "Error vacuuming data",
-                    tx,
-                    &props,
-                    next,
-                )
-            }
-            _ => Err(format_err!(
-                "unsupported request method, envelope = '{:?}'",
-                envelope
-            )),
-        },
+        }
         _ => Err(format_err!(
             "unsupported message type, envelope = '{:?}'",
             envelope

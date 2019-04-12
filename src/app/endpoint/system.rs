@@ -3,7 +3,7 @@ use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
-    OutgoingResponse, OutgoingResponseStatus, Publish,
+    OutgoingResponseStatus, Publish,
 };
 use svc_authn::AccountId;
 use svc_error::Error as SvcError;

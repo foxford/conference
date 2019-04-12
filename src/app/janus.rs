@@ -347,7 +347,7 @@ pub(crate) async fn handle_responses(
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
 ) -> Result<(), Error> {
-    use endpoint::handle_error;
+    use endpoint::handle_response;
 
     let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
     let message = into_event::<IncomingMessage>(envelope)?;
@@ -478,7 +478,7 @@ pub(crate) async fn handle_responses(
                             resp.into_envelope().map_err(Into::into)
                         });
 
-                    handle_error(
+                    handle_response(
                         "error:janus_stream.create",
                         "Error creating a Janus Conference Stream",
                         tx,
@@ -536,7 +536,7 @@ pub(crate) async fn handle_responses(
                             resp.into_envelope().map_err(Into::into)
                         });
 
-                    handle_error(
+                    handle_response(
                         "error:janus_stream.read",
                         "Error reading a Janus Conference Stream",
                         tx,
