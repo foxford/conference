@@ -1,7 +1,7 @@
 use std::ops::Bound;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
-use failure::{format_err, Error};
+use failure::{err_msg, format_err, Error};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -480,7 +480,7 @@ pub(crate) async fn handle_responses(
 
                     handle_error(
                         "error:janus_stream.create",
-                        "Error creating a Janus Conference plugin stream",
+                        "Error creating a Janus Conference Stream",
                         tx,
                         &tn.reqp,
                         next,
@@ -493,6 +493,7 @@ pub(crate) async fn handle_responses(
                     let next = plugin_data
                         .get("status")
                         .ok_or_else(|| {
+                            // We fail if response doesn't contain a status
                             SvcError::builder()
                                 .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
                                 .detail(&format!(
@@ -502,6 +503,7 @@ pub(crate) async fn handle_responses(
                                 ))
                                 .build()
                         })
+                        // We fail if the status isn't equal to 200
                         .and_then(|status| match status {
                             val if val == 200 => Ok(()),
                             _ => Err(SvcError::builder()
@@ -536,7 +538,7 @@ pub(crate) async fn handle_responses(
 
                     handle_error(
                         "error:janus_stream.read",
-                        "Error reading a Janus Conference plugin stream",
+                        "Error reading a Janus Conference Stream",
                         tx,
                         &tn.reqp,
                         next,
@@ -545,111 +547,139 @@ pub(crate) async fn handle_responses(
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
                 Transaction::UploadStream(tn) => {
                     // TODO: improve error handling
-                    let reqp = tn.reqp;
-
-                    let response = inresp.plugin().data();
-                    let status = response.get("status").ok_or_else(|| {
-                        format_err!(
-                            "missing status in a response on method = {}, transaction = {}",
-                            reqp.method(),
-                            inresp.transaction(),
-                        )
-                    })?;
-                    if status != 200 {
-                        return Err(format_err!(
-                            "error received on method = {}, transaction = {}",
-                            reqp.method(),
-                            inresp.transaction()
-                        ));
-                    }
-
-                    // TODO: deserialize response into struct
-                    let rtc_id = response
-                        .get("id")
+                    let plugin_data = inresp.plugin().data();
+                    let next = plugin_data
+                        .get("status")
                         .ok_or_else(|| {
+                            // We fail if response doesn't contain a status
                             format_err!(
-                                "missing rtc id in a response on method = {}, transaction = {}",
-                                reqp.method(),
-                                inresp.transaction()
+                                "missing 'status' in a response on method = {}",
+                                tn.reqp.method(),
                             )
-                        })?
-                        .as_str()
-                        .ok_or_else(|| {
-                            format_err!(
-                                "rtc_id is not a string on method = {}, transaction = {}",
-                                reqp.method(),
-                                inresp.transaction()
-                            )
+                        })
+                        // We fail if the status isn't equal to 200
+                        .and_then(|status| match status {
+                            val if val == 200 => Ok(()),
+                            _ => Err(format_err!(
+                                "error with status code = '{}' received in a response on method = {}",
+                                status,
+                                tn.reqp.method(),
+                            ))
+                        })
+                        .and_then(|_| {
+                            // TODO: deserialize response into struct
+                            let rtc_id = plugin_data
+                                .get("id")
+                                .ok_or_else(|| {
+                                    format_err!(
+                                        "missing 'rtc_id' in a response on method = {}",
+                                        tn.reqp.method(),
+                                    )
+                                })?
+                                .as_str()
+                                .ok_or_else(|| {
+                                    format_err!(
+                                        "'rtc_id' is not a string in a response on method = {}",
+                                        tn.reqp.method(),
+                                    )
+                                })
+                                .and_then(|val| {
+                                    Uuid::parse_str(val).map_err(|_| {
+                                        format_err!(
+                                            "'rtc_id' is not an UUID in a response on method = {}",
+                                            tn.reqp.method(),
+                                        )
+                                    })
+                                })?;
+
+                            let time = plugin_data
+                                .get("time")
+                                .ok_or_else(|| {
+                                    format_err!(
+                                        "missing 'time' in a response on method = {}",
+                                        tn.reqp.method(),
+                                    )
+                                })
+                                .and_then(|time| {
+                                    Ok(serde_json::from_value::<Vec<(u64, u64)>>(time.clone())
+                                        .map_err(|_| err_msg("invalid value for 'time'"))?
+                                        .into_iter()
+                                        .map(|(start, end)| {
+                                            let start_secs = start as i64 / 1000;
+                                            let start_nanos = ((start % 1000) * 1_000_000) as u32;
+                                            let start = Bound::Included(DateTime::<Utc>::from_utc(
+                                                NaiveDateTime::from_timestamp(start_secs, start_nanos),
+                                                Utc,
+                                            ));
+
+                                            let end_secs = end as i64 / 1000;
+                                            let end_nanos = ((end % 1000) * 1_000_000) as u32;
+                                            let end = Bound::Included(DateTime::<Utc>::from_utc(
+                                                NaiveDateTime::from_timestamp(end_secs, end_nanos),
+                                                Utc,
+                                            ));
+
+                                            (start, end)
+                                        })
+                                        .collect())
+                                })?;
+
+
+                            let (room, rtcs, recs) = {
+                                let conn = janus.db.get()?;
+
+                                recording::InsertQuery::new(rtc_id, time).execute(&conn)?;
+
+                                let rtc = rtc::FindQuery::new()
+                                    .id(rtc_id)
+                                    .execute(&conn)?
+                                    .ok_or_else(|| {
+                                        format_err!(
+                                            "the rtc = '{}' is not found",
+                                            tn.reqp.method(),
+                                        )
+                                    })?;
+
+                                let room = room::FindQuery::new()
+                                    .id(rtc.room_id())
+                                    .execute(&conn)?
+                                    .ok_or_else(|| {
+                                        format_err!(
+                                            "the room = '{}' is not found",
+                                            tn.reqp.method(),
+                                        )
+                                    })?;
+
+                                // TODO: move to db module
+                                use diesel::prelude::*;
+                                let rtcs = rtc::Object::belonging_to(&room).load(&conn)?;
+                                let recs = recording::Object::belonging_to(&rtcs).load(&conn)?.grouped_by(&rtcs);
+
+                                (room, rtcs, recs)
+                            };
+
+                            let mut events = Vec::new();
+
+                            // Waiting for all the room's rtc being uploaded
+                            if recs.iter().any(|r| r.is_empty()) {
+                                info!(
+                                    "postpone 'room.upload' event because still waiting for rtcs being uploaded for the room = '{}'",
+                                    room.id()
+                                );
+                                return Ok(events);
+                            }
+
+                            // Sending a final event
+                            let rtcs_and_recordings = rtcs.into_iter().zip(recs);
+                            let event = endpoint::system::upload_event(&room, rtcs_and_recordings)
+                                .map_err(|_| err_msg("error creating a system event"))?
+                                .into_envelope()?;
+
+                            events.push(event);
+                            Ok(events)
                         })?;
-                    let rtc_id = uuid::Uuid::parse_str(rtc_id)?;
 
-                    let conn = janus.db.get()?;
-
-                    let rtc = rtc::FindQuery::new()
-                        .id(rtc_id)
-                        .execute(&conn)?
-                        .ok_or_else(|| format_err!("the rtc = '{}' is not found", &rtc_id))?;
-
-                    let room = room::FindQuery::new()
-                        .id(rtc.room_id())
-                        .execute(&conn)?
-                        .ok_or_else(|| {
-                            format_err!("a room for rtc = '{}' is not found", &rtc.id())
-                        })?;
-
-                    let raw_value = response
-                        .get("time")
-                        .ok_or_else(|| {
-                            format_err!(
-                                "missing time in a response on method = {}, transaction = {}",
-                                reqp.method(),
-                                inresp.transaction()
-                            )
-                        })?
-                        .clone();
-
-                    let start_stop_timestamps =
-                        serde_json::from_value::<Vec<(u64, u64)>>(raw_value)?
-                            .into_iter()
-                            .map(|(start, end)| {
-                                let start_secs = start as i64 / 1000;
-                                let start_nanos = ((start % 1000) * 1_000_000) as u32;
-                                let start = Bound::Included(DateTime::<Utc>::from_utc(
-                                    NaiveDateTime::from_timestamp(start_secs, start_nanos),
-                                    Utc,
-                                ));
-
-                                let end_secs = end as i64 / 1000;
-                                let end_nanos = ((end % 1000) * 1_000_000) as u32;
-                                let end = Bound::Included(DateTime::<Utc>::from_utc(
-                                    NaiveDateTime::from_timestamp(end_secs, end_nanos),
-                                    Utc,
-                                ));
-
-                                (start, end)
-                            })
-                            .collect();
-
-                    recording::InsertQuery::new(rtc_id, start_stop_timestamps).execute(&conn)?;
-
-                    use diesel::prelude::*;
-
-                    let rtcs: Vec<rtc::Object> = rtc::Object::belonging_to(&room).load(&conn)?;
-                    let recordings: Vec<recording::Object> =
-                        recording::Object::belonging_to(&rtcs).load(&conn)?;
-                    let recordings = recordings.grouped_by(&rtcs);
-
-                    if recordings.iter().any(|r| r.is_empty()) {
-                        info!(
-                            "Some rtcs is not uploaded for room with Id = {} yet, so not sending 'room.upload' event",
-                            room.id()
-                        );
-                        return Ok(());
-                    }
-
-                    let rtcs_and_recordings = rtcs.into_iter().zip(recordings);
-                    let store_event = endpoint::system::upload_event(room, rtcs_and_recordings)?;
-                    store_event.into_envelope()?.publish(tx).map_err(Into::into)
+                    next.publish(tx).map_err(Into::into)
                 }
                 // An unsupported incoming Event message has been received
                 _ => Err(format_err!(
