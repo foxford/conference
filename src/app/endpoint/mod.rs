@@ -1,20 +1,22 @@
 use failure::Error;
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, Agent, IncomingRequestProperties, OutgoingResponse, Publish,
+    compat::IntoEnvelope, Agent, IncomingRequestProperties, OutgoingResponse,
+    OutgoingResponseStatus, Publish,
 };
 use svc_error::ProblemDetails;
 
-pub(crate) fn handle_error(
+pub(crate) fn handle_response(
     kind: &str,
     title: &str,
     tx: &mut Agent,
     props: &IncomingRequestProperties,
     result: Result<impl Publish, impl ProblemDetails>,
 ) -> Result<(), Error> {
-    let next = match result {
+    match result {
         Ok(val) => {
             // Publishing success response
-            val.publish(tx)
+            val.publish(tx)?;
+            Ok(())
         }
         Err(mut err) => {
             // Wrapping the error
@@ -25,10 +27,31 @@ pub(crate) fn handle_error(
                 OutgoingResponse::unicast(err, props.to_response(status), props).into_envelope()?;
 
             // Publishing error response
-            resp.publish(tx)
+            resp.publish(tx)?;
+            Ok(())
         }
-    };
-    next.map_err(Into::into)
+    }
+}
+
+pub(crate) fn handle_badrequest(
+    kind: &str,
+    title: &str,
+    tx: &mut Agent,
+    props: &IncomingRequestProperties,
+    err: &svc_agent::Error,
+) -> Result<(), Error> {
+    let status = OutgoingResponseStatus::BAD_REQUEST;
+    let err = svc_error::Error::builder()
+        .kind(kind, title)
+        .status(status)
+        .detail(&err.to_string())
+        .build();
+
+    let resp = OutgoingResponse::unicast(err, props.to_response(status), props).into_envelope()?;
+
+    // Publishing error response
+    resp.publish(tx)?;
+    Ok(())
 }
 
 pub(crate) mod room;
