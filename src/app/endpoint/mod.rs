@@ -54,6 +54,7 @@ pub(crate) fn handle_badrequest(
     Ok(())
 }
 
+pub(crate) mod message;
 pub(crate) mod room;
 pub(crate) mod rtc;
 pub(crate) mod rtc_signal;
