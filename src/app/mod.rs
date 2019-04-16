@@ -18,6 +18,7 @@ struct State {
     rtc: endpoint::rtc::State,
     rtc_signal: endpoint::rtc_signal::State,
     rtc_stream: endpoint::rtc_stream::State,
+    message: endpoint::message::State,
     system: endpoint::system::State,
 }
 
@@ -64,6 +65,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
         rtc: endpoint::rtc::State::new(authz.clone(), db.clone()),
         rtc_signal: endpoint::rtc_signal::State::new(authz.clone(), db.clone()),
         rtc_stream: endpoint::rtc_stream::State::new(authz.clone(), db.clone()),
+        message: endpoint::message::State::new(),
         system: endpoint::system::State::new(config.id.clone(), authz.clone(), db.clone()),
     });
 
@@ -271,6 +273,16 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = await!(state.rtc_stream.list(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "message.create" => {
+                    let error_title = "Error creating an agent signal";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.message.create(req));
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
