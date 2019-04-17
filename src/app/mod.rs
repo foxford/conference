@@ -4,7 +4,7 @@ use log::{error, info};
 use std::sync::Arc;
 use std::thread;
 use svc_agent::mqtt::{
-    compat, Agent, AgentBuilder, ConnectionMode, Notification, QoS, SubscriptionTopic,
+    compat, Agent, AgentBuilder, ConnectionMode, Notification, Publish, QoS, SubscriptionTopic,
 };
 use svc_agent::{AgentId, SharedGroup, Subscription};
 use svc_authn::Authenticable;
@@ -65,7 +65,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
         rtc: endpoint::rtc::State::new(authz.clone(), db.clone()),
         rtc_signal: endpoint::rtc_signal::State::new(authz.clone(), db.clone()),
         rtc_stream: endpoint::rtc_stream::State::new(authz.clone(), db.clone()),
-        message: endpoint::message::State::new(),
+        message: endpoint::message::State::new(config.id.clone()),
         system: endpoint::system::State::new(config.id.clone(), authz.clone(), db.clone()),
     });
 
@@ -77,7 +77,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
         janus_events_subscription_topic: {
             let subscription = Subscription::broadcast_events(&config.backend_id, "events/status");
             tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
-                .expect("Error subscribing to backend events");
+                .expect("Error subscribing to backend events topic");
 
             subscription
                 .subscription_topic(&agent_id)
@@ -86,7 +86,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
         janus_responses_subscription_topic: {
             let subscription = Subscription::broadcast_events(&config.backend_id, "responses");
             tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
-                .expect("Error subscribing to backend responses");
+                .expect("Error subscribing to backend responses topic");
 
             subscription
                 .subscription_topic(&agent_id)
@@ -126,14 +126,14 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
 
                     let result = match topic {
                         val if val == &route.janus_events_subscription_topic => {
-                            await!(janus::handle_events(
+                            await!(janus::handle_event(
                                 &mut tx,
                                 message.payload.clone(),
                                 backend.clone(),
                             ))
                         }
                         val if val == &route.janus_responses_subscription_topic => {
-                            await!(janus::handle_responses(
+                            await!(janus::handle_response(
                                 &mut tx,
                                 message.payload.clone(),
                                 backend.clone(),
@@ -303,6 +303,11 @@ async fn handle_message(
                     envelope
                 )),
             }
+        }
+        compat::IncomingEnvelopeProperties::Response(_) => {
+            let resp = compat::into_response(envelope)?;
+            let next = await!(state.message.callback(resp))?;
+            next.publish(tx).map_err(Into::into)
         }
         _ => Err(format_err!(
             "unsupported message type, envelope = '{:?}'",

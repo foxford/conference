@@ -342,7 +342,7 @@ impl State {
     }
 }
 
-pub(crate) async fn handle_responses(
+pub(crate) async fn handle_response(
     tx: &mut Agent,
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
@@ -755,7 +755,7 @@ pub(crate) async fn handle_responses(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) async fn handle_events(
+pub(crate) async fn handle_event(
     tx: &mut Agent,
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
