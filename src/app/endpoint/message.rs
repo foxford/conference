@@ -6,7 +6,7 @@ use svc_agent::mqtt::{
     OutgoingRequest, OutgoingRequestProperties, OutgoingResponse, OutgoingResponseProperties,
     OutgoingResponseStatus, Publish, SubscriptionTopic,
 };
-use svc_agent::{AccountId, AgentId, Subscription};
+use svc_agent::{AgentId, Subscription};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
@@ -28,11 +28,11 @@ pub(crate) type CreateIncomingResponse = IncomingResponse<JsonValue>;
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct State {
-    me: AccountId,
+    me: AgentId,
 }
 
 impl State {
-    pub(crate) fn new(me: AccountId) -> Self {
+    pub(crate) fn new(me: AgentId) -> Self {
         Self { me }
     }
 }
@@ -42,8 +42,8 @@ impl State {
         let to = &inreq.payload().agent_id;
         let payload = &inreq.payload().data;
 
-        let response_topic = Subscription::unicast_requests(Some(&self.me))
-            .subscription_topic(to)
+        let response_topic = Subscription::multicast_requests_from(to)
+            .subscription_topic(&self.me)
             .map_err(|_| {
                 SvcError::builder()
                     .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
