@@ -4,7 +4,7 @@ use serde_json::Value as JsonValue;
 use svc_agent::mqtt::{
     compat::IntoEnvelope, IncomingRequest, IncomingRequestProperties, IncomingResponse,
     OutgoingRequest, OutgoingRequestProperties, OutgoingResponse, OutgoingResponseProperties,
-    OutgoingResponseStatus, Publish, SubscriptionTopic,
+    Publish, ResponseStatus, SubscriptionTopic,
 };
 use svc_agent::{AgentId, Subscription};
 use svc_error::Error as SvcError;
@@ -46,14 +46,14 @@ impl State {
             .subscription_topic(&self.me)
             .map_err(|_| {
                 SvcError::builder()
-                    .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                     .detail("error building responses subscription topic")
                     .build()
             })?;
 
         let correlation_data = to_base64(inreq.properties()).map_err(|_| {
             SvcError::builder()
-                .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                 .detail("error encoding incoming request properties")
                 .build()
         })?;

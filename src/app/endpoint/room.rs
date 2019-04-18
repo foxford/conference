@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde_derive::Deserialize;
 use std::ops::Bound;
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publish,
+    compat::IntoEnvelope, IncomingRequest, OutgoingResponse, Publish, ResponseStatus,
 };
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -64,7 +64,7 @@ impl State {
                 .execute(&conn)?
         };
 
-        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
+        let resp = inreq.to_response(object, ResponseStatus::OK);
         resp.into_envelope().map_err(Into::into)
     }
 
@@ -78,7 +78,7 @@ impl State {
                 .execute(&conn)?
                 .ok_or_else(|| {
                     SvcError::builder()
-                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .status(ResponseStatus::NOT_FOUND)
                         .detail(&format!("the room = '{}' is not found", &room_id))
                         .build()
                 })?
@@ -92,7 +92,7 @@ impl State {
             "read",
         )?;
 
-        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
+        let resp = inreq.to_response(object, ResponseStatus::OK);
         resp.into_envelope().map_err(Into::into)
     }
 
@@ -106,7 +106,7 @@ impl State {
                 .execute(&conn)?
                 .ok_or_else(|| {
                     SvcError::builder()
-                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .status(ResponseStatus::NOT_FOUND)
                         .detail(&format!("the room = '{}' is not found", &room_id))
                         .build()
                 })?
@@ -125,7 +125,7 @@ impl State {
             inreq.payload().execute(&conn)?
         };
 
-        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
+        let resp = inreq.to_response(object, ResponseStatus::OK);
         resp.into_envelope().map_err(Into::into)
     }
 
@@ -139,7 +139,7 @@ impl State {
                 .execute(&conn)?
                 .ok_or_else(|| {
                     SvcError::builder()
-                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .status(ResponseStatus::NOT_FOUND)
                         .detail(&format!("the room = '{}' is not found", &room_id))
                         .build()
                 })?
@@ -158,7 +158,7 @@ impl State {
             room::DeleteQuery::new(inreq.payload().id).execute(&conn)?
         };
 
-        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
+        let resp = inreq.to_response(object, ResponseStatus::OK);
         resp.into_envelope().map_err(Into::into)
     }
 }

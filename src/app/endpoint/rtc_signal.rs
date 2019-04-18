@@ -4,7 +4,7 @@ use serde_json::Value as JsonValue;
 use std::fmt;
 use std::str::FromStr;
 use svc_agent::mqtt::compat::IntoEnvelope;
-use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publish};
+use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, Publish, ResponseStatus};
 use svc_agent::{Addressable, AgentId};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -55,7 +55,7 @@ impl State {
         let jsep = &inreq.payload().jsep;
         let sdp_type = parse_sdp_type(jsep).map_err(|e| {
             SvcError::builder()
-                .status(OutgoingResponseStatus::BAD_REQUEST)
+                .status(ResponseStatus::BAD_REQUEST)
                 .detail(&format!("invalid jsep format, {}", &e))
                 .build()
         })?;
@@ -70,7 +70,7 @@ impl State {
                     .execute(&conn)?
                     .ok_or_else(|| {
                         SvcError::builder()
-                            .status(OutgoingResponseStatus::NOT_FOUND)
+                            .status(ResponseStatus::NOT_FOUND)
                             .detail(&format!("a room for the rtc = '{}' is not found", &rtc_id))
                             .build()
                     })?
@@ -92,7 +92,7 @@ impl State {
             SdpType::Offer => {
                 if is_sdp_recvonly(jsep).map_err(|e| {
                     SvcError::builder()
-                        .status(OutgoingResponseStatus::BAD_REQUEST)
+                        .status(ResponseStatus::BAD_REQUEST)
                         .detail(&format!("invalid jsep format, {}", &e))
                         .build()
                 })? {
@@ -109,7 +109,7 @@ impl State {
                     )
                     .map_err(|_| {
                         SvcError::builder()
-                            .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                            .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                             .detail("error creating a backend request")
                             .build()
                     })?;
@@ -122,7 +122,7 @@ impl State {
                     {
                         let label = inreq.payload().label.as_ref().ok_or_else(|| {
                             SvcError::builder()
-                                .status(OutgoingResponseStatus::BAD_REQUEST)
+                                .status(ResponseStatus::BAD_REQUEST)
                                 .detail("missing label")
                                 .build()
                         })?;
@@ -149,7 +149,7 @@ impl State {
                     )
                     .map_err(|_| {
                         SvcError::builder()
-                            .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                            .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                             .detail("error creating a backend request")
                             .build()
                     })?;
@@ -157,7 +157,7 @@ impl State {
                 }
             }
             SdpType::Answer => Err(SvcError::builder()
-                .status(OutgoingResponseStatus::BAD_REQUEST)
+                .status(ResponseStatus::BAD_REQUEST)
                 .detail("sdp_type = 'answer' is not allowed")
                 .build()),
             SdpType::IceCandidate => {
@@ -173,7 +173,7 @@ impl State {
                 )
                 .map_err(|_| {
                     SvcError::builder()
-                        .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                         .detail("error creating a backend request")
                         .build()
                 })?;

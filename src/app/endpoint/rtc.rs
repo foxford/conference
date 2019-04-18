@@ -1,6 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::compat::IntoEnvelope;
-use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, OutgoingResponseStatus, Publish};
+use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, Publish, ResponseStatus};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
@@ -82,7 +82,7 @@ impl State {
                 .execute(&conn)?
                 .ok_or_else(|| {
                     SvcError::builder()
-                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .status(ResponseStatus::NOT_FOUND)
                         .detail(&format!("the room = '{}' is not found", &room_id))
                         .build()
                 })?;
@@ -102,7 +102,7 @@ impl State {
             rtc::InsertQuery::new(room_id).execute(&conn)?
         };
 
-        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
+        let resp = inreq.to_response(object, ResponseStatus::OK);
         resp.into_envelope().map_err(SvcError::from)
     }
 
@@ -117,7 +117,7 @@ impl State {
                 .execute(&conn)?
                 .ok_or_else(|| {
                     SvcError::builder()
-                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .status(ResponseStatus::NOT_FOUND)
                         .detail(&format!("a room for the rtc = '{}' is not found", &id))
                         .build()
                 })?;
@@ -140,7 +140,7 @@ impl State {
         };
         let backend = backends.first().ok_or_else(|| {
             SvcError::builder()
-                .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                 .detail("no available backends")
                 .build()
         })?;
@@ -155,7 +155,7 @@ impl State {
         )
         .map_err(|_| {
             SvcError::builder()
-                .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                 .detail("error creating a backend request")
                 .build()
         })?;
@@ -174,7 +174,7 @@ impl State {
                 .execute(&conn)?
                 .ok_or_else(|| {
                     SvcError::builder()
-                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .status(ResponseStatus::NOT_FOUND)
                         .detail(&format!("a room for the rtc = '{}' is not found", &id))
                         .build()
                 })?;
@@ -197,12 +197,12 @@ impl State {
                 .execute(&conn)?
                 .ok_or_else(|| {
                     SvcError::builder()
-                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .status(ResponseStatus::NOT_FOUND)
                         .detail(&format!("the rtc = '{}' is not found", &id))
                         .build()
                 })?
         };
-        let resp = inreq.to_response(object, OutgoingResponseStatus::OK);
+        let resp = inreq.to_response(object, ResponseStatus::OK);
         resp.into_envelope().map_err(SvcError::from)
     }
 
@@ -217,7 +217,7 @@ impl State {
                 .execute(&conn)?
                 .ok_or_else(|| {
                     SvcError::builder()
-                        .status(OutgoingResponseStatus::NOT_FOUND)
+                        .status(ResponseStatus::NOT_FOUND)
                         .detail(&format!("the room = '{}' is not found", &room_id))
                         .build()
                 })?;
@@ -245,7 +245,7 @@ impl State {
             .execute(&conn)?
         };
 
-        let resp = inreq.to_response(objects, OutgoingResponseStatus::OK);
+        let resp = inreq.to_response(objects, ResponseStatus::OK);
         resp.into_envelope().map_err(SvcError::from)
     }
 }

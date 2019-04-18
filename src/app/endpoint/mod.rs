@@ -1,7 +1,7 @@
 use failure::Error;
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, Agent, IncomingRequestProperties, OutgoingResponse,
-    OutgoingResponseStatus, Publish,
+    compat::IntoEnvelope, Agent, IncomingRequestProperties, OutgoingResponse, Publish,
+    ResponseStatus,
 };
 use svc_error::ProblemDetails;
 
@@ -40,7 +40,7 @@ pub(crate) fn handle_badrequest(
     props: &IncomingRequestProperties,
     err: &svc_agent::Error,
 ) -> Result<(), Error> {
-    let status = OutgoingResponseStatus::BAD_REQUEST;
+    let status = ResponseStatus::BAD_REQUEST;
     let err = svc_error::Error::builder()
         .kind(kind, title)
         .status(status)
