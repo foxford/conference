@@ -8,8 +8,8 @@ use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use svc_agent::mqtt::compat::{into_event, IncomingEnvelope, IntoEnvelope};
 use svc_agent::mqtt::{
-    Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties,
-    OutgoingResponseStatus, Publish,
+    Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties, Publish,
+    ResponseStatus,
 };
 use svc_agent::{Addressable, AgentId, Authenticable};
 use svc_error::Error as SvcError;
@@ -389,7 +389,7 @@ pub(crate) async fn handle_response(
                                 agent_id.clone(),
                             ),
                         ),
-                        reqp.to_response(OutgoingResponseStatus::OK),
+                        reqp.to_response(ResponseStatus::OK),
                         &reqp,
                     );
 
@@ -413,7 +413,7 @@ pub(crate) async fn handle_response(
                 Transaction::Trickle(tn) => {
                     let resp = endpoint::rtc_signal::CreateResponse::unicast(
                         endpoint::rtc_signal::CreateResponseData::new(None),
-                        tn.reqp.to_response(OutgoingResponseStatus::OK),
+                        tn.reqp.to_response(ResponseStatus::OK),
                         tn.reqp.as_agent_id(),
                     );
 
@@ -437,7 +437,7 @@ pub(crate) async fn handle_response(
                         .ok_or_else(|| {
                             // We fail if response doesn't contain a status
                             SvcError::builder()
-                                .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
+                                .status(ResponseStatus::FAILED_DEPENDENCY)
                                 .detail(&format!(
                                     "missing 'status' in a response on method = {}, transaction = {}",
                                     tn.reqp.method(),
@@ -449,7 +449,7 @@ pub(crate) async fn handle_response(
                             // We fail if the status isn't equal to 200
                             val if val == 200 => Ok(()),
                             _ => Err(SvcError::builder()
-                                .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
+                                .status(ResponseStatus::FAILED_DEPENDENCY)
                                 .detail(&format!(
                                     "error received on method = {}, transaction = {}",
                                     tn.reqp.method(),
@@ -461,7 +461,7 @@ pub(crate) async fn handle_response(
                             // Getting answer (as JSEP)
                             let jsep = inresp.jsep().ok_or_else(|| {
                                 SvcError::builder()
-                                    .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
+                                    .status(ResponseStatus::FAILED_DEPENDENCY)
                                     .detail(&format!(
                                         "missing 'jsep' in a response on method = {}, transaction = {}",
                                         tn.reqp.method(),
@@ -472,7 +472,7 @@ pub(crate) async fn handle_response(
 
                             let resp = endpoint::rtc_signal::CreateResponse::unicast(
                                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                                tn.reqp.to_response(OutgoingResponseStatus::OK),
+                                tn.reqp.to_response(ResponseStatus::OK),
                                 tn.reqp.as_agent_id(),
                             );
                             resp.into_envelope().map_err(Into::into)
@@ -495,7 +495,7 @@ pub(crate) async fn handle_response(
                         .ok_or_else(|| {
                             // We fail if response doesn't contain a status
                             SvcError::builder()
-                                .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
+                                .status(ResponseStatus::FAILED_DEPENDENCY)
                                 .detail(&format!(
                                     "missing 'status' in a response on method = {}, transaction = {}",
                                     tn.reqp.method(),
@@ -507,7 +507,7 @@ pub(crate) async fn handle_response(
                         .and_then(|status| match status {
                             val if val == 200 => Ok(()),
                             _ => Err(SvcError::builder()
-                                .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
+                                .status(ResponseStatus::FAILED_DEPENDENCY)
                                 .detail(&format!(
                                     "error received on method = {}, transaction = {}",
                                     tn.reqp.method(),
@@ -519,7 +519,7 @@ pub(crate) async fn handle_response(
                             // Getting answer (as JSEP)
                             let jsep = inresp.jsep().ok_or_else(|| {
                                 SvcError::builder()
-                                    .status(OutgoingResponseStatus::FAILED_DEPENDENCY)
+                                    .status(ResponseStatus::FAILED_DEPENDENCY)
                                     .detail(&format!(
                                         "missing 'jsep' in a response on method = {}, transaction = {}",
                                         tn.reqp.method(),
@@ -530,7 +530,7 @@ pub(crate) async fn handle_response(
 
                             let resp = endpoint::rtc_signal::CreateResponse::unicast(
                                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                                tn.reqp.to_response(OutgoingResponseStatus::OK),
+                                tn.reqp.to_response(ResponseStatus::OK),
                                 tn.reqp.as_agent_id(),
                             );
                             resp.into_envelope().map_err(Into::into)

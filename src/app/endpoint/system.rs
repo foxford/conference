@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties,
-    OutgoingResponseStatus, Publish,
+    compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publish,
+    ResponseStatus,
 };
 use svc_authn::AccountId;
 use svc_error::Error as SvcError;
@@ -87,7 +87,7 @@ impl State {
                 .map_err(|_| {
                     // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
                     SvcError::builder()
-                        .status(OutgoingResponseStatus::UNPROCESSABLE_ENTITY)
+                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                         .detail("error creating a backend request")
                         .build()
                 })?;
