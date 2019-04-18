@@ -65,7 +65,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
         rtc: endpoint::rtc::State::new(authz.clone(), db.clone()),
         rtc_signal: endpoint::rtc_signal::State::new(authz.clone(), db.clone()),
         rtc_stream: endpoint::rtc_stream::State::new(authz.clone(), db.clone()),
-        message: endpoint::message::State::new(config.id.clone()),
+        message: endpoint::message::State::new(agent_id.clone()),
         system: endpoint::system::State::new(config.id.clone(), authz.clone(), db.clone()),
     });
 
