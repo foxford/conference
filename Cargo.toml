@@ -22,15 +22,15 @@ crossbeam-channel = "0.3"
 itertools = "0.8"
 reqwest = "0.9"
 diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
+svc-agent = { version = "0.5", features = ["diesel"] }
 svc-authz = "0.4"
 svc-authn = { version = "0.4", features = ["jose", "diesel"] }
-svc-agent = { version = "0.4", features = ["diesel"] }
 svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz"] }
 
 [dependencies.futures]
-version = "=0.3.0-alpha.13"
+version = "=0.3.0-alpha.14"
 package = "futures-preview"
 
 [dependencies.futures-channel]
-version = "=0.3.0-alpha.13"
+version = "=0.3.0-alpha.14"
 package = "futures-channel-preview"
