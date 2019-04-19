@@ -171,7 +171,7 @@ async fn handle_message(
     payload: Arc<Vec<u8>>,
     state: Arc<State>,
 ) -> Result<(), Error> {
-    use endpoint::{handle_badrequest, handle_response};
+    use endpoint::{handle_badrequest, handle_badrequest_method, handle_response};
 
     let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(payload.as_slice())?;
     match envelope.properties() {
@@ -298,10 +298,7 @@ async fn handle_message(
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
                     }
                 }
-                _ => Err(format_err!(
-                    "unsupported request method, envelope = '{:?}'",
-                    envelope
-                )),
+                method => handle_badrequest_method(method, tx, &reqp),
             }
         }
         compat::IncomingEnvelopeProperties::Response(_) => {
