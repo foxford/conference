@@ -1,3 +1,4 @@
+use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
@@ -49,6 +50,7 @@ pub(crate) struct Object {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
     time: Option<Time>,
+    #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
 }
 

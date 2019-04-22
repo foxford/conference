@@ -1,3 +1,4 @@
+use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
@@ -25,6 +26,7 @@ pub(crate) struct Object {
     #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
     time: Time,
     audience: String,
+    #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
 }
 
