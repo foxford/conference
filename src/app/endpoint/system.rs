@@ -20,6 +20,7 @@ pub(crate) struct UploadRequestData {}
 
 #[derive(Debug, Serialize)]
 pub(crate) struct RoomUploadEventData {
+    id: Uuid,
     rtcs: Vec<RtcUploadEventData>,
 }
 
@@ -160,6 +161,7 @@ where
 
     let uri = format!("audiences/{}/events", room.audience());
     let event = RoomUploadEventData {
+        id: room.id(),
         rtcs: event_entries,
     };
 
