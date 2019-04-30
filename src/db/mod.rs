@@ -1,13 +1,15 @@
 use diesel::pg::PgConnection;
 use diesel::r2d2::{ConnectionManager, Pool};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub(crate) type ConnectionPool = Arc<Pool<ConnectionManager<PgConnection>>>;
 
-pub(crate) fn create_database_pool(url: &str, size: u32) -> ConnectionPool {
+pub(crate) fn create_database_pool(url: &str, size: u32, timeout: u64) -> ConnectionPool {
     let manager = ConnectionManager::<PgConnection>::new(url);
     let pool = Pool::builder()
         .max_size(size)
+        .connection_timeout(Duration::from_secs(timeout))
         .build(manager)
         .expect("Error creating a database pool");
 
