@@ -23,6 +23,11 @@ spec:
                 configMapKeyRef:
                   name: conference-environment
                   key: RUST_LOG
+            - name: DATABASE_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: conference-environment
+                  key: DATABASE_POOL_SIZE
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
