@@ -4,3 +4,4 @@ metadata:
   name: conference-environment
 data:
   RUST_LOG: "conference=info"
+  DATABASE_POOL_SIZE: "25"
