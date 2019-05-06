@@ -11,8 +11,8 @@ fi
 
 if [[ ! ${NAMESPACE} ]]; then echo "NAMESPACE isn't specified" 1>&2; exit 1; fi
 if [[ ! ${GITHUB_TOKEN} ]]; then echo "GITHUB_TOKEN isn't specified" 1>&2; exit 1; fi
-if [[ ! ${PROJECT} ]]; then echo "PROJECT isn't specified" 1>&2; exit 1; fi
 BRANCH="${BRANCH:-master}"
+PROJECT="conference"
 
 SOURCE=${SOURCE:-'https://api.github.com/repos/netology-group/environment/contents/cluster/k8s'}
 
