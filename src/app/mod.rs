@@ -95,7 +95,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     });
     tx.subscribe(
         &Subscription::multicast_requests(),
-        QoS::AtLeastOnce,
+        QoS::AtMostOnce,
         Some(&group),
     )
     .expect("Error subscribing to everyone's output messages");
