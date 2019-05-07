@@ -1,7 +1,7 @@
 ## -----------------------------------------------------------------------------
 ## Build
 ## -----------------------------------------------------------------------------
-FROM clux/muslrust:nightly-2019-04-16 as build-stage
+FROM clux/muslrust:nightly-2019-05-06 as build-stage
 
 WORKDIR "/build"
 COPY . .
