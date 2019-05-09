@@ -1,5 +1,5 @@
 use failure::{format_err, Error};
-use futures::{executor::ThreadPool, task::SpawnExt, StreamExt};
+use futures::{executor::ThreadPoolBuilder, task::SpawnExt, StreamExt};
 use log::{error, info};
 use std::sync::Arc;
 use std::thread;
@@ -101,7 +101,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     .expect("Error subscribing to everyone's output messages");
 
     // Thread Pool
-    let mut threadpool = ThreadPool::new()?;
+    let mut threadpool = ThreadPoolBuilder::new().create()?;
 
     while let Some(message) = await!(ch_rx.next()) {
         let tx = tx.clone();
@@ -114,15 +114,11 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
                 svc_agent::mqtt::Notification::Publish(message) => {
                     let topic: &str = &message.topic_name;
 
-                    {
-                        // Log incoming messages
-                        let bytes = &message.payload.as_slice();
-                        let text = std::str::from_utf8(bytes).unwrap_or("[non-utf8 characters]");
-                        info!(
-                            "Incoming message = '{}' sent to the topic = '{}'",
-                            text, topic,
-                        )
-                    }
+                    // Log incoming messages
+                    info!(
+                        "Incoming message = '{}' sent to the topic = '{}', dup = '{}', pkid = '{:?}'",
+                        String::from_utf8_lossy(message.payload.as_slice()), topic, message.dup, message.pkid,
+                    );
 
                     let result = match topic {
                         val if val == &route.janus_events_subscription_topic => {
@@ -147,11 +143,9 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
                     };
 
                     if let Err(err) = result {
-                        let bytes = &message.payload.as_slice();
-                        let text = std::str::from_utf8(bytes).unwrap_or("[non-utf8 characters]");
                         error!(
                             "Error processing a message = '{text}' sent to the topic = '{topic}', '{detail}'",
-                            text = text,
+                            text = String::from_utf8_lossy(message.payload.as_slice()),
                             topic = topic,
                             detail = err,
                         )
