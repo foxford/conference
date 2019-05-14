@@ -32,7 +32,7 @@ RUN set -xe \
         git \
         vim-nox \
     && PAHO_MQTT_BUILD_DIR=$(mktemp -d) \
-        && PAHO_MQTT_VERSION='1.1.0' \
+        && PAHO_MQTT_VERSION='1.3.0' \
         && cd "${PAHO_MQTT_BUILD_DIR}" \
         && git clone "https://github.com/eclipse/paho.mqtt.c.git" . \
         && git checkout "v${PAHO_MQTT_VERSION}" \
