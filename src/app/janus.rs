@@ -755,7 +755,7 @@ pub(crate) async fn handle_response(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) async fn handle_event(
+pub(crate) async fn handle_status(
     tx: &mut Agent,
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,

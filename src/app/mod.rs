@@ -23,7 +23,7 @@ struct State {
 }
 
 struct Route {
-    janus_events_subscription_topic: String,
+    janus_status_subscription_topic: String,
     janus_responses_subscription_topic: String,
 }
 
@@ -70,8 +70,8 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
 
     // Create Subscriptions
     let route = Arc::new(Route {
-        janus_events_subscription_topic: {
-            let subscription = Subscription::broadcast_events(&config.backend_id, "events/status");
+        janus_status_subscription_topic: {
+            let subscription = Subscription::broadcast_events(&config.backend_id, "status");
             tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
                 .expect("Error subscribing to backend events topic");
 
@@ -117,8 +117,8 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
                     );
 
                     let result = match topic {
-                        val if val == &route.janus_events_subscription_topic => {
-                            await!(janus::handle_event(
+                        val if val == &route.janus_status_subscription_topic => {
+                            await!(janus::handle_status(
                                 &mut tx,
                                 message.payload.clone(),
                                 backend.clone(),
