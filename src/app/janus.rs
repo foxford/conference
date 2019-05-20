@@ -11,7 +11,7 @@ use svc_agent::mqtt::{
     Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties, Publish,
     ResponseStatus,
 };
-use svc_agent::{Addressable, AgentId, Authenticable};
+use svc_agent::{Addressable, AgentId};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
@@ -762,26 +762,14 @@ pub(crate) async fn handle_event(
 ) -> Result<(), Error> {
     let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
     let inev = into_event::<StatusEvent>(envelope)?;
-    let agent_id = convert_agent_id(inev.properties().as_agent_id());
+    let agent_id = inev.properties().as_agent_id();
 
     if let true = inev.payload().online() {
-        let backreq = create_session_request(&agent_id)?;
+        let backreq = create_session_request(agent_id)?;
         backreq.into_envelope()?.publish(tx).map_err(Into::into)
     } else {
         let conn = janus.db.get()?;
-        let _ = janus_backend::DeleteQuery::new(&agent_id).execute(&conn)?;
+        let _ = janus_backend::DeleteQuery::new(agent_id).execute(&conn)?;
         Ok(())
     }
-}
-
-// Converting agent_id of Janus Gateway events plugin into agent_id of transport plugin.
-// Janus Gateway has two plugins:
-// - events plugin is responsible for status events
-// - transport for the other request/response communication
-// For instance:
-// 'events-alpha.janus-gateway.svc.example.org' will be converted into
-// 'alpha.janus-gateway.svc.example.org'
-fn convert_agent_id(id: &AgentId) -> AgentId {
-    let label: String = id.label().chars().skip("events-".len()).collect();
-    AgentId::new(&label, id.as_account_id().clone())
 }

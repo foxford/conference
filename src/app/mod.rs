@@ -41,19 +41,15 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
         .start(&config.mqtt)
         .expect("Failed to create an agent");
 
-    //
-    let (ch_tx, mut ch_rx) = futures_channel::mpsc::unbounded::<Notification>();
+    // Event loop for incoming messages of MQTT Agent
+    let (mq_tx, mut mq_rx) = futures_channel::mpsc::unbounded::<Notification>();
     thread::spawn(move || {
         for message in rx {
-            if let Err(e) = ch_tx.unbounded_send(message) {
-                error!(
-                    "Error sending message to the internal channel, {detail}",
-                    detail = e
-                );
+            if let Err(_) = mq_tx.unbounded_send(message) {
+                error!("Error sending message to the internal channel");
             }
         }
     });
-    //
 
     // Authz
     let authz = svc_authz::ClientMap::new(&config.id, config.authz)
@@ -103,7 +99,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     // Thread Pool
     let mut threadpool = ThreadPoolBuilder::new().create()?;
 
-    while let Some(message) = await!(ch_rx.next()) {
+    while let Some(message) = await!(mq_rx.next()) {
         let tx = tx.clone();
         let state = state.clone();
         let backend = backend.clone();
@@ -144,7 +140,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
 
                     if let Err(err) = result {
                         error!(
-                            "Error processing a message = '{text}' sent to the topic = '{topic}', '{detail}'",
+                            "Error processing a message = '{text}' sent to the topic = '{topic}', {detail}",
                             text = String::from_utf8_lossy(message.payload.as_slice()),
                             topic = topic,
                             detail = err,
