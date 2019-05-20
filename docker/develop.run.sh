@@ -8,7 +8,7 @@ DOCKER_RUN_OPTIONS=${DOCKER_RUN_OPTIONS:-'-ti --rm'}
 DOCKER_MQTT_PORT=${DOCKER_MQTT_PORT:-'1883'}
 
 read -r DOCKER_RUN_COMMAND <<-EOF
-    vernemq start && /opt/janus/bin/janus --event-handlers --debug-level=6
+    vernemq start && /opt/janus/bin/janus --debug-level=6
 EOF
 
 set -ex

@@ -1,5 +1,5 @@
 FROM netologygroup/mqtt-gateway:v0.9.0 as mqtt-gateway-plugin
-FROM netologygroup/janus-gateway:cbf60fa as janus-conference-plugin
+FROM netologygroup/janus-gateway:b4c77a8 as janus-conference-plugin
 FROM debian:stretch
 
 ENV DEBIAN_FRONTEND noninteractive
@@ -42,12 +42,12 @@ RUN set -xe \
 ## -----------------------------------------------------------------------------
 ## Installing Janus Gateway
 ## -----------------------------------------------------------------------------
-ARG JANUS_GATEWAY_COMMIT='662f1c8937df2a33306c521cab01c3acc9b3e571'
+ARG JANUS_GATEWAY_COMMIT='955069ae9441258bbc678b66bb58c7b326b1abd8'
 
 RUN set -xe \
     && JANUS_GATEWAY_BUILD_DIR=$(mktemp -d) \
     && cd "${JANUS_GATEWAY_BUILD_DIR}" \
-    && git clone 'https://github.com/meetecho/janus-gateway' . \
+    && git clone 'https://github.com/netology-group/janus-gateway' . \
     && git checkout "${JANUS_GATEWAY_COMMIT}" \
     && ./autogen.sh \
     && ./configure --prefix='/opt/janus' \
@@ -61,30 +61,9 @@ COPY --from=janus-conference-plugin /opt/janus/lib/janus/plugins/*.so /opt/janus
 ## -----------------------------------------------------------------------------
 ## Configuring Janus Gateway
 ## -----------------------------------------------------------------------------
-RUN set -xe \
-    && JANUS_CONF='/opt/janus/etc/janus/janus.jcfg' \
-    && perl -pi -e 's/\t#(session_timeout = ).*/\t${1}0/' "${JANUS_CONF}" \
-    && perl -pi -e 's/\t#(opaqueid_in_api = ).*/\t${1}true/' "${JANUS_CONF}" \
-    && JANUS_MQTT_TRANSPORT_CONF='/opt/janus/etc/janus/janus.transport.mqtt.jcfg' \
-    && perl -pi -e 's/\t(enabled = ).*/\t${1}true/' "${JANUS_MQTT_TRANSPORT_CONF}" \
-    && perl -pi -e 's/\t(json = ).*/\t${1}\"compact\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
-    && perl -pi -e 's/\t#(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/service-agents\/alpha.janus-gateway.svc.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
-    && perl -pi -e 's/\t#(retain = ).*/\t${1}false/' "${JANUS_MQTT_TRANSPORT_CONF}" \
-    && perl -pi -e 's/\t(subscribe_topic = ).*/\t${1}\"agents\/alpha.janus-gateway.svc.example.org\/api\/v1\/in\/conference.svc.example.org\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
-    && perl -pi -e 's/\t(publish_topic = ).*/\t${1}\"apps\/janus-gateway.svc.example.org\/api\/v1\/responses\"/' "${JANUS_MQTT_TRANSPORT_CONF}" \
-    && JANUS_MQTT_EVENTS_CONF='/opt/janus/etc/janus/janus.eventhandler.mqttevh.jcfg' \
-    && perl -pi -e 's/\t(enabled = ).*/\t${1}true/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && perl -pi -e 's/\t(json = ).*/\t${1}\"compact\"/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && perl -pi -e 's/\t(client_id = ).*/\t${1}\"v1.mqtt3.payload-only\/service-agents\/events-alpha.janus-gateway.svc.example.org\"/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && perl -pi -e 's/\t#(topic = ).*/\t${1}\"apps\/janus-gateway.svc.example.org\/api\/v1\/events\"/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && perl -pi -e 's/\t#(will_enabled = ).*/\t${1}true/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && perl -pi -e 's/\t#(will_retain = ).*/\t${1}false/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && perl -pi -e 's/\t#(will_qos = ).*/\t${1}1/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && perl -pi -e 's/\t#(connect_status = ).*/\t${1}\"{\\\"online\\\":true}\"/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && perl -pi -e 's/\t#(disconnect_status = ).*/\t${1}\"{\\\"online\\\":false}\"/' "${JANUS_MQTT_EVENTS_CONF}" \
-    && JANUS_CONFERENCE_PLUGIN_CONF='/opt/janus/etc/janus/janus.plugin.conference.toml' \
-    && printf '[recordings]\ndirectory = "/recordings"\nenabled = false\n' >> "${JANUS_CONFERENCE_PLUGIN_CONF}" \
-    && printf '[uploading]\nsecret_access_key=""\naccess_key_id=""\nendpoint=""\nregion=""\n' >> "${JANUS_CONFERENCE_PLUGIN_CONF}"
+COPY ./docker/configs/janus.jcfg /opt/janus/etc/janus/
+COPY ./docker/configs/janus.transport.mqtt.jcfg /opt/janus/etc/janus/
+COPY ./docker/configs/janus.plugin.conference.toml /opt/janus/etc/janus/
 
 ## -----------------------------------------------------------------------------
 ## Installing VerneMQ
