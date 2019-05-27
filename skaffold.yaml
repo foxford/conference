@@ -1,20 +1,20 @@
-apiVersion: skaffold/v1alpha3
+apiVersion: skaffold/v1beta11
 kind: Config
 build:
   artifacts:
-    - imageName: netologygroup/conference
+    - image: netologygroup/conference
       docker:
-        dockerfilePath: docker/Dockerfile
+        dockerfile: docker/Dockerfile
   tagPolicy:
     envTemplate:
-      template: "{{.IMAGE_NAME}}:{{.IMAGE_TAG}}"
+      template: '{{.IMAGE_NAME}}:{{.IMAGE_TAG}}'
   local:
-    skipPush: false
+    push: true
     useDockerCLI: true
 deploy:
   kubectl:
     manifests:
-    - deploy/k8s/conference.yaml
-    - deploy/k8s/conference-config.yaml
-    - deploy/k8s/conference-environment.yaml
-    - deploy/k8s/conference-headless.yaml
+      - deploy/k8s/conference.yaml
+      - deploy/k8s/conference-config.yaml
+      - deploy/k8s/conference-environment.yaml
+      - deploy/k8s/conference-headless.yaml
