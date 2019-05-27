@@ -58,6 +58,10 @@ impl Object {
     pub(crate) fn rtc_id(&self) -> Uuid {
         self.rtc_id
     }
+
+    pub(crate) fn time(&self) -> Option<Time> {
+        self.time
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
