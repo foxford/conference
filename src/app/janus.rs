@@ -1,10 +1,9 @@
-use std::ops::Bound;
-
 use chrono::{DateTime, NaiveDateTime, Utc};
 use failure::{err_msg, format_err, Error};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::ops::Bound;
 use std::sync::Arc;
 use svc_agent::mqtt::compat::{into_event, IncomingEnvelope, IntoEnvelope};
 use svc_agent::mqtt::{
@@ -26,6 +25,7 @@ use crate::util::{from_base64, to_base64};
 ////////////////////////////////////////////////////////////////////////////////
 
 const IGNORE: &str = "ignore";
+const STREAM_UPLOAD_METHOD: &str = "stream.upload";
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -254,12 +254,20 @@ where
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct UploadStreamTransaction {
-    reqp: IncomingRequestProperties,
+    rtc_id: Uuid,
 }
 
 impl UploadStreamTransaction {
-    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
-        Self { reqp }
+    pub(crate) fn new(rtc_id: Uuid) -> Self {
+        Self { rtc_id }
+    }
+
+    pub(crate) fn rtc_id(&self) -> Uuid {
+        self.rtc_id
+    }
+
+    pub(crate) fn method(&self) -> &str {
+        STREAM_UPLOAD_METHOD
     }
 }
 
@@ -274,7 +282,7 @@ pub(crate) struct UploadStreamRequestBody {
 impl UploadStreamRequestBody {
     pub(crate) fn new(id: Uuid, bucket: &str, object: &str) -> Self {
         Self {
-            method: "stream.upload",
+            method: STREAM_UPLOAD_METHOD,
             id,
             bucket: bucket.to_owned(),
             object: object.to_owned(),
@@ -283,13 +291,13 @@ impl UploadStreamRequestBody {
 }
 
 pub(crate) fn upload_stream_request(
-    reqp: IncomingRequestProperties,
+    rtc_id: Uuid,
     session_id: i64,
     handle_id: i64,
     body: UploadStreamRequestBody,
     to: &AgentId,
 ) -> Result<OutgoingRequest<MessageRequest>, Error> {
-    let transaction = Transaction::UploadStream(UploadStreamTransaction::new(reqp));
+    let transaction = Transaction::UploadStream(UploadStreamTransaction::new(rtc_id));
     let payload = MessageRequest::new(
         &to_base64(&transaction)?,
         session_id,
@@ -429,7 +437,7 @@ pub(crate) async fn handle_response(
         IncomingMessage::Event(ref inresp) => {
             match from_base64::<Transaction>(&inresp.transaction())? {
                 // Conference Stream has been created (an answer received)
-                Transaction::CreateStream(tn) => {
+                Transaction::CreateStream(ref tn) => {
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
                     let next = plugin_data
@@ -439,7 +447,7 @@ pub(crate) async fn handle_response(
                             SvcError::builder()
                                 .status(ResponseStatus::FAILED_DEPENDENCY)
                                 .detail(&format!(
-                                    "missing 'status' in a response on method = {}, transaction = {}",
+                                    "missing 'status' in a response on method = '{}', transaction = '{}'",
                                     tn.reqp.method(),
                                     inresp.transaction()
                                 ))
@@ -451,7 +459,7 @@ pub(crate) async fn handle_response(
                             _ => Err(SvcError::builder()
                                 .status(ResponseStatus::FAILED_DEPENDENCY)
                                 .detail(&format!(
-                                    "error received on method = {}, transaction = {}",
+                                    "error received on method = '{}', transaction = '{}'",
                                     tn.reqp.method(),
                                     inresp.transaction()
                                 ))
@@ -463,7 +471,7 @@ pub(crate) async fn handle_response(
                                 SvcError::builder()
                                     .status(ResponseStatus::FAILED_DEPENDENCY)
                                     .detail(&format!(
-                                        "missing 'jsep' in a response on method = {}, transaction = {}",
+                                        "missing 'jsep' in a response on method = '{}', transaction = '{}'",
                                         tn.reqp.method(),
                                         inresp.transaction(),
                                     ))
@@ -487,7 +495,7 @@ pub(crate) async fn handle_response(
                     )
                 }
                 // Conference Stream has been read (an answer received)
-                Transaction::ReadStream(tn) => {
+                Transaction::ReadStream(ref tn) => {
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
                     let next = plugin_data
@@ -497,7 +505,7 @@ pub(crate) async fn handle_response(
                             SvcError::builder()
                                 .status(ResponseStatus::FAILED_DEPENDENCY)
                                 .detail(&format!(
-                                    "missing 'status' in a response on method = {}, transaction = {}",
+                                    "missing 'status' in a response on method = '{}', transaction = '{}'",
                                     tn.reqp.method(),
                                     inresp.transaction()
                                 ))
@@ -509,7 +517,7 @@ pub(crate) async fn handle_response(
                             _ => Err(SvcError::builder()
                                 .status(ResponseStatus::FAILED_DEPENDENCY)
                                 .detail(&format!(
-                                    "error received on method = {}, transaction = {}",
+                                    "error received on method = '{}', transaction = '{}'",
                                     tn.reqp.method(),
                                     inresp.transaction()
                                 ))
@@ -521,7 +529,7 @@ pub(crate) async fn handle_response(
                                 SvcError::builder()
                                     .status(ResponseStatus::FAILED_DEPENDENCY)
                                     .detail(&format!(
-                                        "missing 'jsep' in a response on method = {}, transaction = {}",
+                                        "missing 'jsep' in a response on method = '{}', transaction = '{}'",
                                         tn.reqp.method(),
                                         inresp.transaction(),
                                     ))
@@ -545,7 +553,7 @@ pub(crate) async fn handle_response(
                     )
                 }
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
-                Transaction::UploadStream(tn) => {
+                Transaction::UploadStream(ref tn) => {
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
                     let next = plugin_data
@@ -553,51 +561,29 @@ pub(crate) async fn handle_response(
                         .ok_or_else(|| {
                             // We fail if response doesn't contain a status
                             format_err!(
-                                "missing 'status' in a response on method = {}",
-                                tn.reqp.method(),
+                                "missing 'status' in a response on method = '{}', transaction = '{}'",
+                                tn.method(),
+                                inresp.transaction(),
                             )
                         })
                         // We fail if the status isn't equal to 200
                         .and_then(|status| match status {
                             val if val == 200 => Ok(()),
                             _ => Err(format_err!(
-                                "error with status code = '{}' received in a response on method = {}",
+                                "error with status code = '{}' received in a response on method = '{}', transaction = '{}'",
                                 status,
-                                tn.reqp.method(),
+                                tn.method(),
+                                inresp.transaction(),
                             ))
                         })
                         .and_then(|_| {
-                            // TODO: deserialize response into struct
-                            let rtc_id = plugin_data
-                                .get("id")
-                                .ok_or_else(|| {
-                                    format_err!(
-                                        "missing 'rtc_id' in a response on method = {}",
-                                        tn.reqp.method(),
-                                    )
-                                })?
-                                .as_str()
-                                .ok_or_else(|| {
-                                    format_err!(
-                                        "'rtc_id' is not a string in a response on method = {}",
-                                        tn.reqp.method(),
-                                    )
-                                })
-                                .and_then(|val| {
-                                    Uuid::parse_str(val).map_err(|_| {
-                                        format_err!(
-                                            "'rtc_id' is not an UUID in a response on method = {}",
-                                            tn.reqp.method(),
-                                        )
-                                    })
-                                })?;
-
                             let time = plugin_data
                                 .get("time")
                                 .ok_or_else(|| {
                                     format_err!(
-                                        "missing 'time' in a response on method = {}",
-                                        tn.reqp.method(),
+                                        "missing 'time' in a response on method = '{}', transaction = '{}'",
+                                        tn.method(),
+                                        inresp.transaction(),
                                     )
                                 })
                                 .and_then(|time| {
@@ -628,15 +614,17 @@ pub(crate) async fn handle_response(
                             let (room, rtcs, recs) = {
                                 let conn = janus.db.get()?;
 
-                                recording::InsertQuery::new(rtc_id, time).execute(&conn)?;
+                                recording::InsertQuery::new(tn.rtc_id(), time).execute(&conn)?;
 
                                 let rtc = rtc::FindQuery::new()
-                                    .id(rtc_id)
+                                    .id(tn.rtc_id())
                                     .execute(&conn)?
                                     .ok_or_else(|| {
                                         format_err!(
-                                            "the rtc = '{}' is not found",
-                                            tn.reqp.method(),
+                                            "the rtc = '{}' is not found on method = '{}', transaction = '{}'",
+                                            tn.rtc_id(),
+                                            tn.method(),
+                                            inresp.transaction(),
                                         )
                                     })?;
 
@@ -645,8 +633,10 @@ pub(crate) async fn handle_response(
                                     .execute(&conn)?
                                     .ok_or_else(|| {
                                         format_err!(
-                                            "the room = '{}' is not found",
-                                            tn.reqp.method(),
+                                            "the room = '{}' is not found on method = '{}', transaction = '{}'",
+                                            rtc.room_id(),
+                                            tn.method(),
+                                            inresp.transaction(),
                                         )
                                     })?;
 

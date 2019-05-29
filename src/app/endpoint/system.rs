@@ -75,7 +75,7 @@ impl State {
 
             for (room, rtc) in rooms.into_iter() {
                 let backreq = crate::app::janus::upload_stream_request(
-                    inreq.properties().clone(),
+                    rtc.id(),
                     backend.session_id(),
                     backend.handle_id(),
                     crate::app::janus::UploadStreamRequestBody::new(
