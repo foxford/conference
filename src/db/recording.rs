@@ -22,8 +22,12 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub fn into_tuple(self) -> (Uuid, Vec<Time>) {
+    pub(crate) fn into_tuple(self) -> (Uuid, Vec<Time>) {
         (self.rtc_id, self.time)
+    }
+
+    pub(crate) fn time(&self) -> &Vec<Time> {
+        &self.time
     }
 }
 
