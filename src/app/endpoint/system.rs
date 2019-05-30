@@ -111,25 +111,30 @@ where
 {
     use std::ops::Bound;
 
-    let (started_at, _finished_at) = room.time();
-    let started_at = match started_at {
-        Bound::Excluded(started_at) | Bound::Included(started_at) => started_at,
-        Bound::Unbounded => {
-            return Err(format_err!(
-                "unexpected Bound::Unbounded in room's 'started_at' value"
-            ));
-        }
-    };
-
     let mut event_entries = Vec::new();
-
     for (rtc, recordings) in rtc_and_recordings {
-        let time = recordings
+        let time: Vec<room::Time> = recordings
             .into_iter()
             .flat_map(|r| {
                 let (_rtc_id, time) = r.into_tuple();
                 time
             })
+            .collect();
+
+        let (started_at, _) = time
+            .first()
+            .ok_or_else(|| format_err!("empty recordings list for rtc_id='{}'", rtc.id()))?;
+        let started_at = match started_at {
+            &Bound::Excluded(val) | &Bound::Included(val) => val,
+            &Bound::Unbounded => {
+                return Err(format_err!(
+                    "unexpected Bound::Unbounded in room's 'started_at' value"
+                ));
+            }
+        };
+
+        let time = time
+            .into_iter()
             .map(|(start, end)| {
                 let start = match start {
                     Bound::Included(start) | Bound::Excluded(start) => {

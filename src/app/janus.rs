@@ -662,7 +662,7 @@ pub(crate) async fn handle_response(
                             // Sending a final event
                             let rtcs_and_recordings = rtcs.into_iter().zip(recs);
                             let event = endpoint::system::upload_event(&room, rtcs_and_recordings)
-                                .map_err(|_| err_msg("error creating a system event"))?
+                                .map_err(|e| format_err!("error creating a system event, {}", e))?
                                 .into_envelope()?;
 
                             events.push(event);
