@@ -23,7 +23,7 @@ itertools = "0.8"
 reqwest = "0.9"
 openssl = "*"
 diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
-svc-agent = { version = "0.6", features = ["diesel"] }
+svc-agent = { version = "0.7", features = ["diesel"] }
 svc-authz = "0.4"
 svc-authn = { version = "0.4", features = ["jose", "diesel"] }
 svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz"] }
