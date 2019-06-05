@@ -2,6 +2,10 @@ id = "conference.svc.example.org"
 agent_label = "alpha"
 backend_id = "janus-gateway.svc.example.org"
 
+[id_token]
+algorithm = "ES256"
+key = "data/keys/svc.private_key.p8.der.sample"
+
 [authz."example.net"]
 type = "http"
 uri = "https://iam.example.net/authz"
