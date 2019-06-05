@@ -1,6 +1,7 @@
 use failure::{format_err, Error};
 use futures::{executor::ThreadPoolBuilder, task::SpawnExt, StreamExt};
 use log::{error, info};
+use serde_derive::Deserialize;
 use std::sync::Arc;
 use std::thread;
 use svc_agent::mqtt::{
@@ -8,8 +9,19 @@ use svc_agent::mqtt::{
 };
 use svc_agent::{AgentId, SharedGroup, Subscription};
 use svc_authn::Authenticable;
+use svc_authn::{jose::Algorithm, token::jws_compact};
 
 use crate::db::ConnectionPool;
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct IdTokenConfig {
+    #[serde(deserialize_with = "svc_authn::serde::algorithm")]
+    algorithm: Algorithm,
+    #[serde(deserialize_with = "svc_authn::serde::file")]
+    key: Vec<u8>,
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -35,10 +47,18 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     // Agent
     let agent_id = AgentId::new(&config.agent_label, config.id.clone());
     info!("Agent id: {:?}", &agent_id);
+    let token = jws_compact::TokenBuilder::new()
+        .issuer(&agent_id.as_account_id().audience().to_string())
+        .subject(&agent_id)
+        .key(config.id_token.algorithm, config.id_token.key.as_slice())
+        .build()
+        .expect("Error creating an id token");
+    let mut agent_config = config.mqtt.clone();
+    agent_config.set_password(&token);
     let group = SharedGroup::new("loadbalancer", agent_id.as_account_id().clone());
     let (mut tx, rx) = AgentBuilder::new(agent_id.clone())
         .mode(ConnectionMode::Service)
-        .start(&config.mqtt)
+        .start(&agent_config)
         .expect("Failed to create an agent");
 
     // Event loop for incoming messages of MQTT Agent

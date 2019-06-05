@@ -4,6 +4,7 @@ use serde_derive::Deserialize;
 #[derive(Debug, Deserialize)]
 pub(crate) struct Config {
     pub(crate) id: svc_agent::AccountId,
+    pub(crate) id_token: crate::app::IdTokenConfig,
     pub(crate) agent_label: String,
     pub(crate) backend_id: svc_agent::AccountId,
     pub(crate) authz: svc_authz::ConfigMap,
