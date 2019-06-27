@@ -7,8 +7,7 @@ use std::thread;
 use svc_agent::mqtt::{
     compat, Agent, AgentBuilder, ConnectionMode, Notification, Publish, QoS, SubscriptionTopic,
 };
-use svc_agent::{AgentId, SharedGroup, Subscription};
-use svc_authn::Authenticable;
+use svc_agent::{AgentId, Authenticable, SharedGroup, Subscription};
 use svc_authn::{jose::Algorithm, token::jws_compact};
 
 use crate::db::ConnectionPool;
@@ -77,7 +76,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
 
     // Application resources
     let state = Arc::new(State {
-        room: endpoint::room::State::new(authz.clone(), db.clone()),
+        room: endpoint::room::State::new(config.broker_id, authz.clone(), db.clone()),
         rtc: endpoint::rtc::State::new(authz.clone(), db.clone()),
         rtc_signal: endpoint::rtc_signal::State::new(authz.clone(), db.clone()),
         rtc_stream: endpoint::rtc_stream::State::new(authz.clone(), db.clone()),
@@ -188,6 +187,16 @@ async fn handle_message(
         compat::IncomingEnvelopeProperties::Request(ref reqp) => {
             let reqp = reqp.clone();
             match reqp.method() {
+                method @ "room.enter" => {
+                    let error_title = "Error entering a room";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.room.enter(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
                 method @ "room.create" => {
                     let error_title = "Error creating a room";
                     match compat::into_request(envelope) {

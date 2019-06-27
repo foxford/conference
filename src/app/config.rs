@@ -6,6 +6,7 @@ pub(crate) struct Config {
     pub(crate) id: svc_agent::AccountId,
     pub(crate) id_token: crate::app::IdTokenConfig,
     pub(crate) agent_label: String,
+    pub(crate) broker_id: svc_agent::AccountId,
     pub(crate) backend_id: svc_agent::AccountId,
     pub(crate) authz: svc_authz::ConfigMap,
     pub(crate) mqtt: svc_agent::mqtt::AgentConfig,

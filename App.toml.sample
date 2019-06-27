@@ -1,5 +1,6 @@
 id = "conference.svc.example.org"
 agent_label = "alpha"
+broker_id = "mqtt-gateway.svc.example.org"
 backend_id = "janus-gateway.svc.example.org"
 
 [id_token]
