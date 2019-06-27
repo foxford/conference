@@ -1,8 +1,9 @@
 use chrono::{DateTime, Utc};
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::ops::Bound;
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, IncomingRequest, OutgoingResponse, Publish, ResponseStatus,
+    compat::IntoEnvelope, Connection, IncomingRequest, OutgoingRequest, OutgoingRequestProperties,
+    OutgoingResponse, Publish, ResponseStatus,
 };
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -10,6 +11,13 @@ use uuid::Uuid;
 use crate::db::{room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) type EnterRequest = IncomingRequest<EnterRequestData>;
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct EnterRequestData {
+    id: Uuid,
+}
 
 pub(crate) type CreateRequest = IncomingRequest<CreateRequestData>;
 
@@ -35,19 +43,85 @@ pub(crate) type ObjectResponse = OutgoingResponse<room::Object>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, Serialize)]
+struct SubscriptionRequest {
+    subject: Connection,
+    object: Vec<String>,
+}
+
+impl SubscriptionRequest {
+    fn new(subject: Connection, object: Vec<&str>) -> Self {
+        Self {
+            subject: subject,
+            object: object.iter().map(|&s| s.into()).collect(),
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Clone)]
 pub(crate) struct State {
+    broker_account_id: svc_agent::AccountId,
     authz: svc_authz::ClientMap,
     db: ConnectionPool,
 }
 
 impl State {
-    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
-        Self { authz, db }
+    pub(crate) fn new(
+        broker_account_id: svc_agent::AccountId,
+        authz: svc_authz::ClientMap,
+        db: ConnectionPool,
+    ) -> Self {
+        Self {
+            broker_account_id,
+            authz,
+            db,
+        }
     }
 }
 
 impl State {
+    pub(crate) async fn enter(&self, inreq: EnterRequest) -> Result<impl Publish, SvcError> {
+        let room_id = inreq.payload().id.to_string();
+
+        let object = {
+            let conn = self.db.get()?;
+            room::FindQuery::new()
+                .id(inreq.payload().id)
+                .execute(&conn)?
+                .ok_or_else(|| {
+                    SvcError::builder()
+                        .status(ResponseStatus::NOT_FOUND)
+                        .detail(&format!("the room = '{}' is not found", &room_id))
+                        .build()
+                })?
+        };
+
+        // Authorization: room's owner has to allow the action
+        self.authz.authorize(
+            object.audience(),
+            inreq.properties(),
+            vec!["rooms", &room_id, "events"],
+            "subscribe",
+        )?;
+
+        let brokerreq = {
+            let payload = SubscriptionRequest::new(
+                inreq.properties().to_connection(),
+                vec!["rooms", &room_id, "events"],
+            );
+            let props = OutgoingRequestProperties::new(
+                "subscription.create",
+                inreq.properties().response_topic(),
+                inreq.properties().correlation_data(),
+            );
+            OutgoingRequest::multicast(payload, props, &self.broker_account_id)
+        };
+
+        brokerreq.into_envelope().map_err(Into::into)
+    }
+
     pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, SvcError> {
         // Authorization: future room's owner has to allow the action
         self.authz.authorize(
