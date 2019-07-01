@@ -187,16 +187,6 @@ async fn handle_message(
         compat::IncomingEnvelopeProperties::Request(ref reqp) => {
             let reqp = reqp.clone();
             match reqp.method() {
-                method @ "room.enter" => {
-                    let error_title = "Error entering a room";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = await!(state.room.enter(req));
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
-                }
                 method @ "room.create" => {
                     let error_title = "Error creating a room";
                     match compat::into_request(envelope) {
@@ -232,6 +222,26 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = await!(state.room.delete(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "room.enter" => {
+                    let error_title = "Error entering a room";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.room.enter(req));
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                method @ "room.leave" => {
+                    let error_title = "Error entering a room";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = await!(state.room.leave(req));
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),

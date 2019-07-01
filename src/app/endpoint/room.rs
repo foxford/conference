@@ -12,13 +12,6 @@ use crate::db::{room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type EnterRequest = IncomingRequest<EnterRequestData>;
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct EnterRequestData {
-    id: Uuid,
-}
-
 pub(crate) type CreateRequest = IncomingRequest<CreateRequestData>;
 
 #[derive(Debug, Deserialize)]
@@ -40,6 +33,20 @@ pub(crate) type DeleteRequest = ReadRequest;
 pub(crate) type UpdateRequest = IncomingRequest<room::UpdateQuery>;
 
 pub(crate) type ObjectResponse = OutgoingResponse<room::Object>;
+
+pub(crate) type LeaveRequest = IncomingRequest<LeaveRequestData>;
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct LeaveRequestData {
+    id: Uuid,
+}
+
+pub(crate) type EnterRequest = IncomingRequest<EnterRequestData>;
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct EnterRequestData {
+    id: Uuid,
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -82,46 +89,6 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn enter(&self, inreq: EnterRequest) -> Result<impl Publish, SvcError> {
-        let room_id = inreq.payload().id.to_string();
-
-        let object = {
-            let conn = self.db.get()?;
-            room::FindQuery::new()
-                .id(inreq.payload().id)
-                .execute(&conn)?
-                .ok_or_else(|| {
-                    SvcError::builder()
-                        .status(ResponseStatus::NOT_FOUND)
-                        .detail(&format!("the room = '{}' is not found", &room_id))
-                        .build()
-                })?
-        };
-
-        // Authorization: room's owner has to allow the action
-        self.authz.authorize(
-            object.audience(),
-            inreq.properties(),
-            vec!["rooms", &room_id, "events"],
-            "subscribe",
-        )?;
-
-        let brokerreq = {
-            let payload = SubscriptionRequest::new(
-                inreq.properties().to_connection(),
-                vec!["rooms", &room_id, "events"],
-            );
-            let props = OutgoingRequestProperties::new(
-                "subscription.create",
-                inreq.properties().response_topic(),
-                inreq.properties().correlation_data(),
-            );
-            OutgoingRequest::multicast(payload, props, &self.broker_account_id)
-        };
-
-        brokerreq.into_envelope().map_err(Into::into)
-    }
-
     pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, SvcError> {
         // Authorization: future room's owner has to allow the action
         self.authz.authorize(
@@ -234,5 +201,77 @@ impl State {
 
         let resp = inreq.to_response(object, ResponseStatus::OK);
         resp.into_envelope().map_err(Into::into)
+    }
+
+    pub(crate) async fn enter(&self, inreq: EnterRequest) -> Result<impl Publish, SvcError> {
+        let room_id = inreq.payload().id.to_string();
+
+        let object = {
+            let conn = self.db.get()?;
+            room::FindQuery::new()
+                .id(inreq.payload().id)
+                .execute(&conn)?
+                .ok_or_else(|| {
+                    SvcError::builder()
+                        .status(ResponseStatus::NOT_FOUND)
+                        .detail(&format!("the room = '{}' is not found", &room_id))
+                        .build()
+                })?
+        };
+
+        // Authorization: room's owner has to allow the action
+        self.authz.authorize(
+            object.audience(),
+            inreq.properties(),
+            vec!["rooms", &room_id, "events"],
+            "subscribe",
+        )?;
+
+        let brokerreq = {
+            let payload = SubscriptionRequest::new(
+                inreq.properties().to_connection(),
+                vec!["rooms", &room_id, "events"],
+            );
+            let props = OutgoingRequestProperties::new(
+                "subscription.create",
+                inreq.properties().response_topic(),
+                inreq.properties().correlation_data(),
+            );
+            OutgoingRequest::multicast(payload, props, &self.broker_account_id)
+        };
+
+        brokerreq.into_envelope().map_err(Into::into)
+    }
+
+    pub(crate) async fn leave(&self, inreq: LeaveRequest) -> Result<impl Publish, SvcError> {
+        let room_id = inreq.payload().id.to_string();
+
+        let object = {
+            let conn = self.db.get()?;
+            room::FindQuery::new()
+                .id(inreq.payload().id)
+                .execute(&conn)?
+                .ok_or_else(|| {
+                    SvcError::builder()
+                        .status(ResponseStatus::NOT_FOUND)
+                        .detail(&format!("the room = '{}' is not found", &room_id))
+                        .build()
+                })?
+        };
+
+        let brokerreq = {
+            let payload = SubscriptionRequest::new(
+                inreq.properties().to_connection(),
+                vec!["rooms", &room_id, "events"],
+            );
+            let props = OutgoingRequestProperties::new(
+                "subscription.delete",
+                inreq.properties().response_topic(),
+                inreq.properties().correlation_data(),
+            );
+            OutgoingRequest::multicast(payload, props, &self.broker_account_id)
+        };
+
+        brokerreq.into_envelope().map_err(Into::into)
     }
 }
