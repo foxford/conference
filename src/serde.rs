@@ -1,5 +1,37 @@
+use std::ops::Bound;
+
 use chrono::{DateTime, Utc};
 use serde::ser;
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub fn milliseconds_bound_tuples<S>(
+    value: &Vec<(Bound<i64>, Bound<i64>)>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: ser::Serializer,
+{
+    use ser::SerializeSeq;
+
+    let mut seq = serializer.serialize_seq(Some(value.len()))?;
+
+    for (lt, rt) in value {
+        let lt = match lt {
+            Bound::Included(lt) | Bound::Excluded(lt) => lt,
+            Bound::Unbounded => &0,
+        };
+
+        let rt = match rt {
+            Bound::Included(rt) | Bound::Excluded(rt) => rt,
+            Bound::Unbounded => &0,
+        };
+
+        seq.serialize_element(&(lt, rt))?;
+    }
+
+    seq.end()
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -192,6 +224,41 @@ mod test {
         #[serde(default)]
         #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
         time: Option<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct TestRelativeTimeData {
+        #[serde(serialize_with = "crate::serde::milliseconds_bound_tuples")]
+        time: Vec<(Bound<i64>, Bound<i64>)>,
+    }
+
+    #[test]
+    fn milliseconds_bound_tuples() {
+        let data = TestRelativeTimeData {
+            time: vec![
+                (Bound::Included(0), Bound::Excluded(100)),
+                (Bound::Included(200), Bound::Excluded(300)),
+            ],
+        };
+
+        let data = serde_json::to_value(data).unwrap();
+
+        let result: Vec<Vec<i64>> = data
+            .get("time")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| {
+                item.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_i64().unwrap())
+                    .collect()
+            })
+            .collect();
+
+        assert_eq!(result, vec![vec![0, 100], vec![200, 300]]);
     }
 
     #[test]
