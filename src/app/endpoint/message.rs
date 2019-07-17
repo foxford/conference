@@ -2,11 +2,11 @@ use failure::Error;
 use serde_derive::Deserialize;
 use serde_json::Value as JsonValue;
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, IncomingRequest, IncomingRequestProperties, IncomingResponse,
-    OutgoingRequest, OutgoingRequestProperties, OutgoingResponse, OutgoingResponseProperties,
-    Publish, ResponseStatus, SubscriptionTopic,
+    compat, compat::IntoEnvelope, compat::OutgoingEnvelope, IncomingRequest, IncomingRequestProperties,
+    IncomingResponse, OutgoingRequest, OutgoingRequestProperties, OutgoingResponse,
+    OutgoingResponseProperties, Publish, Publishable, ResponseStatus, SubscriptionTopic,
 };
-use svc_agent::{AgentId, Subscription};
+use svc_agent::{AgentId, Destination, Subscription};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
@@ -38,7 +38,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<OutgoingEnvelope, SvcError> {
         let to = &inreq.payload().agent_id;
         let payload = &inreq.payload().data;
 
@@ -81,5 +81,48 @@ impl State {
         );
         let resp = OutgoingResponse::unicast(payload, props, &reqp);
         resp.into_envelope().map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod test {    
+    use serde_json::json;
+
+    use crate::test_helpers::{extract_payload, test_agent::TestAgent};
+    use super::*;
+
+    const AGENT_LABEL: &str = "web";
+    const AUDIENCE: &str = "example.org";
+    const ROOM_ID: &str = "3b8226e6-a7c0-11e9-8019-60f81db6d53e";
+
+    #[test]
+    fn create_message() {
+        futures::executor::block_on(async {
+            let sender = TestAgent::new(AGENT_LABEL, "sender", AUDIENCE);
+            let receiver = TestAgent::new(AGENT_LABEL, "receiver", AUDIENCE);
+
+            let payload = json!({
+                "agent_id": receiver.agent_id().to_string(),
+                "room_id": ROOM_ID,
+                "data": {"key": "value"},
+            });
+
+            let incoming: CreateRequest = sender.build_request("message.create", &payload).unwrap();
+            let state = State::new(sender.agent_id().clone());
+            let outgoing_envelope: OutgoingEnvelope = await!(state.create(incoming)).unwrap();
+
+            let payload = extract_payload(&outgoing_envelope).expect("Failed to extract payload");
+            assert_eq!(payload, json!({"key": "value"}));
+
+            let expected_destination_topic = format!(
+                "agents/{}.receiver.{}/api/v1/in/sender.{}",
+                AGENT_LABEL,
+                AUDIENCE,
+                AUDIENCE
+            );
+
+            let destination_topic = outgoing_envelope.destination_topic(sender.agent_id()).unwrap();
+            assert_eq!(destination_topic, expected_destination_topic);
+        });
     }
 }

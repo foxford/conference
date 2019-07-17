@@ -39,3 +39,5 @@ mod db;
 mod schema;
 mod serde;
 mod util;
+#[cfg(test)]
+mod test_helpers;
