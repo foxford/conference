@@ -38,4 +38,6 @@ mod backend;
 mod db;
 mod schema;
 mod serde;
+#[cfg(test)]
+mod test_helpers;
 mod util;

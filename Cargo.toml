@@ -25,6 +25,9 @@ svc-authz = "0.5"
 svc-authn = { version = "0.5", features = ["jose", "diesel"] }
 svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz", "sentry-extension"] }
 
+[dev-dependencies]
+rand = "0.7"
+
 [dependencies.futures]
 version = "=0.3.0-alpha.14"
 package = "futures-preview"
