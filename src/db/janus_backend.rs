@@ -77,13 +77,13 @@ impl ListQuery {
 
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "janus_backend"]
-pub(crate) struct InsertQuery<'a> {
+pub(crate) struct UpdateQuery<'a> {
     id: &'a AgentId,
     handle_id: i64,
     session_id: i64,
 }
 
-impl<'a> InsertQuery<'a> {
+impl<'a> UpdateQuery<'a> {
     pub(crate) fn new(id: &'a AgentId, handle_id: i64, session_id: i64) -> Self {
         Self {
             id,

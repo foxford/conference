@@ -376,7 +376,7 @@ pub(crate) async fn handle_response(
                     let handle_id = inresp.data().id();
 
                     let conn = janus.db.get()?;
-                    let _ = janus_backend::InsertQuery::new(backend_id, handle_id, tn.session_id)
+                    let _ = janus_backend::UpdateQuery::new(backend_id, handle_id, tn.session_id)
                         .execute(&conn)?;
 
                     Ok(())
