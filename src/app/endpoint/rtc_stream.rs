@@ -1,8 +1,7 @@
 use serde_derive::Deserialize;
 use svc_agent::mqtt::compat::IntoEnvelope;
 use svc_agent::mqtt::{
-    IncomingRequest, OutgoingEvent, OutgoingEventProperties, OutgoingResponse, Publish,
-    ResponseStatus,
+    IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publish, ResponseStatus,
 };
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -28,7 +27,6 @@ pub(crate) struct ListRequestData {
     limit: Option<i64>,
 }
 
-pub(crate) type ObjectListResponse = OutgoingResponse<Vec<janus_rtc_stream::Object>>;
 pub(crate) type ObjectUpdateEvent = OutgoingEvent<janus_rtc_stream::Object>;
 
 ////////////////////////////////////////////////////////////////////////////////
