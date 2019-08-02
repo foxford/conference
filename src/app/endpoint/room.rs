@@ -3,7 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::ops::Bound;
 use svc_agent::mqtt::{
     compat::IntoEnvelope, Connection, IncomingRequest, OutgoingRequest, OutgoingRequestProperties,
-    OutgoingResponse, Publish, ResponseStatus,
+    Publish, ResponseStatus,
 };
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -31,8 +31,6 @@ pub(crate) struct ReadRequestData {
 pub(crate) type DeleteRequest = ReadRequest;
 
 pub(crate) type UpdateRequest = IncomingRequest<room::UpdateQuery>;
-
-pub(crate) type ObjectResponse = OutgoingResponse<room::Object>;
 
 pub(crate) type LeaveRequest = IncomingRequest<LeaveRequestData>;
 
@@ -246,7 +244,7 @@ impl State {
     pub(crate) async fn leave(&self, inreq: LeaveRequest) -> Result<impl Publish, SvcError> {
         let room_id = inreq.payload().id.to_string();
 
-        let object = {
+        let _object = {
             let conn = self.db.get()?;
             room::FindQuery::new()
                 .id(inreq.payload().id)

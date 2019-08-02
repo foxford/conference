@@ -17,9 +17,6 @@ webrtc-sdp = "0.1"
 http = "0.1"
 uuid = { version = "0.6", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-crossbeam-channel = "0.3"
-itertools = "0.8"
-reqwest = "0.9"
 openssl = "*"
 diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
 svc-agent = { version = "0.7", features = ["diesel"] }

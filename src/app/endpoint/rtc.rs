@@ -54,8 +54,6 @@ impl ConnectResponseData {
 }
 
 pub(crate) type ConnectResponse = OutgoingResponse<ConnectResponseData>;
-pub(crate) type ObjectResponse = OutgoingResponse<rtc::Object>;
-pub(crate) type ObjectListResponse = OutgoingResponse<Vec<rtc::Object>>;
 
 ////////////////////////////////////////////////////////////////////////////////
 

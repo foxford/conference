@@ -77,8 +77,8 @@ impl FindQuery {
         use diesel::prelude::*;
 
         match (self.id, self.rtc_id) {
-            (Some(ref id), None) => room::table.find(id).get_result(conn).optional(),
-            (None, Some(ref rtc_id)) => room::table
+            (Some(id), None) => room::table.find(id).get_result(conn).optional(),
+            (None, Some(rtc_id)) => room::table
                 .inner_join(rtc::table)
                 .filter(rtc::id.eq(rtc_id))
                 .select(ALL_COLUMNS)

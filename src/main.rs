@@ -21,11 +21,11 @@ fn main() {
         let timeout = var("DATABASE_POOL_TIMEOUT")
             .map(|val| {
                 val.parse::<u64>()
-                    .expect("Error converting DATABASE_POOL_TIMEOUT variable into u32")
+                    .expect("Error converting DATABASE_POOL_TIMEOUT variable into u64")
             })
             .unwrap_or_else(|_| 5);
 
-        crate::db::create_database_pool(&url, size, timeout)
+        crate::db::create_pool(&url, size, timeout)
     };
 
     executor::block_on(app::run(&db)).expect("Error running an executor");
