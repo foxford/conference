@@ -32,7 +32,8 @@ table! {
 
     recording (rtc_id) {
         rtc_id -> Uuid,
-        time -> Array<Tstzrange>,
+        started_at -> Timestamptz,
+        time -> Array<Int8range>,
     }
 }
 
@@ -64,4 +65,4 @@ joinable!(janus_rtc_stream -> rtc (rtc_id));
 joinable!(recording -> rtc (rtc_id));
 joinable!(rtc -> room (room_id));
 
-allow_tables_to_appear_in_same_query!(janus_backend, janus_rtc_stream, recording, room, rtc);
+allow_tables_to_appear_in_same_query!(janus_backend, janus_rtc_stream, recording, room, rtc,);

@@ -1,6 +1,6 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use failure::{err_msg, format_err, Error};
-use log::info;
+use log::{info, warn};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::ops::Bound;
@@ -253,17 +253,11 @@ where
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct UploadStreamTransaction {
-    rtc_id: Uuid,
-}
+pub(crate) struct UploadStreamTransaction {}
 
 impl UploadStreamTransaction {
-    pub(crate) fn new(rtc_id: Uuid) -> Self {
-        Self { rtc_id }
-    }
-
-    pub(crate) fn rtc_id(&self) -> Uuid {
-        self.rtc_id
+    pub(crate) fn new() -> Self {
+        Self {}
     }
 
     pub(crate) fn method(&self) -> &str {
@@ -291,13 +285,12 @@ impl UploadStreamRequestBody {
 }
 
 pub(crate) fn upload_stream_request(
-    rtc_id: Uuid,
     session_id: i64,
     handle_id: i64,
     body: UploadStreamRequestBody,
     to: &AgentId,
 ) -> Result<OutgoingRequest<MessageRequest>, Error> {
-    let transaction = Transaction::UploadStream(UploadStreamTransaction::new(rtc_id));
+    let transaction = Transaction::UploadStream(UploadStreamTransaction::new());
     let payload = MessageRequest::new(
         &to_base64(&transaction)?,
         session_id,
@@ -577,6 +570,41 @@ pub(crate) async fn handle_response(
                             ))
                         })
                         .and_then(|_| {
+                            let rtc_id = plugin_data
+                                .get("id")
+                                .ok_or_else(|| {
+                                    format_err!(
+                                        "Missing 'id' in response on method = '{}', transaction = '{}'",
+                                        tn.method(),
+                                        inresp.transaction()
+                                    )
+                                })
+                                .and_then(|val| {
+                                    serde_json::from_value::<Uuid>(val.clone())
+                                        .map_err(|_| err_msg("invalid value for 'id'"))
+                                })?;
+
+                            let started_at = plugin_data
+                                .get("started_at")
+                                .ok_or_else(|| {
+                                    format_err!(
+                                        "Missing 'started_at' in response on method = '{}', transaction = '{}'",
+                                        tn.method(),
+                                        inresp.transaction()
+                                    )
+                                })
+                                .and_then(|val| {
+                                    let unix_ts = serde_json::from_value::<u64>(val.clone())
+                                        .map_err(|_| err_msg("invalid value for 'started_at'"))?;
+
+                                    let naive_datetime = NaiveDateTime::from_timestamp(
+                                        unix_ts as i64 / 1000,
+                                        ((unix_ts % 1000) * 1_000_000) as u32,
+                                    );
+
+                                    Ok(DateTime::<Utc>::from_utc(naive_datetime, Utc))
+                                })?;
+
                             let time = plugin_data
                                 .get("time")
                                 .ok_or_else(|| {
@@ -587,42 +615,28 @@ pub(crate) async fn handle_response(
                                     )
                                 })
                                 .and_then(|time| {
-                                    Ok(serde_json::from_value::<Vec<(u64, u64)>>(time.clone())
+                                    Ok(serde_json::from_value::<Vec<(i64, i64)>>(time.clone())
                                         .map_err(|_| err_msg("invalid value for 'time'"))?
                                         .into_iter()
                                         .map(|(start, end)| {
-                                            let start_secs = start as i64 / 1000;
-                                            let start_nanos = ((start % 1000) * 1_000_000) as u32;
-                                            let start = Bound::Included(DateTime::<Utc>::from_utc(
-                                                NaiveDateTime::from_timestamp(start_secs, start_nanos),
-                                                Utc,
-                                            ));
-
-                                            let end_secs = end as i64 / 1000;
-                                            let end_nanos = ((end % 1000) * 1_000_000) as u32;
-                                            let end = Bound::Included(DateTime::<Utc>::from_utc(
-                                                NaiveDateTime::from_timestamp(end_secs, end_nanos),
-                                                Utc,
-                                            ));
-
-                                            (start, end)
+                                            (Bound::Included(start), Bound::Excluded(end))
                                         })
                                         .collect())
                                 })?;
 
-
                             let (room, rtcs, recs) = {
                                 let conn = janus.db.get()?;
 
-                                recording::InsertQuery::new(tn.rtc_id(), time).execute(&conn)?;
+                                recording::InsertQuery::new(rtc_id, started_at, time)
+                                    .execute(&conn)?;
 
                                 let rtc = rtc::FindQuery::new()
-                                    .id(tn.rtc_id())
+                                    .id(rtc_id)
                                     .execute(&conn)?
                                     .ok_or_else(|| {
                                         format_err!(
                                             "the rtc = '{}' is not found on method = '{}', transaction = '{}'",
-                                            tn.rtc_id(),
+                                            rtc_id,
                                             tn.method(),
                                             inresp.transaction(),
                                         )
@@ -648,25 +662,41 @@ pub(crate) async fn handle_response(
                                 (room, rtcs, recs)
                             };
 
-                            let mut events = Vec::new();
+                            let maybe_rtcs_and_recordings: Option<Vec<(rtc::Object, recording::Object)>> = rtcs
+                                .into_iter()
+                                .zip(recs)
+                                .map(|(rtc, rtc_recs)| {
+                                    if rtc_recs.len() > 1 {
+                                        warn!(
+                                            "there must be at most 1 recording for an rtc, got {} for the room = '{}', rtc = '{}'; using the first one, ignoring the rest",
+                                            rtc_recs.len(),
+                                            room.id(),
+                                            rtc.id(),
+                                        );
+                                    }
 
-                            // Waiting for all the room's rtc being uploaded
-                            if recs.iter().any(|r| r.is_empty()) {
-                                info!(
-                                    "postpone 'room.upload' event because still waiting for rtcs being uploaded for the room = '{}'",
-                                    room.id()
-                                );
-                                return Ok(events);
+                                    rtc_recs.into_iter().next().map(|rec| (rtc, rec))
+                                })
+                                .collect();
+
+                            match maybe_rtcs_and_recordings {
+                                Some(rtcs_and_recordings) => {
+                                    let event = endpoint::system::upload_event(&room, rtcs_and_recordings.into_iter())
+                                        .map_err(|e| format_err!("error creating a system event, {}", e))?
+                                        .into_envelope()?;
+
+                                    Ok(vec![event])
+                                }
+                                None => {
+                                    // Waiting for all the room's rtc being uploaded
+                                    info!(
+                                        "postpone 'room.upload' event because still waiting for rtcs being uploaded for the room = '{}'",
+                                        room.id(),
+                                    );
+
+                                    Ok(vec![])
+                                }
                             }
-
-                            // Sending a final event
-                            let rtcs_and_recordings = rtcs.into_iter().zip(recs);
-                            let event = endpoint::system::upload_event(&room, rtcs_and_recordings)
-                                .map_err(|e| format_err!("error creating a system event, {}", e))?
-                                .into_envelope()?;
-
-                            events.push(event);
-                            Ok(events)
                         })?;
 
                     next.publish(tx).map_err(Into::into)

@@ -1,5 +1,7 @@
+use std::ops::Bound;
+
 use chrono::{DateTime, Utc};
-use failure::{format_err, Error};
+use failure::Error;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
     compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publish,
@@ -27,7 +29,8 @@ pub(crate) struct RoomUploadEventData {
 #[derive(Debug, Serialize)]
 struct RtcUploadEventData {
     id: Uuid,
-    time: Vec<(i64, i64)>,
+    #[serde(serialize_with = "crate::serde::milliseconds_bound_tuples")]
+    time: Vec<(Bound<i64>, Bound<i64>)>,
     #[serde(with = "chrono::serde::ts_milliseconds")]
     started_at: DateTime<Utc>,
     uri: String,
@@ -75,7 +78,6 @@ impl State {
 
             for (room, rtc) in rooms.into_iter() {
                 let backreq = crate::app::janus::upload_stream_request(
-                    rtc.id(),
                     backend.session_id(),
                     backend.handle_id(),
                     crate::app::janus::UploadStreamRequestBody::new(
@@ -104,61 +106,18 @@ impl State {
 
 pub(crate) fn upload_event<I>(
     room: &room::Object,
-    rtc_and_recordings: I,
+    rtcs_and_recordings: I,
 ) -> Result<RoomUploadEvent, Error>
 where
-    I: Iterator<Item = (rtc::Object, Vec<recording::Object>)>,
+    I: Iterator<Item = (rtc::Object, recording::Object)>,
 {
-    use std::ops::Bound;
-
     let mut event_entries = Vec::new();
-    for (rtc, recordings) in rtc_and_recordings {
-        let time: Vec<room::Time> = recordings
-            .into_iter()
-            .flat_map(|r| {
-                let (_rtc_id, time) = r.into_tuple();
-                time
-            })
-            .collect();
-
-        let (started_at, _) = time
-            .first()
-            .ok_or_else(|| format_err!("empty recordings list for rtc_id='{}'", rtc.id()))?;
-        let started_at = match started_at {
-            &Bound::Excluded(val) | &Bound::Included(val) => val,
-            &Bound::Unbounded => {
-                return Err(format_err!(
-                    "unexpected Bound::Unbounded in room's 'started_at' value"
-                ));
-            }
-        };
-
-        let time = time
-            .into_iter()
-            .map(|(start, end)| {
-                let start = match start {
-                    Bound::Included(start) | Bound::Excluded(start) => {
-                        start.timestamp_millis() - started_at.timestamp_millis()
-                    }
-                    Bound::Unbounded => 0,
-                };
-
-                let end = match end {
-                    Bound::Included(end) | Bound::Excluded(end) => {
-                        end.timestamp_millis() - started_at.timestamp_millis()
-                    }
-                    Bound::Unbounded => 0,
-                };
-
-                (start, end)
-            })
-            .collect();
-
+    for (rtc, recording) in rtcs_and_recordings {
         let entry = RtcUploadEventData {
             id: rtc.id(),
             uri: format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)),
-            time,
-            started_at,
+            time: recording.time().to_owned(),
+            started_at: recording.started_at().to_owned(),
         };
 
         event_entries.push(entry);
