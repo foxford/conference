@@ -19,6 +19,14 @@ pub(crate) struct CreateRequestData {
     #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: String,
+    #[serde(default = "CreateRequestData::default_backend")]
+    backend: room::RoomBackend,
+}
+
+impl CreateRequestData {
+    fn default_backend() -> room::RoomBackend {
+        room::RoomBackend::None
+    }
 }
 
 pub(crate) type ReadRequest = IncomingRequest<ReadRequestData>;
@@ -99,8 +107,12 @@ impl State {
         // Creating a Room
         let object = {
             let conn = self.db.get()?;
-            room::InsertQuery::new(inreq.payload().time, &inreq.payload().audience)
-                .execute(&conn)?
+            room::InsertQuery::new(
+                inreq.payload().time,
+                &inreq.payload().audience,
+                inreq.payload().backend,
+            )
+            .execute(&conn)?
         };
 
         let resp = inreq.to_response(object, ResponseStatus::OK);

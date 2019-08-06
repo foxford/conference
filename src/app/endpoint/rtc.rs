@@ -120,6 +120,16 @@ impl State {
                         .build()
                 })?;
 
+            if room.backend() != &room::RoomBackend::Janus {
+                return Err(SvcError::builder()
+                    .status(ResponseStatus::NOT_IMPLEMENTED)
+                    .detail(&format!(
+                        "'rtc.connect' is not implemented for the backend = '{}'.",
+                        room.backend()
+                    ))
+                    .build());
+            }
+
             let rtc_id = id.to_string();
             let room_id = room.id().to_string();
             self.authz.authorize(

@@ -59,6 +59,16 @@ impl State {
                         .build()
                 })?;
 
+            if room.backend() != &room::RoomBackend::Janus {
+                return Err(SvcError::builder()
+                    .status(ResponseStatus::NOT_IMPLEMENTED)
+                    .detail(&format!(
+                        "'rtc_stream.list' is not implemented for the backend = '{}'.",
+                        room.backend()
+                    ))
+                    .build());
+            }
+
             let room_id = room.id().to_string();
             self.authz.authorize(
                 room.audience(),
