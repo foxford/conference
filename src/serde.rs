@@ -5,8 +5,8 @@ use serde::ser;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn milliseconds_bound_tuples<S>(
-    value: &Vec<(Bound<i64>, Bound<i64>)>,
+pub fn milliseconds_bound_tuples_option<S>(
+    value: &Option<Vec<(Bound<i64>, Bound<i64>)>>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -14,34 +14,95 @@ where
 {
     use ser::SerializeSeq;
 
-    let mut seq = serializer.serialize_seq(Some(value.len()))?;
+    match value {
+        None => serializer.serialize_none(),
+        Some(value) => {
+            let mut seq = serializer.serialize_seq(Some(value.len()))?;
 
-    for (lt, rt) in value {
-        let lt = match lt {
-            Bound::Included(lt) | Bound::Excluded(lt) => lt,
-            Bound::Unbounded => &0,
-        };
+            for (lt, rt) in value {
+                let lt = match lt {
+                    Bound::Included(lt) | Bound::Excluded(lt) => lt,
+                    Bound::Unbounded => &0,
+                };
 
-        let rt = match rt {
-            Bound::Included(rt) | Bound::Excluded(rt) => rt,
-            Bound::Unbounded => &0,
-        };
+                let rt = match rt {
+                    Bound::Included(rt) | Bound::Excluded(rt) => rt,
+                    Bound::Unbounded => &0,
+                };
 
-        seq.serialize_element(&(lt, rt))?;
+                seq.serialize_element(&(lt, rt))?;
+            }
+
+            seq.end()
+        }
     }
-
-    seq.end()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn ts_seconds_option<S>(opt: &Option<DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error>
+pub(crate) fn ts_milliseconds_option<S>(
+    opt: &Option<DateTime<Utc>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: ser::Serializer,
 {
     match opt {
-        Some(val) => serializer.serialize_i64(val.timestamp()),
+        Some(dt) => chrono::serde::ts_milliseconds::serialize(dt, serializer),
         None => serializer.serialize_none(),
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) mod ts_seconds_option {
+    use chrono::{DateTime, Utc};
+    use serde::{de, ser};
+    use std::fmt;
+
+    pub(crate) fn serialize<S>(
+        opt: &Option<DateTime<Utc>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        match opt {
+            Some(dt) => chrono::serde::ts_seconds::serialize(dt, serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Option<DateTime<Utc>>, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        d.deserialize_option(SecondsTimestampOptionVisitor)
+    }
+
+    pub struct SecondsTimestampOptionVisitor;
+
+    impl<'de> de::Visitor<'de> for SecondsTimestampOptionVisitor {
+        type Value = Option<DateTime<Utc>>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("none or unix time (seconds)")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, d: D) -> Result<Self::Value, D::Error>
+        where
+            D: de::Deserializer<'de>,
+        {
+            let dt = chrono::serde::ts_seconds::deserialize(d)?;
+            Ok(Some(dt))
+        }
     }
 }
 
@@ -228,17 +289,29 @@ mod test {
 
     #[derive(Debug, Serialize)]
     struct TestRelativeTimeData {
-        #[serde(serialize_with = "crate::serde::milliseconds_bound_tuples")]
-        time: Vec<(Bound<i64>, Bound<i64>)>,
+        #[serde(serialize_with = "crate::serde::milliseconds_bound_tuples_option")]
+        time: Option<Vec<(Bound<i64>, Bound<i64>)>>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct TestMillisecondsStartedAtOptionData {
+        #[serde(serialize_with = "crate::serde::ts_milliseconds_option")]
+        started_at: Option<DateTime<Utc>>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct TestSecondsStartedAtOptionData {
+        #[serde(with = "crate::serde::ts_seconds_option")]
+        started_at: Option<DateTime<Utc>>,
     }
 
     #[test]
-    fn milliseconds_bound_tuples() {
+    fn milliseconds_bound_tuples_option() {
         let data = TestRelativeTimeData {
-            time: vec![
+            time: Some(vec![
                 (Bound::Included(0), Bound::Excluded(100)),
                 (Bound::Included(200), Bound::Excluded(300)),
-            ],
+            ]),
         };
 
         let data = serde_json::to_value(data).unwrap();
@@ -263,9 +336,7 @@ mod test {
 
     #[test]
     fn ts_seconds_bound_tuple() {
-        let now = Utc::now();
-        let now = NaiveDateTime::from_timestamp(now.timestamp(), 0);
-        let now = DateTime::from_utc(now, Utc);
+        let now = now();
 
         let val = json!({
             "time": (now.timestamp(), now.timestamp()),
@@ -296,9 +367,7 @@ mod test {
 
     #[test]
     fn ts_seconds_option_bound_tuple() {
-        let now = Utc::now();
-        let now = NaiveDateTime::from_timestamp(now.timestamp(), 0);
-        let now = DateTime::from_utc(now, Utc);
+        let now = now();
 
         let val = json!({
             "time": (now.timestamp(), now.timestamp()),
@@ -316,5 +385,37 @@ mod test {
         let data: TestOptionData = dbg!(serde_json::from_value(val).unwrap());
 
         assert!(data.time.is_none());
+    }
+
+    #[test]
+    fn ts_milliseconds_option() {
+        let now = now();
+        let data = TestMillisecondsStartedAtOptionData {
+            started_at: Some(now),
+        };
+        let data = serde_json::to_value(data).unwrap();
+        let result = data.get("started_at").unwrap().as_i64().unwrap();
+        assert_eq!(result, now.timestamp_millis());
+    }
+
+    #[test]
+    fn ts_seconds_option() {
+        let now = now();
+        let data = TestSecondsStartedAtOptionData {
+            started_at: Some(now),
+        };
+        let data = serde_json::to_value(data).unwrap();
+        let result = data.get("started_at").unwrap().as_i64().unwrap();
+        assert_eq!(result, now.timestamp());
+
+        let val = json!({ "started_at": now.timestamp() });
+        let data: TestSecondsStartedAtOptionData = dbg!(serde_json::from_value(val).unwrap());
+        assert_eq!(data.started_at, Some(now));
+    }
+
+    fn now() -> DateTime<Utc> {
+        let now = Utc::now();
+        let now = NaiveDateTime::from_timestamp(now.timestamp(), 0);
+        DateTime::from_utc(now, Utc)
     }
 }

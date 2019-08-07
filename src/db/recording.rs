@@ -1,9 +1,9 @@
+use std::fmt;
 use std::ops::Bound;
 
-use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::rtc::Object as Rtc;
@@ -13,6 +13,20 @@ use crate::schema::recording;
 
 pub(crate) type Time = (Bound<i64>, Bound<i64>);
 
+#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum RecordingStatus {
+    Ready,
+    Missing,
+}
+
+impl fmt::Display for RecordingStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let serialized = serde_json::to_string(self).map_err(|_| fmt::Error)?;
+        write!(f, "{}", serialized)
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize, Identifiable, Associations, Queryable)]
@@ -21,22 +35,34 @@ pub(crate) type Time = (Bound<i64>, Bound<i64>);
 #[table_name = "recording"]
 pub(crate) struct Object {
     rtc_id: Uuid,
-    #[serde(with = "ts_seconds")]
-    started_at: DateTime<Utc>,
-    time: Vec<Time>,
+    #[serde(with = "crate::serde::ts_seconds_option")]
+    started_at: Option<DateTime<Utc>>,
+    time: Option<Vec<Time>>,
+    status: RecordingStatus,
 }
 
 impl Object {
-    pub(crate) fn into_tuple(self) -> (Uuid, DateTime<Utc>, Vec<Time>) {
-        (self.rtc_id, self.started_at, self.time)
+    pub(crate) fn into_tuple(
+        self,
+    ) -> (
+        Uuid,
+        RecordingStatus,
+        Option<DateTime<Utc>>,
+        Option<Vec<Time>>,
+    ) {
+        (self.rtc_id, self.status, self.started_at, self.time)
     }
 
-    pub(crate) fn started_at(&self) -> &DateTime<Utc> {
+    pub(crate) fn started_at(&self) -> &Option<DateTime<Utc>> {
         &self.started_at
     }
 
-    pub(crate) fn time(&self) -> &Vec<Time> {
+    pub(crate) fn time(&self) -> &Option<Vec<Time>> {
         &self.time
+    }
+
+    pub(crate) fn status(&self) -> &RecordingStatus {
+        &self.status
     }
 }
 
@@ -46,16 +72,32 @@ impl Object {
 #[table_name = "recording"]
 pub(crate) struct InsertQuery {
     rtc_id: Uuid,
-    started_at: DateTime<Utc>,
-    time: Vec<Time>,
+    started_at: Option<DateTime<Utc>>,
+    time: Option<Vec<Time>>,
+    status: RecordingStatus,
 }
 
 impl InsertQuery {
-    pub(crate) fn new(rtc_id: Uuid, started_at: DateTime<Utc>, time: Vec<Time>) -> Self {
+    pub(crate) fn new(rtc_id: Uuid, status: RecordingStatus) -> Self {
         Self {
             rtc_id,
-            started_at,
-            time,
+            started_at: None,
+            time: None,
+            status,
+        }
+    }
+
+    pub(crate) fn started_at(self, started_at: DateTime<Utc>) -> Self {
+        Self {
+            started_at: Some(started_at),
+            ..self
+        }
+    }
+
+    pub(crate) fn time(self, time: Vec<Time>) -> Self {
+        Self {
+            time: Some(time),
+            ..self
         }
     }
 

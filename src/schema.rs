@@ -29,11 +29,13 @@ table! {
 table! {
     use diesel::sql_types::*;
     use crate::db::sql::*;
+    use crate::db::recording::RecordingStatusMapping;
 
     recording (rtc_id) {
         rtc_id -> Uuid,
-        started_at -> Timestamptz,
-        time -> Array<Int8range>,
+        started_at -> Nullable<Timestamptz>,
+        time -> Nullable<Array<Int8range>>,
+        status -> RecordingStatusMapping,
     }
 }
 

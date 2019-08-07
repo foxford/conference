@@ -29,10 +29,11 @@ pub(crate) struct RoomUploadEventData {
 #[derive(Debug, Serialize)]
 struct RtcUploadEventData {
     id: Uuid,
-    #[serde(serialize_with = "crate::serde::milliseconds_bound_tuples")]
-    time: Vec<(Bound<i64>, Bound<i64>)>,
-    #[serde(with = "chrono::serde::ts_milliseconds")]
-    started_at: DateTime<Utc>,
+    status: recording::RecordingStatus,
+    #[serde(serialize_with = "crate::serde::milliseconds_bound_tuples_option", skip_serializing_if = "Option::is_none")]
+    time: Option<Vec<(Bound<i64>, Bound<i64>)>>,
+    #[serde(serialize_with = "crate::serde::ts_milliseconds_option", skip_serializing_if = "Option::is_none")]
+    started_at: Option<DateTime<Utc>>,
     uri: String,
 }
 
@@ -115,6 +116,7 @@ where
     for (rtc, recording) in rtcs_and_recordings {
         let entry = RtcUploadEventData {
             id: rtc.id(),
+            status: recording.status().to_owned(),
             uri: format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)),
             time: recording.time().to_owned(),
             started_at: recording.started_at().to_owned(),
