@@ -40,12 +40,14 @@ table! {
 table! {
     use diesel::sql_types::*;
     use crate::db::sql::*;
+    use crate::db::room::RoomBackendMapping;
 
     room (id) {
         id -> Uuid,
         time -> Tstzrange,
         audience -> Text,
         created_at -> Timestamptz,
+        backend -> RoomBackendMapping,
     }
 }
 

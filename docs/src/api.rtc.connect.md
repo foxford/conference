@@ -1,6 +1,7 @@
 # Connect
 
 Connect to the real-time connection to send signal messages and media.
+The method isn't available for `none` backend.
 
 *NOTE: If Janus Gateway is used as a backend, a handle to the conference plugin for the patricular agent will be created.*
 

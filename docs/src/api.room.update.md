@@ -31,6 +31,7 @@ Name     | Type       | Default    | Description
 id       | string     | _required_ | The room identifier.
 time     | [int, int] | _optional_ | A [lt, rt) range of unix time (seconds) or null (unbounded).
 audience | string     | _optional_ | The room audience.
+backend  | string     | _optional_ | The room backend. Available values: janus, none.
 
 **Response**
 

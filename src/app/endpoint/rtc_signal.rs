@@ -76,6 +76,16 @@ impl State {
                     })?
             };
 
+            if room.backend() != &room::RoomBackend::Janus {
+                return Err(SvcError::builder()
+                    .status(ResponseStatus::NOT_IMPLEMENTED)
+                    .detail(&format!(
+                        "'rtc_signal.create' is not implemented for the backend = '{}'.",
+                        room.backend()
+                    ))
+                    .build());
+            }
+
             let room_id = room.id().to_string();
             let rtc_id = rtc_id.to_string();
             self.authz

@@ -1,6 +1,7 @@
 # List
 
 List streams of real-time connections.
+The method isn't available for `none` backend.
 
 **Request**
 

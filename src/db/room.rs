@@ -1,21 +1,50 @@
+use std::fmt;
+use std::ops::Bound;
+
 use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
-use std::ops::Bound;
 use uuid::Uuid;
 
 use crate::schema::{room, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-type AllColumns = (room::id, room::time, room::audience, room::created_at);
-const ALL_COLUMNS: AllColumns = (room::id, room::time, room::audience, room::created_at);
+type AllColumns = (
+    room::id,
+    room::time,
+    room::audience,
+    room::created_at,
+    room::backend,
+);
+
+const ALL_COLUMNS: AllColumns = (
+    room::id,
+    room::time,
+    room::audience,
+    room::created_at,
+    room::backend,
+);
 
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
+
+#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum RoomBackend {
+    None,
+    Janus,
+}
+
+impl fmt::Display for RoomBackend {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let serialized = serde_json::to_string(self).map_err(|_| fmt::Error)?;
+        write!(f, "{}", serialized)
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -28,6 +57,7 @@ pub(crate) struct Object {
     audience: String,
     #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
+    backend: RoomBackend,
 }
 
 impl Object {
@@ -41,6 +71,10 @@ impl Object {
 
     pub(crate) fn time(&self) -> Time {
         self.time
+    }
+
+    pub(crate) fn backend(&self) -> &RoomBackend {
+        &self.backend
     }
 }
 
@@ -143,6 +177,7 @@ pub(crate) fn finished_without_recordings(
 
     schema::room::table
         .inner_join(schema::rtc::table.left_join(schema::recording::table))
+        .filter(room::backend.ne(RoomBackend::None))
         .filter(schema::recording::rtc_id.is_null())
         .filter(sql("upper(\"room\".\"time\") < now()"))
         .select((self::ALL_COLUMNS, super::rtc::ALL_COLUMNS))
@@ -157,14 +192,16 @@ pub(crate) struct InsertQuery<'a> {
     id: Option<Uuid>,
     time: Time,
     audience: &'a str,
+    backend: RoomBackend,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(time: Time, audience: &'a str) -> Self {
+    pub(crate) fn new(time: Time, audience: &'a str, backend: RoomBackend) -> Self {
         Self {
             id: None,
             time,
             audience,
+            backend,
         }
     }
 
@@ -211,6 +248,7 @@ pub(crate) struct UpdateQuery {
     #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
     time: Option<Time>,
     audience: Option<String>,
+    backend: Option<RoomBackend>,
 }
 
 impl UpdateQuery {
@@ -219,6 +257,7 @@ impl UpdateQuery {
             id,
             time: None,
             audience: None,
+            backend: None,
         }
     }
 

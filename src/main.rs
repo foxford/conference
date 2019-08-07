@@ -3,6 +3,8 @@
 extern crate openssl;
 #[macro_use]
 extern crate diesel;
+#[macro_use]
+extern crate diesel_derive_enum;
 
 use futures::executor;
 use std::env::var;

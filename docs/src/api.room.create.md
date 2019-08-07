@@ -30,6 +30,7 @@ Name     | Type       | Default    | Description
 -------- | ---------- | ---------- | ------------------
 time     | [int, int] | _required_ | A [lt, rt) range of unix time (seconds) or null (unbounded).
 audience | string     | _required_ | The room audience.
+backend  | string     | none       | The room backend. Available values: janus, none.
 
 **Response**
 
