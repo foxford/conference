@@ -12,6 +12,14 @@ use crate::schema::{room, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
+pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
+
+pub(crate) fn upto_now() -> Time {
+    (Bound::Unbounded, Bound::Excluded(Utc::now()))
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 type AllColumns = (
     room::id,
     room::time,
@@ -29,8 +37,6 @@ const ALL_COLUMNS: AllColumns = (
 );
 
 ////////////////////////////////////////////////////////////////////////////////
-
-pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -83,6 +89,7 @@ impl Object {
 pub(crate) struct FindQuery {
     id: Option<Uuid>,
     rtc_id: Option<Uuid>,
+    time: Option<Time>,
 }
 
 impl FindQuery {
@@ -90,6 +97,7 @@ impl FindQuery {
         Self {
             id: None,
             rtc_id: None,
+            time: None,
         }
     }
 
@@ -107,20 +115,32 @@ impl FindQuery {
         }
     }
 
+    pub(crate) fn time(self, time: Time) -> Self {
+        Self {
+            time: Some(time),
+            ..self
+        }
+    }
+
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
+        use diesel::{dsl::sql, sql_types::Tstzrange};
+
+        let mut q = room::table.into_boxed();
+
+        if let Some(time) = self.time {
+            q = q.filter(sql("room.time && ").bind::<Tstzrange, _>(time));
+        }
 
         match (self.id, self.rtc_id) {
-            (Some(id), None) => room::table.find(id).get_result(conn).optional(),
-            (None, Some(rtc_id)) => room::table
+            (Some(id), None) => q.filter(room::id.eq(id)).get_result(conn).optional(),
+            (None, Some(rtc_id)) => q
                 .inner_join(rtc::table)
                 .filter(rtc::id.eq(rtc_id))
                 .select(ALL_COLUMNS)
                 .get_result(conn)
                 .optional(),
-            _ => Err(Error::QueryBuilderError(
-                "id or rtc_id are required parameters of the query".into(),
-            )),
+            _ => Err(Error::QueryBuilderError("id either rtc_id required".into())),
         }
     }
 }
