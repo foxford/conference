@@ -1,16 +1,16 @@
-use failure::Error;
+use failure::{format_err, Error};
 use svc_agent::mqtt::{
     compat::IntoEnvelope, Agent, IncomingRequestProperties, OutgoingResponse, Publish,
     ResponseStatus,
 };
-use svc_error::ProblemDetails;
+use svc_error::{extension::sentry, ProblemDetails};
 
 pub(crate) fn handle_response(
     kind: &str,
     title: &str,
     tx: &mut Agent,
     props: &IncomingRequestProperties,
-    result: Result<impl Publish, impl ProblemDetails>,
+    result: Result<impl Publish, impl ProblemDetails + Send + Clone + 'static>,
 ) -> Result<(), Error> {
     match result {
         Ok(val) => {
@@ -21,8 +21,16 @@ pub(crate) fn handle_response(
         Err(mut err) => {
             // Wrapping the error
             err.set_kind(kind, title);
-
             let status = err.status_code();
+
+            if status == ResponseStatus::UNPROCESSABLE_ENTITY
+                || status == ResponseStatus::FAILED_DEPENDENCY
+                || status >= ResponseStatus::INTERNAL_SERVER_ERROR
+            {
+                sentry::send(err.clone())
+                    .map_err(|err| format_err!("Error sending error to Sentry: {}", err))?;
+            }
+
             let resp =
                 OutgoingResponse::unicast(err, props.to_response(status), props).into_envelope()?;
 

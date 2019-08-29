@@ -1,9 +1,10 @@
+use std::sync::Arc;
+use std::thread;
+
 use failure::{format_err, Error};
 use futures::{executor::ThreadPoolBuilder, task::SpawnExt, StreamExt};
 use log::{error, info};
 use serde_derive::Deserialize;
-use std::sync::Arc;
-use std::thread;
 use svc_agent::mqtt::{
     compat, Agent, AgentBuilder, ConnectionMode, Notification, Publish, QoS, SubscriptionTopic,
 };
@@ -73,6 +74,11 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     // Authz
     let authz = svc_authz::ClientMap::new(&config.id, config.authz)
         .expect("Error converting authz config to clients");
+
+    // Sentry
+    if let Some(sentry_config) = config.sentry.as_ref() {
+        svc_error::extension::sentry::init(sentry_config);
+    }
 
     // Application resources
     let state = Arc::new(State {
