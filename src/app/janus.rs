@@ -448,7 +448,7 @@ pub(crate) async fn handle_response(
                         })
                         .and_then(|status| match status {
                             // We fail if the status isn't equal to 200
-                            val if val == 200 => Ok(()),
+                            val if val == "200" => Ok(()),
                             _ => Err(SvcError::builder()
                                 .status(ResponseStatus::FAILED_DEPENDENCY)
                                 .detail(&format!(
@@ -506,7 +506,7 @@ pub(crate) async fn handle_response(
                         })
                         // We fail if the status isn't equal to 200
                         .and_then(|status| match status {
-                            val if val == 200 => Ok(()),
+                            val if val == "200" => Ok(()),
                             _ => Err(SvcError::builder()
                                 .status(ResponseStatus::FAILED_DEPENDENCY)
                                 .detail(&format!(
@@ -561,7 +561,7 @@ pub(crate) async fn handle_response(
                         })
                         // We fail if the status isn't equal to 200
                         .and_then(|status| match status {
-                            val if val == 200 => Ok(()),
+                            val if val == "200" => Ok(()),
                             _ => Err(format_err!(
                                 "error with status code = '{}' received in a response on method = '{}', transaction = '{}'",
                                 status,
