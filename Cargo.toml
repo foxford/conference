@@ -23,7 +23,7 @@ diesel-derive-enum = { version = "0.4", features = ["postgres"] }
 svc-agent = { version = "0.7", features = ["diesel"] }
 svc-authz = "0.5"
 svc-authn = { version = "0.5", features = ["jose", "diesel"] }
-svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz"] }
+svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz", "sentry-extension"] }
 
 [dependencies.futures]
 version = "=0.3.0-alpha.14"

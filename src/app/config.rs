@@ -10,6 +10,7 @@ pub(crate) struct Config {
     pub(crate) backend_id: svc_agent::AccountId,
     pub(crate) authz: svc_authz::ConfigMap,
     pub(crate) mqtt: svc_agent::mqtt::AgentConfig,
+    pub(crate) sentry: Option<svc_error::extension::sentry::Config>,
 }
 
 pub(crate) fn load() -> Result<Config, config::ConfigError> {
