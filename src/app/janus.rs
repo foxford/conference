@@ -253,11 +253,13 @@ where
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct UploadStreamTransaction {}
+pub(crate) struct UploadStreamTransaction {
+    rtc_id: Uuid,
+}
 
 impl UploadStreamTransaction {
-    pub(crate) fn new() -> Self {
-        Self {}
+    pub(crate) fn new(rtc_id: Uuid) -> Self {
+        Self { rtc_id }
     }
 
     pub(crate) fn method(&self) -> &str {
@@ -290,7 +292,7 @@ pub(crate) fn upload_stream_request(
     body: UploadStreamRequestBody,
     to: &AgentId,
 ) -> Result<OutgoingRequest<MessageRequest>, Error> {
-    let transaction = Transaction::UploadStream(UploadStreamTransaction::new());
+    let transaction = Transaction::UploadStream(UploadStreamTransaction::new(body.id));
     let payload = MessageRequest::new(
         &to_base64(&transaction)?,
         session_id,
@@ -562,6 +564,19 @@ pub(crate) async fn handle_response(
                         // We fail if the status isn't equal to 200
                         .and_then(|status| match status {
                             val if val == "200" => Ok(()),
+                            val if val == "404" => {
+                                let conn = janus.db.get()?;
+
+                                recording::InsertQuery::new(tn.rtc_id, recording::RecordingStatus::Missing)
+                                    .execute(&conn)?;
+
+                                Err(format_err!(
+                                    "janus is missing recording for rtc = '{}', method = '{}', transaction = '{}'",
+                                    tn.rtc_id,
+                                    tn.method(),
+                                    inresp.transaction(),
+                                ))
+                            }
                             _ => Err(format_err!(
                                 "error with status code = '{}' received in a response on method = '{}', transaction = '{}'",
                                 status,
@@ -627,7 +642,9 @@ pub(crate) async fn handle_response(
                             let (room, rtcs, recs) = {
                                 let conn = janus.db.get()?;
 
-                                recording::InsertQuery::new(rtc_id, started_at, time)
+                                recording::InsertQuery::new(rtc_id, recording::RecordingStatus::Ready)
+                                    .started_at(started_at)
+                                    .time(time)
                                     .execute(&conn)?;
 
                                 let rtc = rtc::FindQuery::new()
