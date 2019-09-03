@@ -2,6 +2,9 @@ apiVersion: skaffold/v1beta11
 kind: Config
 build:
   artifacts:
+    - image: netologygroup/conference-migration
+      docker:
+        dockerfile: docker/migration.dockerfile
     - image: netologygroup/conference
       docker:
         dockerfile: docker/Dockerfile

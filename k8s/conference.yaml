@@ -13,6 +13,16 @@ spec:
       labels:
         app: conference
     spec:
+      initContainers:
+        - name: init-conference-migration
+          image: netologygroup/conference-migration
+          imagePullPolicy: Always
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-conference-credentials
+                  key: database_url
       containers:
         - name: conference
           image: netologygroup/conference
