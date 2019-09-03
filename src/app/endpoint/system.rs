@@ -30,11 +30,18 @@ pub(crate) struct RoomUploadEventData {
 struct RtcUploadEventData {
     id: Uuid,
     status: recording::RecordingStatus,
-    #[serde(serialize_with = "crate::serde::milliseconds_bound_tuples_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        serialize_with = "crate::serde::milliseconds_bound_tuples_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     time: Option<Vec<(Bound<i64>, Bound<i64>)>>,
-    #[serde(serialize_with = "crate::serde::ts_milliseconds_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        serialize_with = "crate::serde::ts_milliseconds_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     started_at: Option<DateTime<Utc>>,
-    uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    uri: Option<String>,
 }
 
 pub(crate) type RoomUploadEvent = OutgoingEvent<RoomUploadEventData>;
@@ -114,10 +121,17 @@ where
 {
     let mut event_entries = Vec::new();
     for (rtc, recording) in rtcs_and_recordings {
+        let uri = match recording.status() {
+            recording::RecordingStatus::Missing => None,
+            recording::RecordingStatus::Ready => {
+                Some(format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)))
+            }
+        };
+
         let entry = RtcUploadEventData {
             id: rtc.id(),
             status: recording.status().to_owned(),
-            uri: format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)),
+            uri,
             time: recording.time().to_owned(),
             started_at: recording.started_at().to_owned(),
         };
