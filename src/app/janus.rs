@@ -660,6 +660,7 @@ pub(crate) async fn handle_response(
                                     })?;
 
                                 let room = room::FindQuery::new()
+                                    .time(room::upto_now())
                                     .id(rtc.room_id())
                                     .execute(&conn)?
                                     .ok_or_else(|| {
@@ -744,6 +745,7 @@ pub(crate) async fn handle_response(
             if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
                 let rtc_id = rtc_stream.rtc_id();
                 let room = room::FindQuery::new()
+                    .time(room::upto_now())
                     .rtc_id(rtc_id)
                     .execute(&conn)?
                     .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
@@ -765,6 +767,7 @@ pub(crate) async fn handle_response(
             if let Some(rtc_stream) = janus_rtc_stream::stop(rtc_stream_id, &conn)? {
                 let rtc_id = rtc_stream.rtc_id();
                 let room = room::FindQuery::new()
+                    .time(room::upto_now())
                     .rtc_id(rtc_id)
                     .execute(&conn)?
                     .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;

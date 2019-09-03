@@ -66,6 +66,7 @@ impl State {
             let room = {
                 let conn = self.db.get()?;
                 room::FindQuery::new()
+                    .time(room::upto_now())
                     .rtc_id(rtc_id)
                     .execute(&conn)?
                     .ok_or_else(|| {
