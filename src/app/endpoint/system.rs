@@ -4,8 +4,8 @@ use chrono::{DateTime, Utc};
 use failure::Error;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publish,
-    ResponseStatus,
+    compat::{IntoEnvelope, OutgoingEnvelope},
+    IncomingRequest, OutgoingEvent, OutgoingEventProperties, ResponseStatus,
 };
 use svc_authn::AccountId;
 use svc_error::Error as SvcError;
@@ -61,7 +61,10 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn vacuum(&self, inreq: UploadRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn vacuum(
+        &self,
+        inreq: UploadRequest,
+    ) -> Result<Vec<Box<OutgoingEnvelope>>, SvcError> {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         self.authz.authorize(
             self.me.audience(),
@@ -102,7 +105,9 @@ impl State {
                         .detail("error creating a backend request")
                         .build()
                 })?;
-                requests.push(backreq.into_envelope().map_err(SvcError::from)?);
+
+                let envelope = backreq.into_envelope().map_err(SvcError::from)?;
+                requests.push(Box::new(envelope));
             }
         }
 

@@ -2,9 +2,10 @@ use failure::Error;
 use serde_derive::Deserialize;
 use serde_json::Value as JsonValue;
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, IncomingRequest, IncomingRequestProperties, IncomingResponse,
-    OutgoingRequest, OutgoingRequestProperties, OutgoingResponse, OutgoingResponseProperties,
-    Publish, ResponseStatus, SubscriptionTopic,
+    compat::{IntoEnvelope, OutgoingEnvelope},
+    IncomingRequest, IncomingRequestProperties, IncomingResponse, OutgoingRequest,
+    OutgoingRequestProperties, OutgoingResponse, OutgoingResponseProperties, ResponseStatus,
+    SubscriptionTopic,
 };
 use svc_agent::{AgentId, Subscription};
 use svc_error::Error as SvcError;
@@ -38,7 +39,10 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn create(
+        &self,
+        inreq: CreateRequest,
+    ) -> Result<Vec<Box<OutgoingEnvelope>>, SvcError> {
         let to = &inreq.payload().agent_id;
         let payload = &inreq.payload().data;
 
@@ -62,14 +66,17 @@ impl State {
             &response_topic,
             &correlation_data,
         );
-        let req = OutgoingRequest::unicast(payload, props, to);
-        req.into_envelope().map_err(Into::into)
+
+        OutgoingRequest::unicast(payload, props, to)
+            .into_envelope()
+            .map(|envelope| vec![Box::new(envelope)])
+            .map_err(Into::into)
     }
 
     pub(crate) async fn callback(
         &self,
         inresp: CreateIncomingResponse,
-    ) -> Result<impl Publish, Error> {
+    ) -> Result<Vec<Box<OutgoingEnvelope>>, Error> {
         let reqp =
             from_base64::<IncomingRequestProperties>(inresp.properties().correlation_data())?;
         let payload = inresp.payload();
@@ -79,7 +86,10 @@ impl State {
             reqp.correlation_data(),
             None,
         );
-        let resp = OutgoingResponse::unicast(payload, props, &reqp);
-        resp.into_envelope().map_err(Into::into)
+
+        OutgoingResponse::unicast(payload, props, &reqp)
+            .into_envelope()
+            .map(|envelope| vec![Box::new(envelope)])
+            .map_err(Into::into)
     }
 }

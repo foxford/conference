@@ -339,7 +339,12 @@ async fn handle_message(
         compat::IncomingEnvelopeProperties::Response(_) => {
             let resp = compat::into_response(envelope)?;
             let next = await!(state.message.callback(resp))?;
-            next.publish(tx).map_err(Into::into)
+
+            for envelope in next.iter() {
+                envelope.publish(tx)?;
+            }
+
+            Ok(())
         }
         _ => Err(format_err!(
             "unsupported message type, envelope = '{:?}'",

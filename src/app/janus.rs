@@ -478,7 +478,10 @@ pub(crate) async fn handle_response(
                                 tn.reqp.to_response(ResponseStatus::OK),
                                 tn.reqp.as_agent_id(),
                             );
-                            resp.into_envelope().map_err(Into::into)
+
+                            resp.into_envelope()
+                                .map(|envelope| vec![Box::new(envelope)])
+                                .map_err(Into::into)
                         });
 
                     handle_response(
@@ -536,7 +539,10 @@ pub(crate) async fn handle_response(
                                 tn.reqp.to_response(ResponseStatus::OK),
                                 tn.reqp.as_agent_id(),
                             );
-                            resp.into_envelope().map_err(Into::into)
+
+                            resp.into_envelope()
+                                .map(|envelope| vec![Box::new(envelope)])
+                                .map_err(Into::into)
                         });
 
                     handle_response(

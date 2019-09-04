@@ -1,7 +1,7 @@
 use failure::{format_err, Error};
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, Agent, IncomingRequestProperties, OutgoingResponse, Publish,
-    ResponseStatus,
+    compat::{IntoEnvelope, OutgoingEnvelope},
+    Agent, IncomingRequestProperties, OutgoingResponse, Publish, ResponseStatus,
 };
 use svc_error::{extension::sentry, ProblemDetails};
 
@@ -10,12 +10,15 @@ pub(crate) fn handle_response(
     title: &str,
     tx: &mut Agent,
     props: &IncomingRequestProperties,
-    result: Result<impl Publish, impl ProblemDetails + Send + Clone + 'static>,
+    result: Result<Vec<Box<OutgoingEnvelope>>, impl ProblemDetails + Send + Clone + 'static>,
 ) -> Result<(), Error> {
     match result {
         Ok(val) => {
             // Publishing success response
-            val.publish(tx)?;
+            for envelope in val.iter() {
+                envelope.publish(tx)?;
+            }
+
             Ok(())
         }
         Err(mut err) => {
