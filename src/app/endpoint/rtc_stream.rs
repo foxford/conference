@@ -150,7 +150,7 @@ mod test {
         futures::executor::block_on(async {
             let db = TestDb::new();
 
-            // Insert an rtc.
+            // Insert a janus rtc stream.
             let conn = db.connection_pool().get().unwrap();
             let rtc_stream = insert_janus_rtc_stream(&conn, AUDIENCE);
             let _other_rtc_stream = insert_janus_rtc_stream(&conn, AUDIENCE);
@@ -159,8 +159,6 @@ mod test {
             let rtc: crate::db::rtc::Object = crate::schema::rtc::table
                 .find(rtc_stream.rtc_id())
                 .get_result(&conn)
-                .optional()
-                .unwrap()
                 .unwrap();
 
             drop(conn);

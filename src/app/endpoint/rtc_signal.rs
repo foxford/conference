@@ -385,3 +385,293 @@ mod serde {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use diesel::prelude::*;
+    use serde_json::json;
+    use svc_agent::AgentId;
+    use uuid::Uuid;
+
+    use crate::test_helpers::{
+        build_authz, extract_payload,
+        test_agent::TestAgent,
+        test_db::TestDb,
+        test_factory::{insert_janus_backend, insert_rtc},
+    };
+
+    use super::*;
+
+    const AUDIENCE: &str = "dev.svc.example.org";
+
+    fn build_state(db: &TestDb) -> State {
+        State::new(build_authz(AUDIENCE), db.connection_pool().clone())
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RtcSignalCreateJanusRequestOffer {
+        janus: String,
+        session_id: i64,
+        handle_id: i64,
+        transaction: String,
+        body: RtcSignalCreateJanusRequestOfferBody,
+        jsep: RtcSignalCreateJanusRequestOfferJsep,
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RtcSignalCreateJanusRequestOfferBody {
+        method: String,
+        id: Uuid,
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RtcSignalCreateJanusRequestOfferJsep {
+        r#type: String,
+        sdp: String,
+    }
+
+    const SDP_OFFER: &str = r#"
+    v=0
+    o=- 20518 0 IN IP4 0.0.0.0
+    s=-
+    t=0 0
+    a=group:BUNDLE audio video
+    a=group:LS audio video
+    a=ice-options:trickle
+    m=audio 54609 UDP/TLS/RTP/SAVPF 109 0 8
+    c=IN IP4 203.0.113.141
+    a=mid:audio
+    a=msid:ma ta
+    a=sendrecv
+    a=rtpmap:109 opus/48000/2
+    a=rtpmap:0 PCMU/8000
+    a=rtpmap:8 PCMA/8000
+    a=maxptime:120
+    a=ice-ufrag:074c6550
+    a=ice-pwd:a28a397a4c3f31747d1ee3474af08a068
+    a=fingerprint:sha-256 19:E2:1C:3B:4B:9F:81:E6:B8:5C:F4:A5:A8:D8:73:04:BB:05:2F:70:9F:04:A9:0E:05:E9:26:33:E8:70:88:A2
+    a=setup:actpass
+    a=tls-id:1
+    a=rtcp-mux
+    a=rtcp-mux-only
+    a=rtcp-rsize
+    a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level
+    a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
+    a=candidate:0 1 UDP 2122194687 192.0.2.4 61665 typ host
+    a=candidate:1 1 UDP 1685987071 203.0.113.141 54609 typ srflx raddr 192.0.2.4 rport 61665
+    a=end-of-candidates
+    m=video 54609 UDP/TLS/RTP/SAVPF 99 120
+    c=IN IP4 203.0.113.141
+    a=mid:video
+    a=msid:ma tb
+    a=sendrecv
+    a=rtpmap:99 H264/90000
+    a=fmtp:99 profile-level-id=4d0028;packetization-mode=1
+    a=rtpmap:120 VP8/90000
+    a=rtcp-fb:99 nack
+    a=rtcp-fb:99 nack pli
+    a=rtcp-fb:99 ccm fir
+    a=rtcp-fb:120 nack
+    a=rtcp-fb:120 nack pli
+    a=rtcp-fb:120 ccm fir
+    a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
+    "#;
+
+    #[test]
+    fn create_rtc_signal_for_offer() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Insert a janus backend and an rtc.
+            let conn = db.connection_pool().get().unwrap();
+            let backend = insert_janus_backend(&conn, AUDIENCE);
+            let rtc = insert_rtc(&conn, AUDIENCE);
+            drop(conn);
+
+            // Make rtc_signal.create request.
+            let rtc_stream_id = Uuid::new_v4();
+
+            let handle_id = format!(
+                "{}.{}.{}.{}.{}",
+                rtc_stream_id,
+                rtc.id(),
+                backend.handle_id(),
+                backend.session_id(),
+                backend.id(),
+            );
+
+            let payload = json!({
+                "handle_id": handle_id,
+                "jsep": {"type": "offer", "sdp": SDP_OFFER},
+                "label": "whatever",
+            });
+
+            let state = build_state(&db);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let method = "rtc_signal.create";
+            let request: CreateRequest = agent.build_request(method, &payload).unwrap();
+            let result = await!(state.create(request)).unwrap();
+            let outgoing_envelope = result.first().unwrap();
+
+            // Assert outgoing broker request.
+            let req: RtcSignalCreateJanusRequestOffer = extract_payload(outgoing_envelope).unwrap();
+
+            assert_eq!(req.janus, "message");
+            assert_eq!(req.session_id, backend.session_id());
+            assert_eq!(req.handle_id, backend.handle_id());
+            assert_eq!(req.body.method, "stream.create");
+            assert_eq!(req.body.id, rtc.id());
+            assert_eq!(req.jsep.r#type, "offer");
+            assert_eq!(req.jsep.sdp, SDP_OFFER);
+
+            // Assert rtc stream presence in the DB.
+            let conn = db.connection_pool().get().unwrap();
+            let query = crate::schema::janus_rtc_stream::table.find(rtc_stream_id);
+            let rtc_stream: crate::db::janus_rtc_stream::Object = query.get_result(&conn).unwrap();
+            assert_eq!(rtc_stream.handle_id(), backend.handle_id());
+            assert_eq!(rtc_stream.rtc_id(), rtc.id());
+            assert_eq!(rtc_stream.backend_id(), backend.id());
+            assert_eq!(rtc_stream.label(), "whatever");
+            assert_eq!(rtc_stream.sent_by(), agent.agent_id());
+        });
+    }
+
+    const SDP_ANSWER: &str = r#"
+    v=0
+    o=- 16833 0 IN IP4 0.0.0.0
+    s=-
+    t=0 0
+    m=audio 49203 RTP/AVP 109
+    c=IN IP4 203.0.113.77
+    a=rtpmap:109 opus/48000
+    a=ptime:20
+    a=sendrecv
+    a=ice-ufrag:c300d85b
+    a=ice-pwd:de4e99bd291c325921d5d47efbabd9a2
+    a=fingerprint:sha-256 BB:05:2F:70:9F:04:A9:0E:05:E9:26:33:E8:70:88:A2:19:E2:1C:3B:4B:9F:81:E6:B8:5C:F4:A5:A8:D8:73:04
+    a=rtcp-mux
+    a=candidate:0 1 UDP 2113667327 198.51.100.7 49203 typ host
+    a=candidate:1 1 UDP 1694302207 203.0.113.77 49203 typ srflx raddr 198.51.100.7 rport 49203
+    m=video 63130 RTP/SAVP 120
+    c=IN IP4 203.0.113.77
+    a=rtpmap:120 VP8/90000
+    a=sendrecv
+    a=ice-ufrag:e39091na
+    a=ice-pwd:dbc325921d5dd29e4e99147efbabd9a2
+    a=fingerprint:sha-256 BB:0A:90:E0:5E:92:63:3E:87:08:8A:25:2F:70:9F:04:19:E2:1C:3B:4B:9F:81:52:F7:09:F0:4F:4A:5A:8D:80
+    a=rtcp-mux
+    a=candidate:0 1 UDP 2113667327 198.51.100.7 63130 typ host
+    a=candidate:1 1 UDP 1694302207 203.0.113.77 63130 typ srflx raddr 198.51.100.7 rport 63130
+    a=rtcp-fb:120 nack pli
+    a=rtcp-fb:120 ccm fir
+    "#;
+
+    #[test]
+    fn create_rtc_signal_for_answer() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Insert a janus backend and an rtc.
+            let conn = db.connection_pool().get().unwrap();
+            let backend = insert_janus_backend(&conn, AUDIENCE);
+            let rtc = insert_rtc(&conn, AUDIENCE);
+            drop(conn);
+
+            // Make rtc_signal.create request.
+            let handle_id = format!(
+                "{}.{}.{}.{}.{}",
+                Uuid::new_v4(),
+                rtc.id(),
+                backend.handle_id(),
+                backend.session_id(),
+                backend.id(),
+            );
+
+            let payload = json!({
+                "handle_id": handle_id,
+                "jsep": {"type": "answer", "sdp": SDP_ANSWER},
+                "label": "whatever",
+            });
+
+            let state = build_state(&db);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let method = "rtc_signal.create";
+            let request: CreateRequest = agent.build_request(method, &payload).unwrap();
+            let result = await!(state.create(request));
+
+            // Expecting error 400.
+            match result {
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::BAD_REQUEST),
+                _ => panic!("Expected rtc_signal.create to fail"),
+            }
+        });
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RtcSignalCreateJanusRequestIceCandidate {
+        janus: String,
+        session_id: i64,
+        handle_id: i64,
+        transaction: String,
+        candidate: RtcSignalCreateJanusRequestIceCandidateCandidate,
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RtcSignalCreateJanusRequestIceCandidateCandidate {
+        #[serde(rename = "sdpMid")]
+        sdp_m_id: usize,
+        #[serde(rename = "sdpMLineIndex")]
+        sdp_m_line_index: usize,
+        candidate: String,
+    }
+
+    const ICE_CANDIDATE: &str = "candidate:0 1 UDP 2113667327 198.51.100.7 49203 typ host";
+
+    #[test]
+    fn create_rtc_signal_for_candidate() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Insert a janus backend and an rtc.
+            let conn = db.connection_pool().get().unwrap();
+            let backend = insert_janus_backend(&conn, AUDIENCE);
+            let rtc = insert_rtc(&conn, AUDIENCE);
+            drop(conn);
+
+            // Make rtc_signal.create request.
+            let rtc_stream_id = Uuid::new_v4();
+
+            let handle_id = format!(
+                "{}.{}.{}.{}.{}",
+                rtc_stream_id,
+                rtc.id(),
+                backend.handle_id(),
+                backend.session_id(),
+                backend.id(),
+            );
+
+            let payload = json!({
+                "handle_id": handle_id,
+                "jsep": {"sdpMid": 0, "sdpMLineIndex": 0, "candidate": ICE_CANDIDATE},
+            });
+
+            let state = build_state(&db);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let method = "rtc_signal.create";
+            let request: CreateRequest = agent.build_request(method, &payload).unwrap();
+            let result = await!(state.create(request)).unwrap();
+            let outgoing_envelope = result.first().unwrap();
+
+            // Assert outgoing broker request.
+            let req: RtcSignalCreateJanusRequestIceCandidate =
+                extract_payload(outgoing_envelope).unwrap();
+
+            assert_eq!(req.janus, "trickle");
+            assert_eq!(req.session_id, backend.session_id());
+            assert_eq!(req.handle_id, backend.handle_id());
+            assert_eq!(req.candidate.sdp_m_id, 0);
+            assert_eq!(req.candidate.sdp_m_line_index, 0);
+            assert_eq!(req.candidate.candidate, ICE_CANDIDATE);
+        });
+    }
+}
