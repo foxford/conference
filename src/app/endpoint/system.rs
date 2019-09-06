@@ -28,7 +28,7 @@ pub(crate) struct RoomUploadEventData {
 #[derive(Debug, Serialize)]
 struct RtcUploadEventData {
     id: Uuid,
-    status: recording::RecordingStatus,
+    status: recording::Status,
     #[serde(
         serialize_with = "crate::serde::milliseconds_bound_tuples_option",
         skip_serializing_if = "Option::is_none"
@@ -125,8 +125,8 @@ where
     let mut event_entries = Vec::new();
     for (rtc, recording) in rtcs_and_recordings {
         let uri = match recording.status() {
-            recording::RecordingStatus::Missing => None,
-            recording::RecordingStatus::Ready => {
+            recording::Status::Missing => None,
+            recording::Status::Ready => {
                 Some(format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)))
             }
         };

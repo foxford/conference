@@ -573,7 +573,7 @@ pub(crate) async fn handle_response(
                             val if val == "404" => {
                                 let conn = janus.db.get()?;
 
-                                recording::InsertQuery::new(tn.rtc_id, recording::RecordingStatus::Missing)
+                                recording::InsertQuery::new(tn.rtc_id, recording::Status::Missing)
                                     .execute(&conn)?;
 
                                 Err(format_err!(
@@ -648,7 +648,7 @@ pub(crate) async fn handle_response(
                             let (room, rtcs, recs) = {
                                 let conn = janus.db.get()?;
 
-                                recording::InsertQuery::new(rtc_id, recording::RecordingStatus::Ready)
+                                recording::InsertQuery::new(rtc_id, recording::Status::Ready)
                                     .started_at(started_at)
                                     .time(time)
                                     .execute(&conn)?;

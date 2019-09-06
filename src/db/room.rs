@@ -40,6 +40,8 @@ const ALL_COLUMNS: AllColumns = (
 
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[DieselType = "Room_backend"]
+// This is not just `Backend` because of clash with `diesel::backend::Backend`.
 pub(crate) enum RoomBackend {
     None,
     Janus,
