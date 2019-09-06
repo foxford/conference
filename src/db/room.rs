@@ -289,6 +289,13 @@ impl UpdateQuery {
         self.id
     }
 
+    pub(crate) fn set_time(self, time: Time) -> Self {
+        Self {
+            time: Some(time),
+            ..self
+        }
+    }
+
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use diesel::prelude::*;
 

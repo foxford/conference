@@ -390,7 +390,6 @@ mod serde {
 mod test {
     use diesel::prelude::*;
     use serde_json::json;
-    use svc_agent::AgentId;
     use uuid::Uuid;
 
     use crate::test_helpers::{
@@ -510,8 +509,8 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let result = await!(state.create(request)).unwrap();
-            let outgoing_envelope = result.first().unwrap();
+            let mut result = state.create(request).await.unwrap();
+            let outgoing_envelope = result.remove(0);
 
             // Assert outgoing broker request.
             let req: RtcSignalCreateJanusRequestOffer = extract_payload(outgoing_envelope).unwrap();
@@ -597,7 +596,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let result = await!(state.create(request));
+            let result = state.create(request).await;
 
             // Expecting error 400.
             match result {
@@ -659,13 +658,11 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let result = await!(state.create(request)).unwrap();
-            let outgoing_envelope = result.first().unwrap();
+            let mut result = state.create(request).await.unwrap();
+            let message = result.remove(0);
 
             // Assert outgoing broker request.
-            let req: RtcSignalCreateJanusRequestIceCandidate =
-                extract_payload(outgoing_envelope).unwrap();
-
+            let req: RtcSignalCreateJanusRequestIceCandidate = extract_payload(message).unwrap();
             assert_eq!(req.janus, "trickle");
             assert_eq!(req.session_id, backend.session_id());
             assert_eq!(req.handle_id, backend.handle_id());
