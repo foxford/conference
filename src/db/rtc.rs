@@ -33,6 +33,10 @@ impl Object {
     pub(crate) fn room_id(&self) -> Uuid {
         self.room_id
     }
+
+    pub(crate) fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

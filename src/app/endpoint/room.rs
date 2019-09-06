@@ -314,15 +314,12 @@ mod test {
     use std::ops::Bound;
 
     use chrono::Utc;
-    use diesel::pg::PgConnection;
     use diesel::prelude::*;
     use serde_json::{json, Value as JsonValue};
-    use svc_agent::mqtt::Publishable;
-
-    use crate::db::room::{InsertQuery, Object as Room, RoomBackend};
 
     use crate::test_helpers::{
-        build_authz, extract_payload, extract_properties, test_agent::TestAgent, test_db::TestDb,
+        build_authz, extract_payload, parse_payload, test_agent::TestAgent, test_db::TestDb,
+        test_factory::insert_room,
     };
 
     use super::*;
@@ -339,12 +336,13 @@ mod test {
         )
     }
 
-    fn insert_room(conn: &PgConnection) -> Room {
-        let time = (Bound::Included(Utc::now()), Bound::Unbounded);
-
-        InsertQuery::new(time, AUDIENCE, RoomBackend::Janus)
-            .execute(conn)
-            .expect("Failed to insert room")
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RoomResponse {
+        id: Uuid,
+        time: Vec<Option<i64>>,
+        audience: String,
+        created_at: i64,
+        backend: String,
     }
 
     #[test]
@@ -364,21 +362,19 @@ mod test {
             });
 
             let request: CreateRequest = agent.build_request("room.create", &payload).unwrap();
-            let result = await!(state.create(request)).unwrap();
-            let outgoing_envelope = result.first().unwrap();
-            let resp = extract_payload(outgoing_envelope).expect("Failed to extract payload");
+            let mut result = state.create(request).await.unwrap();
+            let message = result.remove(0);
 
             // Assert response.
-            assert!(resp.get("id").is_some());
-            assert_eq!(resp.get("time").unwrap(), payload.get("time").unwrap());
-            assert_eq!(resp.get("audience").unwrap().as_str().unwrap(), AUDIENCE);
-            assert!(resp.get("created_at").unwrap().as_i64().unwrap() >= now);
-            assert_eq!(resp.get("backend").unwrap().as_str().unwrap(), "janus");
+            let resp: RoomResponse = extract_payload(message).unwrap();
+            assert_eq!(resp.time, vec![Some(now), None]);
+            assert_eq!(resp.audience, AUDIENCE);
+            assert!(resp.created_at >= now);
+            assert_eq!(resp.backend, "janus");
 
             // Assert room presence in the DB.
             let conn = db.connection_pool().get().unwrap();
-            let id = Uuid::parse_str(resp.get("id").unwrap().as_str().unwrap()).unwrap();
-            let query = crate::schema::room::table.find(id);
+            let query = crate::schema::room::table.find(resp.id);
             assert_eq!(query.execute(&conn).unwrap(), 1);
         });
     }
@@ -390,7 +386,7 @@ mod test {
 
             // Insert a room.
             let conn = db.connection_pool().get().unwrap();
-            let room = insert_room(&conn);
+            let room = insert_room(&conn, AUDIENCE);
             drop(conn);
 
             // Make room.read request.
@@ -398,32 +394,24 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({"id": room.id()});
             let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
-            let result = await!(state.read(request)).unwrap();
-            let outgoing_envelope = result.first().unwrap();
-            let resp = extract_payload(outgoing_envelope).expect("Failed to extract payload");
+            let mut result = state.read(request).await.unwrap();
+            let message = result.remove(0);
 
             // Assert response.
-            assert_eq!(
-                resp.get("id").unwrap().as_str().unwrap(),
-                room.id().to_string()
-            );
+            let resp: RoomResponse = extract_payload(message).unwrap();
 
             let start = match room.time().0 {
                 Bound::Included(val) => val,
                 _ => panic!("Bad room time"),
             };
 
-            assert_eq!(resp.get("time").unwrap().get(0).unwrap(), start.timestamp());
-
-            assert!(resp.get("time").unwrap().get(1).unwrap().is_null());
-            assert_eq!(resp.get("audience").unwrap().as_str().unwrap(), AUDIENCE);
-
-            assert_eq!(
-                resp.get("created_at").unwrap().as_i64().unwrap(),
-                room.created_at().timestamp()
-            );
-
-            assert_eq!(resp.get("backend").unwrap().as_str().unwrap(), "janus");
+            assert_eq!(resp, RoomResponse {
+                id: room.id().to_owned(),
+                time: vec![Some(start.timestamp()), None],
+                audience: AUDIENCE.to_string(),
+                created_at: room.created_at().timestamp(),
+                backend: "janus".to_string(),
+            });
         });
     }
 
@@ -434,7 +422,7 @@ mod test {
 
             // Insert a room.
             let conn = db.connection_pool().get().unwrap();
-            let room = insert_room(&conn);
+            let room = insert_room(&conn, AUDIENCE);
             drop(conn);
 
             // Make room.update request.
@@ -450,29 +438,19 @@ mod test {
             });
 
             let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
-            let result = await!(state.update(request)).unwrap();
-            let outgoing_envelope = result.first().unwrap();
-            let resp = extract_payload(outgoing_envelope).expect("Failed to extract payload");
+            let mut result = state.update(request).await.unwrap();
+            let message = result.remove(0);
 
             // Assert response.
-            assert_eq!(
-                resp.get("id").unwrap().as_str().unwrap(),
-                room.id().to_string()
-            );
+            let resp: RoomResponse = extract_payload(message).unwrap();
 
-            let start = match room.time().0 {
-                Bound::Included(val) => val,
-                _ => panic!("Bad room time"),
-            };
-
-            assert_eq!(resp.get("time").unwrap().get(0).unwrap(), start.timestamp());
-
-            assert!(resp.get("time").unwrap().get(1).unwrap().is_null());
-            assert_eq!(
-                resp.get("audience").unwrap().as_str().unwrap(),
-                "dev.svc.example.net"
-            );
-            assert_eq!(resp.get("backend").unwrap().as_str().unwrap(), "none");
+            assert_eq!(resp, RoomResponse {
+                id: room.id().to_owned(),
+                time: vec![Some(now), None],
+                audience: "dev.svc.example.net".to_string(),
+                created_at: room.created_at().timestamp(),
+                backend: "none".to_string(),
+            });
         });
     }
 
@@ -483,7 +461,7 @@ mod test {
 
             // Insert a room.
             let conn = db.connection_pool().get().unwrap();
-            let room = insert_room(&conn);
+            let room = insert_room(&conn, AUDIENCE);
             drop(conn);
 
             // Make room.delete request.
@@ -491,13 +469,19 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({"id": room.id()});
             let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
-            await!(state.delete(request)).unwrap();
+            state.delete(request).await.unwrap();
 
             // Assert room abscence in the DB.
             let conn = db.connection_pool().get().unwrap();
             let query = crate::schema::room::table.find(room.id());
             assert_eq!(query.execute(&conn).unwrap(), 0);
         });
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RoomEnterLeaveBrokerRequest {
+        subject: String,
+        object: Vec<String>,
     }
 
     #[test]
@@ -508,30 +492,29 @@ mod test {
 
             // Insert a room.
             let conn = db.connection_pool().get().unwrap();
-            let room = insert_room(&conn);
+            let room = insert_room(&conn, AUDIENCE);
             drop(conn);
 
             // Make room.enter request.
             let state = build_state(&db);
             let payload = json!({"id": room.id()});
             let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
-            let result = await!(state.enter(request)).unwrap();
-            let outgoing_envelope = result.first().unwrap();
-            let resp = extract_payload(outgoing_envelope).expect("Failed to extract payload");
+            let mut result = state.enter(request).await.unwrap();
+            let message = result.remove(0);
 
             // Assert outgoing broker request.
-            let object = resp.get("object").unwrap().as_array().unwrap();
-            let object: Vec<&str> = object.iter().map(|v| v.as_str().unwrap()).collect();
-            assert_eq!(
-                object,
-                vec!["rooms", room.id().to_string().as_str(), "events"]
-            );
+            let message_bytes = message.into_bytes().unwrap();
 
-            let subject = resp.get("subject").unwrap().as_str().unwrap();
-            assert_eq!(subject, format!("v1/agents/{}", agent.agent_id()));
+            let message_value =
+                serde_json::from_slice::<JsonValue>(message_bytes.as_bytes()).unwrap();
 
-            let props = extract_properties(outgoing_envelope).expect("Failed to extract props");
-            assert_eq!(props.get("method").unwrap(), "subscription.create");
+            let properties = message_value.get("properties").unwrap();
+            let method = properties.get("method").unwrap().as_str().unwrap();
+            assert_eq!(method, "subscription.create");
+            
+            let resp: RoomEnterLeaveBrokerRequest = parse_payload(message_value).unwrap();
+            assert_eq!(resp.subject, format!("v1/agents/{}", agent.agent_id()));
+            assert_eq!(resp.object, vec!["rooms", room.id().to_string().as_str(), "events"]);
         });
     }
 
@@ -543,30 +526,29 @@ mod test {
 
             // Insert a room.
             let conn = db.connection_pool().get().unwrap();
-            let room = insert_room(&conn);
+            let room = insert_room(&conn, AUDIENCE);
             drop(conn);
 
             // Make room.leave request.
             let state = build_state(&db);
             let payload = json!({"id": room.id()});
             let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
-            let result = await!(state.leave(request)).unwrap();
-            let outgoing_envelope = result.first().unwrap();
+            let mut result = state.leave(request).await.unwrap();
+            let message = result.remove(0);
 
             // Assert outgoing broker request.
-            let resp = extract_payload(outgoing_envelope).expect("Failed to extract payload");
-            let object = resp.get("object").unwrap().as_array().unwrap();
+            let message_bytes = message.into_bytes().unwrap();
 
-            assert_eq!(
-                object.iter().map(|v| v.as_str().unwrap()).collect::<Vec<&str>>(),
-                vec!["rooms", room.id().to_string().as_str(), "events"]
-            );
+            let message_value =
+                serde_json::from_slice::<JsonValue>(message_bytes.as_bytes()).unwrap();
 
-            let subject = resp.get("subject").unwrap().as_str().unwrap();
-            assert_eq!(subject, format!("v1/agents/{}", agent.agent_id()));
+            let properties = message_value.get("properties").unwrap();
+            let method = properties.get("method").unwrap().as_str().unwrap();
+            assert_eq!(method, "subscription.delete");
 
-            let props = extract_properties(outgoing_envelope).expect("Failed to extract props");
-            assert_eq!(props.get("method").unwrap(), "subscription.delete");
+            let resp: RoomEnterLeaveBrokerRequest = parse_payload(message_value).unwrap();
+            assert_eq!(resp.subject, format!("v1/agents/{}", agent.agent_id()));
+            assert_eq!(resp.object, vec!["rooms", room.id().to_string().as_str(), "events"]);
         });
     }
 }

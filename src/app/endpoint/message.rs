@@ -89,7 +89,7 @@ impl State {
 
 #[cfg(test)]
 mod test {
-    use serde_json::json;
+    use serde_json::{json, Value as JsonValue};
     use svc_agent::Destination;
 
     use super::*;
@@ -121,7 +121,7 @@ mod test {
                 _ => panic!("Expected unicast destination"),
             }
 
-            let payload = extract_payload(message).expect("Failed to extract payload");
+            let payload: JsonValue = extract_payload(message).unwrap();
             assert_eq!(payload, json!({"key": "value"}));
         });
     }
