@@ -111,3 +111,90 @@ pub(crate) fn update_event(room_id: Uuid, object: janus_rtc_stream::Object) -> O
         &uri,
     )
 }
+
+#[cfg(test)]
+mod test {
+    use std::ops::Bound;
+
+    use diesel::prelude::*;
+    use serde_json::json;
+    use svc_agent::AgentId;
+
+    use crate::test_helpers::{
+        build_authz, extract_payload, test_agent::TestAgent, test_db::TestDb,
+        test_factory::insert_janus_rtc_stream,
+    };
+
+    use super::*;
+
+    const AUDIENCE: &str = "dev.svc.example.org";
+
+    fn build_state(db: &TestDb) -> State {
+        State::new(build_authz(AUDIENCE), db.connection_pool().clone())
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RtcStreamResponse {
+        id: Uuid,
+        handle_id: i64,
+        rtc_id: Uuid,
+        backend_id: AgentId,
+        label: String,
+        sent_by: AgentId,
+        time: Option<Vec<Option<i64>>>,
+        created_at: i64,
+    }
+
+    #[test]
+    fn list_rtc_streams() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Insert an rtc.
+            let conn = db.connection_pool().get().unwrap();
+            let rtc_stream = insert_janus_rtc_stream(&conn, AUDIENCE);
+            let _other_rtc_stream = insert_janus_rtc_stream(&conn, AUDIENCE);
+
+            // Find rtc.
+            let rtc: crate::db::rtc::Object = crate::schema::rtc::table
+                .find(rtc_stream.rtc_id())
+                .get_result(&conn)
+                .optional()
+                .unwrap()
+                .unwrap();
+
+            drop(conn);
+
+            // Make rtc_stream.list request.
+            let state = build_state(&db);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({"room_id": rtc.room_id(), "rtc_id": rtc.id()});
+            let request: ListRequest = agent.build_request("rtc_stream.list", &payload).unwrap();
+            let mut result = state.list(request).await.unwrap();
+            let message = result.remove(0);
+
+            // Assert response.
+            let resp: Vec<RtcStreamResponse> = extract_payload(message).unwrap();
+            assert_eq!(resp.len(), 1);
+
+            let start = match rtc_stream.time().unwrap().0 {
+                Bound::Included(val) => val,
+                _ => panic!("Bad rtc stream time"),
+            };
+
+            assert_eq!(
+                *resp.first().unwrap(),
+                RtcStreamResponse {
+                    id: rtc_stream.id().to_owned(),
+                    handle_id: rtc_stream.handle_id(),
+                    rtc_id: rtc_stream.rtc_id(),
+                    backend_id: rtc_stream.backend_id().to_owned(),
+                    label: rtc_stream.label().to_string(),
+                    sent_by: rtc_stream.sent_by().to_owned(),
+                    time: Some(vec![Some(start.timestamp()), None]),
+                    created_at: rtc_stream.created_at().timestamp(),
+                }
+            );
+        });
+    }
+}

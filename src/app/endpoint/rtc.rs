@@ -279,11 +279,13 @@ mod test {
     use diesel::prelude::*;
     use serde_json::{json, Value as JsonValue};
 
-    use crate::util::from_base64;
     use crate::test_helpers::{
-        build_authz, extract_payload, test_agent::TestAgent, test_db::TestDb,
+        build_authz, extract_payload,
+        test_agent::TestAgent,
+        test_db::TestDb,
         test_factory::{insert_janus_backend, insert_room, insert_rtc},
     };
+    use crate::util::from_base64;
 
     use super::*;
 
@@ -392,7 +394,7 @@ mod test {
     struct RtcConnectTransaction {
         rtc_id: String,
         session_id: i64,
-        reqp: RtcConnectTransactionReqp
+        reqp: RtcConnectTransactionReqp,
     }
 
     #[derive(Debug, PartialEq, Deserialize)]
@@ -433,16 +435,19 @@ mod test {
             let txn_value = txn_wrap.get("CreateRtcHandle").unwrap().to_owned();
             let txn: RtcConnectTransaction = serde_json::from_value(txn_value).unwrap();
 
-            assert_eq!(txn, RtcConnectTransaction {
-                rtc_id: rtc.id().to_string(),
-                session_id: backend.session_id(),
-                reqp: RtcConnectTransactionReqp {
-                    method: "rtc.connect".to_string(),
-                    agent_label: "web".to_string(),
-                    account_label: "user123".to_string(),
-                    audience: AUDIENCE.to_string(),
+            assert_eq!(
+                txn,
+                RtcConnectTransaction {
+                    rtc_id: rtc.id().to_string(),
+                    session_id: backend.session_id(),
+                    reqp: RtcConnectTransactionReqp {
+                        method: "rtc.connect".to_string(),
+                        agent_label: "web".to_string(),
+                        account_label: "user123".to_string(),
+                        audience: AUDIENCE.to_string(),
+                    }
                 }
-            })
+            )
         });
     }
 }

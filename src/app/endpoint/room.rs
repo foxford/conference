@@ -405,13 +405,16 @@ mod test {
                 _ => panic!("Bad room time"),
             };
 
-            assert_eq!(resp, RoomResponse {
-                id: room.id().to_owned(),
-                time: vec![Some(start.timestamp()), None],
-                audience: AUDIENCE.to_string(),
-                created_at: room.created_at().timestamp(),
-                backend: "janus".to_string(),
-            });
+            assert_eq!(
+                resp,
+                RoomResponse {
+                    id: room.id().to_owned(),
+                    time: vec![Some(start.timestamp()), None],
+                    audience: AUDIENCE.to_string(),
+                    created_at: room.created_at().timestamp(),
+                    backend: "janus".to_string(),
+                }
+            );
         });
     }
 
@@ -444,13 +447,16 @@ mod test {
             // Assert response.
             let resp: RoomResponse = extract_payload(message).unwrap();
 
-            assert_eq!(resp, RoomResponse {
-                id: room.id().to_owned(),
-                time: vec![Some(now), None],
-                audience: "dev.svc.example.net".to_string(),
-                created_at: room.created_at().timestamp(),
-                backend: "none".to_string(),
-            });
+            assert_eq!(
+                resp,
+                RoomResponse {
+                    id: room.id().to_owned(),
+                    time: vec![Some(now), None],
+                    audience: "dev.svc.example.net".to_string(),
+                    created_at: room.created_at().timestamp(),
+                    backend: "none".to_string(),
+                }
+            );
         });
     }
 
@@ -511,10 +517,13 @@ mod test {
             let properties = message_value.get("properties").unwrap();
             let method = properties.get("method").unwrap().as_str().unwrap();
             assert_eq!(method, "subscription.create");
-            
+
             let resp: RoomEnterLeaveBrokerRequest = parse_payload(message_value).unwrap();
             assert_eq!(resp.subject, format!("v1/agents/{}", agent.agent_id()));
-            assert_eq!(resp.object, vec!["rooms", room.id().to_string().as_str(), "events"]);
+            assert_eq!(
+                resp.object,
+                vec!["rooms", room.id().to_string().as_str(), "events"]
+            );
         });
     }
 
@@ -538,6 +547,7 @@ mod test {
 
             // Assert outgoing broker request.
             let message_bytes = message.into_bytes().unwrap();
+            
 
             let message_value =
                 serde_json::from_slice::<JsonValue>(message_bytes.as_bytes()).unwrap();
@@ -548,7 +558,10 @@ mod test {
 
             let resp: RoomEnterLeaveBrokerRequest = parse_payload(message_value).unwrap();
             assert_eq!(resp.subject, format!("v1/agents/{}", agent.agent_id()));
-            assert_eq!(resp.object, vec!["rooms", room.id().to_string().as_str(), "events"]);
+            assert_eq!(
+                resp.object,
+                vec!["rooms", room.id().to_string().as_str(), "events"]
+            );
         });
     }
 }
