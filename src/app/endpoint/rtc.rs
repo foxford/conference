@@ -1,6 +1,5 @@
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::mqtt::compat::{IntoEnvelope, OutgoingEnvelope};
-use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, ResponseStatus};
+use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, Publishable, ResponseStatus};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
@@ -72,7 +71,7 @@ impl State {
     pub(crate) async fn create(
         &self,
         inreq: CreateRequest,
-    ) -> Result<Vec<Box<OutgoingEnvelope>>, SvcError> {
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -104,17 +103,14 @@ impl State {
             rtc::InsertQuery::new(room_id).execute(&conn)?
         };
 
-        inreq
-            .to_response(object, ResponseStatus::OK)
-            .into_envelope()
-            .map(|envelope| vec![Box::new(envelope)])
-            .map_err(SvcError::from)
+        let message = inreq.to_response(object, ResponseStatus::OK);
+        Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 
     pub(crate) async fn connect(
         &self,
         inreq: ConnectRequest,
-    ) -> Result<Vec<Box<OutgoingEnvelope>>, SvcError> {
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         let id = inreq.payload().id;
 
         // Authorization
@@ -179,16 +175,13 @@ impl State {
                 .build()
         })?;
 
-        backreq
-            .into_envelope()
-            .map(|envelope| vec![Box::new(envelope)])
-            .map_err(SvcError::from)
+        Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
     }
 
     pub(crate) async fn read(
         &self,
         inreq: ReadRequest,
-    ) -> Result<Vec<Box<OutgoingEnvelope>>, SvcError> {
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         let id = inreq.payload().id;
 
         // Authorization
@@ -229,17 +222,14 @@ impl State {
                 })?
         };
 
-        inreq
-            .to_response(object, ResponseStatus::OK)
-            .into_envelope()
-            .map(|envelope| vec![Box::new(envelope)])
-            .map_err(SvcError::from)
+        let message = inreq.to_response(object, ResponseStatus::OK);
+        Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 
     pub(crate) async fn list(
         &self,
         inreq: ListRequest,
-    ) -> Result<Vec<Box<OutgoingEnvelope>>, SvcError> {
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -279,10 +269,7 @@ impl State {
             .execute(&conn)?
         };
 
-        inreq
-            .to_response(objects, ResponseStatus::OK)
-            .into_envelope()
-            .map(|envelope| vec![Box::new(envelope)])
-            .map_err(SvcError::from)
+        let message = inreq.to_response(objects, ResponseStatus::OK);
+        Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 }

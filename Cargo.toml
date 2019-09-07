@@ -26,12 +26,13 @@ svc-authn = { version = "0.5", features = ["jose", "diesel"] }
 svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz", "sentry-extension"] }
 
 [dependencies.futures]
-version = "=0.3.0-alpha.14"
+version = "=0.3.0-alpha.18"
 package = "futures-preview"
 
 [dependencies.futures-channel]
-version = "=0.3.0-alpha.14"
+version = "=0.3.0-alpha.18"
 package = "futures-channel-preview"
 
 [patch.crates-io]
 rumqtt = { git = "https://github.com/AtherEnergy/rumqtt.git", ref = "980e3d7d72344fc1b547a6b6834a7cba4112f93a" }
+svc-agent = { git = "https://github.com/netology-group/svc-agent-rs", branch = "feature/ULMS-577" }
