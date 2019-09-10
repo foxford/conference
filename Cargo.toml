@@ -20,7 +20,7 @@ chrono = { version = "0.4", features = ["serde"] }
 openssl = "*"
 diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
 diesel-derive-enum = { version = "0.4", features = ["postgres"] }
-svc-agent = { version = "0.7", features = ["diesel"] }
+svc-agent = { version = "0.8", features = ["diesel"] }
 svc-authz = "0.5"
 svc-authn = { version = "0.5", features = ["jose", "diesel"] }
 svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz", "sentry-extension"] }
@@ -35,4 +35,3 @@ package = "futures-channel-preview"
 
 [patch.crates-io]
 rumqtt = { git = "https://github.com/AtherEnergy/rumqtt.git", ref = "980e3d7d72344fc1b547a6b6834a7cba4112f93a" }
-svc-agent = { git = "https://github.com/netology-group/svc-agent-rs", branch = "feature/ULMS-577" }
