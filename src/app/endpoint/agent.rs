@@ -82,12 +82,11 @@ impl State {
 
 #[cfg(test)]
 mod test {
+    use failure::format_err;
     use serde_json::json;
     use svc_agent::AgentId;
 
-    use crate::test_helpers::{
-        agent::TestAgent, db::TestDb, extract_payload, factory::insert_agent, no_authz,
-    };
+    use crate::test_helpers::{agent::TestAgent, db::TestDb, extract_payload, factory, no_authz};
 
     use super::*;
 
@@ -114,12 +113,14 @@ mod test {
             let online_agent = db
                 .connection_pool()
                 .get()
-                .map(|conn| {
-                    let agent = insert_agent(&conn, AUDIENCE);
-                    let _other_agent = insert_agent(&conn, AUDIENCE);
-                    agent
+                .map_err(|err| format_err!("Failed to get DB connection: {}", err))
+                .and_then(|conn| {
+                    let agent_factory = factory::Agent::new().audience(AUDIENCE);
+                    let agent = agent_factory.insert(&conn)?;
+                    let _other_agent = agent_factory.insert(&conn)?;
+                    Ok(agent)
                 })
-                .unwrap();
+                .expect("Failed to insert online agent");
 
             // Make agent.list request.
             let state = build_state(&db);

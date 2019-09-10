@@ -89,7 +89,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
         rtc: endpoint::rtc::State::new(authz.clone(), db.clone()),
         rtc_signal: endpoint::rtc_signal::State::new(authz.clone(), db.clone()),
         rtc_stream: endpoint::rtc_stream::State::new(authz.clone(), db.clone()),
-        message: endpoint::message::State::new(agent_id.clone()),
+        message: endpoint::message::State::new(agent_id.clone(), db.clone()),
         subscription: endpoint::subscription::State::new(config.broker_id, db.clone()),
         system: endpoint::system::State::new(config.id.clone(), authz.clone(), db.clone()),
     });
@@ -327,11 +327,22 @@ async fn handle_message(
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
                     }
                 }
-                method @ "message.create" => {
+                method @ "message.broadcast" => {
+                    let error_title = "Error broadcasting a message";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = state.message.broadcast(req).await;
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
+                // TODO: message.create is deprecated and renamed to message.unicast.
+                method @ "message.unicast" | method @ "message.create" => {
                     let error_title = "Error creating an agent signal";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = state.message.create(req).await;
+                            let next = state.message.unicast(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),

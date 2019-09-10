@@ -137,15 +137,12 @@ fn parse_room_id(evt: &CreateDeleteEvent) -> Result<Uuid, SvcError> {
 #[cfg(test)]
 mod test {
     use diesel::prelude::*;
+    use failure::format_err;
     use serde_json::json;
 
     use crate::db::agent::Object as Agent;
     use crate::schema::agent::dsl::*;
-    use crate::test_helpers::{
-        agent::TestAgent,
-        db::TestDb,
-        factory::{insert_agent, insert_room},
-    };
+    use crate::test_helpers::{agent::TestAgent, db::TestDb, factory, factory::insert_room};
 
     use super::*;
 
@@ -322,8 +319,9 @@ mod test {
             let db_agent = db
                 .connection_pool()
                 .get()
-                .map(|conn| insert_agent(&conn, AUDIENCE))
-                .unwrap();
+                .map_err(|err| format_err!("Failed to get DB connection: {}", err))
+                .and_then(|conn| factory::Agent::new().audience(AUDIENCE).insert(&conn))
+                .expect("Failed to insert agent");
 
             // Send subscription.delete event.
             let payload = json!({
