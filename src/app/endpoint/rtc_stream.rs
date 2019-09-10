@@ -121,8 +121,7 @@ mod test {
     use svc_agent::AgentId;
 
     use crate::test_helpers::{
-        build_authz, extract_payload, test_agent::TestAgent, test_db::TestDb,
-        test_factory::insert_janus_rtc_stream,
+        agent::TestAgent, db::TestDb, extract_payload, factory::insert_janus_rtc_stream, no_authz,
     };
 
     use super::*;
@@ -130,7 +129,7 @@ mod test {
     const AUDIENCE: &str = "dev.svc.example.org";
 
     fn build_state(db: &TestDb) -> State {
-        State::new(build_authz(AUDIENCE), db.connection_pool().clone())
+        State::new(no_authz(AUDIENCE), db.connection_pool().clone())
     }
 
     #[derive(Debug, PartialEq, Deserialize)]
@@ -150,18 +149,23 @@ mod test {
         futures::executor::block_on(async {
             let db = TestDb::new();
 
-            // Insert a janus rtc stream.
-            let conn = db.connection_pool().get().unwrap();
-            let rtc_stream = insert_janus_rtc_stream(&conn, AUDIENCE);
-            let _other_rtc_stream = insert_janus_rtc_stream(&conn, AUDIENCE);
+            let (rtc_stream, rtc) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    // Insert a janus rtc stream.
+                    let rtc_stream = insert_janus_rtc_stream(&conn, AUDIENCE);
+                    let _other_rtc_stream = insert_janus_rtc_stream(&conn, AUDIENCE);
 
-            // Find rtc.
-            let rtc: crate::db::rtc::Object = crate::schema::rtc::table
-                .find(rtc_stream.rtc_id())
-                .get_result(&conn)
+                    // Find rtc.
+                    let rtc: crate::db::rtc::Object = crate::schema::rtc::table
+                        .find(rtc_stream.rtc_id())
+                        .get_result(&conn)
+                        .unwrap();
+
+                    (rtc_stream, rtc)
+                })
                 .unwrap();
-
-            drop(conn);
 
             // Make rtc_stream.list request.
             let state = build_state(&db);

@@ -6,7 +6,7 @@ use diesel::prelude::*;
 use rand::Rng;
 use uuid::Uuid;
 
-use super::test_agent::TestAgent;
+use super::agent::TestAgent;
 use crate::db::{janus_backend, janus_rtc_stream, room, rtc};
 
 pub(crate) fn insert_janus_backend(conn: &PgConnection, audience: &str) -> janus_backend::Object {

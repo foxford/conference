@@ -93,7 +93,7 @@ mod test {
     use svc_agent::Destination;
 
     use super::*;
-    use crate::test_helpers::{extract_payload, test_agent::TestAgent};
+    use crate::test_helpers::{agent::TestAgent, extract_payload};
 
     const AGENT_LABEL: &str = "web";
     const AUDIENCE: &str = "example.org";

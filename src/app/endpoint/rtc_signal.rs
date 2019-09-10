@@ -393,10 +393,11 @@ mod test {
     use uuid::Uuid;
 
     use crate::test_helpers::{
-        build_authz, extract_payload,
-        test_agent::TestAgent,
-        test_db::TestDb,
-        test_factory::{insert_janus_backend, insert_rtc},
+        agent::TestAgent,
+        db::TestDb,
+        extract_payload,
+        factory::{insert_janus_backend, insert_rtc},
+        no_authz,
     };
 
     use super::*;
@@ -404,7 +405,7 @@ mod test {
     const AUDIENCE: &str = "dev.svc.example.org";
 
     fn build_state(db: &TestDb) -> State {
-        State::new(build_authz(AUDIENCE), db.connection_pool().clone())
+        State::new(no_authz(AUDIENCE), db.connection_pool().clone())
     }
 
     #[derive(Debug, PartialEq, Deserialize)]
@@ -482,10 +483,16 @@ mod test {
             let db = TestDb::new();
 
             // Insert a janus backend and an rtc.
-            let conn = db.connection_pool().get().unwrap();
-            let backend = insert_janus_backend(&conn, AUDIENCE);
-            let rtc = insert_rtc(&conn, AUDIENCE);
-            drop(conn);
+            let (backend, rtc) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    (
+                        insert_janus_backend(&conn, AUDIENCE),
+                        insert_rtc(&conn, AUDIENCE),
+                    )
+                })
+                .unwrap();
 
             // Make rtc_signal.create request.
             let rtc_stream_id = Uuid::new_v4();
@@ -571,10 +578,16 @@ mod test {
             let db = TestDb::new();
 
             // Insert a janus backend and an rtc.
-            let conn = db.connection_pool().get().unwrap();
-            let backend = insert_janus_backend(&conn, AUDIENCE);
-            let rtc = insert_rtc(&conn, AUDIENCE);
-            drop(conn);
+            let (backend, rtc) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    (
+                        insert_janus_backend(&conn, AUDIENCE),
+                        insert_rtc(&conn, AUDIENCE),
+                    )
+                })
+                .unwrap();
 
             // Make rtc_signal.create request.
             let handle_id = format!(
@@ -632,10 +645,16 @@ mod test {
             let db = TestDb::new();
 
             // Insert a janus backend and an rtc.
-            let conn = db.connection_pool().get().unwrap();
-            let backend = insert_janus_backend(&conn, AUDIENCE);
-            let rtc = insert_rtc(&conn, AUDIENCE);
-            drop(conn);
+            let (backend, rtc) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    (
+                        insert_janus_backend(&conn, AUDIENCE),
+                        insert_rtc(&conn, AUDIENCE),
+                    )
+                })
+                .unwrap();
 
             // Make rtc_signal.create request.
             let rtc_stream_id = Uuid::new_v4();

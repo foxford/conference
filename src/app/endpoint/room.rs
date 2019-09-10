@@ -318,8 +318,8 @@ mod test {
     use serde_json::{json, Value as JsonValue};
 
     use crate::test_helpers::{
-        build_authz, extract_payload, parse_payload, test_agent::TestAgent, test_db::TestDb,
-        test_factory::insert_room,
+        agent::TestAgent, db::TestDb, extract_payload, factory::insert_room, no_authz,
+        parse_payload,
     };
 
     use super::*;
@@ -329,11 +329,7 @@ mod test {
     fn build_state(db: &TestDb) -> State {
         let account_id = svc_agent::AccountId::new("mqtt-gateway", AUDIENCE);
 
-        State::new(
-            account_id,
-            build_authz(AUDIENCE),
-            db.connection_pool().clone(),
-        )
+        State::new(account_id, no_authz(AUDIENCE), db.connection_pool().clone())
     }
 
     #[derive(Debug, PartialEq, Deserialize)]
@@ -385,9 +381,11 @@ mod test {
             let db = TestDb::new();
 
             // Insert a room.
-            let conn = db.connection_pool().get().unwrap();
-            let room = insert_room(&conn, AUDIENCE);
-            drop(conn);
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
 
             // Make room.read request.
             let state = build_state(&db);
@@ -424,9 +422,11 @@ mod test {
             let db = TestDb::new();
 
             // Insert a room.
-            let conn = db.connection_pool().get().unwrap();
-            let room = insert_room(&conn, AUDIENCE);
-            drop(conn);
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
 
             // Make room.update request.
             let state = build_state(&db);
@@ -466,9 +466,11 @@ mod test {
             let db = TestDb::new();
 
             // Insert a room.
-            let conn = db.connection_pool().get().unwrap();
-            let room = insert_room(&conn, AUDIENCE);
-            drop(conn);
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
 
             // Make room.delete request.
             let state = build_state(&db);
@@ -497,9 +499,11 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
 
             // Insert a room.
-            let conn = db.connection_pool().get().unwrap();
-            let room = insert_room(&conn, AUDIENCE);
-            drop(conn);
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
 
             // Make room.enter request.
             let state = build_state(&db);
@@ -534,9 +538,11 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
 
             // Insert a room.
-            let conn = db.connection_pool().get().unwrap();
-            let room = insert_room(&conn, AUDIENCE);
-            drop(conn);
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
 
             // Make room.leave request.
             let state = build_state(&db);
@@ -547,7 +553,6 @@ mod test {
 
             // Assert outgoing broker request.
             let message_bytes = message.into_bytes().unwrap();
-            
 
             let message_value =
                 serde_json::from_slice::<JsonValue>(message_bytes.as_bytes()).unwrap();

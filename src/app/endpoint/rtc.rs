@@ -280,10 +280,11 @@ mod test {
     use serde_json::{json, Value as JsonValue};
 
     use crate::test_helpers::{
-        build_authz, extract_payload,
-        test_agent::TestAgent,
-        test_db::TestDb,
-        test_factory::{insert_janus_backend, insert_room, insert_rtc},
+        agent::TestAgent,
+        db::TestDb,
+        extract_payload,
+        factory::{insert_janus_backend, insert_room, insert_rtc},
+        no_authz,
     };
     use crate::util::from_base64;
 
@@ -292,7 +293,7 @@ mod test {
     const AUDIENCE: &str = "dev.svc.example.org";
 
     fn build_state(db: &TestDb) -> State {
-        State::new(build_authz(AUDIENCE), db.connection_pool().clone())
+        State::new(no_authz(AUDIENCE), db.connection_pool().clone())
     }
 
     #[derive(Debug, PartialEq, Deserialize)]
@@ -308,9 +309,11 @@ mod test {
             let db = TestDb::new();
 
             // Insert a room.
-            let conn = db.connection_pool().get().unwrap();
-            let room = insert_room(&conn, AUDIENCE);
-            drop(conn);
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
 
             // Make rtc.create request.
             let state = build_state(&db);
@@ -320,7 +323,7 @@ mod test {
             let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
             let mut result = state.create(request).await.unwrap();
             let message = result.remove(0);
-            
+
             // Assert response.
             let resp: RtcResponse = extract_payload(message).unwrap();
             assert_eq!(resp.room_id, room.id());
@@ -338,9 +341,11 @@ mod test {
             let db = TestDb::new();
 
             // Insert an rtc.
-            let conn = db.connection_pool().get().unwrap();
-            let rtc = insert_rtc(&conn, AUDIENCE);
-            drop(conn);
+            let rtc = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_rtc(&conn, AUDIENCE))
+                .unwrap();
 
             // Make rtc.read request.
             let state = build_state(&db);
@@ -362,10 +367,15 @@ mod test {
             let db = TestDb::new();
 
             // Insert rtcs.
-            let conn = db.connection_pool().get().unwrap();
-            let rtc = insert_rtc(&conn, AUDIENCE);
-            let _other_rtc = insert_rtc(&conn, AUDIENCE);
-            drop(conn);
+            let rtc = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let rtc = insert_rtc(&conn, AUDIENCE);
+                    let _other_rtc = insert_rtc(&conn, AUDIENCE);
+                    rtc
+                })
+                .unwrap();
 
             // Make rtc.list request.
             let state = build_state(&db);
@@ -374,7 +384,7 @@ mod test {
             let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
             let mut result = state.list(request).await.unwrap();
             let message = result.remove(0);
-            
+
             // Assert response.
             let resp: Vec<RtcResponse> = extract_payload(message).unwrap();
             assert_eq!(resp.len(), 1);
@@ -411,10 +421,16 @@ mod test {
             let db = TestDb::new();
 
             // Insert an rtc and janus backend.
-            let conn = db.connection_pool().get().unwrap();
-            let rtc = insert_rtc(&conn, AUDIENCE);
-            let backend = insert_janus_backend(&conn, AUDIENCE);
-            drop(conn);
+            let (rtc, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    (
+                        insert_rtc(&conn, AUDIENCE),
+                        insert_janus_backend(&conn, AUDIENCE),
+                    )
+                })
+                .unwrap();
 
             // Make rtc.connect request.
             let state = build_state(&db);

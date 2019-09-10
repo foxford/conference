@@ -172,10 +172,11 @@ mod test {
     use crate::db::room;
 
     use crate::test_helpers::{
-        build_authz, extract_payload,
-        test_agent::TestAgent,
-        test_db::TestDb,
-        test_factory::{insert_janus_backend, insert_rtc},
+        agent::TestAgent,
+        db::TestDb,
+        extract_payload,
+        factory::{insert_janus_backend, insert_rtc},
+        no_authz,
     };
 
     use super::*;
@@ -185,11 +186,7 @@ mod test {
     fn build_state(db: &TestDb) -> State {
         let account_id = svc_agent::AccountId::new("cron", AUDIENCE);
 
-        State::new(
-            account_id,
-            build_authz(AUDIENCE),
-            db.connection_pool().clone(),
-        )
+        State::new(account_id, no_authz(AUDIENCE), db.connection_pool().clone())
     }
 
     #[derive(Debug, PartialEq, Deserialize)]
@@ -213,25 +210,30 @@ mod test {
         futures::executor::block_on(async {
             let db = TestDb::new();
 
-            // Insert an rtc and janus backend.
-            let conn = db.connection_pool().get().unwrap();
-            let rtcs = vec![insert_rtc(&conn, AUDIENCE), insert_rtc(&conn, AUDIENCE)];
-            let _other_rtc = insert_rtc(&conn, AUDIENCE);
-            let backend = insert_janus_backend(&conn, AUDIENCE);
+            let (rtcs, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    // Insert an rtc and janus backend.
+                    let rtcs = vec![insert_rtc(&conn, AUDIENCE), insert_rtc(&conn, AUDIENCE)];
+                    let _other_rtc = insert_rtc(&conn, AUDIENCE);
+                    let backend = insert_janus_backend(&conn, AUDIENCE);
 
-            // Close rooms.
-            let start = Utc::now() - Duration::hours(2);
-            let finish = start + Duration::hours(1);
-            let time = (Bound::Included(start), Bound::Excluded(finish));
+                    // Close rooms.
+                    let start = Utc::now() - Duration::hours(2);
+                    let finish = start + Duration::hours(1);
+                    let time = (Bound::Included(start), Bound::Excluded(finish));
 
-            for rtc in rtcs.iter() {
-                room::UpdateQuery::new(rtc.room_id().to_owned())
-                    .set_time(time)
-                    .execute(&conn)
-                    .unwrap();
-            }
+                    for rtc in rtcs.iter() {
+                        room::UpdateQuery::new(rtc.room_id().to_owned())
+                            .set_time(time)
+                            .execute(&conn)
+                            .unwrap();
+                    }
 
-            drop(conn);
+                    (rtcs, backend)
+                })
+                .unwrap();
 
             // Make system.vacuum request.
             let state = build_state(&db);

@@ -3,9 +3,9 @@ use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use svc_agent::mqtt::Publishable;
 
-pub(crate) mod test_agent;
-pub(crate) mod test_db;
-pub(crate) mod test_factory;
+pub(crate) mod agent;
+pub(crate) mod db;
+pub(crate) mod factory;
 
 pub(crate) fn extract_payload<T>(message: Box<dyn Publishable>) -> Result<T, Error>
 where
@@ -32,7 +32,7 @@ where
         .map_err(|err| format_err!("Failed to parse 'payload' as JSON: {}", err))
 }
 
-pub(crate) fn build_authz(audience: &str) -> svc_authz::ClientMap {
+pub(crate) fn no_authz(audience: &str) -> svc_authz::ClientMap {
     let mut authz_config_map = svc_authz::ConfigMap::new();
 
     let authz_none_config = svc_authz::Config::None(svc_authz::NoneConfig {});
