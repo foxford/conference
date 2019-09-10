@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use std::ops::Bound;
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, Connection, IncomingRequest, OutgoingRequest, OutgoingRequestProperties,
-    Publish, ResponseStatus,
+    Connection, IncomingRequest, OutgoingRequest, OutgoingRequestProperties, Publishable,
+    ResponseStatus,
 };
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -95,7 +95,10 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn create(
+        &self,
+        inreq: CreateRequest,
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         // Authorization: future room's owner has to allow the action
         self.authz.authorize(
             &inreq.payload().audience,
@@ -115,11 +118,14 @@ impl State {
             .execute(&conn)?
         };
 
-        let resp = inreq.to_response(object, ResponseStatus::OK);
-        resp.into_envelope().map_err(Into::into)
+        let message = inreq.to_response(object, ResponseStatus::OK);
+        Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 
-    pub(crate) async fn read(&self, inreq: ReadRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn read(
+        &self,
+        inreq: ReadRequest,
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         let room_id = inreq.payload().id.to_string();
 
         let object = {
@@ -144,11 +150,14 @@ impl State {
             "read",
         )?;
 
-        let resp = inreq.to_response(object, ResponseStatus::OK);
-        resp.into_envelope().map_err(Into::into)
+        let message = inreq.to_response(object, ResponseStatus::OK);
+        Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 
-    pub(crate) async fn update(&self, inreq: UpdateRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn update(
+        &self,
+        inreq: UpdateRequest,
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         let room_id = inreq.payload().id().to_string();
 
         let object = {
@@ -178,11 +187,14 @@ impl State {
             inreq.payload().execute(&conn)?
         };
 
-        let resp = inreq.to_response(object, ResponseStatus::OK);
-        resp.into_envelope().map_err(Into::into)
+        let message = inreq.to_response(object, ResponseStatus::OK);
+        Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 
-    pub(crate) async fn delete(&self, inreq: DeleteRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn delete(
+        &self,
+        inreq: DeleteRequest,
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         let room_id = inreq.payload().id.to_string();
 
         let object = {
@@ -212,11 +224,14 @@ impl State {
             room::DeleteQuery::new(inreq.payload().id).execute(&conn)?
         };
 
-        let resp = inreq.to_response(object, ResponseStatus::OK);
-        resp.into_envelope().map_err(Into::into)
+        let message = inreq.to_response(object, ResponseStatus::OK);
+        Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 
-    pub(crate) async fn enter(&self, inreq: EnterRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn enter(
+        &self,
+        inreq: EnterRequest,
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         let room_id = inreq.payload().id.to_string();
 
         let object = {
@@ -254,10 +269,13 @@ impl State {
             OutgoingRequest::multicast(payload, props, &self.broker_account_id)
         };
 
-        brokerreq.into_envelope().map_err(Into::into)
+        Ok(vec![Box::new(brokerreq) as Box<dyn Publishable>])
     }
 
-    pub(crate) async fn leave(&self, inreq: LeaveRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn leave(
+        &self,
+        inreq: LeaveRequest,
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         let room_id = inreq.payload().id.to_string();
 
         let _object = {
@@ -287,6 +305,6 @@ impl State {
             OutgoingRequest::multicast(payload, props, &self.broker_account_id)
         };
 
-        brokerreq.into_envelope().map_err(Into::into)
+        Ok(vec![Box::new(brokerreq) as Box<dyn Publishable>])
     }
 }

@@ -3,8 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::fmt;
 use std::str::FromStr;
-use svc_agent::mqtt::compat::IntoEnvelope;
-use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, Publish, ResponseStatus};
+use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, Publishable, ResponseStatus};
 use svc_agent::{Addressable, AgentId};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -50,7 +49,10 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn create(
+        &self,
+        inreq: CreateRequest,
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         let handle_id = &inreq.payload().handle_id;
         let jsep = &inreq.payload().jsep;
         let sdp_type = parse_sdp_type(jsep).map_err(|e| {
@@ -124,7 +126,8 @@ impl State {
                             .detail("error creating a backend request")
                             .build()
                     })?;
-                    backreq.into_envelope().map_err(Into::into)
+
+                    Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
                 } else {
                     // Authorization
                     authorize("update")?;
@@ -164,7 +167,8 @@ impl State {
                             .detail("error creating a backend request")
                             .build()
                     })?;
-                    backreq.into_envelope().map_err(Into::into)
+
+                    Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
                 }
             }
             SdpType::Answer => Err(SvcError::builder()
@@ -188,7 +192,8 @@ impl State {
                         .detail("error creating a backend request")
                         .build()
                 })?;
-                backreq.into_envelope().map_err(Into::into)
+
+                Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
             }
         }
     }

@@ -6,7 +6,7 @@ use futures::{executor::ThreadPoolBuilder, task::SpawnExt, StreamExt};
 use log::{error, info};
 use serde_derive::Deserialize;
 use svc_agent::mqtt::{
-    compat, Agent, AgentBuilder, ConnectionMode, Notification, Publish, QoS, SubscriptionTopic,
+    compat, Agent, AgentBuilder, ConnectionMode, Notification, QoS, SubscriptionTopic,
 };
 use svc_agent::{AgentId, Authenticable, SharedGroup, Subscription};
 use svc_authn::{jose::Algorithm, token::jws_compact};
@@ -124,7 +124,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     // Thread Pool
     let mut threadpool = ThreadPoolBuilder::new().create()?;
 
-    while let Some(message) = await!(mq_rx.next()) {
+    while let Some(message) = mq_rx.next().await {
         let tx = tx.clone();
         let state = state.clone();
         let backend = backend.clone();
@@ -143,24 +143,24 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
 
                     let result = match topic {
                         val if val == &route.janus_status_subscription_topic => {
-                            await!(janus::handle_status(
+                            janus::handle_status(
                                 &mut tx,
                                 message.payload.clone(),
                                 backend.clone(),
-                            ))
+                            ).await
                         }
                         val if val == &route.janus_responses_subscription_topic => {
-                            await!(janus::handle_response(
+                            janus::handle_response(
                                 &mut tx,
                                 message.payload.clone(),
                                 backend.clone(),
-                            ))
+                            ).await
                         }
-                        _ => await!(handle_message(
+                        _ => handle_message(
                             &mut tx,
                             message.payload.clone(),
                             state.clone(),
-                        )),
+                        ).await,
                     };
 
                     if let Err(err) = result {
@@ -197,7 +197,7 @@ async fn handle_message(
                     let error_title = "Error creating a room";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.room.create(req));
+                            let next = state.room.create(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -207,7 +207,7 @@ async fn handle_message(
                     let error_title = "Error reading the room";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.room.read(req));
+                            let next = state.room.read(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -217,7 +217,7 @@ async fn handle_message(
                     let error_title = "Error updating a room";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.room.update(req));
+                            let next = state.room.update(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -227,7 +227,7 @@ async fn handle_message(
                     let error_title = "Error deleting a room";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.room.delete(req));
+                            let next = state.room.delete(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -237,7 +237,7 @@ async fn handle_message(
                     let error_title = "Error entering a room";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.room.enter(req));
+                            let next = state.room.enter(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -247,7 +247,7 @@ async fn handle_message(
                     let error_title = "Error entering a room";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.room.leave(req));
+                            let next = state.room.leave(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -257,7 +257,7 @@ async fn handle_message(
                     let error_title = "Error creating the rtc";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.rtc.create(req));
+                            let next = state.rtc.create(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -267,7 +267,7 @@ async fn handle_message(
                     let error_title = "Error connection to the rtc";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.rtc.connect(req));
+                            let next = state.rtc.connect(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -277,7 +277,7 @@ async fn handle_message(
                     let error_title = "Error reading the rtc";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.rtc.read(req));
+                            let next = state.rtc.read(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -287,7 +287,7 @@ async fn handle_message(
                     let error_title = "Error listing rtcs";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.rtc.list(req));
+                            let next = state.rtc.list(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -297,7 +297,7 @@ async fn handle_message(
                     let error_title = "Error creating a rtc signal";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.rtc_signal.create(req));
+                            let next = state.rtc_signal.create(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -307,7 +307,7 @@ async fn handle_message(
                     let error_title = "Error listing rtc streams";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.rtc_stream.list(req));
+                            let next = state.rtc_stream.list(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -317,7 +317,7 @@ async fn handle_message(
                     let error_title = "Error creating an agent signal";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.message.create(req));
+                            let next = state.message.create(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -327,7 +327,7 @@ async fn handle_message(
                     let error_title = "Error vacuuming data";
                     match compat::into_request(envelope) {
                         Ok(req) => {
-                            let next = await!(state.system.vacuum(req));
+                            let next = state.system.vacuum(req).await;
                             handle_response(method, error_title, tx, &reqp, next)
                         }
                         Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
@@ -338,8 +338,13 @@ async fn handle_message(
         }
         compat::IncomingEnvelopeProperties::Response(_) => {
             let resp = compat::into_response(envelope)?;
-            let next = await!(state.message.callback(resp))?;
-            next.publish(tx).map_err(Into::into)
+            let next = state.message.callback(resp).await?;
+
+            for message in next.into_iter() {
+                tx.publish(message)?;
+            }
+
+            Ok(())
         }
         _ => Err(format_err!(
             "unsupported message type, envelope = '{:?}'",

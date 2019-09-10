@@ -2,9 +2,9 @@ use failure::Error;
 use serde_derive::Deserialize;
 use serde_json::Value as JsonValue;
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, IncomingRequest, IncomingRequestProperties, IncomingResponse,
-    OutgoingRequest, OutgoingRequestProperties, OutgoingResponse, OutgoingResponseProperties,
-    Publish, ResponseStatus, SubscriptionTopic,
+    IncomingRequest, IncomingRequestProperties, IncomingResponse, OutgoingRequest,
+    OutgoingRequestProperties, OutgoingResponse, OutgoingResponseProperties, Publishable,
+    ResponseStatus, SubscriptionTopic,
 };
 use svc_agent::{AgentId, Subscription};
 use svc_error::Error as SvcError;
@@ -38,7 +38,10 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(&self, inreq: CreateRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn create(
+        &self,
+        inreq: CreateRequest,
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         let to = &inreq.payload().agent_id;
         let payload = &inreq.payload().data;
 
@@ -57,29 +60,29 @@ impl State {
                 .detail("error encoding incoming request properties")
                 .build()
         })?;
+
         let props = OutgoingRequestProperties::new(
             inreq.properties().method(),
             &response_topic,
             &correlation_data,
         );
-        let req = OutgoingRequest::unicast(payload, props, to);
-        req.into_envelope().map_err(Into::into)
+
+        let message = OutgoingRequest::unicast(payload.to_owned(), props, to);
+        Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 
     pub(crate) async fn callback(
         &self,
         inresp: CreateIncomingResponse,
-    ) -> Result<impl Publish, Error> {
+    ) -> Result<Vec<Box<dyn Publishable>>, Error> {
         let reqp =
             from_base64::<IncomingRequestProperties>(inresp.properties().correlation_data())?;
         let payload = inresp.payload();
 
-        let props = OutgoingResponseProperties::new(
-            inresp.properties().status(),
-            reqp.correlation_data(),
-            None,
-        );
-        let resp = OutgoingResponse::unicast(payload, props, &reqp);
-        resp.into_envelope().map_err(Into::into)
+        let props =
+            OutgoingResponseProperties::new(inresp.properties().status(), reqp.correlation_data());
+
+        let message = OutgoingResponse::unicast(payload.to_owned(), props, &reqp);
+        Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 }

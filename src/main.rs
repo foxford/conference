@@ -1,5 +1,3 @@
-#![feature(await_macro, async_await)]
-
 extern crate openssl;
 #[macro_use]
 extern crate diesel;

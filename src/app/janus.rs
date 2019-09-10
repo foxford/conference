@@ -5,9 +5,9 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::ops::Bound;
 use std::sync::Arc;
-use svc_agent::mqtt::compat::{into_event, IncomingEnvelope, IntoEnvelope};
 use svc_agent::mqtt::{
-    Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties, Publish,
+    compat::{into_event, IncomingEnvelope},
+    Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties, Publishable,
     ResponseStatus,
 };
 use svc_agent::{Addressable, AgentId};
@@ -363,7 +363,8 @@ pub(crate) async fn handle_response(
 
                     // Creating Handle
                     let backreq = create_handle_request(session_id, message.properties())?;
-                    backreq.into_envelope()?.publish(tx).map_err(Into::into)
+                    tx.publish(Box::new(backreq) as Box<dyn Publishable>)
+                        .map_err(Into::into)
                 }
                 // Handle has been created
                 Transaction::CreateHandle(tn) => {
@@ -396,7 +397,8 @@ pub(crate) async fn handle_response(
                         &reqp,
                     );
 
-                    resp.into_envelope()?.publish(tx).map_err(Into::into)
+                    tx.publish(Box::new(resp) as Box<dyn Publishable>)
+                        .map_err(Into::into)
                 }
                 // An unsupported incoming Success message has been received
                 _ => Err(format_err!(
@@ -420,7 +422,8 @@ pub(crate) async fn handle_response(
                         tn.reqp.as_agent_id(),
                     );
 
-                    resp.into_envelope()?.publish(tx).map_err(Into::into)
+                    tx.publish(Box::new(resp) as Box<dyn Publishable>)
+                        .map_err(Into::into)
                 }
                 // An unsupported incoming Ack message has been received
                 _ => Err(format_err!(
@@ -478,7 +481,8 @@ pub(crate) async fn handle_response(
                                 tn.reqp.to_response(ResponseStatus::OK),
                                 tn.reqp.as_agent_id(),
                             );
-                            resp.into_envelope().map_err(Into::into)
+
+                            Ok(vec![Box::new(resp) as Box<dyn Publishable>])
                         });
 
                     handle_response(
@@ -536,7 +540,8 @@ pub(crate) async fn handle_response(
                                 tn.reqp.to_response(ResponseStatus::OK),
                                 tn.reqp.as_agent_id(),
                             );
-                            resp.into_envelope().map_err(Into::into)
+
+                            Ok(vec![Box::new(resp) as Box<dyn Publishable>])
                         });
 
                     handle_response(
@@ -551,7 +556,8 @@ pub(crate) async fn handle_response(
                 Transaction::UploadStream(ref tn) => {
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
-                    let next = plugin_data
+
+                    plugin_data
                         .get("status")
                         .ok_or_else(|| {
                             // We fail if response doesn't contain a status
@@ -700,10 +706,9 @@ pub(crate) async fn handle_response(
                             match maybe_rtcs_and_recordings {
                                 Some(rtcs_and_recordings) => {
                                     let event = endpoint::system::upload_event(&room, rtcs_and_recordings.into_iter())
-                                        .map_err(|e| format_err!("error creating a system event, {}", e))?
-                                        .into_envelope()?;
+                                        .map_err(|e| format_err!("error creating a system event, {}", e))?;
 
-                                    Ok(vec![event])
+                                    tx.publish(Box::new(event) as Box<dyn Publishable>)?;
                                 }
                                 None => {
                                     // Waiting for all the room's rtc being uploaded
@@ -711,13 +716,11 @@ pub(crate) async fn handle_response(
                                         "postpone 'room.upload' event because still waiting for rtcs being uploaded for the room = '{}'",
                                         room.id(),
                                     );
-
-                                    Ok(vec![])
                                 }
                             }
-                        })?;
 
-                    next.publish(tx).map_err(Into::into)
+                            Ok(())
+                        })
                 }
                 // An unsupported incoming Event message has been received
                 _ => Err(format_err!(
@@ -751,8 +754,8 @@ pub(crate) async fn handle_response(
                     .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
 
                 let event = endpoint::rtc_stream::update_event(room.id(), rtc_stream);
-                return event.into_envelope()?.publish(tx).map_err(Into::into);
-            };
+                tx.publish(Box::new(event) as Box<dyn Publishable>)?;
+            }
 
             Ok(())
         }
@@ -776,7 +779,7 @@ pub(crate) async fn handle_response(
                 // (if there was't any actual media stream, the object won't contain its start time)
                 if let Some(_) = rtc_stream.time() {
                     let event = endpoint::rtc_stream::update_event(room.id(), rtc_stream);
-                    return event.into_envelope()?.publish(tx).map_err(Into::into);
+                    tx.publish(Box::new(event) as Box<dyn Publishable>)?;
                 }
             }
 
@@ -809,8 +812,9 @@ pub(crate) async fn handle_status(
     let agent_id = inev.properties().as_agent_id();
 
     if let true = inev.payload().online() {
-        let backreq = create_session_request(agent_id)?;
-        backreq.into_envelope()?.publish(tx).map_err(Into::into)
+        let event = create_session_request(agent_id)?;
+        tx.publish(Box::new(event) as Box<dyn Publishable>)
+            .map_err(Into::into)
     } else {
         let conn = janus.db.get()?;
         let _ = janus_backend::DeleteQuery::new(agent_id).execute(&conn)?;

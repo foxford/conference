@@ -1,7 +1,6 @@
 use failure::{format_err, Error};
 use svc_agent::mqtt::{
-    compat::IntoEnvelope, Agent, IncomingRequestProperties, OutgoingResponse, Publish,
-    ResponseStatus,
+    Agent, IncomingRequestProperties, OutgoingResponse, Publishable, ResponseStatus,
 };
 use svc_error::{extension::sentry, ProblemDetails};
 
@@ -10,12 +9,15 @@ pub(crate) fn handle_response(
     title: &str,
     tx: &mut Agent,
     props: &IncomingRequestProperties,
-    result: Result<impl Publish, impl ProblemDetails + Send + Clone + 'static>,
+    result: Result<Vec<Box<dyn Publishable>>, impl ProblemDetails + Send + Clone + 'static>,
 ) -> Result<(), Error> {
     match result {
         Ok(val) => {
             // Publishing success response
-            val.publish(tx)?;
+            for publishable in val.into_iter() {
+                tx.publish(publishable)?;
+            }
+
             Ok(())
         }
         Err(mut err) => {
@@ -31,11 +33,9 @@ pub(crate) fn handle_response(
                     .map_err(|err| format_err!("Error sending error to Sentry: {}", err))?;
             }
 
-            let resp =
-                OutgoingResponse::unicast(err, props.to_response(status), props).into_envelope()?;
-
             // Publishing error response
-            resp.publish(tx)?;
+            let resp = OutgoingResponse::unicast(err, props.to_response(status), props);
+            tx.publish(Box::new(resp) as Box<dyn Publishable>)?;
             Ok(())
         }
     }
@@ -55,10 +55,9 @@ pub(crate) fn handle_badrequest(
         .detail(&err.to_string())
         .build();
 
-    let resp = OutgoingResponse::unicast(err, props.to_response(status), props).into_envelope()?;
-
     // Publishing error response
-    resp.publish(tx)?;
+    let resp = OutgoingResponse::unicast(err, props.to_response(status), props);
+    tx.publish(Box::new(resp) as Box<dyn Publishable>)?;
     Ok(())
 }
 
@@ -74,10 +73,9 @@ pub(crate) fn handle_badrequest_method(
         .detail(&format!("invalid request method = '{}'", method))
         .build();
 
-    let resp = OutgoingResponse::unicast(err, props.to_response(status), props).into_envelope()?;
-
     // Publishing error response
-    resp.publish(tx)?;
+    let resp = OutgoingResponse::unicast(err, props.to_response(status), props);
+    tx.publish(Box::new(resp) as Box<dyn Publishable>)?;
     Ok(())
 }
 

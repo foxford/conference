@@ -1,7 +1,6 @@
 use serde_derive::Deserialize;
-use svc_agent::mqtt::compat::IntoEnvelope;
 use svc_agent::mqtt::{
-    IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publish, ResponseStatus,
+    IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publishable, ResponseStatus,
 };
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -43,7 +42,10 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn list(&self, inreq: ListRequest) -> Result<impl Publish, SvcError> {
+    pub(crate) async fn list(
+        &self,
+        inreq: ListRequest,
+    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -94,8 +96,8 @@ impl State {
             .execute(&conn)?
         };
 
-        let resp = inreq.to_response(objects, ResponseStatus::OK);
-        resp.into_envelope().map_err(Into::into)
+        let message = inreq.to_response(objects, ResponseStatus::OK);
+        Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 }
 
