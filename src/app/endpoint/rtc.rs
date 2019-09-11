@@ -273,3 +273,197 @@ impl State {
         Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 }
+
+#[cfg(test)]
+mod test {
+    use diesel::prelude::*;
+    use serde_json::{json, Value as JsonValue};
+
+    use crate::test_helpers::{
+        agent::TestAgent,
+        db::TestDb,
+        extract_payload,
+        factory::{insert_janus_backend, insert_room, insert_rtc},
+        no_authz,
+    };
+    use crate::util::from_base64;
+
+    use super::*;
+
+    const AUDIENCE: &str = "dev.svc.example.org";
+
+    fn build_state(db: &TestDb) -> State {
+        State::new(no_authz(AUDIENCE), db.connection_pool().clone())
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RtcResponse {
+        id: Uuid,
+        room_id: Uuid,
+        created_at: i64,
+    }
+
+    #[test]
+    fn create_rtc() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make rtc.create request.
+            let state = build_state(&db);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({"room_id": room.id()});
+
+            let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
+            let mut result = state.create(request).await.unwrap();
+            let message = result.remove(0);
+
+            // Assert response.
+            let resp: RtcResponse = extract_payload(message).unwrap();
+            assert_eq!(resp.room_id, room.id());
+
+            // Assert room presence in the DB.
+            let conn = db.connection_pool().get().unwrap();
+            let query = crate::schema::rtc::table.find(resp.id);
+            assert_eq!(query.execute(&conn).unwrap(), 1);
+        });
+    }
+
+    #[test]
+    fn read_rtc() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Insert an rtc.
+            let rtc = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_rtc(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make rtc.read request.
+            let state = build_state(&db);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({"id": rtc.id()});
+            let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
+            let mut result = state.read(request).await.unwrap();
+            let message = result.remove(0);
+
+            // Assert response.
+            let resp: RtcResponse = extract_payload(message).unwrap();
+            assert_eq!(resp.id, rtc.id());
+        });
+    }
+
+    #[test]
+    fn list_rtcs() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Insert rtcs.
+            let rtc = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let rtc = insert_rtc(&conn, AUDIENCE);
+                    let _other_rtc = insert_rtc(&conn, AUDIENCE);
+                    rtc
+                })
+                .unwrap();
+
+            // Make rtc.list request.
+            let state = build_state(&db);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({"room_id": rtc.room_id()});
+            let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
+            let mut result = state.list(request).await.unwrap();
+            let message = result.remove(0);
+
+            // Assert response.
+            let resp: Vec<RtcResponse> = extract_payload(message).unwrap();
+            assert_eq!(resp.len(), 1);
+            assert_eq!(resp.first().unwrap().id, rtc.id());
+        });
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RtcConnectResponse {
+        janus: String,
+        plugin: String,
+        session_id: i64,
+        transaction: String,
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RtcConnectTransaction {
+        rtc_id: String,
+        session_id: i64,
+        reqp: RtcConnectTransactionReqp,
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RtcConnectTransactionReqp {
+        method: String,
+        agent_label: String,
+        account_label: String,
+        audience: String,
+    }
+
+    #[test]
+    fn connect_to_rtc() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Insert an rtc and janus backend.
+            let (rtc, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    (
+                        insert_rtc(&conn, AUDIENCE),
+                        insert_janus_backend(&conn, AUDIENCE),
+                    )
+                })
+                .unwrap();
+
+            // Make rtc.connect request.
+            let state = build_state(&db);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({"id": rtc.id()});
+            let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
+            let mut result = state.connect(request).await.unwrap();
+            let message = result.remove(0);
+
+            // Assert outgoing request to Janus.
+            let resp: RtcConnectResponse = extract_payload(message).unwrap();
+            assert_eq!(resp.janus, "attach");
+            assert_eq!(resp.plugin, "janus.plugin.conference");
+            assert_eq!(resp.session_id, backend.session_id());
+
+            // `transaction` field is base64 encoded JSON. Decode and assert.
+            let txn_wrap: JsonValue = from_base64(&resp.transaction).unwrap();
+            let txn_value = txn_wrap.get("CreateRtcHandle").unwrap().to_owned();
+            let txn: RtcConnectTransaction = serde_json::from_value(txn_value).unwrap();
+
+            assert_eq!(
+                txn,
+                RtcConnectTransaction {
+                    rtc_id: rtc.id().to_string(),
+                    session_id: backend.session_id(),
+                    reqp: RtcConnectTransactionReqp {
+                        method: "rtc.connect".to_string(),
+                        agent_label: "web".to_string(),
+                        account_label: "user123".to_string(),
+                        audience: AUDIENCE.to_string(),
+                    }
+                }
+            )
+        });
+    }
+}

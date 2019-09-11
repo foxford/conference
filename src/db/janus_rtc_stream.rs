@@ -55,12 +55,32 @@ pub(crate) struct Object {
 }
 
 impl Object {
+    pub(crate) fn handle_id(&self) -> i64 {
+        self.handle_id
+    }
+
     pub(crate) fn rtc_id(&self) -> Uuid {
         self.rtc_id
     }
 
+    pub(crate) fn backend_id(&self) -> &AgentId {
+        &self.backend_id
+    }
+
+    pub(crate) fn label(&self) -> &str {
+        self.label.as_ref()
+    }
+
+    pub(crate) fn sent_by(&self) -> &AgentId {
+        &self.sent_by
+    }
+
     pub(crate) fn time(&self) -> Option<Time> {
         self.time
+    }
+
+    pub(crate) fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
     }
 }
 

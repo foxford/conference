@@ -17,6 +17,8 @@ pub(crate) fn create_pool(url: &str, size: u32, timeout: u64) -> ConnectionPool 
 }
 
 pub mod sql {
+    pub use super::recording::Recording_status;
+    pub use super::room::Room_backend;
     pub use svc_agent::sql::{Account_id, Agent_id};
 }
 

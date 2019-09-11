@@ -15,12 +15,14 @@ pub(crate) type Time = (Bound<i64>, Bound<i64>);
 
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum RecordingStatus {
+#[PgType = "recording_status"]
+#[DieselType = "Recording_status"]
+pub(crate) enum Status {
     Ready,
     Missing,
 }
 
-impl fmt::Display for RecordingStatus {
+impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let serialized = serde_json::to_string(self).map_err(|_| fmt::Error)?;
         write!(f, "{}", serialized)
@@ -38,18 +40,11 @@ pub(crate) struct Object {
     #[serde(with = "crate::serde::ts_seconds_option")]
     started_at: Option<DateTime<Utc>>,
     time: Option<Vec<Time>>,
-    status: RecordingStatus,
+    status: Status,
 }
 
 impl Object {
-    pub(crate) fn into_tuple(
-        self,
-    ) -> (
-        Uuid,
-        RecordingStatus,
-        Option<DateTime<Utc>>,
-        Option<Vec<Time>>,
-    ) {
+    pub(crate) fn into_tuple(self) -> (Uuid, Status, Option<DateTime<Utc>>, Option<Vec<Time>>) {
         (self.rtc_id, self.status, self.started_at, self.time)
     }
 
@@ -61,7 +56,7 @@ impl Object {
         &self.time
     }
 
-    pub(crate) fn status(&self) -> &RecordingStatus {
+    pub(crate) fn status(&self) -> &Status {
         &self.status
     }
 }
@@ -74,11 +69,11 @@ pub(crate) struct InsertQuery {
     rtc_id: Uuid,
     started_at: Option<DateTime<Utc>>,
     time: Option<Vec<Time>>,
-    status: RecordingStatus,
+    status: Status,
 }
 
 impl InsertQuery {
-    pub(crate) fn new(rtc_id: Uuid, status: RecordingStatus) -> Self {
+    pub(crate) fn new(rtc_id: Uuid, status: Status) -> Self {
         Self {
             rtc_id,
             started_at: None,

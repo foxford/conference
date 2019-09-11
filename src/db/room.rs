@@ -40,6 +40,8 @@ const ALL_COLUMNS: AllColumns = (
 
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[DieselType = "Room_backend"]
+// This is not just `Backend` because of clash with `diesel::backend::Backend`.
 pub(crate) enum RoomBackend {
     None,
     Janus,
@@ -77,6 +79,10 @@ impl Object {
 
     pub(crate) fn time(&self) -> Time {
         self.time
+    }
+
+    pub(crate) fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
     }
 
     pub(crate) fn backend(&self) -> &RoomBackend {
@@ -283,6 +289,13 @@ impl UpdateQuery {
 
     pub(crate) fn id(&self) -> Uuid {
         self.id
+    }
+
+    pub(crate) fn set_time(self, time: Time) -> Self {
+        Self {
+            time: Some(time),
+            ..self
+        }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {

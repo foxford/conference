@@ -14,10 +14,10 @@ use crate::db::{janus_backend, recording, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type UploadRequest = IncomingRequest<UploadRequestData>;
+pub(crate) type VacuumRequest = IncomingRequest<VacuumRequestData>;
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct UploadRequestData {}
+pub(crate) struct VacuumRequestData {}
 
 #[derive(Debug, Serialize)]
 pub(crate) struct RoomUploadEventData {
@@ -28,7 +28,7 @@ pub(crate) struct RoomUploadEventData {
 #[derive(Debug, Serialize)]
 struct RtcUploadEventData {
     id: Uuid,
-    status: recording::RecordingStatus,
+    status: recording::Status,
     #[serde(
         serialize_with = "crate::serde::milliseconds_bound_tuples_option",
         skip_serializing_if = "Option::is_none"
@@ -62,7 +62,7 @@ impl State {
 impl State {
     pub(crate) async fn vacuum(
         &self,
-        inreq: UploadRequest,
+        inreq: VacuumRequest,
     ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         self.authz.authorize(
@@ -125,8 +125,8 @@ where
     let mut event_entries = Vec::new();
     for (rtc, recording) in rtcs_and_recordings {
         let uri = match recording.status() {
-            recording::RecordingStatus::Missing => None,
-            recording::RecordingStatus::Ready => {
+            recording::Status::Missing => None,
+            recording::Status::Ready => {
                 Some(format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)))
             }
         };
@@ -161,4 +161,105 @@ fn bucket_name(room: &room::Object) -> String {
 
 fn record_name(rtc: &rtc::Object) -> String {
     format!("{}.source.mp4", rtc.id())
+}
+
+#[cfg(test)]
+mod test {
+    use chrono::{Duration, Utc};
+    use diesel::prelude::*;
+    use serde_json::json;
+
+    use crate::db::room;
+
+    use crate::test_helpers::{
+        agent::TestAgent,
+        db::TestDb,
+        extract_payload,
+        factory::{insert_janus_backend, insert_rtc},
+        no_authz,
+    };
+
+    use super::*;
+
+    const AUDIENCE: &str = "dev.svc.example.org";
+
+    fn build_state(db: &TestDb) -> State {
+        let account_id = svc_agent::AccountId::new("cron", AUDIENCE);
+
+        State::new(account_id, no_authz(AUDIENCE), db.connection_pool().clone())
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct VacuumJanusRequest {
+        janus: String,
+        session_id: i64,
+        handle_id: i64,
+        body: VacuumJanusRequestBody,
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct VacuumJanusRequestBody {
+        method: String,
+        id: Uuid,
+        bucket: String,
+        object: String,
+    }
+
+    #[test]
+    fn vacuum_system() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            let (rtcs, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    // Insert an rtc and janus backend.
+                    let rtcs = vec![insert_rtc(&conn, AUDIENCE), insert_rtc(&conn, AUDIENCE)];
+                    let _other_rtc = insert_rtc(&conn, AUDIENCE);
+                    let backend = insert_janus_backend(&conn, AUDIENCE);
+
+                    // Close rooms.
+                    let start = Utc::now() - Duration::hours(2);
+                    let finish = start + Duration::hours(1);
+                    let time = (Bound::Included(start), Bound::Excluded(finish));
+
+                    for rtc in rtcs.iter() {
+                        room::UpdateQuery::new(rtc.room_id().to_owned())
+                            .set_time(time)
+                            .execute(&conn)
+                            .unwrap();
+                    }
+
+                    (rtcs, backend)
+                })
+                .unwrap();
+
+            // Make system.vacuum request.
+            let state = build_state(&db);
+            let agent = TestAgent::new("alpha", "cron", AUDIENCE);
+            let payload = json!({});
+            let request: VacuumRequest = agent.build_request("system.vacuum", &payload).unwrap();
+            let result = state.vacuum(request).await.unwrap();
+            assert_eq!(result.len(), 2);
+
+            // Assert outgoing Janus stream.upload requests.
+            for (message, rtc) in result.into_iter().zip(rtcs.iter()) {
+                assert_eq!(
+                    extract_payload::<VacuumJanusRequest>(message).unwrap(),
+                    VacuumJanusRequest {
+                        janus: "message".to_string(),
+                        session_id: backend.session_id(),
+                        handle_id: backend.handle_id(),
+                        body: VacuumJanusRequestBody {
+                            method: "stream.upload".to_string(),
+                            id: rtc.id(),
+                            bucket: format!("origin.webinar.{}", AUDIENCE).to_string(),
+                            object: format!("{}.source.mp4", rtc.id()).to_string(),
+                        }
+                    }
+                );
+            }
+        });
+    }
 }

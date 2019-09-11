@@ -29,27 +29,25 @@ table! {
 table! {
     use diesel::sql_types::*;
     use crate::db::sql::*;
-    use crate::db::recording::RecordingStatusMapping;
 
     recording (rtc_id) {
         rtc_id -> Uuid,
         started_at -> Nullable<Timestamptz>,
         time -> Nullable<Array<Int8range>>,
-        status -> RecordingStatusMapping,
+        status -> Recording_status,
     }
 }
 
 table! {
     use diesel::sql_types::*;
     use crate::db::sql::*;
-    use crate::db::room::RoomBackendMapping;
 
     room (id) {
         id -> Uuid,
         time -> Tstzrange,
         audience -> Text,
         created_at -> Timestamptz,
-        backend -> RoomBackendMapping,
+        backend -> Room_backend,
     }
 }
 

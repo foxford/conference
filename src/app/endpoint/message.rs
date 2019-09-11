@@ -86,3 +86,43 @@ impl State {
         Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 }
+
+#[cfg(test)]
+mod test {
+    use serde_json::{json, Value as JsonValue};
+    use svc_agent::Destination;
+
+    use super::*;
+    use crate::test_helpers::{agent::TestAgent, extract_payload};
+
+    const AGENT_LABEL: &str = "web";
+    const AUDIENCE: &str = "example.org";
+    const ROOM_ID: &str = "3b8226e6-a7c0-11e9-8019-60f81db6d53e";
+
+    #[test]
+    fn create_message() {
+        futures::executor::block_on(async {
+            let sender = TestAgent::new(AGENT_LABEL, "sender", AUDIENCE);
+            let receiver = TestAgent::new(AGENT_LABEL, "receiver", AUDIENCE);
+
+            let payload = json!({
+                "agent_id": receiver.agent_id().to_string(),
+                "room_id": ROOM_ID,
+                "data": {"key": "value"},
+            });
+
+            let incoming: CreateRequest = sender.build_request("message.create", &payload).unwrap();
+            let state = State::new(sender.agent_id().clone());
+            let mut result = state.create(incoming).await.unwrap();
+            let message = result.remove(0);
+
+            match message.destination() {
+                &Destination::Unicast(ref agent_id) => assert_eq!(agent_id, receiver.agent_id()),
+                _ => panic!("Expected unicast destination"),
+            }
+
+            let payload: JsonValue = extract_payload(message).unwrap();
+            assert_eq!(payload, json!({"key": "value"}));
+        });
+    }
+}

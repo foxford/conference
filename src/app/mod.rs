@@ -90,7 +90,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
         system: endpoint::system::State::new(config.id.clone(), authz.clone(), db.clone()),
     });
 
-    // Create Backend resource
+    // Create RoomBackend resource
     let backend = Arc::new(janus::State::new(db.clone()));
 
     // Create Subscriptions

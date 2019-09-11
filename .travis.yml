@@ -1,7 +1,14 @@
 language: rust
 rust:
   - nightly-2019-09-05
+before_install:
+  - sudo apt-get update
+  - sudo apt-get --yes remove postgresql\*
+  - sudo apt-get install -y postgresql-11 postgresql-client-11
+  - sudo cp /etc/postgresql/{9.6,11}/main/pg_hba.conf
+  - sudo service postgresql restart 11  
 addons:
+  postgresql: "11.2"
   apt:
     packages:
       - lftp
@@ -10,14 +17,21 @@ cache:
     - ${TRAVIS_HOME}/.cargo
 before_cache:
   - rm -rf ${TRAVIS_HOME}/.cargo/registry
-services: docker
+services:
+  - docker
+  - postgresql
 git:
   depth: 1
+before_script:
+  - psql -c 'create database conference_test;' -U postgres
+env:
+  - DATABASE_URL=postgres://postgres@localhost/conference_test
 jobs:
   include:
     - stage: check
       name: Tests
-      script: cargo test
+      install: cargo install diesel_cli --no-default-features --features postgres
+      script: diesel migration run && cargo test
     - stage: check
       name : Rustfmt
       install: rustup component add rustfmt

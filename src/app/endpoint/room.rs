@@ -308,3 +308,265 @@ impl State {
         Ok(vec![Box::new(brokerreq) as Box<dyn Publishable>])
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::ops::Bound;
+
+    use chrono::Utc;
+    use diesel::prelude::*;
+    use serde_json::{json, Value as JsonValue};
+
+    use crate::test_helpers::{
+        agent::TestAgent, db::TestDb, extract_payload, factory::insert_room, no_authz,
+        parse_payload,
+    };
+
+    use super::*;
+
+    const AUDIENCE: &str = "dev.svc.example.org";
+
+    fn build_state(db: &TestDb) -> State {
+        let account_id = svc_agent::AccountId::new("mqtt-gateway", AUDIENCE);
+
+        State::new(account_id, no_authz(AUDIENCE), db.connection_pool().clone())
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RoomResponse {
+        id: Uuid,
+        time: Vec<Option<i64>>,
+        audience: String,
+        created_at: i64,
+        backend: String,
+    }
+
+    #[test]
+    fn create_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let state = build_state(&db);
+
+            // Make room.create request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let now = Utc::now().timestamp();
+
+            let payload = json!({
+                "time": vec![Some(now), None],
+                "audience": AUDIENCE,
+                "backend": "janus",
+            });
+
+            let request: CreateRequest = agent.build_request("room.create", &payload).unwrap();
+            let mut result = state.create(request).await.unwrap();
+            let message = result.remove(0);
+
+            // Assert response.
+            let resp: RoomResponse = extract_payload(message).unwrap();
+            assert_eq!(resp.time, vec![Some(now), None]);
+            assert_eq!(resp.audience, AUDIENCE);
+            assert!(resp.created_at >= now);
+            assert_eq!(resp.backend, "janus");
+
+            // Assert room presence in the DB.
+            let conn = db.connection_pool().get().unwrap();
+            let query = crate::schema::room::table.find(resp.id);
+            assert_eq!(query.execute(&conn).unwrap(), 1);
+        });
+    }
+
+    #[test]
+    fn read_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make room.read request.
+            let state = build_state(&db);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({"id": room.id()});
+            let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
+            let mut result = state.read(request).await.unwrap();
+            let message = result.remove(0);
+
+            // Assert response.
+            let resp: RoomResponse = extract_payload(message).unwrap();
+
+            let start = match room.time().0 {
+                Bound::Included(val) => val,
+                _ => panic!("Bad room time"),
+            };
+
+            assert_eq!(
+                resp,
+                RoomResponse {
+                    id: room.id().to_owned(),
+                    time: vec![Some(start.timestamp()), None],
+                    audience: AUDIENCE.to_string(),
+                    created_at: room.created_at().timestamp(),
+                    backend: "janus".to_string(),
+                }
+            );
+        });
+    }
+
+    #[test]
+    fn update_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make room.update request.
+            let state = build_state(&db);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let now = Utc::now().timestamp();
+
+            let payload = json!({
+                "id": room.id(),
+                "time": vec![Some(now), None],
+                "audience": "dev.svc.example.net",
+                "backend": "none",
+            });
+
+            let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
+            let mut result = state.update(request).await.unwrap();
+            let message = result.remove(0);
+
+            // Assert response.
+            let resp: RoomResponse = extract_payload(message).unwrap();
+
+            assert_eq!(
+                resp,
+                RoomResponse {
+                    id: room.id().to_owned(),
+                    time: vec![Some(now), None],
+                    audience: "dev.svc.example.net".to_string(),
+                    created_at: room.created_at().timestamp(),
+                    backend: "none".to_string(),
+                }
+            );
+        });
+    }
+
+    #[test]
+    fn delete_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make room.delete request.
+            let state = build_state(&db);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({"id": room.id()});
+            let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
+            state.delete(request).await.unwrap();
+
+            // Assert room abscence in the DB.
+            let conn = db.connection_pool().get().unwrap();
+            let query = crate::schema::room::table.find(room.id());
+            assert_eq!(query.execute(&conn).unwrap(), 0);
+        });
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RoomEnterLeaveBrokerRequest {
+        subject: String,
+        object: Vec<String>,
+    }
+
+    #[test]
+    fn enter_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make room.enter request.
+            let state = build_state(&db);
+            let payload = json!({"id": room.id()});
+            let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
+            let mut result = state.enter(request).await.unwrap();
+            let message = result.remove(0);
+
+            // Assert outgoing broker request.
+            let message_bytes = message.into_bytes().unwrap();
+
+            let message_value =
+                serde_json::from_slice::<JsonValue>(message_bytes.as_bytes()).unwrap();
+
+            let properties = message_value.get("properties").unwrap();
+            let method = properties.get("method").unwrap().as_str().unwrap();
+            assert_eq!(method, "subscription.create");
+
+            let resp: RoomEnterLeaveBrokerRequest = parse_payload(message_value).unwrap();
+            assert_eq!(resp.subject, format!("v1/agents/{}", agent.agent_id()));
+            assert_eq!(
+                resp.object,
+                vec!["rooms", room.id().to_string().as_str(), "events"]
+            );
+        });
+    }
+
+    #[test]
+    fn leave_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make room.leave request.
+            let state = build_state(&db);
+            let payload = json!({"id": room.id()});
+            let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
+            let mut result = state.leave(request).await.unwrap();
+            let message = result.remove(0);
+
+            // Assert outgoing broker request.
+            let message_bytes = message.into_bytes().unwrap();
+
+            let message_value =
+                serde_json::from_slice::<JsonValue>(message_bytes.as_bytes()).unwrap();
+
+            let properties = message_value.get("properties").unwrap();
+            let method = properties.get("method").unwrap().as_str().unwrap();
+            assert_eq!(method, "subscription.delete");
+
+            let resp: RoomEnterLeaveBrokerRequest = parse_payload(message_value).unwrap();
+            assert_eq!(resp.subject, format!("v1/agents/{}", agent.agent_id()));
+            assert_eq!(
+                resp.object,
+                vec!["rooms", room.id().to_string().as_str(), "events"]
+            );
+        });
+    }
+}
