@@ -153,7 +153,7 @@ dependencies = [
  "serde 1.0.94 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.94 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
- "svc-agent 0.8.0",
+ "svc-agent 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-authn 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-authz 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-error 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1640,7 +1640,8 @@ dependencies = [
 
 [[package]]
 name = "svc-agent"
-version = "0.8.0"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "diesel 1.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1691,7 +1692,7 @@ dependencies = [
  "sentry 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.94 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.94 (registry+https://github.com/rust-lang/crates.io-index)",
- "svc-agent 0.8.0",
+ "svc-agent 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-authn 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-authz 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -2362,6 +2363,7 @@ dependencies = [
 "checksum spin 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "44363f6f51401c34e7be73db0db371c04705d35efbe9f7d6082e03a921a32c55"
 "checksum stable_deref_trait 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "dba1a27d3efae4351c8051072d619e3ade2820635c3958d826bfea39d59b54c8"
 "checksum string 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d24114bfcceb867ca7f71a0d3fe45d45619ec47a6fbfa98cb14e14250bfa5d6d"
+"checksum svc-agent 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "55b33f5e3d716cff7ac870e22cb39c7c9fbce5a8c58682e077f1cc2b140005de"
 "checksum svc-authn 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "155857a0822913ba103a75f043e2e8594e78d071fe4440b443870e7559681664"
 "checksum svc-authz 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8fe78e9dd1c0f202092c427c695e8f161bda5593f6d6534ab682b068b9711ed3"
 "checksum svc-error 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "8b943a26cffcf0db2ac3e278006e5976e3a9e07d9487ff7c76fc0a04cbc8303a"
