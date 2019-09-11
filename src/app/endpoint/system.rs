@@ -166,7 +166,6 @@ fn record_name(rtc: &rtc::Object) -> String {
 #[cfg(test)]
 mod test {
     use chrono::{Duration, Utc};
-    use diesel::prelude::*;
     use serde_json::json;
 
     use crate::db::room;

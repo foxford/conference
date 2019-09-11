@@ -22,6 +22,8 @@ pub mod sql {
     pub use svc_agent::sql::{Account_id, Agent_id};
 }
 
+pub(crate) mod agent;
+pub(crate) mod agent_stream;
 pub(crate) mod janus_backend;
 pub(crate) mod janus_rtc_stream;
 pub(crate) mod recording;

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::thread;
 
-use failure::{format_err, Error};
+use failure::Error;
 use futures::{executor::ThreadPoolBuilder, task::SpawnExt, StreamExt};
 use log::{error, info};
 use serde_derive::Deserialize;
@@ -26,11 +26,13 @@ pub(crate) struct IdTokenConfig {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct State {
+    agent: endpoint::agent::State,
     room: endpoint::room::State,
     rtc: endpoint::rtc::State,
     rtc_signal: endpoint::rtc_signal::State,
     rtc_stream: endpoint::rtc_stream::State,
     message: endpoint::message::State,
+    subscription: endpoint::subscription::State,
     system: endpoint::system::State,
 }
 
@@ -82,11 +84,13 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
 
     // Application resources
     let state = Arc::new(State {
-        room: endpoint::room::State::new(config.broker_id, authz.clone(), db.clone()),
+        agent: endpoint::agent::State::new(authz.clone(), db.clone()),
+        room: endpoint::room::State::new(config.broker_id.clone(), authz.clone(), db.clone()),
         rtc: endpoint::rtc::State::new(authz.clone(), db.clone()),
         rtc_signal: endpoint::rtc_signal::State::new(authz.clone(), db.clone()),
         rtc_stream: endpoint::rtc_stream::State::new(authz.clone(), db.clone()),
         message: endpoint::message::State::new(agent_id.clone()),
+        subscription: endpoint::subscription::State::new(config.broker_id, db.clone()),
         system: endpoint::system::State::new(config.id.clone(), authz.clone(), db.clone()),
     });
 
@@ -186,13 +190,23 @@ async fn handle_message(
     payload: Arc<Vec<u8>>,
     state: Arc<State>,
 ) -> Result<(), Error> {
-    use endpoint::{handle_badrequest, handle_badrequest_method, handle_response};
+    use endpoint::{handle_badrequest, handle_badrequest_method, handle_event, handle_response};
 
     let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(payload.as_slice())?;
     match envelope.properties() {
         compat::IncomingEnvelopeProperties::Request(ref reqp) => {
             let reqp = reqp.clone();
             match reqp.method() {
+                method @ "agent.list" => {
+                    let error_title = "Error listing agents";
+                    match compat::into_request(envelope) {
+                        Ok(req) => {
+                            let next = state.agent.list(req).await;
+                            handle_response(method, error_title, tx, &reqp, next)
+                        }
+                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                    }
+                }
                 method @ "room.create" => {
                     let error_title = "Error creating a room";
                     match compat::into_request(envelope) {
@@ -346,10 +360,27 @@ async fn handle_message(
 
             Ok(())
         }
-        _ => Err(format_err!(
-            "unsupported message type, envelope = '{:?}'",
-            envelope
-        )),
+        compat::IncomingEnvelopeProperties::Event(ref evp) => match evp.label() {
+            "subscription.create" => handle_event(
+                "subscription.create",
+                "Error handling subscription creation",
+                tx,
+                state
+                    .subscription
+                    .create(compat::into_event(envelope)?)
+                    .await,
+            ),
+            "subscription.delete" => handle_event(
+                "subscription.delete",
+                "Error handling subscription deletion",
+                tx,
+                state
+                    .subscription
+                    .delete(compat::into_event(envelope)?)
+                    .await,
+            ),
+            _ => Ok(()),
+        },
     }
 }
 

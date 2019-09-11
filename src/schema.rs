@@ -2,6 +2,30 @@ table! {
     use diesel::sql_types::*;
     use crate::db::sql::*;
 
+    agent (id) {
+        id -> Uuid,
+        agent_id -> Agent_id,
+        room_id -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+table! {
+    use diesel::sql_types::*;
+    use crate::db::sql::*;
+
+    agent_stream (id) {
+        id -> Uuid,
+        sent_by -> Uuid,
+        label -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+table! {
+    use diesel::sql_types::*;
+    use crate::db::sql::*;
+
     janus_backend (id) {
         id -> Agent_id,
         handle_id -> Int8,
@@ -62,9 +86,19 @@ table! {
     }
 }
 
+joinable!(agent -> room (room_id));
+joinable!(agent_stream -> agent (sent_by));
 joinable!(janus_rtc_stream -> janus_backend (backend_id));
 joinable!(janus_rtc_stream -> rtc (rtc_id));
 joinable!(recording -> rtc (rtc_id));
 joinable!(rtc -> room (room_id));
 
-allow_tables_to_appear_in_same_query!(janus_backend, janus_rtc_stream, recording, room, rtc,);
+allow_tables_to_appear_in_same_query!(
+    agent,
+    agent_stream,
+    janus_backend,
+    janus_rtc_stream,
+    recording,
+    room,
+    rtc,
+);

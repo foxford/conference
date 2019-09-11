@@ -38,3 +38,4 @@ package = "futures-channel-preview"
 
 [patch.crates-io]
 rumqtt = { git = "https://github.com/AtherEnergy/rumqtt.git", ref = "980e3d7d72344fc1b547a6b6834a7cba4112f93a" }
+svc-agent = { path = "../svc-agent-rs" }

@@ -22,3 +22,5 @@
         - [Create](api.rtc_signal.create.md)
     - [RTC Stream](api.rtc_stream.md)
         - [List](api.rtc_stream.list.md)
+    - [Agent](api.agent.md)
+        - [List](api.agent.list.md)
