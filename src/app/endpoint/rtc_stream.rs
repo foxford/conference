@@ -39,9 +39,7 @@ impl State {
     pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
         Self { authz, db }
     }
-}
 
-impl State {
     pub(crate) async fn list(
         &self,
         inreq: ListRequest,

@@ -3,7 +3,7 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde_json::{json, Value as JsonValue};
 
-use svc_agent::mqtt::{compat, compat::IncomingEnvelope, IncomingRequest};
+use svc_agent::mqtt::{compat, compat::IncomingEnvelope, IncomingEvent, IncomingRequest};
 use svc_agent::{AccountId, AgentId};
 
 const CORRELATION_DATA_LENGTH: usize = 16;
@@ -42,7 +42,6 @@ impl TestAgent {
 
         let conference_account_id = AccountId::new("svc", self.account_id.audience());
         let conference_agent_id = AgentId::new("conference", conference_account_id);
-
         let response_topic = format!("agents/{}/api/v1/in/{}", self.agent_id, conference_agent_id);
 
         let message = json!({
@@ -65,5 +64,31 @@ impl TestAgent {
 
         compat::into_request(envelope)
             .map_err(|err| format_err!("Failed to build request: {}", err))
+    }
+
+    pub(crate) fn build_event<T>(
+        &self,
+        label: &str,
+        payload: &JsonValue,
+    ) -> Result<IncomingEvent<T>, Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let message = json!({
+            "payload": serde_json::to_string(payload)?,
+            "properties": {
+                "type": "event",
+                "label": label,
+                "agent_label": self.agent_id.label(),
+                "account_label": &self.account_id.label(),
+                "audience": self.account_id.audience(),
+                "connection_mode": "agents",
+                "connection_version": "v1",
+            }
+        });
+
+        let message_str = message.to_string();
+        let envelope = serde_json::from_slice::<IncomingEnvelope>(message_str.as_bytes())?;
+        compat::into_event(envelope).map_err(|err| format_err!("Failed to build event: {}", err))
     }
 }

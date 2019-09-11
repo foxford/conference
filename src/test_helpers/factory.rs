@@ -7,7 +7,17 @@ use rand::Rng;
 use uuid::Uuid;
 
 use super::agent::TestAgent;
-use crate::db::{janus_backend, janus_rtc_stream, room, rtc};
+use crate::db::{agent, janus_backend, janus_rtc_stream, room, rtc};
+
+pub(crate) fn insert_agent(conn: &PgConnection, audience: &str) -> agent::Object {
+    let mut rng = rand::thread_rng();
+    let agent = TestAgent::new("web", &format!("user{}", rng.gen::<u16>()), audience);
+    let room = insert_room(conn, audience);
+
+    agent::InsertQuery::new(agent.agent_id(), room.id())
+        .execute(conn)
+        .expect("Failed to insert agent")
+}
 
 pub(crate) fn insert_janus_backend(conn: &PgConnection, audience: &str) -> janus_backend::Object {
     let mut rng = rand::thread_rng();
