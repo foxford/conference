@@ -6,7 +6,7 @@ use futures::{executor::ThreadPoolBuilder, task::SpawnExt, StreamExt};
 use log::{error, info, warn};
 use serde_derive::Deserialize;
 use svc_agent::mqtt::{
-    compat, Agent, AgentBuilder, ConnectionMode, Notification, QoS, SubscriptionTopic,
+    compat, AgentBuilder, ConnectionMode, Notification, Publishable, QoS, SubscriptionTopic,
 };
 use svc_agent::{AgentId, Authenticable, SharedGroup, Subscription};
 use svc_authn::{jose::Algorithm, token::jws_compact};
@@ -129,12 +129,11 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     let mut threadpool = ThreadPoolBuilder::new().create()?;
 
     while let Some(message) = mq_rx.next().await {
-        let tx = tx.clone();
+        let mut tx = tx.clone();
         let state = state.clone();
         let backend = backend.clone();
         let route = route.clone();
         threadpool.spawn(async move {
-            let mut tx = tx.clone();
             match message {
                 svc_agent::mqtt::Notification::Publish(message) => {
                     let topic: &str = &message.topic_name;
@@ -148,24 +147,29 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
                     let result = match topic {
                         val if val == &route.janus_status_subscription_topic => {
                             janus::handle_status(
-                                &mut tx,
                                 message.payload.clone(),
                                 backend.clone(),
                             ).await
                         }
                         val if val == &route.janus_responses_subscription_topic => {
                             janus::handle_response(
-                                &mut tx,
                                 message.payload.clone(),
                                 backend.clone(),
                             ).await
                         }
                         _ => handle_message(
-                            &mut tx,
                             message.payload.clone(),
                             state.clone(),
                         ).await,
                     };
+
+                    let result = result.and_then(|messages| {
+                        for message in messages.into_iter() {
+                            tx.publish(message)?;
+                        }
+
+                        Ok(())
+                    });
 
                     if let Err(err) = result {
                         error!(
@@ -186,10 +190,9 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
 }
 
 async fn handle_message(
-    tx: &mut Agent,
     payload: Arc<Vec<u8>>,
     state: Arc<State>,
-) -> Result<(), Error> {
+) -> Result<Vec<Box<dyn Publishable>>, Error> {
     use endpoint::{handle_badrequest, handle_badrequest_method, handle_event, handle_response};
 
     let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(payload.as_slice())?;
@@ -202,9 +205,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.agent.list(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "room.create" => {
@@ -212,9 +215,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.room.create(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "room.read" => {
@@ -222,9 +225,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.room.read(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "room.update" => {
@@ -232,9 +235,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.room.update(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "room.delete" => {
@@ -242,9 +245,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.room.delete(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "room.enter" => {
@@ -252,9 +255,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.room.enter(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "room.leave" => {
@@ -262,9 +265,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.room.leave(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "rtc.create" => {
@@ -272,9 +275,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.rtc.create(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "rtc.connect" => {
@@ -282,9 +285,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.rtc.connect(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "rtc.read" => {
@@ -292,9 +295,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.rtc.read(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "rtc.list" => {
@@ -302,9 +305,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.rtc.list(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "rtc_signal.create" => {
@@ -312,9 +315,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.rtc_signal.create(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "rtc_stream.list" => {
@@ -322,9 +325,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.rtc_stream.list(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "message.broadcast" => {
@@ -332,9 +335,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.message.broadcast(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 // TODO: message.create is deprecated and renamed to message.unicast.
@@ -343,9 +346,9 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.message.unicast(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
                 method @ "system.vacuum" => {
@@ -353,29 +356,22 @@ async fn handle_message(
                     match compat::into_request(envelope) {
                         Ok(req) => {
                             let next = state.system.vacuum(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
+                            handle_response(method, error_title, &reqp, next)
                         }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
+                        Err(err) => handle_badrequest(method, error_title, &reqp, &err),
                     }
                 }
-                method => handle_badrequest_method(method, tx, &reqp),
+                method => handle_badrequest_method(method, &reqp),
             }
         }
         compat::IncomingEnvelopeProperties::Response(_) => {
             let resp = compat::into_response(envelope)?;
-            let next = state.message.callback(resp).await?;
-
-            for message in next.into_iter() {
-                tx.publish(message)?;
-            }
-
-            Ok(())
+            state.message.callback(resp).await
         }
         compat::IncomingEnvelopeProperties::Event(ref evp) => match evp.label() {
             Some("subscription.create") => handle_event(
                 "subscription.create",
                 "Error handling subscription creation",
-                tx,
                 state
                     .subscription
                     .create(compat::into_event(envelope)?)
@@ -384,7 +380,6 @@ async fn handle_message(
             Some("subscription.delete") => handle_event(
                 "subscription.delete",
                 "Error handling subscription deletion",
-                tx,
                 state
                     .subscription
                     .delete(compat::into_event(envelope)?)
@@ -392,11 +387,11 @@ async fn handle_message(
             ),
             Some(label) => {
                 warn!("Unknown event {}", label);
-                Ok(())
+                Ok(vec![])
             }
             None => {
                 warn!("Missing `label` field in the event");
-                Ok(())
+                Ok(vec![])
             }
         },
     }
