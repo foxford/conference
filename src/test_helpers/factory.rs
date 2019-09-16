@@ -3,20 +3,72 @@ use std::ops::Bound;
 use chrono::Utc;
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
+use failure::{err_msg, format_err, Error};
 use rand::Rng;
+use svc_agent::AgentId;
 use uuid::Uuid;
 
 use super::agent::TestAgent;
 use crate::db::{agent, janus_backend, janus_rtc_stream, room, rtc};
 
-pub(crate) fn insert_agent(conn: &PgConnection, audience: &str) -> agent::Object {
-    let mut rng = rand::thread_rng();
-    let agent = TestAgent::new("web", &format!("user{}", rng.gen::<u16>()), audience);
-    let room = insert_room(conn, audience);
+pub struct Agent<'a> {
+    audience: Option<&'a str>,
+    agent_id: Option<&'a AgentId>,
+    room_id: Option<Uuid>,
+}
 
-    agent::InsertQuery::new(agent.agent_id(), room.id())
-        .execute(conn)
-        .expect("Failed to insert agent")
+impl<'a> Agent<'a> {
+    pub(crate) fn new() -> Self {
+        Self {
+            audience: None,
+            agent_id: None,
+            room_id: None,
+        }
+    }
+
+    pub(crate) fn audience(self, audience: &'a str) -> Self {
+        Self {
+            audience: Some(audience),
+            ..self
+        }
+    }
+
+    pub(crate) fn agent_id(self, agent_id: &'a AgentId) -> Self {
+        Self {
+            agent_id: Some(agent_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
+        Self {
+            room_id: Some(room_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn insert(&self, conn: &PgConnection) -> Result<agent::Object, Error> {
+        let agent_id = match (self.agent_id, self.audience) {
+            (Some(agent_id), _) => Ok(agent_id.to_owned()),
+            (None, Some(audience)) => {
+                let mut rng = rand::thread_rng();
+                let label = format!("user{}", rng.gen::<u16>());
+                let test_agent = TestAgent::new("web", &label, audience);
+                Ok(test_agent.agent_id().to_owned())
+            }
+            _ => Err(err_msg("Expected agent_id either audience")),
+        }?;
+
+        let room_id = match (self.room_id, self.audience) {
+            (Some(room_id), _) => Ok(room_id),
+            (None, Some(audience)) => Ok(insert_room(conn, audience).id()),
+            _ => Err(err_msg("Expected room_id either audience")),
+        }?;
+
+        agent::InsertQuery::new(&agent_id, room_id)
+            .execute(conn)
+            .map_err(|err| format_err!("Failed to insert agent: {}", err))
+    }
 }
 
 pub(crate) fn insert_janus_backend(conn: &PgConnection, audience: &str) -> janus_backend::Object {

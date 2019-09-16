@@ -41,18 +41,27 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct ListQuery {
+pub(crate) struct ListQuery<'a> {
+    agent_id: Option<&'a AgentId>,
     room_id: Option<Uuid>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
-impl ListQuery {
+impl<'a> ListQuery<'a> {
     pub(crate) fn new() -> Self {
         Self {
+            agent_id: None,
             room_id: None,
             offset: None,
             limit: None,
+        }
+    }
+
+    pub(crate) fn agent_id(self, agent_id: &'a AgentId) -> Self {
+        Self {
+            agent_id: Some(agent_id),
+            ..self
         }
     }
 
@@ -82,6 +91,10 @@ impl ListQuery {
 
         let mut q = agent::table.into_boxed();
 
+        if let Some(agent_id) = self.agent_id {
+            q = q.filter(agent::agent_id.eq(agent_id));
+        }
+
         if let Some(room_id) = self.room_id {
             q = q.filter(agent::room_id.eq(room_id));
         }
@@ -98,9 +111,10 @@ impl ListQuery {
     }
 }
 
-impl From<(Option<Uuid>, Option<i64>, Option<i64>)> for ListQuery {
+impl<'a> From<(Option<Uuid>, Option<i64>, Option<i64>)> for ListQuery<'a> {
     fn from(value: (Option<Uuid>, Option<i64>, Option<i64>)) -> Self {
         Self {
+            agent_id: None,
             room_id: value.0,
             offset: value.1,
             limit: value.2,
