@@ -1,7 +1,7 @@
 use diesel::pg::PgConnection;
 use failure::Error;
 use serde_derive::Deserialize;
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
 use svc_agent::mqtt::{
     IncomingRequest, IncomingRequestProperties, IncomingResponse, OutgoingEvent,
     OutgoingEventProperties, OutgoingRequest, OutgoingRequestProperties, OutgoingResponse,
@@ -57,11 +57,16 @@ impl State {
         let room = find_room(inreq.payload().room_id, &conn)?;
         check_room_presence(&room, &inreq.properties().as_agent_id(), &conn)?;
 
+        let resp = inreq.to_response(json!({}), ResponseStatus::OK);
+        let resp_box = Box::new(resp) as Box<dyn Publishable>;
+
         let payload = inreq.payload().data.to_owned();
         let props = OutgoingEventProperties::new("message.broadcast");
         let to_uri = format!("rooms/{}/events", inreq.payload().room_id);
         let event = OutgoingEvent::broadcast(payload, props, &to_uri);
-        Ok(vec![Box::new(event) as Box<dyn Publishable>])
+        let event_box = Box::new(event) as Box<dyn Publishable>;
+
+        Ok(vec![resp_box, event_box])
     }
 
     pub(crate) async fn unicast(
@@ -227,9 +232,15 @@ mod test {
 
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
             let mut result = state.broadcast(request).await.unwrap();
+
+            // Assert response.
             let message = result.remove(0);
+            assert_eq!(message.message_type(), "response");
 
             // Assert broadcast event.
+            let message = result.remove(0);
+            assert_eq!(message.message_type(), "event");
+
             match message.destination() {
                 Destination::Broadcast(destination) => {
                     assert_eq!(destination, &format!("rooms/{}/events", room.id()))

@@ -1,7 +1,9 @@
 use std::str::FromStr;
 
 use serde_derive::Deserialize;
-use svc_agent::mqtt::{IncomingEvent, IncomingEventProperties, Publishable, ResponseStatus};
+use svc_agent::mqtt::{
+    Connection, IncomingEvent, IncomingEventProperties, Publishable, ResponseStatus,
+};
 use svc_agent::AgentId;
 use svc_authn::Authenticable;
 use svc_error::Error as SvcError;
@@ -15,8 +17,8 @@ pub(crate) type CreateDeleteEvent = IncomingEvent<CreateDeleteEventData>;
 
 #[derive(Deserialize)]
 pub(crate) struct CreateDeleteEventData {
+    subject: Connection,
     object: Vec<String>,
-    subject: String,
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -41,9 +43,9 @@ impl State {
         &self,
         evt: CreateDeleteEvent,
     ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
-        self.check_sender_account_id(&evt.properties())?;
+        self.is_broker(&evt.properties())?;
 
-        let agent_id = parse_agent_id(&evt)?;
+        let agent_id = evt.payload().subject.agent_id();
         let room_id = parse_room_id(&evt)?;
 
         let conn = self.db.get()?;
@@ -59,7 +61,7 @@ impl State {
                     .build()
             })?;
 
-        agent::InsertQuery::new(&agent_id, room_id).execute(&conn)?;
+        agent::InsertQuery::new(agent_id, room_id).execute(&conn)?;
         Ok(vec![])
     }
 
@@ -67,13 +69,13 @@ impl State {
         &self,
         evt: CreateDeleteEvent,
     ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
-        self.check_sender_account_id(&evt.properties())?;
+        self.is_broker(&evt.properties())?;
 
-        let agent_id = parse_agent_id(&evt)?;
+        let agent_id = evt.payload().subject.agent_id();
         let room_id = parse_room_id(&evt)?;
 
         let conn = self.db.get()?;
-        let row_count = agent::DeleteQuery::new(&agent_id, room_id).execute(&conn)?;
+        let row_count = agent::DeleteQuery::new(agent_id, room_id).execute(&conn)?;
 
         if row_count == 1 {
             Ok(vec![])
@@ -90,7 +92,7 @@ impl State {
         }
     }
 
-    fn check_sender_account_id(&self, evp: &IncomingEventProperties) -> Result<(), SvcError> {
+    fn is_broker(&self, evp: &IncomingEventProperties) -> Result<(), SvcError> {
         // Authorization: sender's account id = broker id
         if evp.as_account_id() == &self.broker_account_id {
             Ok(())
@@ -105,20 +107,11 @@ impl State {
     }
 }
 
-fn parse_agent_id(evt: &CreateDeleteEvent) -> Result<AgentId, SvcError> {
-    AgentId::from_str(&evt.payload().subject).map_err(|err| {
-        SvcError::builder()
-            .status(ResponseStatus::BAD_REQUEST)
-            .detail(&format!("Failed to parse subject agent id: {}", err))
-            .build()
-    })
-}
-
 fn parse_room_id(evt: &CreateDeleteEvent) -> Result<Uuid, SvcError> {
     let object: Vec<&str> = evt.payload().object.iter().map(AsRef::as_ref).collect();
 
     let result = match object.as_slice() {
-        ["room", room_id, "events"] => {
+        ["rooms", room_id, "events"] => {
             Uuid::parse_str(room_id).map_err(|err| format!("UUID parse error: {}", err))
         }
         _ => Err(String::from(
@@ -139,6 +132,7 @@ mod test {
     use diesel::prelude::*;
     use failure::format_err;
     use serde_json::json;
+    use svc_agent::mqtt::Connection;
 
     use crate::db::agent::Object as Agent;
     use crate::schema::agent::dsl::*;
@@ -169,8 +163,8 @@ mod test {
             let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
 
             let payload = json!({
-                "object": vec!["room", &room.id().to_string(), "events"],
-                "subject": user_agent.agent_id().to_string(),
+                "object": vec!["rooms", &room.id().to_string(), "events"],
+                "subject": format!("v1/agents/{}", user_agent.agent_id()),
             });
 
             let broker_agent = TestAgent::new("alpha", "mqtt-gateway", AUDIENCE);
@@ -203,8 +197,8 @@ mod test {
             let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
 
             let payload = json!({
-                "object": vec!["room", &Uuid::new_v4().to_string(), "events"],
-                "subject": user_agent.agent_id().to_string(),
+                "object": vec!["rooms", &Uuid::new_v4().to_string(), "events"],
+                "subject": format!("v1/agents/{}", user_agent.agent_id()),
             });
 
             let broker_agent = TestAgent::new("web", "wrong_user", AUDIENCE);
@@ -232,8 +226,8 @@ mod test {
             let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
 
             let payload = json!({
-                "object": vec!["room", &Uuid::new_v4().to_string(), "events"],
-                "subject": user_agent.agent_id().to_string(),
+                "object": vec!["rooms", &Uuid::new_v4().to_string(), "events"],
+                "subject": format!("v1/agents/{}", user_agent.agent_id()),
             });
 
             let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
@@ -262,34 +256,7 @@ mod test {
 
             let payload = json!({
                 "object": vec!["wrong"],
-                "subject": user_agent.agent_id().to_string(),
-            });
-
-            let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
-
-            let event: CreateDeleteEvent = broker_agent
-                .build_event("subscription.create", &payload)
-                .unwrap();
-
-            let state = build_state(&db);
-
-            // Assert 400 error.
-            match state.create(event).await {
-                Ok(_) => panic!("Expected subscription.create to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::BAD_REQUEST),
-            }
-        });
-    }
-
-    #[test]
-    fn create_subscription_bad_subject() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-
-            // Send subscription.create event.
-            let payload = json!({
-                "object": vec!["room", &Uuid::new_v4().to_string(), "events"],
-                "subject": "wrong",
+                "subject": format!("v1/agents/{}", user_agent.agent_id()),
             });
 
             let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
@@ -325,8 +292,8 @@ mod test {
 
             // Send subscription.delete event.
             let payload = json!({
-                "object": vec!["room", &db_agent.room_id().to_string(), "events"],
-                "subject": db_agent.agent_id().to_string(),
+                "object": vec!["rooms", &db_agent.room_id().to_string(), "events"],
+                "subject": format!("v1/agents/{}", db_agent.agent_id()),
             });
 
             let broker_agent = TestAgent::new("alpha", "mqtt-gateway", AUDIENCE);
@@ -354,8 +321,8 @@ mod test {
             let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
 
             let payload = json!({
-                "object": vec!["room", &Uuid::new_v4().to_string(), "events"],
-                "subject": user_agent.agent_id().to_string(),
+                "object": vec!["rooms", &Uuid::new_v4().to_string(), "events"],
+                "subject": format!("v1/agents/{}", user_agent.agent_id()),
             });
 
             let broker_agent = TestAgent::new("web", "wrong_user", AUDIENCE);
@@ -383,8 +350,8 @@ mod test {
             let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
 
             let payload = json!({
-                "object": vec!["room", &Uuid::new_v4().to_string(), "events"],
-                "subject": user_agent.agent_id().to_string(),
+                "object": vec!["rooms", &Uuid::new_v4().to_string(), "events"],
+                "subject": format!("v1/agents/{}", user_agent.agent_id()),
             });
 
             let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
@@ -413,34 +380,7 @@ mod test {
 
             let payload = json!({
                 "object": vec!["wrong"],
-                "subject": user_agent.agent_id().to_string(),
-            });
-
-            let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
-
-            let event: CreateDeleteEvent = broker_agent
-                .build_event("subscription.create", &payload)
-                .unwrap();
-
-            let state = build_state(&db);
-
-            // Assert 400 error.
-            match state.delete(event).await {
-                Ok(_) => panic!("Expected subscription.delete to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::BAD_REQUEST),
-            }
-        });
-    }
-
-    #[test]
-    fn delete_subscription_bad_subject() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-
-            // Send subscription.create event.
-            let payload = json!({
-                "object": vec!["room", &Uuid::new_v4().to_string(), "events"],
-                "subject": "wrong",
+                "subject": format!("v1/agents/{}", user_agent.agent_id()),
             });
 
             let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
