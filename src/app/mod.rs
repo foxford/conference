@@ -3,7 +3,7 @@ use std::thread;
 
 use failure::Error;
 use futures::{executor::ThreadPoolBuilder, task::SpawnExt, StreamExt};
-use log::{error, info};
+use log::{error, info, warn};
 use serde_derive::Deserialize;
 use svc_agent::mqtt::{
     compat, Agent, AgentBuilder, ConnectionMode, Notification, QoS, SubscriptionTopic,
@@ -372,7 +372,7 @@ async fn handle_message(
             Ok(())
         }
         compat::IncomingEnvelopeProperties::Event(ref evp) => match evp.label() {
-            "subscription.create" => handle_event(
+            Some("subscription.create") => handle_event(
                 "subscription.create",
                 "Error handling subscription creation",
                 tx,
@@ -381,7 +381,7 @@ async fn handle_message(
                     .create(compat::into_event(envelope)?)
                     .await,
             ),
-            "subscription.delete" => handle_event(
+            Some("subscription.delete") => handle_event(
                 "subscription.delete",
                 "Error handling subscription deletion",
                 tx,
@@ -390,7 +390,14 @@ async fn handle_message(
                     .delete(compat::into_event(envelope)?)
                     .await,
             ),
-            _ => Ok(()),
+            Some(label) => {
+                warn!("Unknown event {}", label);
+                Ok(())
+            }
+            None => {
+                warn!("Missing `label` field in the event");
+                Ok(())
+            }
         },
     }
 }
