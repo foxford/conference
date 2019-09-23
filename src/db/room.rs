@@ -14,8 +14,25 @@ use crate::schema::{room, rtc};
 
 pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
-pub(crate) fn upto_now() -> Time {
-    (Bound::Unbounded, Bound::Excluded(Utc::now()))
+/// Use to filter by not expired room allowing time before room opening.
+///
+///    [-----room.time-----]
+/// [---------------------------- OK
+///              [--------------- OK
+///                           [-- NOT OK
+pub(crate) fn since_now() -> Time {
+    (Bound::Included(Utc::now()), Bound::Unbounded)
+}
+
+/// Use to filter strictly by room time range.
+///
+///    [-----room.time-----]
+///  |                            NOT OK
+///              |                OK
+///                          |    NOT OK
+pub(crate) fn now() -> Time {
+    let now = Utc::now();
+    (Bound::Included(now), Bound::Included(now))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -174,13 +191,8 @@ impl ListQuery {
 
         let mut q = room::table.into_boxed();
 
-        if let Some(finished) = self.finished {
-            let predicate = if finished {
-                sql("upper(\"room\".\"time\") < now()")
-            } else {
-                sql("\"room\".\"time\" @> now()")
-            };
-            q = q.filter(predicate);
+        if let Some(true) = self.finished {
+            q = q.filter(sql("upper(\"room\".\"time\") < now()"));
         }
 
         q.load(conn)
