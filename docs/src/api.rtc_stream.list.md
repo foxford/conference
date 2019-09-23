@@ -29,7 +29,7 @@ correlation_data | string | _required_ | The same value will be in a response.
 
 Name       | Type       | Default    | Description
 ---------- | ---------- | ---------- | ------------------
-room_id    | string     | _required_ | Returns only objects that belong to the room.
+room_id    | string     | _required_ | Returns only objects that belong to the room. The room must be opened.
 rtc_id     | string     | _optional_ | Returns only objects that belong to the rtc.
 time       | [int, int] | _optional_ | Returns only objects that time overlaps with [lt, rt) range of unix time (seconds) or null (unbounded).
 offset     | int        | _optional_ | Returns objects starting from the specified index.

@@ -28,7 +28,7 @@ correlation_data | string | _required_ | The same value will be in a response.
 
 Name       | Type   | Default    | Description
 ---------- | ------ | ---------- | ------------------
-room_id    | string | _required_ | Returns only objects that belong to the room.
+room_id    | string | _required_ | Returns only objects that belong to the room. The room must be opened.
 offset     | int    | _optional_ | Returns only objects starting from the specified index.
 limit      | int    |         25 | Limits the number of objects in the response.
 

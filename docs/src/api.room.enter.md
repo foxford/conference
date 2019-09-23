@@ -28,7 +28,7 @@ correlation_data | string | _required_ | The same value will be in a response.
 
 Name     | Type       | Default    | Description
 -------- | ---------- | ---------- | ------------------
-id       | uuid       | _required_ | The room identifier.
+id       | uuid       | _required_ | The room identifier. The room must be opened.
 
 **Response**
 

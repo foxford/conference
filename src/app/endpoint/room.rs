@@ -131,7 +131,6 @@ impl State {
         let object = {
             let conn = self.db.get()?;
             room::FindQuery::new()
-                .time(room::upto_now())
                 .id(inreq.payload().id)
                 .execute(&conn)?
                 .ok_or_else(|| {
@@ -163,7 +162,7 @@ impl State {
         let object = {
             let conn = self.db.get()?;
             room::FindQuery::new()
-                .time(room::upto_now())
+                .time(room::since_now())
                 .id(inreq.payload().id())
                 .execute(&conn)?
                 .ok_or_else(|| {
@@ -200,7 +199,7 @@ impl State {
         let object = {
             let conn = self.db.get()?;
             room::FindQuery::new()
-                .time(room::upto_now())
+                .time(room::since_now())
                 .id(inreq.payload().id)
                 .execute(&conn)?
                 .ok_or_else(|| {
@@ -237,7 +236,7 @@ impl State {
         let object = {
             let conn = self.db.get()?;
             room::FindQuery::new()
-                .time(room::upto_now())
+                .time(room::now())
                 .id(inreq.payload().id)
                 .execute(&conn)?
                 .ok_or_else(|| {
@@ -281,7 +280,7 @@ impl State {
         let _object = {
             let conn = self.db.get()?;
             room::FindQuery::new()
-                .time(room::upto_now())
+                .time(room::since_now())
                 .id(inreq.payload().id)
                 .execute(&conn)?
                 .ok_or_else(|| {

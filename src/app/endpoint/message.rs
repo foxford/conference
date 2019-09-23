@@ -120,7 +120,7 @@ impl State {
 
 fn find_room(id: Uuid, conn: &PgConnection) -> Result<room::Object, SvcError> {
     room::FindQuery::new()
-        .time(room::upto_now())
+        .time(room::now())
         .id(id)
         .execute(&conn)?
         .ok_or_else(|| {

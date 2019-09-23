@@ -28,7 +28,7 @@ correlation_data | string | _required_ | The same value will be in a response.
 
 Name              | Type   | Default    | Description
 ----------------- | ------ | ---------- | ------------------
-room_id           | uuid   | _required_ | A destination room identifier.
+room_id           | uuid   | _required_ | A destination room identifier. The room must be opened.
 agent_id          | string | _required_ | A destination agent identifier.
 data              | object | _required_ | JSON object.
 
