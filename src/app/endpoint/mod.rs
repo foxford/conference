@@ -1,76 +1,103 @@
+use core::future::Future;
 use failure::{format_err, Error};
-use svc_agent::mqtt::{IncomingRequestProperties, OutgoingResponse, Publishable, ResponseStatus};
-use svc_error::{extension::sentry, ProblemDetails};
+use svc_agent::mqtt::{
+    compat, IncomingEventProperties, IncomingMessage, IncomingRequestProperties, OutgoingResponse,
+    Publishable, ResponseStatus,
+};
+use svc_error::{extension::sentry, Error as SvcError, ProblemDetails};
 
-pub(crate) fn handle_response(
+pub(crate) async fn handle_request<H, S, P, R>(
     kind: &str,
     title: &str,
     props: &IncomingRequestProperties,
-    result: Result<Vec<Box<dyn Publishable>>, impl ProblemDetails + Send + Clone + 'static>,
-) -> Result<Vec<Box<dyn Publishable>>, Error> {
-    result.or_else(|mut err| {
-        // Wrapping the error
-        err.set_kind(kind, title);
-        let status = err.status_code();
+    handler: H,
+    state: S,
+    envelope: compat::IncomingEnvelope,
+) -> Result<Vec<Box<dyn Publishable>>, Error>
+where
+    H: Fn(S, IncomingMessage<P, IncomingRequestProperties>) -> R,
+    P: serde::de::DeserializeOwned,
+    R: Future<Output = Result<Vec<Box<dyn Publishable>>, SvcError>>,
+{
+    match compat::into_request::<P>(envelope) {
+        Ok(request) => handler(state, request)
+            .await
+            .or_else(|err| handle_error(kind, title, props, err)),
+        Err(err) => {
+            let status = ResponseStatus::BAD_REQUEST;
 
-        if status == ResponseStatus::UNPROCESSABLE_ENTITY
-            || status == ResponseStatus::FAILED_DEPENDENCY
-            || status >= ResponseStatus::INTERNAL_SERVER_ERROR
-        {
-            sentry::send(err.clone())
-                .map_err(|err| format_err!("Error sending error to Sentry: {}", err))?;
+            let err = svc_error::Error::builder()
+                .kind(kind, title)
+                .status(status)
+                .detail(&err.to_string())
+                .build();
+
+            let resp = OutgoingResponse::unicast(err, props.to_response(status), props);
+            Ok(vec![Box::new(resp) as Box<dyn Publishable>])
         }
-
-        // Publishing error response
-        let resp = OutgoingResponse::unicast(err, props.to_response(status), props);
-        Ok(vec![Box::new(resp) as Box<dyn Publishable>])
-    })
+    }
 }
 
-pub(crate) fn handle_badrequest(
+pub(crate) fn handle_error(
     kind: &str,
     title: &str,
     props: &IncomingRequestProperties,
-    err: &svc_agent::Error,
+    mut err: impl ProblemDetails + Send + Clone + 'static,
 ) -> Result<Vec<Box<dyn Publishable>>, Error> {
-    let status = ResponseStatus::BAD_REQUEST;
-    let err = svc_error::Error::builder()
-        .kind(kind, title)
-        .status(status)
-        .detail(&err.to_string())
-        .build();
+    err.set_kind(kind, title);
+    let status = err.status_code();
 
-    // Publishing error response
+    if status == ResponseStatus::UNPROCESSABLE_ENTITY
+        || status == ResponseStatus::FAILED_DEPENDENCY
+        || status >= ResponseStatus::INTERNAL_SERVER_ERROR
+    {
+        sentry::send(err.clone())
+            .map_err(|err| format_err!("Error sending error to Sentry: {}", err))?;
+    }
+
     let resp = OutgoingResponse::unicast(err, props.to_response(status), props);
     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
 }
 
-pub(crate) fn handle_event(
-    kind: &str,
-    title: &str,
-    result: Result<Vec<Box<dyn Publishable>>, impl ProblemDetails + Send + Clone + 'static>,
-) -> Result<Vec<Box<dyn Publishable>>, Error> {
-    result.or_else(|mut err| {
-        err.set_kind(kind, title);
-        sentry::send(err).map_err(|err| format_err!("Error sending error to Sentry: {}", err));
-        Ok(vec![])
-    })
-}
-
-pub(crate) fn handle_badrequest_method(
+pub(crate) fn handle_unknown_method(
     method: &str,
     props: &IncomingRequestProperties,
 ) -> Result<Vec<Box<dyn Publishable>>, Error> {
     let status = ResponseStatus::BAD_REQUEST;
+
     let err = svc_error::Error::builder()
         .kind("general", "General API error")
         .status(status)
         .detail(&format!("invalid request method = '{}'", method))
         .build();
 
-    // Publishing error response
     let resp = OutgoingResponse::unicast(err, props.to_response(status), props);
     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
+}
+
+pub(crate) async fn handle_event<H, S, P, R>(
+    kind: &str,
+    title: &str,
+    handler: H,
+    state: S,
+    envelope: compat::IncomingEnvelope,
+) -> Result<Vec<Box<dyn Publishable>>, Error>
+where
+    H: Fn(S, IncomingMessage<P, IncomingEventProperties>) -> R,
+    P: serde::de::DeserializeOwned,
+    R: Future<Output = Result<Vec<Box<dyn Publishable>>, SvcError>>,
+{
+    match compat::into_event::<P>(envelope) {
+        Ok(event) => handler(state, event).await.or_else(|mut err| {
+            err.set_kind(kind, title);
+
+            sentry::send(err)
+                .map_err(|err| format_err!("Error sending error to Sentry: {}", err))?;
+
+            Ok(vec![])
+        }),
+        Err(err) => Err(err.into()),
+    }
 }
 
 pub(crate) mod agent;

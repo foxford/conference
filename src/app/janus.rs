@@ -349,7 +349,7 @@ pub(crate) async fn handle_response(
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
 ) -> Result<Vec<Box<dyn Publishable>>, Error> {
-    use endpoint::handle_response;
+    use endpoint::handle_error;
 
     let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
     let message = into_event::<IncomingMessage>(envelope)?;
@@ -481,12 +481,14 @@ pub(crate) async fn handle_response(
                             Ok(vec![Box::new(resp) as Box<dyn Publishable>])
                         });
 
-                    handle_response(
-                        "error:janus_stream.create",
-                        "Error creating a Janus Conference Stream",
-                        &tn.reqp,
-                        next,
-                    )
+                    next.or_else(|err| {
+                        handle_error(
+                            "error:janus_stream.create",
+                            "Error creating a Janus Conference Stream",
+                            &tn.reqp,
+                            err,
+                        )
+                    })
                 }
                 // Conference Stream has been read (an answer received)
                 Transaction::ReadStream(ref tn) => {
@@ -539,12 +541,14 @@ pub(crate) async fn handle_response(
                             Ok(vec![Box::new(resp) as Box<dyn Publishable>])
                         });
 
-                    handle_response(
-                        "error:janus_stream.read",
-                        "Error reading a Janus Conference Stream",
-                        &tn.reqp,
-                        next,
-                    )
+                    next.or_else(|err| {
+                        handle_error(
+                            "error:janus_stream.read",
+                            "Error reading a Janus Conference Stream",
+                            &tn.reqp,
+                            err,
+                        )
+                    })
                 }
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
                 Transaction::UploadStream(ref tn) => {
