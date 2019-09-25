@@ -1,8 +1,9 @@
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, Publishable, ResponseStatus};
+use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, ResponseStatus};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
+use crate::app::endpoint;
 use crate::db::{janus_backend, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -68,10 +69,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(
-        &self,
-        inreq: CreateRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn create(&self, inreq: CreateRequest) -> endpoint::Result {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -103,14 +101,10 @@ impl State {
             rtc::InsertQuery::new(room_id).execute(&conn)?
         };
 
-        let message = inreq.to_response(object, ResponseStatus::OK);
-        Ok(vec![Box::new(message) as Box<dyn Publishable>])
+        inreq.to_response(object, ResponseStatus::OK).into()
     }
 
-    pub(crate) async fn connect(
-        &self,
-        inreq: ConnectRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn connect(&self, inreq: ConnectRequest) -> endpoint::Result {
         let id = inreq.payload().id;
 
         // Authorization
@@ -128,13 +122,14 @@ impl State {
                 })?;
 
             if room.backend() != &room::RoomBackend::Janus {
-                return Err(SvcError::builder()
+                return SvcError::builder()
                     .status(ResponseStatus::NOT_IMPLEMENTED)
                     .detail(&format!(
                         "'rtc.connect' is not implemented for the backend = '{}'.",
                         room.backend()
                     ))
-                    .build());
+                    .build()
+                    .into();
             }
 
             let rtc_id = id.to_string();
@@ -161,7 +156,7 @@ impl State {
         })?;
 
         // Building a Create Janus Gateway Handle request
-        let backreq = crate::app::janus::create_rtc_handle_request(
+        crate::app::janus::create_rtc_handle_request(
             inreq.properties().clone(),
             Uuid::new_v4(),
             id,
@@ -173,15 +168,11 @@ impl State {
                 .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                 .detail("error creating a backend request")
                 .build()
-        })?;
-
-        Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
+        })?
+        .into()
     }
 
-    pub(crate) async fn read(
-        &self,
-        inreq: ReadRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn read(&self, inreq: ReadRequest) -> endpoint::Result {
         let id = inreq.payload().id;
 
         // Authorization
@@ -222,14 +213,10 @@ impl State {
                 })?
         };
 
-        let message = inreq.to_response(object, ResponseStatus::OK);
-        Ok(vec![Box::new(message) as Box<dyn Publishable>])
+        inreq.to_response(object, ResponseStatus::OK).into()
     }
 
-    pub(crate) async fn list(
-        &self,
-        inreq: ListRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn list(&self, inreq: ListRequest) -> endpoint::Result {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -269,13 +256,14 @@ impl State {
             .execute(&conn)?
         };
 
-        let message = inreq.to_response(objects, ResponseStatus::OK);
-        Ok(vec![Box::new(message) as Box<dyn Publishable>])
+        inreq.to_response(objects, ResponseStatus::OK).into()
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::ops::Try;
+
     use diesel::prelude::*;
     use serde_json::{json, Value as JsonValue};
 
@@ -321,7 +309,7 @@ mod test {
             let payload = json!({"room_id": room.id()});
 
             let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
-            let mut result = state.create(request).await.unwrap();
+            let mut result = state.create(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert response.
@@ -352,7 +340,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({"id": rtc.id()});
             let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
-            let mut result = state.read(request).await.unwrap();
+            let mut result = state.read(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert response.
@@ -382,7 +370,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({"room_id": rtc.room_id()});
             let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
-            let mut result = state.list(request).await.unwrap();
+            let mut result = state.list(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert response.
@@ -437,7 +425,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({"id": rtc.id()});
             let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
-            let mut result = state.connect(request).await.unwrap();
+            let mut result = state.connect(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert outgoing request to Janus.

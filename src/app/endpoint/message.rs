@@ -11,6 +11,7 @@ use svc_agent::{Addressable, AgentId, Subscription};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
+use crate::app::endpoint;
 use crate::db::{agent, room, ConnectionPool};
 use crate::util::{from_base64, to_base64};
 
@@ -49,10 +50,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn broadcast(
-        &self,
-        inreq: BroadcastRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn broadcast(&self, inreq: BroadcastRequest) -> endpoint::Result {
         let conn = self.db.get()?;
         let room = find_room(inreq.payload().room_id, &conn)?;
         check_room_presence(&room, &inreq.properties().as_agent_id(), &conn)?;
@@ -66,13 +64,10 @@ impl State {
         let event = OutgoingEvent::broadcast(payload, props, &to_uri);
         let event_box = Box::new(event) as Box<dyn Publishable>;
 
-        Ok(vec![resp_box, event_box])
+        vec![resp_box, event_box].into()
     }
 
-    pub(crate) async fn unicast(
-        &self,
-        inreq: UnicastRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn unicast(&self, inreq: UnicastRequest) -> endpoint::Result {
         let to = &inreq.payload().agent_id;
         let payload = &inreq.payload().data;
 
@@ -98,8 +93,7 @@ impl State {
             &correlation_data,
         );
 
-        let message = OutgoingRequest::unicast(payload.to_owned(), props, to);
-        Ok(vec![Box::new(message) as Box<dyn Publishable>])
+        OutgoingRequest::unicast(payload.to_owned(), props, to).into()
     }
 
     pub(crate) async fn callback(
@@ -159,6 +153,8 @@ fn check_room_presence(
 
 #[cfg(test)]
 mod test {
+    use std::ops::Try;
+
     use failure::format_err;
     use serde_json::{json, Value as JsonValue};
     use svc_agent::{mqtt::ResponseStatus, Destination};
@@ -189,7 +185,7 @@ mod test {
                 sender.build_request("message.unicast", &payload).unwrap();
 
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
-            let mut result = state.unicast(request).await.unwrap();
+            let mut result = state.unicast(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             match message.destination() {
@@ -231,7 +227,7 @@ mod test {
                 sender.build_request("message.broadcast", &payload).unwrap();
 
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
-            let mut result = state.broadcast(request).await.unwrap();
+            let mut result = state.broadcast(request).await.into_result().unwrap();
 
             // Assert response.
             let message = result.remove(0);
@@ -271,7 +267,7 @@ mod test {
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
 
             // Assert 404 response.
-            match state.broadcast(request).await {
+            match state.broadcast(request).await.into_result() {
                 Ok(_) => panic!("Expected message.broadcast to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
             }
@@ -304,7 +300,7 @@ mod test {
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
 
             // Assert 404 response.
-            match state.broadcast(request).await {
+            match state.broadcast(request).await.into_result() {
                 Ok(_) => panic!("Expected message.broadcast to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
             }

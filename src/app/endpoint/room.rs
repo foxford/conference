@@ -2,12 +2,12 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use std::ops::Bound;
 use svc_agent::mqtt::{
-    Connection, IncomingRequest, OutgoingRequest, OutgoingRequestProperties, Publishable,
-    ResponseStatus,
+    Connection, IncomingRequest, OutgoingRequest, OutgoingRequestProperties, ResponseStatus,
 };
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
+use crate::app::endpoint;
 use crate::db::{room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -95,10 +95,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(
-        &self,
-        inreq: CreateRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn create(&self, inreq: CreateRequest) -> endpoint::Result {
         // Authorization: future room's owner has to allow the action
         self.authz.authorize(
             &inreq.payload().audience,
@@ -118,14 +115,10 @@ impl State {
             .execute(&conn)?
         };
 
-        let message = inreq.to_response(object, ResponseStatus::OK);
-        Ok(vec![Box::new(message) as Box<dyn Publishable>])
+        inreq.to_response(object, ResponseStatus::OK).into()
     }
 
-    pub(crate) async fn read(
-        &self,
-        inreq: ReadRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn read(&self, inreq: ReadRequest) -> endpoint::Result {
         let room_id = inreq.payload().id.to_string();
 
         let object = {
@@ -149,14 +142,10 @@ impl State {
             "read",
         )?;
 
-        let message = inreq.to_response(object, ResponseStatus::OK);
-        Ok(vec![Box::new(message) as Box<dyn Publishable>])
+        inreq.to_response(object, ResponseStatus::OK).into()
     }
 
-    pub(crate) async fn update(
-        &self,
-        inreq: UpdateRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn update(&self, inreq: UpdateRequest) -> endpoint::Result {
         let room_id = inreq.payload().id().to_string();
 
         let object = {
@@ -186,14 +175,10 @@ impl State {
             inreq.payload().execute(&conn)?
         };
 
-        let message = inreq.to_response(object, ResponseStatus::OK);
-        Ok(vec![Box::new(message) as Box<dyn Publishable>])
+        inreq.to_response(object, ResponseStatus::OK).into()
     }
 
-    pub(crate) async fn delete(
-        &self,
-        inreq: DeleteRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn delete(&self, inreq: DeleteRequest) -> endpoint::Result {
         let room_id = inreq.payload().id.to_string();
 
         let object = {
@@ -218,19 +203,15 @@ impl State {
             "delete",
         )?;
 
-        let _ = {
+        {
             let conn = self.db.get()?;
             room::DeleteQuery::new(inreq.payload().id).execute(&conn)?
         };
 
-        let message = inreq.to_response(object, ResponseStatus::OK);
-        Ok(vec![Box::new(message) as Box<dyn Publishable>])
+        inreq.to_response(object, ResponseStatus::OK).into()
     }
 
-    pub(crate) async fn enter(
-        &self,
-        inreq: EnterRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn enter(&self, inreq: EnterRequest) -> endpoint::Result {
         let room_id = inreq.payload().id.to_string();
 
         let object = {
@@ -255,26 +236,21 @@ impl State {
             "subscribe",
         )?;
 
-        let brokerreq = {
-            let payload = SubscriptionRequest::new(
-                inreq.properties().to_connection(),
-                vec!["rooms", &room_id, "events"],
-            );
-            let props = OutgoingRequestProperties::new(
-                "subscription.create",
-                inreq.properties().response_topic(),
-                inreq.properties().correlation_data(),
-            );
-            OutgoingRequest::multicast(payload, props, &self.broker_account_id)
-        };
+        let payload = SubscriptionRequest::new(
+            inreq.properties().to_connection(),
+            vec!["rooms", &room_id, "events"],
+        );
 
-        Ok(vec![Box::new(brokerreq) as Box<dyn Publishable>])
+        let props = OutgoingRequestProperties::new(
+            "subscription.create",
+            inreq.properties().response_topic(),
+            inreq.properties().correlation_data(),
+        );
+
+        OutgoingRequest::multicast(payload, props, &self.broker_account_id).into()
     }
 
-    pub(crate) async fn leave(
-        &self,
-        inreq: LeaveRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn leave(&self, inreq: LeaveRequest) -> endpoint::Result {
         let room_id = inreq.payload().id.to_string();
 
         let _object = {
@@ -291,26 +267,24 @@ impl State {
                 })?
         };
 
-        let brokerreq = {
-            let payload = SubscriptionRequest::new(
-                inreq.properties().to_connection(),
-                vec!["rooms", &room_id, "events"],
-            );
-            let props = OutgoingRequestProperties::new(
-                "subscription.delete",
-                inreq.properties().response_topic(),
-                inreq.properties().correlation_data(),
-            );
-            OutgoingRequest::multicast(payload, props, &self.broker_account_id)
-        };
+        let payload = SubscriptionRequest::new(
+            inreq.properties().to_connection(),
+            vec!["rooms", &room_id, "events"],
+        );
 
-        Ok(vec![Box::new(brokerreq) as Box<dyn Publishable>])
+        let props = OutgoingRequestProperties::new(
+            "subscription.delete",
+            inreq.properties().response_topic(),
+            inreq.properties().correlation_data(),
+        );
+
+        OutgoingRequest::multicast(payload, props, &self.broker_account_id).into()
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::ops::Bound;
+    use std::ops::{Bound, Try};
 
     use chrono::Utc;
     use diesel::prelude::*;
@@ -357,7 +331,7 @@ mod test {
             });
 
             let request: CreateRequest = agent.build_request("room.create", &payload).unwrap();
-            let mut result = state.create(request).await.unwrap();
+            let mut result = state.create(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert response.
@@ -391,7 +365,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({"id": room.id()});
             let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
-            let mut result = state.read(request).await.unwrap();
+            let mut result = state.read(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert response.
@@ -440,7 +414,7 @@ mod test {
             });
 
             let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
-            let mut result = state.update(request).await.unwrap();
+            let mut result = state.update(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert response.
@@ -476,7 +450,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({"id": room.id()});
             let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
-            state.delete(request).await.unwrap();
+            state.delete(request).await.into_result().unwrap();
 
             // Assert room abscence in the DB.
             let conn = db.connection_pool().get().unwrap();
@@ -508,7 +482,7 @@ mod test {
             let state = build_state(&db);
             let payload = json!({"id": room.id()});
             let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
-            let mut result = state.enter(request).await.unwrap();
+            let mut result = state.enter(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert outgoing broker request.
@@ -547,7 +521,7 @@ mod test {
             let state = build_state(&db);
             let payload = json!({"id": room.id()});
             let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
-            let mut result = state.leave(request).await.unwrap();
+            let mut result = state.leave(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert outgoing broker request.
