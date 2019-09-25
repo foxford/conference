@@ -10,6 +10,7 @@ use svc_authn::AccountId;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
+use crate::app::endpoint;
 use crate::db::{janus_backend, recording, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -60,10 +61,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn vacuum(
-        &self,
-        inreq: VacuumRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn vacuum(&self, inreq: VacuumRequest) -> endpoint::Result {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         self.authz.authorize(
             self.me.audience(),
@@ -109,7 +107,7 @@ impl State {
             }
         }
 
-        Ok(requests)
+        requests.into()
     }
 }
 
@@ -165,6 +163,8 @@ fn record_name(rtc: &rtc::Object) -> String {
 
 #[cfg(test)]
 mod test {
+    use std::ops::Try;
+
     use chrono::{Duration, Utc};
     use serde_json::json;
 
@@ -239,7 +239,7 @@ mod test {
             let agent = TestAgent::new("alpha", "cron", AUDIENCE);
             let payload = json!({});
             let request: VacuumRequest = agent.build_request("system.vacuum", &payload).unwrap();
-            let result = state.vacuum(request).await.unwrap();
+            let result = state.vacuum(request).await.into_result().unwrap();
             assert_eq!(result.len(), 2);
 
             // Assert outgoing Janus stream.upload requests.

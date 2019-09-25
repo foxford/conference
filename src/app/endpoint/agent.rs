@@ -1,8 +1,9 @@
 use serde_derive::Deserialize;
-use svc_agent::mqtt::{IncomingRequest, Publishable, ResponseStatus};
+use svc_agent::mqtt::{IncomingRequest, ResponseStatus};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
+use crate::app::endpoint;
 use crate::db::{agent, room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -32,10 +33,7 @@ impl State {
         Self { authz, db }
     }
 
-    pub(crate) async fn list(
-        &self,
-        inreq: ListRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn list(&self, inreq: ListRequest) -> endpoint::Result {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -75,13 +73,14 @@ impl State {
             .execute(&conn)?
         };
 
-        let message = inreq.to_response(objects, ResponseStatus::OK);
-        Ok(vec![Box::new(message) as Box<dyn Publishable>])
+        inreq.to_response(objects, ResponseStatus::OK).into()
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::ops::Try;
+
     use failure::format_err;
     use serde_json::json;
     use svc_agent::AgentId;
@@ -127,7 +126,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({"room_id": online_agent.room_id()});
             let request: ListRequest = agent.build_request("agent.list", &payload).unwrap();
-            let mut result = state.list(request).await.unwrap();
+            let mut result = state.list(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert response.

@@ -1,10 +1,9 @@
 use serde_derive::Deserialize;
-use svc_agent::mqtt::{
-    IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publishable, ResponseStatus,
-};
+use svc_agent::mqtt::{IncomingRequest, OutgoingEvent, OutgoingEventProperties, ResponseStatus};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
+use crate::app::endpoint;
 use crate::db::{janus_rtc_stream, janus_rtc_stream::Time, room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -40,10 +39,7 @@ impl State {
         Self { authz, db }
     }
 
-    pub(crate) async fn list(
-        &self,
-        inreq: ListRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn list(&self, inreq: ListRequest) -> endpoint::Result {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
@@ -67,7 +63,7 @@ impl State {
                         "'rtc_stream.list' is not implemented for the backend = '{}'.",
                         room.backend()
                     ))
-                    .build());
+                    .build())?;
             }
 
             let room_id = room.id().to_string();
@@ -94,8 +90,7 @@ impl State {
             .execute(&conn)?
         };
 
-        let message = inreq.to_response(objects, ResponseStatus::OK);
-        Ok(vec![Box::new(message) as Box<dyn Publishable>])
+        inreq.to_response(objects, ResponseStatus::OK).into()
     }
 }
 
@@ -112,7 +107,7 @@ pub(crate) fn update_event(room_id: Uuid, object: janus_rtc_stream::Object) -> O
 
 #[cfg(test)]
 mod test {
-    use std::ops::Bound;
+    use std::ops::{Bound, Try};
 
     use diesel::prelude::*;
     use serde_json::json;
@@ -170,7 +165,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({"room_id": rtc.room_id(), "rtc_id": rtc.id()});
             let request: ListRequest = agent.build_request("rtc_stream.list", &payload).unwrap();
-            let mut result = state.list(request).await.unwrap();
+            let mut result = state.list(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert response.

@@ -6,7 +6,7 @@ use futures::{executor::ThreadPoolBuilder, task::SpawnExt, StreamExt};
 use log::{error, info, warn};
 use serde_derive::Deserialize;
 use svc_agent::mqtt::{
-    compat, Agent, AgentBuilder, ConnectionMode, Notification, QoS, SubscriptionTopic,
+    compat, AgentBuilder, ConnectionMode, Notification, Publishable, QoS, SubscriptionTopic,
 };
 use svc_agent::{AgentId, Authenticable, SharedGroup, Subscription};
 use svc_authn::{jose::Algorithm, token::jws_compact};
@@ -129,12 +129,11 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     let mut threadpool = ThreadPoolBuilder::new().create()?;
 
     while let Some(message) = mq_rx.next().await {
-        let tx = tx.clone();
+        let mut tx = tx.clone();
         let state = state.clone();
         let backend = backend.clone();
         let route = route.clone();
         threadpool.spawn(async move {
-            let mut tx = tx.clone();
             match message {
                 svc_agent::mqtt::Notification::Publish(message) => {
                     let topic: &str = &message.topic_name;
@@ -148,24 +147,29 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
                     let result = match topic {
                         val if val == &route.janus_status_subscription_topic => {
                             janus::handle_status(
-                                &mut tx,
                                 message.payload.clone(),
                                 backend.clone(),
                             ).await
                         }
                         val if val == &route.janus_responses_subscription_topic => {
                             janus::handle_response(
-                                &mut tx,
                                 message.payload.clone(),
                                 backend.clone(),
                             ).await
                         }
                         _ => handle_message(
-                            &mut tx,
                             message.payload.clone(),
                             state.clone(),
                         ).await,
                     };
+
+                    let result = result.and_then(|messages| {
+                        for message in messages.into_iter() {
+                            tx.publish(message)?;
+                        }
+
+                        Ok(())
+                    });
 
                     if let Err(err) = result {
                         error!(
@@ -186,217 +190,228 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
 }
 
 async fn handle_message(
-    tx: &mut Agent,
     payload: Arc<Vec<u8>>,
     state: Arc<State>,
-) -> Result<(), Error> {
-    use endpoint::{handle_badrequest, handle_badrequest_method, handle_event, handle_response};
+) -> Result<Vec<Box<dyn Publishable>>, Error> {
+    use endpoint::{handle_event, handle_request, handle_unknown_method};
 
     let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(payload.as_slice())?;
     match envelope.properties() {
         compat::IncomingEnvelopeProperties::Request(ref reqp) => {
             let reqp = reqp.clone();
             match reqp.method() {
-                method @ "agent.list" => {
-                    let error_title = "Error listing agents";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.agent.list(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "agent.list" => {
+                    handle_request(
+                        "agent.list",
+                        "Error listing agents",
+                        &reqp,
+                        endpoint::agent::State::list,
+                        &state.agent,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "room.create" => {
-                    let error_title = "Error creating a room";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.room.create(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "room.create" => {
+                    handle_request(
+                        "room.create",
+                        "Error creating a room",
+                        &reqp,
+                        endpoint::room::State::create,
+                        &state.room,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "room.read" => {
-                    let error_title = "Error reading the room";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.room.read(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "room.read" => {
+                    handle_request(
+                        "room.read",
+                        "Error reading the room",
+                        &reqp,
+                        endpoint::room::State::read,
+                        &state.room,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "room.update" => {
-                    let error_title = "Error updating a room";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.room.update(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "room.update" => {
+                    handle_request(
+                        "room.update",
+                        "Error updating a room",
+                        &reqp,
+                        endpoint::room::State::update,
+                        &state.room,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "room.delete" => {
-                    let error_title = "Error deleting a room";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.room.delete(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "room.delete" => {
+                    handle_request(
+                        "room.delete",
+                        "Error deleting a room",
+                        &reqp,
+                        endpoint::room::State::delete,
+                        &state.room,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "room.enter" => {
-                    let error_title = "Error entering a room";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.room.enter(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "room.enter" => {
+                    handle_request(
+                        "room.enter",
+                        "Error entering a room",
+                        &reqp,
+                        endpoint::room::State::enter,
+                        &state.room,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "room.leave" => {
-                    let error_title = "Error entering a room";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.room.leave(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "room.leave" => {
+                    handle_request(
+                        "rtc.leave",
+                        "Error entering a room",
+                        &reqp,
+                        endpoint::room::State::leave,
+                        &state.room,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "rtc.create" => {
-                    let error_title = "Error creating the rtc";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.rtc.create(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "rtc.create" => {
+                    handle_request(
+                        "rtc.create",
+                        "Error creating the rtc",
+                        &reqp,
+                        endpoint::rtc::State::create,
+                        &state.rtc,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "rtc.connect" => {
-                    let error_title = "Error connection to the rtc";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.rtc.connect(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "rtc.connect" => {
+                    handle_request(
+                        "rtc.connect",
+                        "Error connection to the rtc",
+                        &reqp,
+                        endpoint::rtc::State::connect,
+                        &state.rtc,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "rtc.read" => {
-                    let error_title = "Error reading the rtc";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.rtc.read(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "rtc.read" => {
+                    handle_request(
+                        "rtc.read",
+                        "Error reading the rtc",
+                        &reqp,
+                        endpoint::rtc::State::read,
+                        &state.rtc,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "rtc.list" => {
-                    let error_title = "Error listing rtcs";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.rtc.list(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "rtc.list" => {
+                    handle_request(
+                        "rtc.list",
+                        "Error listing rtcs",
+                        &reqp,
+                        endpoint::rtc::State::list,
+                        &state.rtc,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "rtc_signal.create" => {
-                    let error_title = "Error creating a rtc signal";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.rtc_signal.create(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "rtc_signal.create" => {
+                    handle_request(
+                        "rtc_signal.create",
+                        "Error creating an rtc signal",
+                        &reqp,
+                        endpoint::rtc_signal::State::create,
+                        &state.rtc_signal,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "rtc_stream.list" => {
-                    let error_title = "Error listing rtc streams";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.rtc_stream.list(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "rtc_stream.list" => {
+                    handle_request(
+                        "rtc_stream.list",
+                        "Error listing rtc streams",
+                        &reqp,
+                        endpoint::rtc_stream::State::list,
+                        &state.rtc_stream,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "message.broadcast" => {
-                    let error_title = "Error broadcasting a message";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.message.broadcast(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "message.broadcast" => {
+                    handle_request(
+                        "message.broadcast",
+                        "Error broadcasting a message",
+                        &reqp,
+                        endpoint::message::State::broadcast,
+                        &state.message,
+                        envelope,
+                    )
+                    .await
                 }
                 // TODO: message.create is deprecated and renamed to message.unicast.
-                method @ "message.unicast" | method @ "message.create" => {
-                    let error_title = "Error creating an agent signal";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.message.unicast(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "message.unicast" | "message.create" => {
+                    handle_request(
+                        "message.unicast",
+                        "Error creating an agent signal",
+                        &reqp,
+                        endpoint::message::State::unicast,
+                        &state.message,
+                        envelope,
+                    )
+                    .await
                 }
-                method @ "system.vacuum" => {
-                    let error_title = "Error vacuuming data";
-                    match compat::into_request(envelope) {
-                        Ok(req) => {
-                            let next = state.system.vacuum(req).await;
-                            handle_response(method, error_title, tx, &reqp, next)
-                        }
-                        Err(err) => handle_badrequest(method, error_title, tx, &reqp, &err),
-                    }
+                "system.vacuum" => {
+                    handle_request(
+                        "system.vacuum",
+                        "Error vacuuming data",
+                        &reqp,
+                        endpoint::system::State::vacuum,
+                        &state.system,
+                        envelope,
+                    )
+                    .await
                 }
-                method => handle_badrequest_method(method, tx, &reqp),
+                method => handle_unknown_method(method, &reqp),
             }
         }
         compat::IncomingEnvelopeProperties::Response(_) => {
             let resp = compat::into_response(envelope)?;
-            let next = state.message.callback(resp).await?;
-
-            for message in next.into_iter() {
-                tx.publish(message)?;
-            }
-
-            Ok(())
+            state.message.callback(resp).await
         }
         compat::IncomingEnvelopeProperties::Event(ref evp) => match evp.label() {
-            Some("subscription.create") => handle_event(
-                "subscription.create",
-                "Error handling subscription creation",
-                tx,
-                state
-                    .subscription
-                    .create(compat::into_event(envelope)?)
-                    .await,
-            ),
-            Some("subscription.delete") => handle_event(
-                "subscription.delete",
-                "Error handling subscription deletion",
-                tx,
-                state
-                    .subscription
-                    .delete(compat::into_event(envelope)?)
-                    .await,
-            ),
+            Some("subscription.create") => {
+                handle_event(
+                    "subscription.create",
+                    "Error handling subscription creation",
+                    endpoint::subscription::State::create,
+                    &state.subscription,
+                    envelope,
+                )
+                .await
+            }
+            Some("subscription.delete") => {
+                handle_event(
+                    "subscription.delete",
+                    "Error handling subscription deletion",
+                    endpoint::subscription::State::delete,
+                    &state.subscription,
+                    envelope,
+                )
+                .await
+            }
             Some(label) => {
                 warn!("Unknown event {}", label);
-                Ok(())
+                Ok(vec![])
             }
             None => {
                 warn!("Missing `label` field in the event");
-                Ok(())
+                Ok(vec![])
             }
         },
     }

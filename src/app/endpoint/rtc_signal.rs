@@ -3,11 +3,12 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::fmt;
 use std::str::FromStr;
-use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, Publishable, ResponseStatus};
+use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, ResponseStatus};
 use svc_agent::{Addressable, AgentId};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
+use crate::app::endpoint;
 use crate::db::{janus_rtc_stream, room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -49,18 +50,20 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(
-        &self,
-        inreq: CreateRequest,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn create(&self, inreq: CreateRequest) -> endpoint::Result {
         let handle_id = &inreq.payload().handle_id;
         let jsep = &inreq.payload().jsep;
-        let sdp_type = parse_sdp_type(jsep).map_err(|e| {
-            SvcError::builder()
-                .status(ResponseStatus::BAD_REQUEST)
-                .detail(&format!("invalid jsep format, {}", &e))
-                .build()
-        })?;
+
+        let sdp_type = match parse_sdp_type(jsep) {
+            Ok(sdp_type) => sdp_type,
+            Err(e) => {
+                return SvcError::builder()
+                    .status(ResponseStatus::BAD_REQUEST)
+                    .detail(&format!("invalid jsep format, {}", &e))
+                    .build()
+                    .into();
+            }
+        };
 
         // Authorization: room's owner has to allow the action
         let authorize = |action| -> Result<(), SvcError> {
@@ -112,22 +115,23 @@ impl State {
                     // Authorization
                     authorize("read")?;
 
-                    let backreq = crate::app::janus::read_stream_request(
+                    let result = crate::app::janus::read_stream_request(
                         inreq.properties().clone(),
                         handle_id.janus_session_id(),
                         handle_id.janus_handle_id(),
                         handle_id.rtc_id(),
                         jsep.clone(),
                         handle_id.backend_id(),
-                    )
-                    .map_err(|_| {
-                        SvcError::builder()
+                    );
+
+                    match result {
+                        Ok(req) => req.into(),
+                        Err(_) => SvcError::builder()
                             .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                             .detail("error creating a backend request")
                             .build()
-                    })?;
-
-                    Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
+                            .into(),
+                    }
                 } else {
                     // Authorization
                     authorize("update")?;
@@ -153,47 +157,49 @@ impl State {
                         .execute(&conn)?;
                     }
 
-                    let backreq = crate::app::janus::create_stream_request(
+                    let result = crate::app::janus::create_stream_request(
                         inreq.properties().clone(),
                         handle_id.janus_session_id(),
                         handle_id.janus_handle_id(),
                         handle_id.rtc_id(),
                         jsep.clone(),
                         handle_id.backend_id(),
-                    )
-                    .map_err(|_| {
-                        SvcError::builder()
+                    );
+
+                    match result {
+                        Ok(req) => req.into(),
+                        Err(_) => SvcError::builder()
                             .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                             .detail("error creating a backend request")
                             .build()
-                    })?;
-
-                    Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
+                            .into(),
+                    }
                 }
             }
             SdpType::Answer => Err(SvcError::builder()
                 .status(ResponseStatus::BAD_REQUEST)
                 .detail("sdp_type = 'answer' is not allowed")
-                .build()),
+                .build())?,
             SdpType::IceCandidate => {
                 // Authorization
                 authorize("read")?;
 
-                let backreq = crate::app::janus::trickle_request(
+                let result = crate::app::janus::trickle_request(
                     inreq.properties().clone(),
                     handle_id.janus_session_id(),
                     handle_id.janus_handle_id(),
                     jsep.clone(),
                     handle_id.backend_id(),
-                )
-                .map_err(|_| {
-                    SvcError::builder()
+                );
+
+                match result {
+                    Ok(req) => req.into(),
+                    Err(_) => SvcError::builder()
                         .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                         .detail("error creating a backend request")
                         .build()
-                })?;
-
-                Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
+                        .into(),
+                }
             }
         }
     }
@@ -388,6 +394,8 @@ mod serde {
 
 #[cfg(test)]
 mod test {
+    use std::ops::Try;
+
     use diesel::prelude::*;
     use serde_json::json;
     use uuid::Uuid;
@@ -516,7 +524,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let mut result = state.create(request).await.unwrap();
+            let mut result = state.create(request).await.into_result().unwrap();
             let outgoing_envelope = result.remove(0);
 
             // Assert outgoing broker request.
@@ -609,7 +617,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let result = state.create(request).await;
+            let result = state.create(request).await.into_result();
 
             // Expecting error 400.
             match result {
@@ -677,7 +685,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let mut result = state.create(request).await.unwrap();
+            let mut result = state.create(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert outgoing broker request.

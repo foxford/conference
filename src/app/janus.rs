@@ -7,7 +7,7 @@ use std::ops::Bound;
 use std::sync::Arc;
 use svc_agent::mqtt::{
     compat::{into_event, IncomingEnvelope},
-    Agent, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties, Publishable,
+    IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties, Publishable,
     ResponseStatus,
 };
 use svc_agent::{Addressable, AgentId};
@@ -346,11 +346,10 @@ impl State {
 }
 
 pub(crate) async fn handle_response(
-    tx: &mut Agent,
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
-) -> Result<(), Error> {
-    use endpoint::handle_response;
+) -> Result<Vec<Box<dyn Publishable>>, Error> {
+    use endpoint::handle_error;
 
     let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
     let message = into_event::<IncomingMessage>(envelope)?;
@@ -363,8 +362,7 @@ pub(crate) async fn handle_response(
 
                     // Creating Handle
                     let backreq = create_handle_request(session_id, message.properties())?;
-                    tx.publish(Box::new(backreq) as Box<dyn Publishable>)
-                        .map_err(Into::into)
+                    Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
                 }
                 // Handle has been created
                 Transaction::CreateHandle(tn) => {
@@ -375,7 +373,7 @@ pub(crate) async fn handle_response(
                     let _ = janus_backend::UpdateQuery::new(backend_id, handle_id, tn.session_id)
                         .execute(&conn)?;
 
-                    Ok(())
+                    Ok(vec![])
                 }
                 // Rtc Handle has been created
                 Transaction::CreateRtcHandle(tn) => {
@@ -397,8 +395,7 @@ pub(crate) async fn handle_response(
                         &reqp,
                     );
 
-                    tx.publish(Box::new(resp) as Box<dyn Publishable>)
-                        .map_err(Into::into)
+                    Ok(vec![Box::new(resp) as Box<dyn Publishable>])
                 }
                 // An unsupported incoming Success message has been received
                 _ => Err(format_err!(
@@ -422,8 +419,7 @@ pub(crate) async fn handle_response(
                         tn.reqp.as_agent_id(),
                     );
 
-                    tx.publish(Box::new(resp) as Box<dyn Publishable>)
-                        .map_err(Into::into)
+                    Ok(vec![Box::new(resp) as Box<dyn Publishable>])
                 }
                 // An unsupported incoming Ack message has been received
                 _ => Err(format_err!(
@@ -485,13 +481,14 @@ pub(crate) async fn handle_response(
                             Ok(vec![Box::new(resp) as Box<dyn Publishable>])
                         });
 
-                    handle_response(
-                        "error:janus_stream.create",
-                        "Error creating a Janus Conference Stream",
-                        tx,
-                        &tn.reqp,
-                        next,
-                    )
+                    next.or_else(|err| {
+                        handle_error(
+                            "error:janus_stream.create",
+                            "Error creating a Janus Conference Stream",
+                            &tn.reqp,
+                            err,
+                        )
+                    })
                 }
                 // Conference Stream has been read (an answer received)
                 Transaction::ReadStream(ref tn) => {
@@ -544,13 +541,14 @@ pub(crate) async fn handle_response(
                             Ok(vec![Box::new(resp) as Box<dyn Publishable>])
                         });
 
-                    handle_response(
-                        "error:janus_stream.read",
-                        "Error reading a Janus Conference Stream",
-                        tx,
-                        &tn.reqp,
-                        next,
-                    )
+                    next.or_else(|err| {
+                        handle_error(
+                            "error:janus_stream.read",
+                            "Error reading a Janus Conference Stream",
+                            &tn.reqp,
+                            err,
+                        )
+                    })
                 }
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
                 Transaction::UploadStream(ref tn) => {
@@ -708,7 +706,7 @@ pub(crate) async fn handle_response(
                                     let event = endpoint::system::upload_event(&room, rtcs_and_recordings.into_iter())
                                         .map_err(|e| format_err!("error creating a system event, {}", e))?;
 
-                                    tx.publish(Box::new(event) as Box<dyn Publishable>)?;
+                                    Ok(vec![Box::new(event) as Box<dyn Publishable>])
                                 }
                                 None => {
                                     // Waiting for all the room's rtc being uploaded
@@ -716,10 +714,10 @@ pub(crate) async fn handle_response(
                                         "postpone 'room.upload' event because still waiting for rtcs being uploaded for the room = '{}'",
                                         room.id(),
                                     );
+
+                                    Ok(vec![])
                                 }
                             }
-
-                            Ok(())
                         })
                 }
                 // An unsupported incoming Event message has been received
@@ -754,10 +752,10 @@ pub(crate) async fn handle_response(
                     .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
 
                 let event = endpoint::rtc_stream::update_event(room.id(), rtc_stream);
-                tx.publish(Box::new(event) as Box<dyn Publishable>)?;
+                Ok(vec![Box::new(event) as Box<dyn Publishable>])
+            } else {
+                Ok(vec![])
             }
-
-            Ok(())
         }
         IncomingMessage::HangUp(ref inev) => {
             use std::str::FromStr;
@@ -779,11 +777,11 @@ pub(crate) async fn handle_response(
                 // (if there was't any actual media stream, the object won't contain its start time)
                 if let Some(_) = rtc_stream.time() {
                     let event = endpoint::rtc_stream::update_event(room.id(), rtc_stream);
-                    tx.publish(Box::new(event) as Box<dyn Publishable>)?;
+                    return Ok(vec![Box::new(event) as Box<dyn Publishable>]);
                 }
             }
 
-            Ok(())
+            Ok(vec![])
         }
         IncomingMessage::Media(ref inev) => Err(format_err!(
             "received an unexpected Media message: {:?}",
@@ -803,21 +801,19 @@ pub(crate) async fn handle_response(
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) async fn handle_status(
-    tx: &mut Agent,
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
-) -> Result<(), Error> {
+) -> Result<Vec<Box<dyn Publishable>>, Error> {
     let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
     let inev = into_event::<StatusEvent>(envelope)?;
     let agent_id = inev.properties().as_agent_id();
 
     if let true = inev.payload().online() {
         let event = create_session_request(agent_id)?;
-        tx.publish(Box::new(event) as Box<dyn Publishable>)
-            .map_err(Into::into)
+        Ok(vec![Box::new(event) as Box<dyn Publishable>])
     } else {
         let conn = janus.db.get()?;
         let _ = janus_backend::DeleteQuery::new(agent_id).execute(&conn)?;
-        Ok(())
+        Ok(vec![])
     }
 }

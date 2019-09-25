@@ -1,14 +1,10 @@
-use std::str::FromStr;
-
 use serde_derive::Deserialize;
-use svc_agent::mqtt::{
-    Connection, IncomingEvent, IncomingEventProperties, Publishable, ResponseStatus,
-};
-use svc_agent::AgentId;
+use svc_agent::mqtt::{Connection, IncomingEvent, IncomingEventProperties, ResponseStatus};
 use svc_authn::Authenticable;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
+use crate::app::endpoint;
 use crate::db::{agent, room, ConnectionPool};
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -39,10 +35,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(
-        &self,
-        evt: CreateDeleteEvent,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn create(&self, evt: CreateDeleteEvent) -> endpoint::Result {
         self.is_broker(&evt.properties())?;
 
         let agent_id = evt.payload().subject.agent_id();
@@ -62,13 +55,10 @@ impl State {
             })?;
 
         agent::InsertQuery::new(agent_id, room_id).execute(&conn)?;
-        Ok(vec![])
+        vec![].into()
     }
 
-    pub(crate) async fn delete(
-        &self,
-        evt: CreateDeleteEvent,
-    ) -> Result<Vec<Box<dyn Publishable>>, SvcError> {
+    pub(crate) async fn delete(&self, evt: CreateDeleteEvent) -> endpoint::Result {
         self.is_broker(&evt.properties())?;
 
         let agent_id = evt.payload().subject.agent_id();
@@ -78,17 +68,18 @@ impl State {
         let row_count = agent::DeleteQuery::new(agent_id, room_id).execute(&conn)?;
 
         if row_count == 1 {
-            Ok(vec![])
+            vec![].into()
         } else {
             let err = format!(
                 "the agent is not found for agent_id = '{}', room = '{}'",
                 agent_id, room_id
             );
 
-            Err(SvcError::builder()
+            SvcError::builder()
                 .status(ResponseStatus::NOT_FOUND)
                 .detail(&err)
-                .build())
+                .build()
+                .into()
         }
     }
 
@@ -129,6 +120,8 @@ fn parse_room_id(evt: &CreateDeleteEvent) -> Result<Uuid, SvcError> {
 
 #[cfg(test)]
 mod test {
+    use std::ops::Try;
+
     use diesel::prelude::*;
     use failure::format_err;
     use serde_json::json;
@@ -174,7 +167,7 @@ mod test {
                 .unwrap();
 
             let state = build_state(&db);
-            state.create(event).await.unwrap();
+            state.create(event).await.into_result().unwrap();
 
             // Assert agent presence in the DB.
             let conn = db.connection_pool().get().unwrap();
@@ -210,7 +203,7 @@ mod test {
             let state = build_state(&db);
 
             // Assert 403 error.
-            match state.create(event).await {
+            match state.create(event).await.into_result() {
                 Ok(_) => panic!("Expected subscription.create to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
             }
@@ -239,7 +232,7 @@ mod test {
             let state = build_state(&db);
 
             // Assert 404 error.
-            match state.create(event).await {
+            match state.create(event).await.into_result() {
                 Ok(_) => panic!("Expected subscription.create to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
             }
@@ -268,7 +261,7 @@ mod test {
             let state = build_state(&db);
 
             // Assert 400 error.
-            match state.create(event).await {
+            match state.create(event).await.into_result() {
                 Ok(_) => panic!("Expected subscription.create to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::BAD_REQUEST),
             }
@@ -303,7 +296,7 @@ mod test {
                 .unwrap();
 
             let state = build_state(&db);
-            state.delete(event).await.unwrap();
+            state.delete(event).await.into_result().unwrap();
 
             // Assert agent absence in the DB.
             let conn = db.connection_pool().get().unwrap();
@@ -334,7 +327,7 @@ mod test {
             let state = build_state(&db);
 
             // Assert 403 error.
-            match state.delete(event).await {
+            match state.delete(event).await.into_result() {
                 Ok(_) => panic!("Expected subscription.delete to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
             }
@@ -363,7 +356,7 @@ mod test {
             let state = build_state(&db);
 
             // Assert 404 error.
-            match state.delete(event).await {
+            match state.delete(event).await.into_result() {
                 Ok(_) => panic!("Expected subscription.delete to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
             }
@@ -392,7 +385,7 @@ mod test {
             let state = build_state(&db);
 
             // Assert 400 error.
-            match state.delete(event).await {
+            match state.delete(event).await.into_result() {
                 Ok(_) => panic!("Expected subscription.delete to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::BAD_REQUEST),
             }
