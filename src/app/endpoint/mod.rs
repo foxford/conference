@@ -4,8 +4,8 @@ use std::ops::Try;
 use failure::{format_err, Error};
 use serde::{de::DeserializeOwned, Serialize};
 use svc_agent::mqtt::{
-    compat, IncomingEventProperties, IncomingMessage, IncomingRequestProperties, OutgoingRequest,
-    OutgoingResponse, Publishable, ResponseStatus,
+    compat, IncomingEventProperties, IncomingMessage, IncomingRequestProperties, OutgoingEvent,
+    OutgoingRequest, OutgoingResponse, Publishable, ResponseStatus,
 };
 use svc_error::{extension::sentry, Error as SvcError, ProblemDetails};
 
@@ -42,10 +42,10 @@ impl std::ops::Try for Result {
     }
 }
 
-impl<T: Serialize + 'static> From<OutgoingResponse<T>> for Result {
-    fn from(response: OutgoingResponse<T>) -> Self {
+impl<T: Serialize + 'static> From<OutgoingEvent<T>> for Result {
+    fn from(event: OutgoingEvent<T>) -> Self {
         Self {
-            messages: vec![Box::new(response)],
+            messages: vec![Box::new(event)],
             error: None,
         }
     }
@@ -55,6 +55,15 @@ impl<T: Serialize + 'static> From<OutgoingRequest<T>> for Result {
     fn from(request: OutgoingRequest<T>) -> Self {
         Self {
             messages: vec![Box::new(request)],
+            error: None,
+        }
+    }
+}
+
+impl<T: Serialize + 'static> From<OutgoingResponse<T>> for Result {
+    fn from(response: OutgoingResponse<T>) -> Self {
+        Self {
+            messages: vec![Box::new(response)],
             error: None,
         }
     }

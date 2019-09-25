@@ -1,5 +1,9 @@
-use serde_derive::Deserialize;
-use svc_agent::mqtt::{Connection, IncomingEvent, IncomingEventProperties, ResponseStatus};
+use serde_derive::{Deserialize, Serialize};
+use svc_agent::mqtt::{
+    Connection, IncomingEvent, IncomingEventProperties, OutgoingEvent, OutgoingEventProperties,
+    ResponseStatus,
+};
+use svc_agent::AgentId;
 use svc_authn::Authenticable;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -15,6 +19,18 @@ pub(crate) type CreateDeleteEvent = IncomingEvent<CreateDeleteEventData>;
 pub(crate) struct CreateDeleteEventData {
     subject: Connection,
     object: Vec<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct RoomEnterLeaveEventData {
+    id: Uuid,
+    agent_id: AgentId,
+}
+
+impl RoomEnterLeaveEventData {
+    fn new(id: Uuid, agent_id: AgentId) -> Self {
+        Self { id, agent_id }
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -55,7 +71,11 @@ impl State {
             })?;
 
         agent::InsertQuery::new(agent_id, room_id).execute(&conn)?;
-        vec![].into()
+
+        let payload = RoomEnterLeaveEventData::new(room_id.to_owned(), agent_id.to_owned());
+        let props = OutgoingEventProperties::new("room.enter");
+        let to_uri = format!("rooms/{}/events", room_id);
+        OutgoingEvent::broadcast(payload, props, &to_uri).into()
     }
 
     pub(crate) async fn delete(&self, evt: CreateDeleteEvent) -> endpoint::Result {
@@ -68,7 +88,10 @@ impl State {
         let row_count = agent::DeleteQuery::new(agent_id, room_id).execute(&conn)?;
 
         if row_count == 1 {
-            vec![].into()
+            let payload = RoomEnterLeaveEventData::new(room_id.to_owned(), agent_id.to_owned());
+            let props = OutgoingEventProperties::new("room.leave");
+            let to_uri = format!("rooms/{}/events", room_id);
+            OutgoingEvent::broadcast(payload, props, &to_uri).into()
         } else {
             let err = format!(
                 "the agent is not found for agent_id = '{}', room = '{}'",
@@ -125,11 +148,13 @@ mod test {
     use diesel::prelude::*;
     use failure::format_err;
     use serde_json::json;
-    use svc_agent::mqtt::Connection;
+    use svc_agent::Destination;
 
     use crate::db::agent::Object as Agent;
     use crate::schema::agent::dsl::*;
-    use crate::test_helpers::{agent::TestAgent, db::TestDb, factory, factory::insert_room};
+    use crate::test_helpers::{
+        agent::TestAgent, db::TestDb, extract_payload, factory, factory::insert_room,
+    };
 
     use super::*;
 
@@ -167,7 +192,22 @@ mod test {
                 .unwrap();
 
             let state = build_state(&db);
-            state.create(event).await.into_result().unwrap();
+            let mut result = state.create(event).await.into_result().unwrap();
+
+            // Assert notification to the room topic.
+            let message = result.remove(0);
+            assert_eq!(message.message_type(), "event");
+
+            match message.destination() {
+                Destination::Broadcast(destination) => {
+                    assert_eq!(destination, &format!("rooms/{}/events", room.id()))
+                }
+                _ => panic!("Expected broadcast destination"),
+            }
+
+            let payload: RoomEnterLeaveEventData = extract_payload(message).unwrap();
+            assert_eq!(payload.id, room.id());
+            assert_eq!(payload.agent_id, *user_agent.agent_id());
 
             // Assert agent presence in the DB.
             let conn = db.connection_pool().get().unwrap();
@@ -296,7 +336,22 @@ mod test {
                 .unwrap();
 
             let state = build_state(&db);
-            state.delete(event).await.into_result().unwrap();
+            let mut result = state.delete(event).await.into_result().unwrap();
+
+            // Assert notification to the room topic.
+            let message = result.remove(0);
+            assert_eq!(message.message_type(), "event");
+
+            match message.destination() {
+                Destination::Broadcast(destination) => {
+                    assert_eq!(destination, &format!("rooms/{}/events", db_agent.room_id()))
+                }
+                _ => panic!("Expected broadcast destination"),
+            }
+
+            let payload: RoomEnterLeaveEventData = extract_payload(message).unwrap();
+            assert_eq!(payload.id, db_agent.room_id());
+            assert_eq!(payload.agent_id, *db_agent.agent_id());
 
             // Assert agent absence in the DB.
             let conn = db.connection_pool().get().unwrap();
