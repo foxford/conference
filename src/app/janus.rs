@@ -664,7 +664,6 @@ pub(crate) async fn handle_response(
                                     })?;
 
                                 let room = room::FindQuery::new()
-                                    .time(room::now())
                                     .id(rtc.room_id())
                                     .execute(&conn)?
                                     .ok_or_else(|| {
