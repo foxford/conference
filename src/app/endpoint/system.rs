@@ -63,12 +63,14 @@ impl State {
 impl State {
     pub(crate) async fn vacuum(&self, inreq: VacuumRequest) -> endpoint::Result {
         // Authorization: only trusted subjects are allowed to perform operations with the system
-        self.authz.authorize(
+        endpoint::authorize(
+            &self.authz,
             self.me.audience(),
             inreq.properties(),
             vec!["system"],
             "update",
-        )?;
+        )
+        .await?;
 
         // TODO: Update 'finished_without_recordings' in order to return (backend,room,rtc)
         let backends = {
@@ -172,10 +174,10 @@ mod test {
 
     use crate::test_helpers::{
         agent::TestAgent,
+        authz::no_authz,
         db::TestDb,
         extract_payload,
         factory::{insert_janus_backend, insert_rtc},
-        no_authz,
     };
 
     use super::*;

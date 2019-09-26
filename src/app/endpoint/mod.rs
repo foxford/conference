@@ -187,6 +187,47 @@ where
     }
 }
 
+/// This helper is intended for two purposes.
+///
+/// 1. Convert future from futures 0.1 crate to future from futures-preview 0.3.
+///    We want to keep svc-authz crate on stable Rust so it still uses futures 0.1.
+///    However we can't `.await` an old future so we convert it to the new one using `compat`.
+///    https://rust-lang-nursery.github.io/futures-rs/blog/2019/04/18/compatibility-layer.html
+///
+/// 2. Error handling.
+///    `Authorize::authorize` from svc-authz returns the following type:
+///    `Box<(dyn Future<Item = Result<(), Error>, Error = ()> + Send)>`
+///
+///    In part `compat` transforms `Future<Item = T, Error = E>` to `Future<Output = Result<T, E>>`
+///    so we have `Future<Output = Result<Result<(), Error>, ()>>`, i.e. `Result` in `Result`.
+///    Hence we have to unwrap it twice.
+///    Actually we never should get the first `()` error so we return 500 just in case.
+///    The inner error gets transformed into `SvcError` using svc_authz extension in svc_error.
+///
+/// TODO: Once Rust 1.39 becomes stable we can update svc_authz by switching to futures-preview 0.3
+///       and removing redudand `Result` in the return type and then get rid of this helper.
+pub(crate) async fn authorize(
+    authz: &svc_authz::ClientMap,
+    audience: &str,
+    props: &IncomingRequestProperties,
+    object: Vec<&str>,
+    action: &str,
+) -> std::result::Result<(), SvcError> {
+    use futures::compat::Future01CompatExt;
+
+    authz
+        .authorize(audience, props, object, action)
+        .compat()
+        .await
+        .map_err(|()| {
+            SvcError::builder()
+                .status(ResponseStatus::INTERNAL_SERVER_ERROR)
+                .detail("Authorization failed")
+                .build()
+        })?
+        .map_err(|err| err.into())
+}
+
 pub(crate) mod agent;
 pub(crate) mod message;
 pub(crate) mod room;

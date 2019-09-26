@@ -97,12 +97,14 @@ impl State {
 impl State {
     pub(crate) async fn create(&self, inreq: CreateRequest) -> endpoint::Result {
         // Authorization: future room's owner has to allow the action
-        self.authz.authorize(
+        endpoint::authorize(
+            &self.authz,
             &inreq.payload().audience,
             inreq.properties(),
             vec!["rooms"],
             "create",
-        )?;
+        )
+        .await?;
 
         // Creating a Room
         let object = {
@@ -135,12 +137,14 @@ impl State {
         };
 
         // Authorization: room's owner has to allow the action
-        self.authz.authorize(
+        endpoint::authorize(
+            &self.authz,
             object.audience(),
             inreq.properties(),
             vec!["rooms", &room_id],
             "read",
-        )?;
+        )
+        .await?;
 
         inreq.to_response(object, ResponseStatus::OK).into()
     }
@@ -163,12 +167,14 @@ impl State {
         };
 
         // Authorization: room's owner has to allow the action
-        self.authz.authorize(
+        endpoint::authorize(
+            &self.authz,
             object.audience(),
             inreq.properties(),
             vec!["rooms", &room_id],
             "update",
-        )?;
+        )
+        .await?;
 
         let object = {
             let conn = self.db.get()?;
@@ -196,12 +202,14 @@ impl State {
         };
 
         // Authorization: room's owner has to allow the action
-        self.authz.authorize(
+        endpoint::authorize(
+            &self.authz,
             object.audience(),
             inreq.properties(),
             vec!["rooms", &room_id],
             "delete",
-        )?;
+        )
+        .await?;
 
         {
             let conn = self.db.get()?;
@@ -229,12 +237,14 @@ impl State {
         };
 
         // Authorization: room's owner has to allow the action
-        self.authz.authorize(
+        endpoint::authorize(
+            &self.authz,
             object.audience(),
             inreq.properties(),
             vec!["rooms", &room_id, "events"],
             "subscribe",
-        )?;
+        )
+        .await?;
 
         let payload = SubscriptionRequest::new(
             inreq.properties().to_connection(),
@@ -291,7 +301,7 @@ mod test {
     use serde_json::{json, Value as JsonValue};
 
     use crate::test_helpers::{
-        agent::TestAgent, db::TestDb, extract_payload, factory::insert_room, no_authz,
+        agent::TestAgent, authz::no_authz, db::TestDb, extract_payload, factory::insert_room,
         parse_payload,
     };
 

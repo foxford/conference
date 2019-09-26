@@ -87,12 +87,15 @@ impl State {
                 })?;
 
             let room_id = room.id().to_string();
-            self.authz.authorize(
+
+            endpoint::authorize(
+                &self.authz,
                 room.audience(),
                 inreq.properties(),
                 vec!["rooms", &room_id, "rtcs"],
                 "create",
-            )?;
+            )
+            .await?;
         };
 
         // Creating a Real-Time Connection
@@ -134,12 +137,15 @@ impl State {
 
             let rtc_id = id.to_string();
             let room_id = room.id().to_string();
-            self.authz.authorize(
+
+            endpoint::authorize(
+                &self.authz,
                 room.audience(),
                 inreq.properties(),
                 vec!["rooms", &room_id, "rtcs", &rtc_id],
                 "read",
-            )?;
+            )
+            .await?;
         };
 
         // TODO: implement resource management
@@ -191,12 +197,15 @@ impl State {
 
             let rtc_id = id.to_string();
             let room_id = room.id().to_string();
-            self.authz.authorize(
+
+            endpoint::authorize(
+                &self.authz,
                 room.audience(),
                 inreq.properties(),
                 vec!["rooms", &room_id, "rtcs", &rtc_id],
                 "read",
-            )?;
+            )
+            .await?;
         };
 
         // Returning Real-Time connection
@@ -234,12 +243,15 @@ impl State {
                 })?;
 
             let room_id = room.id().to_string();
-            self.authz.authorize(
+
+            endpoint::authorize(
+                &self.authz,
                 room.audience(),
                 inreq.properties(),
                 vec!["rooms", &room_id, "rtcs"],
                 "list",
-            )?;
+            )
+            .await?;
         };
 
         // Looking up for Real-Time Connections
@@ -269,10 +281,10 @@ mod test {
 
     use crate::test_helpers::{
         agent::TestAgent,
+        authz::no_authz,
         db::TestDb,
         extract_payload,
         factory::{insert_janus_backend, insert_room, insert_rtc},
-        no_authz,
     };
     use crate::util::from_base64;
 

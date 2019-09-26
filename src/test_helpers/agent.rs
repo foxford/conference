@@ -23,6 +23,10 @@ impl TestAgent {
         }
     }
 
+    pub(crate) fn account_id(&self) -> &AccountId {
+        &self.account_id
+    }
+
     pub(crate) fn agent_id(&self) -> &AgentId {
         &self.agent_id
     }

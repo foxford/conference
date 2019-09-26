@@ -21,7 +21,7 @@ openssl = "*"
 diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
 diesel-derive-enum = { version = "0.4", features = ["postgres"] }
 svc-agent = { version = "0.8", features = ["diesel"] }
-svc-authz = "0.5"
+svc-authz = "0.8"
 svc-authn = { version = "0.5", features = ["jose", "diesel"] }
 svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz", "sentry-extension"] }
 
@@ -31,6 +31,7 @@ rand = "0.7"
 [dependencies.futures]
 version = "=0.3.0-alpha.18"
 package = "futures-preview"
+features = ["compat"]
 
 [dependencies.futures-channel]
 version = "=0.3.0-alpha.18"

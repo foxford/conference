@@ -51,12 +51,15 @@ impl State {
                 })?;
 
             let room_id = room.id().to_string();
-            self.authz.authorize(
+
+            endpoint::authorize(
+                &self.authz,
                 room.audience(),
                 inreq.properties(),
                 vec!["rooms", &room_id, "agents"],
                 "list",
-            )?;
+            )
+            .await?;
         }
 
         let objects = {
@@ -83,16 +86,22 @@ mod test {
 
     use failure::format_err;
     use serde_json::json;
-    use svc_agent::AgentId;
+    use svc_agent::{mqtt::ResponseStatus, AgentId};
+    use svc_authz::ClientMap;
 
-    use crate::test_helpers::{agent::TestAgent, db::TestDb, extract_payload, factory, no_authz};
+    use crate::test_helpers::{
+        agent::TestAgent,
+        authz::{no_authz, TestAuthz},
+        db::TestDb,
+        extract_payload, factory,
+    };
 
     use super::*;
 
     const AUDIENCE: &str = "dev.svc.example.org";
 
-    fn build_state(db: &TestDb) -> State {
-        State::new(no_authz(AUDIENCE), db.connection_pool().clone())
+    fn build_state(authz: ClientMap, db: &TestDb) -> State {
+        State::new(authz, db.connection_pool().clone())
     }
 
     #[derive(Debug, PartialEq, Deserialize)]
@@ -107,23 +116,35 @@ mod test {
     fn list_agents() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
 
             // Insert online agent.
-            let online_agent = db
+            let (room, online_agent) = db
                 .connection_pool()
                 .get()
                 .map_err(|err| format_err!("Failed to get DB connection: {}", err))
                 .and_then(|conn| {
-                    let agent_factory = factory::Agent::new().audience(AUDIENCE);
-                    let agent = agent_factory.insert(&conn)?;
-                    let _other_agent = agent_factory.insert(&conn)?;
-                    Ok(agent)
+                    let room = factory::insert_room(&conn, AUDIENCE);
+
+                    let agent = factory::Agent::new()
+                        .audience(AUDIENCE)
+                        .room_id(room.id())
+                        .insert(&conn)?;
+
+                    let _other_agent = factory::Agent::new().audience(AUDIENCE).insert(&conn)?;
+
+                    Ok((room, agent))
                 })
                 .expect("Failed to insert online agent");
 
-            // Make agent.list request.
-            let state = build_state(&db);
+            // Allow room agents listing for the agent.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id, "agents"];
+            authz.allow(agent.account_id(), object, "list");
+
+            // Make agent.list request.
+            let state = build_state(authz.into(), &db);
             let payload = json!({"room_id": online_agent.room_id()});
             let request: ListRequest = agent.build_request("agent.list", &payload).unwrap();
             let mut result = state.list(request).await.into_result().unwrap();
@@ -142,6 +163,53 @@ mod test {
                     created_at: online_agent.created_at().timestamp(),
                 }
             );
+        });
+    }
+
+    #[test]
+    fn list_agents_in_missing_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Make agent.list request.
+            let state = build_state(no_authz(AUDIENCE), &db);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({ "room_id": Uuid::new_v4() });
+            let request: ListRequest = agent.build_request("agent.list", &payload).unwrap();
+            let result = state.list(request).await.into_result();
+
+            // Assert 404 error response.
+            match result {
+                Ok(_) => panic!("Expected agent.list to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn list_agent_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
+
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| factory::insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make agent.list request.
+            let state = State::new(authz.into(), db.connection_pool().clone());
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({"room_id": room.id()});
+            let request: ListRequest = agent.build_request("agent.list", &payload).unwrap();
+            let result = state.list(request).await.into_result();
+
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected agent.list to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
         });
     }
 }
