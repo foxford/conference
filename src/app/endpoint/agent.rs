@@ -87,7 +87,6 @@ mod test {
     use failure::format_err;
     use serde_json::json;
     use svc_agent::{mqtt::ResponseStatus, AgentId};
-    use svc_authz::ClientMap;
 
     use crate::test_helpers::{
         agent::TestAgent,
@@ -100,10 +99,6 @@ mod test {
 
     const AUDIENCE: &str = "dev.svc.example.org";
 
-    fn build_state(authz: ClientMap, db: &TestDb) -> State {
-        State::new(authz, db.connection_pool().clone())
-    }
-
     #[derive(Debug, PartialEq, Deserialize)]
     struct AgentResponse {
         id: Uuid,
@@ -111,6 +106,8 @@ mod test {
         room_id: Uuid,
         created_at: i64,
     }
+
+    ///////////////////////////////////////////////////////////////////////////
 
     #[test]
     fn list_agents() {
@@ -144,7 +141,7 @@ mod test {
             authz.allow(agent.account_id(), object, "list");
 
             // Make agent.list request.
-            let state = build_state(authz.into(), &db);
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"room_id": online_agent.room_id()});
             let request: ListRequest = agent.build_request("agent.list", &payload).unwrap();
             let mut result = state.list(request).await.into_result().unwrap();
@@ -172,7 +169,7 @@ mod test {
             let db = TestDb::new();
 
             // Make agent.list request.
-            let state = build_state(no_authz(AUDIENCE), &db);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({ "room_id": Uuid::new_v4() });
             let request: ListRequest = agent.build_request("agent.list", &payload).unwrap();

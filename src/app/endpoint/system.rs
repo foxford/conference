@@ -169,12 +169,13 @@ mod test {
 
     use chrono::{Duration, Utc};
     use serde_json::json;
+    use svc_authz::ClientMap;
 
     use crate::db::room;
 
     use crate::test_helpers::{
         agent::TestAgent,
-        authz::no_authz,
+        authz::TestAuthz,
         db::TestDb,
         extract_payload,
         factory::{insert_janus_backend, insert_rtc},
@@ -184,10 +185,9 @@ mod test {
 
     const AUDIENCE: &str = "dev.svc.example.org";
 
-    fn build_state(db: &TestDb) -> State {
+    fn build_state(authz: ClientMap, db: &TestDb) -> State {
         let account_id = svc_agent::AccountId::new("cron", AUDIENCE);
-
-        State::new(account_id, no_authz(AUDIENCE), db.connection_pool().clone())
+        State::new(account_id, authz, db.connection_pool().clone())
     }
 
     #[derive(Debug, PartialEq, Deserialize)]
@@ -210,6 +210,7 @@ mod test {
     fn vacuum_system() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
 
             let (rtcs, backend) = db
                 .connection_pool()
@@ -236,9 +237,12 @@ mod test {
                 })
                 .unwrap();
 
-            // Make system.vacuum request.
-            let state = build_state(&db);
+            // Allow cron to perform vacuum.
             let agent = TestAgent::new("alpha", "cron", AUDIENCE);
+            authz.allow(agent.account_id(), vec!["system"], "update");
+
+            // Make system.vacuum request.
+            let state = build_state(authz.into(), &db);
             let payload = json!({});
             let request: VacuumRequest = agent.build_request("system.vacuum", &payload).unwrap();
             let result = state.vacuum(request).await.into_result().unwrap();
@@ -262,5 +266,26 @@ mod test {
                 );
             }
         });
+    }
+
+    #[test]
+    fn vacuum_system_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
+
+            // Make system.vacuum request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let state = build_state(authz.into(), &db);
+            let payload = json!({});
+            let request: VacuumRequest = agent.build_request("system.vacuum", &payload).unwrap();
+            let result = state.vacuum(request).await.into_result();
+
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected system.vacuum to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
+        })
     }
 }
