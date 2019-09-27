@@ -4,6 +4,7 @@ use serde_json::Value as JsonValue;
 use svc_agent::mqtt::Publishable;
 
 pub(crate) mod agent;
+pub(crate) mod authz;
 pub(crate) mod db;
 pub(crate) mod factory;
 
@@ -30,14 +31,4 @@ where
 
     serde_json::from_slice::<T>(payload_str.as_bytes())
         .map_err(|err| format_err!("Failed to parse 'payload' as JSON: {}", err))
-}
-
-pub(crate) fn no_authz(audience: &str) -> svc_authz::ClientMap {
-    let mut authz_config_map = svc_authz::ConfigMap::new();
-
-    let authz_none_config = svc_authz::Config::None(svc_authz::NoneConfig {});
-    authz_config_map.insert(audience.to_owned(), authz_none_config);
-
-    let account_id = svc_authn::AccountId::new("conference", audience);
-    svc_authz::ClientMap::new(&account_id, authz_config_map).expect("Failed to build authz")
 }

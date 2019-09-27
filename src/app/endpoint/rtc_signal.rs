@@ -65,45 +65,6 @@ impl State {
             }
         };
 
-        // Authorization: room's owner has to allow the action
-        let authorize = |action| -> Result<(), SvcError> {
-            let rtc_id = handle_id.rtc_id();
-            let room = {
-                let conn = self.db.get()?;
-                room::FindQuery::new()
-                    .time(room::now())
-                    .rtc_id(rtc_id)
-                    .execute(&conn)?
-                    .ok_or_else(|| {
-                        SvcError::builder()
-                            .status(ResponseStatus::NOT_FOUND)
-                            .detail(&format!("a room for the rtc = '{}' is not found", &rtc_id))
-                            .build()
-                    })?
-            };
-
-            if room.backend() != &room::RoomBackend::Janus {
-                return Err(SvcError::builder()
-                    .status(ResponseStatus::NOT_IMPLEMENTED)
-                    .detail(&format!(
-                        "'rtc_signal.create' is not implemented for the backend = '{}'.",
-                        room.backend()
-                    ))
-                    .build());
-            }
-
-            let room_id = room.id().to_string();
-            let rtc_id = rtc_id.to_string();
-            self.authz
-                .authorize(
-                    room.audience(),
-                    inreq.properties(),
-                    vec!["rooms", &room_id, "rtcs", &rtc_id],
-                    action,
-                )
-                .map_err(Into::into)
-        };
-
         match sdp_type {
             SdpType::Offer => {
                 if is_sdp_recvonly(jsep).map_err(|e| {
@@ -113,7 +74,7 @@ impl State {
                         .build()
                 })? {
                     // Authorization
-                    authorize("read")?;
+                    self.authorize(&inreq, "read").await?;
 
                     let result = crate::app::janus::read_stream_request(
                         inreq.properties().clone(),
@@ -134,7 +95,7 @@ impl State {
                     }
                 } else {
                     // Authorization
-                    authorize("update")?;
+                    self.authorize(&inreq, "update").await?;
 
                     // Updating the Real-Time Connection state
                     {
@@ -182,7 +143,7 @@ impl State {
                 .build())?,
             SdpType::IceCandidate => {
                 // Authorization
-                authorize("read")?;
+                self.authorize(&inreq, "read").await?;
 
                 let result = crate::app::janus::trickle_request(
                     inreq.properties().clone(),
@@ -202,6 +163,47 @@ impl State {
                 }
             }
         }
+    }
+
+    // Authorization: room's owner has to allow the action
+    async fn authorize(&self, inreq: &CreateRequest, action: &str) -> Result<(), SvcError> {
+        let rtc_id = inreq.payload().handle_id.rtc_id();
+
+        let room = {
+            let conn = self.db.get()?;
+            room::FindQuery::new()
+                .time(room::now())
+                .rtc_id(rtc_id)
+                .execute(&conn)?
+                .ok_or_else(|| {
+                    SvcError::builder()
+                        .status(ResponseStatus::NOT_FOUND)
+                        .detail(&format!("a room for the rtc = '{}' is not found", &rtc_id))
+                        .build()
+                })?
+        };
+
+        if room.backend() != &room::RoomBackend::Janus {
+            return Err(SvcError::builder()
+                .status(ResponseStatus::NOT_IMPLEMENTED)
+                .detail(&format!(
+                    "'rtc_signal.create' is not implemented for the backend = '{}'.",
+                    room.backend()
+                ))
+                .build());
+        }
+
+        let room_id = room.id().to_string();
+        let rtc_id = rtc_id.to_string();
+
+        endpoint::authorize(
+            &self.authz,
+            room.audience(),
+            inreq.properties(),
+            vec!["rooms", &room_id, "rtcs", &rtc_id],
+            action,
+        )
+        .await
     }
 }
 
@@ -402,10 +404,10 @@ mod test {
 
     use crate::test_helpers::{
         agent::TestAgent,
+        authz::no_authz,
         db::TestDb,
         extract_payload,
         factory::{insert_janus_backend, insert_rtc},
-        no_authz,
     };
 
     use super::*;

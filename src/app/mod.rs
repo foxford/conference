@@ -74,7 +74,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     });
 
     // Authz
-    let authz = svc_authz::ClientMap::new(&config.id, config.authz)
+    let authz = svc_authz::ClientMap::new(&config.id, None, config.authz)
         .expect("Error converting authz config to clients");
 
     // Sentry

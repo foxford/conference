@@ -67,12 +67,15 @@ impl State {
             }
 
             let room_id = room.id().to_string();
-            self.authz.authorize(
+
+            endpoint::authorize(
+                &self.authz,
                 room.audience(),
                 inreq.properties(),
                 vec!["rooms", &room_id, "rtcs"],
                 "list",
-            )?;
+            )
+            .await?;
         };
 
         let objects = {
@@ -114,7 +117,8 @@ mod test {
     use svc_agent::AgentId;
 
     use crate::test_helpers::{
-        agent::TestAgent, db::TestDb, extract_payload, factory::insert_janus_rtc_stream, no_authz,
+        agent::TestAgent, authz::no_authz, db::TestDb, extract_payload,
+        factory::insert_janus_rtc_stream,
     };
 
     use super::*;
