@@ -281,7 +281,7 @@ mod test {
 
     use crate::test_helpers::{
         agent::TestAgent,
-        authz::no_authz,
+        authz::{no_authz, TestAuthz},
         db::TestDb,
         extract_payload,
         factory::{insert_janus_backend, insert_room, insert_rtc},
@@ -292,10 +292,6 @@ mod test {
 
     const AUDIENCE: &str = "dev.svc.example.org";
 
-    fn build_state(db: &TestDb) -> State {
-        State::new(no_authz(AUDIENCE), db.connection_pool().clone())
-    }
-
     #[derive(Debug, PartialEq, Deserialize)]
     struct RtcResponse {
         id: Uuid,
@@ -303,10 +299,13 @@ mod test {
         created_at: i64,
     }
 
+    ///////////////////////////////////////////////////////////////////////////
+
     #[test]
     fn create_rtc() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
 
             // Insert a room.
             let room = db
@@ -315,11 +314,15 @@ mod test {
                 .map(|conn| insert_room(&conn, AUDIENCE))
                 .unwrap();
 
-            // Make rtc.create request.
-            let state = build_state(&db);
+            // Allow user to create rtcs in the room.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let payload = json!({"room_id": room.id()});
+            let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs"];
+            authz.allow(agent.account_id(), object, "create");
 
+            // Make rtc.create request.
+            let state = State::new(authz.into(), db.connection_pool().clone());
+            let payload = json!({"room_id": room.id()});
             let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
             let mut result = state.create(request).await.into_result().unwrap();
             let message = result.remove(0);
@@ -336,9 +339,60 @@ mod test {
     }
 
     #[test]
+    fn create_rtc_missing_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Make rtc.create request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
+            let payload = json!({ "room_id": Uuid::new_v4() });
+            let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
+            let result = state.create(request).await.into_result();
+
+            // Assert 404 error response.
+            match result {
+                Ok(_) => panic!("Expected rtc.create to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn create_rtc_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
+
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make rtc.create request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let state = State::new(authz.into(), db.connection_pool().clone());
+            let payload = json!({"room_id": room.id()});
+            let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
+            let result = state.create(request).await.into_result();
+
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected rtc.create to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
+        });
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+
+    #[test]
     fn read_rtc() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
 
             // Insert an rtc.
             let rtc = db
@@ -347,9 +401,15 @@ mod test {
                 .map(|conn| insert_rtc(&conn, AUDIENCE))
                 .unwrap();
 
-            // Make rtc.read request.
-            let state = build_state(&db);
+            // Allow user to read the rtc.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "read");
+
+            // Make rtc.read request.
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": rtc.id()});
             let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
             let mut result = state.read(request).await.into_result().unwrap();
@@ -362,9 +422,60 @@ mod test {
     }
 
     #[test]
+    fn read_rtc_missing() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Make rtc.read request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({ "id": Uuid::new_v4() });
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
+            let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
+            let result = state.read(request).await.into_result();
+
+            // Assert 404 error response.
+            match result {
+                Ok(_) => panic!("Expected rtc.read to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn read_rtc_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
+
+            // Insert an rtc.
+            let rtc = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_rtc(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make rtc.read request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({ "id": rtc.id() });
+            let state = State::new(authz.into(), db.connection_pool().clone());
+            let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
+            let result = state.read(request).await.into_result();
+
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected rtc.read to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
+        });
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+
+    #[test]
     fn list_rtcs() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
 
             // Insert rtcs.
             let rtc = db
@@ -377,9 +488,14 @@ mod test {
                 })
                 .unwrap();
 
-            // Make rtc.list request.
-            let state = build_state(&db);
+            // Allow user to list rtcs in the room.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let room_id = rtc.room_id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs"];
+            authz.allow(agent.account_id(), object, "list");
+
+            // Make rtc.list request.
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"room_id": rtc.room_id()});
             let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
             let mut result = state.list(request).await.into_result().unwrap();
@@ -391,6 +507,56 @@ mod test {
             assert_eq!(resp.first().unwrap().id, rtc.id());
         });
     }
+
+    #[test]
+    fn list_rtcs_missing_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Make rtc.list request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
+            let payload = json!({ "room_id": Uuid::new_v4() });
+            let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
+            let result = state.list(request).await.into_result();
+
+            // Assert 404 error response.
+            match result {
+                Ok(_) => panic!("Expected rtc.list to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn list_rtcs_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
+
+            // Insert an rtc.
+            let rtc = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_rtc(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make rtc.list request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({ "room_id": rtc.room_id() });
+            let state = State::new(authz.into(), db.connection_pool().clone());
+            let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
+            let result = state.list(request).await.into_result();
+
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected rtc.list to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
+        });
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
 
     #[derive(Debug, PartialEq, Deserialize)]
     struct RtcConnectResponse {
@@ -419,6 +585,7 @@ mod test {
     fn connect_to_rtc() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
 
             // Insert an rtc and janus backend.
             let (rtc, backend) = db
@@ -432,9 +599,15 @@ mod test {
                 })
                 .unwrap();
 
-            // Make rtc.connect request.
-            let state = build_state(&db);
+            // Allow user to read the rtc.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "read");
+
+            // Make rtc.connect request.
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": rtc.id()});
             let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
             let mut result = state.connect(request).await.into_result().unwrap();
@@ -464,6 +637,54 @@ mod test {
                     }
                 }
             )
+        });
+    }
+
+    #[test]
+    fn connect_to_rtc_missing() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Make rtc.connect request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({ "id": Uuid::new_v4() });
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
+            let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
+            let result = state.connect(request).await.into_result();
+
+            // Assert 404 error response.
+            match result {
+                Ok(_) => panic!("Expected rtc.connect to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn connect_to_rtc_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
+
+            // Insert an rtc.
+            let rtc = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_rtc(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make rtc.connect request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({ "id": rtc.id() });
+            let state = State::new(authz.into(), db.connection_pool().clone());
+            let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
+            let result = state.connect(request).await.into_result();
+
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected rtc.connect to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
         });
     }
 }

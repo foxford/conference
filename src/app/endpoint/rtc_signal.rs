@@ -404,7 +404,7 @@ mod test {
 
     use crate::test_helpers::{
         agent::TestAgent,
-        authz::no_authz,
+        authz::{no_authz, TestAuthz},
         db::TestDb,
         extract_payload,
         factory::{insert_janus_backend, insert_rtc},
@@ -414,9 +414,7 @@ mod test {
 
     const AUDIENCE: &str = "dev.svc.example.org";
 
-    fn build_state(db: &TestDb) -> State {
-        State::new(no_authz(AUDIENCE), db.connection_pool().clone())
-    }
+    ///////////////////////////////////////////////////////////////////////////
 
     #[derive(Debug, PartialEq, Deserialize)]
     struct RtcSignalCreateJanusRequestOffer {
@@ -491,6 +489,79 @@ mod test {
     fn create_rtc_signal_for_offer() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
+
+            // Insert a janus backend and an rtc.
+            let (backend, rtc) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    (
+                        insert_janus_backend(&conn, AUDIENCE),
+                        insert_rtc(&conn, AUDIENCE),
+                    )
+                })
+                .unwrap();
+
+            // Allow user to update the rtc.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "update");
+
+            // Make rtc_signal.create request.
+            let rtc_stream_id = Uuid::new_v4();
+
+            let handle_id = format!(
+                "{}.{}.{}.{}.{}",
+                rtc_stream_id,
+                rtc.id(),
+                backend.handle_id(),
+                backend.session_id(),
+                backend.id(),
+            );
+
+            let payload = json!({
+                "handle_id": handle_id,
+                "jsep": {"type": "offer", "sdp": SDP_OFFER},
+                "label": "whatever",
+            });
+
+            let state = State::new(authz.into(), db.connection_pool().clone());
+            let method = "rtc_signal.create";
+            let request: CreateRequest = agent.build_request(method, &payload).unwrap();
+            let mut result = state.create(request).await.into_result().unwrap();
+            let outgoing_envelope = result.remove(0);
+
+            // Assert outgoing broker request.
+            let req: RtcSignalCreateJanusRequestOffer = extract_payload(outgoing_envelope).unwrap();
+
+            assert_eq!(req.janus, "message");
+            assert_eq!(req.session_id, backend.session_id());
+            assert_eq!(req.handle_id, backend.handle_id());
+            assert_eq!(req.body.method, "stream.create");
+            assert_eq!(req.body.id, rtc.id());
+            assert_eq!(req.jsep.r#type, "offer");
+            assert_eq!(req.jsep.sdp, SDP_OFFER);
+
+            // Assert rtc stream presence in the DB.
+            let conn = db.connection_pool().get().unwrap();
+            let query = crate::schema::janus_rtc_stream::table.find(rtc_stream_id);
+            let rtc_stream: crate::db::janus_rtc_stream::Object = query.get_result(&conn).unwrap();
+            assert_eq!(rtc_stream.handle_id(), backend.handle_id());
+            assert_eq!(rtc_stream.rtc_id(), rtc.id());
+            assert_eq!(rtc_stream.backend_id(), backend.id());
+            assert_eq!(rtc_stream.label(), "whatever");
+            assert_eq!(rtc_stream.sent_by(), agent.agent_id());
+        });
+    }
+
+    #[test]
+    fn create_rtc_signal_for_offer_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
 
             // Insert a janus backend and an rtc.
             let (backend, rtc) = db
@@ -522,35 +593,21 @@ mod test {
                 "label": "whatever",
             });
 
-            let state = build_state(&db);
             let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let mut result = state.create(request).await.into_result().unwrap();
-            let outgoing_envelope = result.remove(0);
+            let result = state.create(request).await.into_result();
 
-            // Assert outgoing broker request.
-            let req: RtcSignalCreateJanusRequestOffer = extract_payload(outgoing_envelope).unwrap();
-
-            assert_eq!(req.janus, "message");
-            assert_eq!(req.session_id, backend.session_id());
-            assert_eq!(req.handle_id, backend.handle_id());
-            assert_eq!(req.body.method, "stream.create");
-            assert_eq!(req.body.id, rtc.id());
-            assert_eq!(req.jsep.r#type, "offer");
-            assert_eq!(req.jsep.sdp, SDP_OFFER);
-
-            // Assert rtc stream presence in the DB.
-            let conn = db.connection_pool().get().unwrap();
-            let query = crate::schema::janus_rtc_stream::table.find(rtc_stream_id);
-            let rtc_stream: crate::db::janus_rtc_stream::Object = query.get_result(&conn).unwrap();
-            assert_eq!(rtc_stream.handle_id(), backend.handle_id());
-            assert_eq!(rtc_stream.rtc_id(), rtc.id());
-            assert_eq!(rtc_stream.backend_id(), backend.id());
-            assert_eq!(rtc_stream.label(), "whatever");
-            assert_eq!(rtc_stream.sent_by(), agent.agent_id());
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected rtc_signal.create to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
         });
     }
+
+    ///////////////////////////////////////////////////////////////////////////
 
     const SDP_ANSWER: &str = r#"
     v=0
@@ -615,7 +672,7 @@ mod test {
                 "label": "whatever",
             });
 
-            let state = build_state(&db);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
@@ -628,6 +685,8 @@ mod test {
             }
         });
     }
+
+    ///////////////////////////////////////////////////////////////////////////
 
     #[derive(Debug, PartialEq, Deserialize)]
     struct RtcSignalCreateJanusRequestIceCandidate {
@@ -653,6 +712,66 @@ mod test {
     fn create_rtc_signal_for_candidate() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
+
+            // Insert a janus backend and an rtc.
+            let (backend, rtc) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    (
+                        insert_janus_backend(&conn, AUDIENCE),
+                        insert_rtc(&conn, AUDIENCE),
+                    )
+                })
+                .unwrap();
+
+            // Allow user to read the rtc.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "read");
+
+            // Make rtc_signal.create request.
+            let rtc_stream_id = Uuid::new_v4();
+
+            let handle_id = format!(
+                "{}.{}.{}.{}.{}",
+                rtc_stream_id,
+                rtc.id(),
+                backend.handle_id(),
+                backend.session_id(),
+                backend.id(),
+            );
+
+            let payload = json!({
+                "handle_id": handle_id,
+                "jsep": {"sdpMid": 0, "sdpMLineIndex": 0, "candidate": ICE_CANDIDATE},
+            });
+
+            let state = State::new(authz.into(), db.connection_pool().clone());
+            let method = "rtc_signal.create";
+            let request: CreateRequest = agent.build_request(method, &payload).unwrap();
+            let mut result = state.create(request).await.into_result().unwrap();
+            let message = result.remove(0);
+
+            // Assert outgoing broker request.
+            let req: RtcSignalCreateJanusRequestIceCandidate = extract_payload(message).unwrap();
+            assert_eq!(req.janus, "trickle");
+            assert_eq!(req.session_id, backend.session_id());
+            assert_eq!(req.handle_id, backend.handle_id());
+            assert_eq!(req.candidate.sdp_m_id, 0);
+            assert_eq!(req.candidate.sdp_m_line_index, 0);
+            assert_eq!(req.candidate.candidate, ICE_CANDIDATE);
+        });
+    }
+
+    #[test]
+    fn create_rtc_signal_for_candidate_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
 
             // Insert a janus backend and an rtc.
             let (backend, rtc) = db
@@ -683,21 +802,17 @@ mod test {
                 "jsep": {"sdpMid": 0, "sdpMLineIndex": 0, "candidate": ICE_CANDIDATE},
             });
 
-            let state = build_state(&db);
             let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let mut result = state.create(request).await.into_result().unwrap();
-            let message = result.remove(0);
+            let result = state.create(request).await.into_result();
 
-            // Assert outgoing broker request.
-            let req: RtcSignalCreateJanusRequestIceCandidate = extract_payload(message).unwrap();
-            assert_eq!(req.janus, "trickle");
-            assert_eq!(req.session_id, backend.session_id());
-            assert_eq!(req.handle_id, backend.handle_id());
-            assert_eq!(req.candidate.sdp_m_id, 0);
-            assert_eq!(req.candidate.sdp_m_line_index, 0);
-            assert_eq!(req.candidate.candidate, ICE_CANDIDATE);
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected rtc_signal.create to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
         });
     }
 }

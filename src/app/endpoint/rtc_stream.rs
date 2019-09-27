@@ -117,17 +117,16 @@ mod test {
     use svc_agent::AgentId;
 
     use crate::test_helpers::{
-        agent::TestAgent, authz::no_authz, db::TestDb, extract_payload,
-        factory::insert_janus_rtc_stream,
+        agent::TestAgent,
+        authz::{no_authz, TestAuthz},
+        db::TestDb,
+        extract_payload,
+        factory::{insert_janus_rtc_stream, insert_rtc},
     };
 
     use super::*;
 
     const AUDIENCE: &str = "dev.svc.example.org";
-
-    fn build_state(db: &TestDb) -> State {
-        State::new(no_authz(AUDIENCE), db.connection_pool().clone())
-    }
 
     #[derive(Debug, PartialEq, Deserialize)]
     struct RtcStreamResponse {
@@ -141,10 +140,13 @@ mod test {
         created_at: i64,
     }
 
+    ///////////////////////////////////////////////////////////////////////////
+
     #[test]
     fn list_rtc_streams() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
 
             let (rtc_stream, rtc) = db
                 .connection_pool()
@@ -164,9 +166,14 @@ mod test {
                 })
                 .unwrap();
 
-            // Make rtc_stream.list request.
-            let state = build_state(&db);
+            // Allow user to list rtcs in the room.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let room_id = rtc.room_id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs"];
+            authz.allow(agent.account_id(), object, "list");
+
+            // Make rtc_stream.list request.
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"room_id": rtc.room_id(), "rtc_id": rtc.id()});
             let request: ListRequest = agent.build_request("rtc_stream.list", &payload).unwrap();
             let mut result = state.list(request).await.into_result().unwrap();
@@ -194,6 +201,54 @@ mod test {
                     created_at: rtc_stream.created_at().timestamp(),
                 }
             );
+        });
+    }
+
+    #[test]
+    fn list_rtc_streams_missing_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Make rtc_stream.list request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
+            let payload = json!({"room_id": Uuid::new_v4(), "rtc_id": Uuid::new_v4()});
+            let request: ListRequest = agent.build_request("rtc_stream.list", &payload).unwrap();
+            let result = state.list(request).await.into_result();
+
+            // Assert 404 error response.
+            match result {
+                Ok(_) => panic!("Expected rtc_stream.list to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn list_rtc_streams_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
+
+            // Insert an rtc.
+            let rtc = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_rtc(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make rtc_stream.list request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({ "room_id": rtc.room_id(), "rtc_id": rtc.id() });
+            let state = State::new(authz.into(), db.connection_pool().clone());
+            let request: ListRequest = agent.build_request("rtc_stream.list", &payload).unwrap();
+            let result = state.list(request).await.into_result();
+
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected rtc_stream.list to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
         });
     }
 }

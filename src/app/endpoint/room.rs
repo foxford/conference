@@ -299,9 +299,14 @@ mod test {
     use chrono::Utc;
     use diesel::prelude::*;
     use serde_json::{json, Value as JsonValue};
+    use svc_authz::ClientMap;
 
     use crate::test_helpers::{
-        agent::TestAgent, authz::no_authz, db::TestDb, extract_payload, factory::insert_room,
+        agent::TestAgent,
+        authz::{no_authz, TestAuthz},
+        db::TestDb,
+        extract_payload,
+        factory::insert_room,
         parse_payload,
     };
 
@@ -309,10 +314,9 @@ mod test {
 
     const AUDIENCE: &str = "dev.svc.example.org";
 
-    fn build_state(db: &TestDb) -> State {
+    fn build_state(authz: ClientMap, db: &TestDb) -> State {
         let account_id = svc_agent::AccountId::new("mqtt-gateway", AUDIENCE);
-
-        State::new(account_id, no_authz(AUDIENCE), db.connection_pool().clone())
+        State::new(account_id, authz, db.connection_pool().clone())
     }
 
     #[derive(Debug, PartialEq, Deserialize)]
@@ -324,14 +328,19 @@ mod test {
         backend: String,
     }
 
+    ///////////////////////////////////////////////////////////////////////////
+
     #[test]
     fn create_room() {
         futures::executor::block_on(async {
             let db = TestDb::new();
-            let state = build_state(&db);
+            let mut authz = TestAuthz::new(AUDIENCE);
+
+            // Allow user to create rooms.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            authz.allow(agent.account_id(), vec!["rooms"], "create");
 
             // Make room.create request.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
             let now = Utc::now().timestamp();
 
             let payload = json!({
@@ -340,6 +349,7 @@ mod test {
                 "backend": "janus",
             });
 
+            let state = build_state(no_authz(AUDIENCE), &db);
             let request: CreateRequest = agent.build_request("room.create", &payload).unwrap();
             let mut result = state.create(request).await.into_result().unwrap();
             let message = result.remove(0);
@@ -359,9 +369,40 @@ mod test {
     }
 
     #[test]
+    fn create_room_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
+
+            // Make room.create request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let now = Utc::now().timestamp();
+
+            let payload = json!({
+                "time": vec![Some(now), None],
+                "audience": AUDIENCE,
+                "backend": "janus",
+            });
+
+            let state = build_state(authz.into(), &db);
+            let request: CreateRequest = agent.build_request("room.create", &payload).unwrap();
+            let result = state.create(request).await.into_result();
+
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected room.create to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
+        });
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+
+    #[test]
     fn read_room() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
 
             // Insert a room.
             let room = db
@@ -370,9 +411,13 @@ mod test {
                 .map(|conn| insert_room(&conn, AUDIENCE))
                 .unwrap();
 
-            // Make room.read request.
-            let state = build_state(&db);
+            // Allow user to read the room.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let room_id = room.id().to_string();
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
+
+            // Make room.read request.
+            let state = build_state(authz.into(), &db);
             let payload = json!({"id": room.id()});
             let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
             let mut result = state.read(request).await.into_result().unwrap();
@@ -400,9 +445,30 @@ mod test {
     }
 
     #[test]
-    fn update_room() {
+    fn read_room_missing() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+
+            // Make room.read request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({ "id": Uuid::new_v4() });
+            let state = build_state(no_authz(AUDIENCE), &db);
+            let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
+            let result = state.read(request).await.into_result();
+
+            // Assert 404 error response.
+            match result {
+                Ok(_) => panic!("Expected room.read to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn read_room_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
 
             // Insert a room.
             let room = db
@@ -411,9 +477,42 @@ mod test {
                 .map(|conn| insert_room(&conn, AUDIENCE))
                 .unwrap();
 
-            // Make room.update request.
-            let state = build_state(&db);
+            // Make room.read request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({ "id": room.id() });
+            let state = build_state(authz.into(), &db);
+            let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
+            let result = state.read(request).await.into_result();
+
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected room.read to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
+        });
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+
+    #[test]
+    fn update_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
+
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Allow user to update the room.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let room_id = room.id().to_string();
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+
+            // Make room.update request.
             let now = Utc::now().timestamp();
 
             let payload = json!({
@@ -423,6 +522,7 @@ mod test {
                 "backend": "none",
             });
 
+            let state = build_state(authz.into(), &db);
             let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
             let mut result = state.update(request).await.into_result().unwrap();
             let message = result.remove(0);
@@ -444,9 +544,37 @@ mod test {
     }
 
     #[test]
-    fn delete_room() {
+    fn update_room_missing() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+
+            // Make room.update request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+
+            let payload = json!({
+                "id":  Uuid::new_v4(),
+                "time": vec![Some(Utc::now().timestamp()), None],
+                "audience": "dev.svc.example.net",
+                "backend": "none",
+            });
+
+            let state = build_state(no_authz(AUDIENCE), &db);
+            let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
+            let result = state.update(request).await.into_result();
+
+            // Assert 404 error response.
+            match result {
+                Ok(_) => panic!("Expected room.update to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn update_room_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
 
             // Insert a room.
             let room = db
@@ -455,9 +583,50 @@ mod test {
                 .map(|conn| insert_room(&conn, AUDIENCE))
                 .unwrap();
 
-            // Make room.delete request.
-            let state = build_state(&db);
+            // Make room.update request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
+
+            let payload = json!({
+                "id": room.id(),
+                "time": vec![Some(Utc::now().timestamp()), None],
+                "audience": "dev.svc.example.net",
+                "backend": "none",
+            });
+
+            let state = build_state(authz.into(), &db);
+            let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
+            let result = state.update(request).await.into_result();
+
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected room.update to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
+        });
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+
+    #[test]
+    fn delete_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
+
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Allow user to delete the room.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let room_id = room.id().to_string();
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "delete");
+
+            // Make room.delete request.
+            let state = build_state(authz.into(), &db);
             let payload = json!({"id": room.id()});
             let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
             state.delete(request).await.into_result().unwrap();
@@ -469,6 +638,56 @@ mod test {
         });
     }
 
+    #[test]
+    fn delete_room_missing() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Make room.delete request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({ "id": Uuid::new_v4() });
+            let state = build_state(no_authz(AUDIENCE), &db);
+            let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
+            let result = state.delete(request).await.into_result();
+
+            // Assert 404 error response.
+            match result {
+                Ok(_) => panic!("Expected room.delete to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn delete_room_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
+
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make room.delete request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({"id": room.id()});
+            let state = build_state(authz.into(), &db);
+            let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
+            let result = state.delete(request).await.into_result();
+
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected room.delete to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
+        });
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+
     #[derive(Debug, PartialEq, Deserialize)]
     struct RoomEnterLeaveBrokerRequest {
         subject: String,
@@ -479,7 +698,7 @@ mod test {
     fn enter_room() {
         futures::executor::block_on(async {
             let db = TestDb::new();
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let mut authz = TestAuthz::new(AUDIENCE);
 
             // Insert a room.
             let room = db
@@ -488,8 +707,14 @@ mod test {
                 .map(|conn| insert_room(&conn, AUDIENCE))
                 .unwrap();
 
+            // Allow user to subscribe to room's events
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id, "events"];
+            authz.allow(agent.account_id(), object, "subscribe");
+
             // Make room.enter request.
-            let state = build_state(&db);
+            let state = build_state(authz.into(), &db);
             let payload = json!({"id": room.id()});
             let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
             let mut result = state.enter(request).await.into_result().unwrap();
@@ -515,6 +740,56 @@ mod test {
     }
 
     #[test]
+    fn enter_room_missing() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Make room.enter request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({ "id": Uuid::new_v4() });
+            let state = build_state(no_authz(AUDIENCE), &db);
+            let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
+            let result = state.enter(request).await.into_result();
+
+            // Assert 404 error response.
+            match result {
+                Ok(_) => panic!("Expected room.enter to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn enter_room_unauthorized() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let authz = TestAuthz::new(AUDIENCE);
+
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make room.enter request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({"id": room.id()});
+            let state = build_state(authz.into(), &db);
+            let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
+            let result = state.enter(request).await.into_result();
+
+            // Assert 403 error response.
+            match result {
+                Ok(_) => panic!("Expected room.enter to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
+            }
+        });
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+
+    #[test]
     fn leave_room() {
         futures::executor::block_on(async {
             let db = TestDb::new();
@@ -528,7 +803,7 @@ mod test {
                 .unwrap();
 
             // Make room.leave request.
-            let state = build_state(&db);
+            let state = build_state(no_authz(AUDIENCE), &db);
             let payload = json!({"id": room.id()});
             let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
             let mut result = state.leave(request).await.into_result().unwrap();
@@ -550,6 +825,26 @@ mod test {
                 resp.object,
                 vec!["rooms", room.id().to_string().as_str(), "events"]
             );
+        });
+    }
+
+    #[test]
+    fn leave_room_missing() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+
+            // Make room.leave request.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let payload = json!({ "id": Uuid::new_v4() });
+            let state = build_state(no_authz(AUDIENCE), &db);
+            let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
+            let result = state.leave(request).await.into_result();
+
+            // Assert 404 error response.
+            match result {
+                Ok(_) => panic!("Expected room.leave to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
         });
     }
 }
