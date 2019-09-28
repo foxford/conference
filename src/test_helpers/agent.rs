@@ -60,6 +60,9 @@ impl TestAgent {
                 "connection_mode": "agents",
                 "connection_version": "v1",
                 "response_topic": response_topic,
+                "broker_agent_label": "alpha",
+                "broker_account_label": "mqtt-gateway",
+                "broker_audience": self.account_id.audience(),
             }
         });
 
