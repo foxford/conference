@@ -30,7 +30,7 @@ function FILE_FROM_GITHUB() {
 
 set -ex
 
-FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/ca.crt"
+FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/ca-${NAMESPACE}.crt"
 FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/docs.sh"
 FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/travis-run.sh"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/_/${PROJECT}.yaml"
