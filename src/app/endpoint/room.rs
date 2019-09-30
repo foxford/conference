@@ -77,22 +77,13 @@ impl SubscriptionRequest {
 
 #[derive(Clone)]
 pub(crate) struct State {
-    broker_account_id: svc_agent::AccountId,
     authz: svc_authz::ClientMap,
     db: ConnectionPool,
 }
 
 impl State {
-    pub(crate) fn new(
-        broker_account_id: svc_agent::AccountId,
-        authz: svc_authz::ClientMap,
-        db: ConnectionPool,
-    ) -> Self {
-        Self {
-            broker_account_id,
-            authz,
-            db,
-        }
+    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
+        Self { authz, db }
     }
 }
 
@@ -259,7 +250,7 @@ impl State {
             inreq.properties().correlation_data(),
         );
 
-        OutgoingRequest::multicast(payload, props, &self.broker_account_id).into()
+        OutgoingRequest::unicast(payload, props, inreq.properties().broker()).into()
     }
 
     pub(crate) async fn leave(&self, inreq: LeaveRequest) -> endpoint::Result {
@@ -293,7 +284,7 @@ impl State {
             inreq.properties().correlation_data(),
         );
 
-        OutgoingRequest::multicast(payload, props, &self.broker_account_id).into()
+        OutgoingRequest::unicast(payload, props, inreq.properties().broker()).into()
     }
 }
 
@@ -305,6 +296,8 @@ mod test {
     use diesel::prelude::*;
     use failure::format_err;
     use serde_json::{json, Value as JsonValue};
+    use svc_agent::Destination;
+    use svc_authn::Authenticable;
     use svc_authz::ClientMap;
 
     use crate::test_helpers::{
@@ -319,11 +312,6 @@ mod test {
     use super::*;
 
     const AUDIENCE: &str = "dev.svc.example.org";
-
-    fn build_state(authz: ClientMap, db: &TestDb) -> State {
-        let account_id = svc_agent::AccountId::new("mqtt-gateway", AUDIENCE);
-        State::new(account_id, authz, db.connection_pool().clone())
-    }
 
     #[derive(Debug, PartialEq, Deserialize)]
     struct RoomResponse {
@@ -355,7 +343,7 @@ mod test {
                 "backend": "janus",
             });
 
-            let state = build_state(no_authz(AUDIENCE), &db);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: CreateRequest = agent.build_request("room.create", &payload).unwrap();
             let mut result = state.create(request).await.into_result().unwrap();
             let message = result.remove(0);
@@ -390,7 +378,7 @@ mod test {
                 "backend": "janus",
             });
 
-            let state = build_state(authz.into(), &db);
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let request: CreateRequest = agent.build_request("room.create", &payload).unwrap();
             let result = state.create(request).await.into_result();
 
@@ -423,7 +411,7 @@ mod test {
             authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
 
             // Make room.read request.
-            let state = build_state(authz.into(), &db);
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
             let mut result = state.read(request).await.into_result().unwrap();
@@ -458,7 +446,7 @@ mod test {
             // Make room.read request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({ "id": Uuid::new_v4() });
-            let state = build_state(no_authz(AUDIENCE), &db);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
             let result = state.read(request).await.into_result();
 
@@ -486,7 +474,7 @@ mod test {
             // Make room.read request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({ "id": room.id() });
-            let state = build_state(authz.into(), &db);
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
             let result = state.read(request).await.into_result();
 
@@ -528,7 +516,7 @@ mod test {
                 "backend": "none",
             });
 
-            let state = build_state(authz.into(), &db);
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
             let mut result = state.update(request).await.into_result().unwrap();
             let message = result.remove(0);
@@ -564,7 +552,7 @@ mod test {
                 "backend": "none",
             });
 
-            let state = build_state(no_authz(AUDIENCE), &db);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
             let result = state.update(request).await.into_result();
 
@@ -599,7 +587,7 @@ mod test {
                 "backend": "none",
             });
 
-            let state = build_state(authz.into(), &db);
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
             let result = state.update(request).await.into_result();
 
@@ -632,7 +620,7 @@ mod test {
             authz.allow(agent.account_id(), vec!["rooms", &room_id], "delete");
 
             // Make room.delete request.
-            let state = build_state(authz.into(), &db);
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
             state.delete(request).await.into_result().unwrap();
@@ -652,7 +640,7 @@ mod test {
             // Make room.delete request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({ "id": Uuid::new_v4() });
-            let state = build_state(no_authz(AUDIENCE), &db);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
             let result = state.delete(request).await.into_result();
 
@@ -680,7 +668,7 @@ mod test {
             // Make room.delete request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({"id": room.id()});
-            let state = build_state(authz.into(), &db);
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
             let result = state.delete(request).await.into_result();
 
@@ -720,13 +708,22 @@ mod test {
             authz.allow(agent.account_id(), object, "subscribe");
 
             // Make room.enter request.
-            let state = build_state(authz.into(), &db);
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
             let mut result = state.enter(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert outgoing broker request.
+            match message.destination() {
+                &Destination::Unicast(ref agent_id) => {
+                    assert_eq!(agent_id.label(), "alpha");
+                    assert_eq!(agent_id.as_account_id().label(), "mqtt-gateway");
+                    assert_eq!(agent_id.as_account_id().audience(), AUDIENCE);
+                }
+                _ => panic!("Expected unicast destination"),
+            }
+
             let message_bytes = message.into_bytes().unwrap();
 
             let message_value =
@@ -753,7 +750,7 @@ mod test {
             // Make room.enter request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({ "id": Uuid::new_v4() });
-            let state = build_state(no_authz(AUDIENCE), &db);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
             let result = state.enter(request).await.into_result();
 
@@ -781,7 +778,7 @@ mod test {
             // Make room.enter request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({"id": room.id()});
-            let state = build_state(authz.into(), &db);
+            let state = State::new(authz.into(), db.connection_pool().clone());
             let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
             let result = state.enter(request).await.into_result();
 
@@ -817,13 +814,22 @@ mod test {
                 .unwrap();
 
             // Make room.leave request.
-            let state = build_state(no_authz(AUDIENCE), &db);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
             let mut result = state.leave(request).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert outgoing broker request.
+            match message.destination() {
+                &Destination::Unicast(ref agent_id) => {
+                    assert_eq!(agent_id.label(), "alpha");
+                    assert_eq!(agent_id.as_account_id().label(), "mqtt-gateway");
+                    assert_eq!(agent_id.as_account_id().audience(), AUDIENCE);
+                }
+                _ => panic!("Expected unicast destination"),
+            }
+
             let message_bytes = message.into_bytes().unwrap();
 
             let message_value =
@@ -850,7 +856,7 @@ mod test {
             // Make room.leave request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({ "id": Uuid::new_v4() });
-            let state = build_state(no_authz(AUDIENCE), &db);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
             let result = state.leave(request).await.into_result();
 

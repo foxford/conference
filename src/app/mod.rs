@@ -85,7 +85,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     // Application resources
     let state = Arc::new(State {
         agent: endpoint::agent::State::new(authz.clone(), db.clone()),
-        room: endpoint::room::State::new(config.broker_id.clone(), authz.clone(), db.clone()),
+        room: endpoint::room::State::new(authz.clone(), db.clone()),
         rtc: endpoint::rtc::State::new(authz.clone(), db.clone()),
         rtc_signal: endpoint::rtc_signal::State::new(authz.clone(), db.clone()),
         rtc_stream: endpoint::rtc_stream::State::new(authz.clone(), db.clone()),
