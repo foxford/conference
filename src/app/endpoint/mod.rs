@@ -228,6 +228,8 @@ pub(crate) async fn authorize(
         .map_err(|err| err.into())
 }
 
+pub(crate) mod shared_helpers;
+
 pub(crate) mod agent;
 pub(crate) mod message;
 pub(crate) mod room;

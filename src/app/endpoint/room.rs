@@ -4,10 +4,12 @@ use std::ops::Bound;
 use svc_agent::mqtt::{
     Connection, IncomingRequest, OutgoingRequest, OutgoingRequestProperties, ResponseStatus,
 };
+use svc_agent::Addressable;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
+use crate::app::endpoint::shared_helpers::check_room_presence;
 use crate::db::{room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -263,9 +265,10 @@ impl State {
     pub(crate) async fn leave(&self, inreq: LeaveRequest) -> endpoint::Result {
         let room_id = inreq.payload().id.to_string();
 
-        let _object = {
+        {
             let conn = self.db.get()?;
-            room::FindQuery::new()
+
+            let room = room::FindQuery::new()
                 .time(room::since_now())
                 .id(inreq.payload().id)
                 .execute(&conn)?
@@ -274,8 +277,10 @@ impl State {
                         .status(ResponseStatus::NOT_FOUND)
                         .detail(&format!("the room = '{}' is not found", &room_id))
                         .build()
-                })?
-        };
+                })?;
+
+            check_room_presence(&room, &inreq.properties().as_agent_id(), &conn)?;
+        }
 
         let payload = SubscriptionRequest::new(
             inreq.properties().to_connection(),
@@ -298,6 +303,7 @@ mod test {
 
     use chrono::Utc;
     use diesel::prelude::*;
+    use failure::format_err;
     use serde_json::{json, Value as JsonValue};
     use svc_authz::ClientMap;
 
@@ -306,7 +312,7 @@ mod test {
         authz::{no_authz, TestAuthz},
         db::TestDb,
         extract_payload,
-        factory::insert_room,
+        factory::{self, insert_room},
         parse_payload,
     };
 
@@ -795,11 +801,19 @@ mod test {
             let db = TestDb::new();
             let agent = TestAgent::new("web", "user123", AUDIENCE);
 
-            // Insert a room.
+            // Insert a room with online agent.
             let room = db
                 .connection_pool()
                 .get()
-                .map(|conn| insert_room(&conn, AUDIENCE))
+                .map_err(|err| format_err!("Failed to get DB connection: {}", err))
+                .and_then(|conn| {
+                    let room = insert_room(&conn, AUDIENCE);
+
+                    let agent_factory = factory::Agent::new().room_id(room.id());
+                    agent_factory.agent_id(agent.agent_id()).insert(&conn)?;
+
+                    Ok(room)
+                })
                 .unwrap();
 
             // Make room.leave request.
@@ -837,6 +851,33 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({ "id": Uuid::new_v4() });
             let state = build_state(no_authz(AUDIENCE), &db);
+            let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
+            let result = state.leave(request).await.into_result();
+
+            // Assert 404 error response.
+            match result {
+                Ok(_) => panic!("Expected room.leave to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn leave_room_when_not_in_the_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| insert_room(&conn, AUDIENCE))
+                .unwrap();
+
+            // Make room.leave request.
+            let state = build_state(no_authz(AUDIENCE), &db);
+            let payload = json!({"id": room.id()});
             let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
             let result = state.leave(request).await.into_result();
 
