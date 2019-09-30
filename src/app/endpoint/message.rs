@@ -69,6 +69,11 @@ impl State {
     }
 
     pub(crate) async fn unicast(&self, inreq: UnicastRequest) -> endpoint::Result {
+        let conn = self.db.get()?;
+        let room = find_room(inreq.payload().room_id, &conn)?;
+        check_room_presence(&room, &inreq.properties().as_agent_id(), &conn)?;
+        check_room_presence(&room, &inreq.payload().agent_id, &conn)?;
+
         let to = &inreq.payload().agent_id;
         let payload = &inreq.payload().data;
 
@@ -140,8 +145,7 @@ mod test {
     };
 
     const AGENT_LABEL: &str = "web";
-    const AUDIENCE: &str = "example.org";
-    const ROOM_ID: &str = "3b8226e6-a7c0-11e9-8019-60f81db6d53e";
+    const AUDIENCE: &str = "dev.svc.example.org";
 
     #[test]
     fn unicast_message() {
@@ -150,9 +154,31 @@ mod test {
             let sender = TestAgent::new(AGENT_LABEL, "sender", AUDIENCE);
             let receiver = TestAgent::new(AGENT_LABEL, "receiver", AUDIENCE);
 
+            // Insert room with online both sender and receiver.
+            let room = db
+                .connection_pool()
+                .get()
+                .map_err(|err| format_err!("Failed to get DB connection: {}", err))
+                .and_then(|conn| {
+                    let room = insert_room(&conn, AUDIENCE);
+
+                    factory::Agent::new()
+                        .room_id(room.id())
+                        .agent_id(sender.agent_id())
+                        .insert(&conn)?;
+
+                    factory::Agent::new()
+                        .room_id(room.id())
+                        .agent_id(receiver.agent_id())
+                        .insert(&conn)?;
+
+                    Ok(room)
+                })
+                .expect("Failed to insert room");
+
             let payload = json!({
                 "agent_id": receiver.agent_id().to_string(),
-                "room_id": ROOM_ID,
+                "room_id": room.id(),
                 "data": {"key": "value"},
             });
 
@@ -172,6 +198,123 @@ mod test {
             assert_eq!(payload, json!({"key": "value"}));
         });
     }
+
+    #[test]
+    fn unicast_message_to_missing_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let sender = TestAgent::new(AGENT_LABEL, "sender", AUDIENCE);
+            let receiver = TestAgent::new(AGENT_LABEL, "receiver", AUDIENCE);
+
+            // Send message.unicast request.
+            let payload = json!({
+                "agent_id": receiver.agent_id().to_string(),
+                "room_id": Uuid::new_v4(),
+                "data": {"key": "value"},
+            });
+
+            let request: UnicastRequest =
+                sender.build_request("message.unicast", &payload).unwrap();
+
+            let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
+
+            // Assert 404 response.
+            match state.unicast(request).await.into_result() {
+                Ok(_) => panic!("Expected message.unicast to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn unicast_message_when_sender_is_not_in_the_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let sender = TestAgent::new(AGENT_LABEL, "sender", AUDIENCE);
+            let receiver = TestAgent::new(AGENT_LABEL, "receiver", AUDIENCE);
+
+            // Insert room with online receiver only.
+            let room = db
+                .connection_pool()
+                .get()
+                .map_err(|err| format_err!("Failed to get DB connection: {}", err))
+                .and_then(|conn| {
+                    let room = insert_room(&conn, AUDIENCE);
+
+                    factory::Agent::new()
+                        .room_id(room.id())
+                        .agent_id(receiver.agent_id())
+                        .insert(&conn)?;
+
+                    Ok(room)
+                })
+                .expect("Failed to insert room");
+
+            // Send message.unicast request.
+            let payload = json!({
+                "agent_id": receiver.agent_id().to_string(),
+                "room_id": room.id(),
+                "data": {"key": "value"},
+            });
+
+            let request: UnicastRequest =
+                sender.build_request("message.unicast", &payload).unwrap();
+
+            let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
+
+            // Assert 404 response.
+            match state.unicast(request).await.into_result() {
+                Ok(_) => panic!("Expected message.unicast to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    #[test]
+    fn unicast_message_when_receiver_is_not_in_the_room() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let sender = TestAgent::new(AGENT_LABEL, "sender", AUDIENCE);
+            let receiver = TestAgent::new(AGENT_LABEL, "receiver", AUDIENCE);
+
+            // Insert room with online sender only.
+            let room = db
+                .connection_pool()
+                .get()
+                .map_err(|err| format_err!("Failed to get DB connection: {}", err))
+                .and_then(|conn| {
+                    let room = insert_room(&conn, AUDIENCE);
+
+                    factory::Agent::new()
+                        .room_id(room.id())
+                        .agent_id(sender.agent_id())
+                        .insert(&conn)?;
+
+                    Ok(room)
+                })
+                .expect("Failed to insert room");
+
+            // Send message.unicast request.
+            let payload = json!({
+                "agent_id": receiver.agent_id().to_string(),
+                "room_id": room.id(),
+                "data": {"key": "value"},
+            });
+
+            let request: UnicastRequest =
+                sender.build_request("message.unicast", &payload).unwrap();
+
+            let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
+
+            // Assert 404 response.
+            match state.unicast(request).await.into_result() {
+                Ok(_) => panic!("Expected message.unicast to fail"),
+                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
+            }
+        });
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
 
     #[test]
     fn broadcast_message() {
