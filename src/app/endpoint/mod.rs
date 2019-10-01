@@ -4,8 +4,9 @@ use std::ops::Try;
 use failure::{format_err, Error};
 use serde::{de::DeserializeOwned, Serialize};
 use svc_agent::mqtt::{
-    compat, IncomingEventProperties, IncomingMessage, IncomingRequestProperties, OutgoingEvent,
-    OutgoingRequest, OutgoingResponse, Publishable, ResponseStatus,
+    compat, IncomingEventProperties, IncomingMessage, IncomingRequest, IncomingRequestProperties,
+    OutgoingEvent, OutgoingEventProperties, OutgoingRequest, OutgoingResponse, Publishable,
+    ResponseStatus,
 };
 use svc_error::{extension::sentry, Error as SvcError, ProblemDetails};
 
@@ -228,7 +229,25 @@ pub(crate) async fn authorize(
         .map_err(|err| err.into())
 }
 
-pub(crate) mod shared_helpers;
+pub(crate) fn respond_and_notify<R, O: 'static + Clone + Serialize>(
+    inreq: &IncomingRequest<R>,
+    object: O,
+    label: &'static str,
+    notification_topic: &str,
+) -> Result {
+    let resp: Box<dyn Publishable> =
+        Box::new(inreq.to_response(object.clone(), ResponseStatus::OK));
+
+    let notification: Box<dyn Publishable> = Box::new(OutgoingEvent::broadcast(
+        object,
+        OutgoingEventProperties::new(label),
+        notification_topic,
+    ));
+
+    vec![resp, notification].into()
+}
+
+pub(crate) mod shared;
 
 pub(crate) mod agent;
 pub(crate) mod message;
