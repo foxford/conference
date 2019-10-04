@@ -196,14 +196,14 @@ impl State {
         let room_id = room.id().to_string();
         let rtc_id = rtc_id.to_string();
 
-        endpoint::authorize(
-            &self.authz,
-            room.audience(),
-            inreq.properties(),
-            vec!["rooms", &room_id, "rtcs", &rtc_id],
-            action,
-        )
-        .await
+        self.authz
+            .authorize(
+                room.audience(),
+                inreq.properties(),
+                vec!["rooms", &room_id, "rtcs", &rtc_id],
+                action,
+            )
+            .map_err(|err| SvcError::from(err))
     }
 }
 

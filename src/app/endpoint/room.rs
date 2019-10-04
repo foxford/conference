@@ -90,14 +90,14 @@ impl State {
 impl State {
     pub(crate) async fn create(&self, inreq: CreateRequest) -> endpoint::Result {
         // Authorization: future room's owner has to allow the action
-        endpoint::authorize(
-            &self.authz,
-            &inreq.payload().audience,
-            inreq.properties(),
-            vec!["rooms"],
-            "create",
-        )
-        .await?;
+        self.authz
+            .authorize(
+                &inreq.payload().audience,
+                inreq.properties(),
+                vec!["rooms"],
+                "create",
+            )
+            .map_err(|err| SvcError::from(err))?;
 
         // Creating a Room
         let object = {
@@ -130,14 +130,14 @@ impl State {
         };
 
         // Authorization: room's owner has to allow the action
-        endpoint::authorize(
-            &self.authz,
-            object.audience(),
-            inreq.properties(),
-            vec!["rooms", &room_id],
-            "read",
-        )
-        .await?;
+        self.authz
+            .authorize(
+                object.audience(),
+                inreq.properties(),
+                vec!["rooms", &room_id],
+                "read",
+            )
+            .map_err(|err| SvcError::from(err))?;
 
         inreq.to_response(object, ResponseStatus::OK).into()
     }
@@ -160,14 +160,14 @@ impl State {
         };
 
         // Authorization: room's owner has to allow the action
-        endpoint::authorize(
-            &self.authz,
-            object.audience(),
-            inreq.properties(),
-            vec!["rooms", &room_id],
-            "update",
-        )
-        .await?;
+        self.authz
+            .authorize(
+                object.audience(),
+                inreq.properties(),
+                vec!["rooms", &room_id],
+                "update",
+            )
+            .map_err(|err| SvcError::from(err))?;
 
         let object = {
             let conn = self.db.get()?;
@@ -200,14 +200,14 @@ impl State {
         };
 
         // Authorization: room's owner has to allow the action
-        endpoint::authorize(
-            &self.authz,
-            object.audience(),
-            inreq.properties(),
-            vec!["rooms", &room_id],
-            "delete",
-        )
-        .await?;
+        self.authz
+            .authorize(
+                object.audience(),
+                inreq.properties(),
+                vec!["rooms", &room_id],
+                "delete",
+            )
+            .map_err(|err| SvcError::from(err))?;
 
         {
             let conn = self.db.get()?;
@@ -235,14 +235,14 @@ impl State {
         };
 
         // Authorization: room's owner has to allow the action
-        endpoint::authorize(
-            &self.authz,
-            object.audience(),
-            inreq.properties(),
-            vec!["rooms", &room_id, "events"],
-            "subscribe",
-        )
-        .await?;
+        self.authz
+            .authorize(
+                object.audience(),
+                inreq.properties(),
+                vec!["rooms", &room_id, "events"],
+                "subscribe",
+            )
+            .map_err(|err| SvcError::from(err))?;
 
         let payload = SubscriptionRequest::new(
             inreq.properties().to_connection(),
@@ -303,7 +303,6 @@ mod test {
     use serde_json::{json, Value as JsonValue};
     use svc_agent::Destination;
     use svc_authn::Authenticable;
-    use svc_authz::ClientMap;
 
     use crate::test_helpers::{
         agent::TestAgent,
