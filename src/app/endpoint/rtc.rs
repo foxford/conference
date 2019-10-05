@@ -88,14 +88,14 @@ impl State {
 
             let room_id = room.id().to_string();
 
-            endpoint::authorize(
-                &self.authz,
-                room.audience(),
-                inreq.properties(),
-                vec!["rooms", &room_id, "rtcs"],
-                "create",
-            )
-            .await?;
+            self.authz
+                .authorize(
+                    room.audience(),
+                    inreq.properties(),
+                    vec!["rooms", &room_id, "rtcs"],
+                    "create",
+                )
+                .map_err(|err| SvcError::from(err))?;
         };
 
         // Creating a Real-Time Connection
@@ -143,14 +143,14 @@ impl State {
             let rtc_id = id.to_string();
             let room_id = room.id().to_string();
 
-            endpoint::authorize(
-                &self.authz,
-                room.audience(),
-                inreq.properties(),
-                vec!["rooms", &room_id, "rtcs", &rtc_id],
-                "read",
-            )
-            .await?;
+            self.authz
+                .authorize(
+                    room.audience(),
+                    inreq.properties(),
+                    vec!["rooms", &room_id, "rtcs", &rtc_id],
+                    "read",
+                )
+                .map_err(|err| SvcError::from(err))?;
         };
 
         // TODO: implement resource management
@@ -203,14 +203,14 @@ impl State {
             let rtc_id = id.to_string();
             let room_id = room.id().to_string();
 
-            endpoint::authorize(
-                &self.authz,
-                room.audience(),
-                inreq.properties(),
-                vec!["rooms", &room_id, "rtcs", &rtc_id],
-                "read",
-            )
-            .await?;
+            self.authz
+                .authorize(
+                    room.audience(),
+                    inreq.properties(),
+                    vec!["rooms", &room_id, "rtcs", &rtc_id],
+                    "read",
+                )
+                .map_err(|err| SvcError::from(err))?;
         };
 
         // Returning Real-Time connection
@@ -249,14 +249,14 @@ impl State {
 
             let room_id = room.id().to_string();
 
-            endpoint::authorize(
-                &self.authz,
-                room.audience(),
-                inreq.properties(),
-                vec!["rooms", &room_id, "rtcs"],
-                "list",
-            )
-            .await?;
+            self.authz
+                .authorize(
+                    room.audience(),
+                    inreq.properties(),
+                    vec!["rooms", &room_id, "rtcs"],
+                    "list",
+                )
+                .map_err(|err| SvcError::from(err))?;
         };
 
         // Looking up for Real-Time Connections

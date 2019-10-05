@@ -52,14 +52,14 @@ impl State {
 
             let room_id = room.id().to_string();
 
-            endpoint::authorize(
-                &self.authz,
-                room.audience(),
-                inreq.properties(),
-                vec!["rooms", &room_id, "agents"],
-                "list",
-            )
-            .await?;
+            self.authz
+                .authorize(
+                    room.audience(),
+                    inreq.properties(),
+                    vec!["rooms", &room_id, "agents"],
+                    "list",
+                )
+                .map_err(|err| SvcError::from(err))?;
         }
 
         let objects = {

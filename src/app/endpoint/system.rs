@@ -63,14 +63,14 @@ impl State {
 impl State {
     pub(crate) async fn vacuum(&self, inreq: VacuumRequest) -> endpoint::Result {
         // Authorization: only trusted subjects are allowed to perform operations with the system
-        endpoint::authorize(
-            &self.authz,
-            self.me.audience(),
-            inreq.properties(),
-            vec!["system"],
-            "update",
-        )
-        .await?;
+        self.authz
+            .authorize(
+                self.me.audience(),
+                inreq.properties(),
+                vec!["system"],
+                "update",
+            )
+            .map_err(|err| SvcError::from(err))?;
 
         // TODO: Update 'finished_without_recordings' in order to return (backend,room,rtc)
         let backends = {
