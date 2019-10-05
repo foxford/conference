@@ -15,7 +15,9 @@ pub(crate) const ALL_COLUMNS: AllColumns = (rtc::id, rtc::room_id, rtc::created_
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations,
+)]
 #[belongs_to(Room, foreign_key = "room_id")]
 #[table_name = "rtc"]
 pub(crate) struct Object {

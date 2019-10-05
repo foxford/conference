@@ -12,7 +12,7 @@ use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
-use crate::app::endpoint::shared_helpers::check_room_presence;
+use crate::app::endpoint::shared::check_room_presence;
 use crate::db::{room, ConnectionPool};
 use crate::util::{from_base64, to_base64};
 

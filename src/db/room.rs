@@ -73,7 +73,7 @@ impl fmt::Display for RoomBackend {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Serialize, Identifiable, Queryable, QueryableByName)]
+#[derive(Clone, Debug, Serialize, Identifiable, Queryable, QueryableByName)]
 #[table_name = "room"]
 pub(crate) struct Object {
     id: Uuid,

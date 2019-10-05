@@ -104,7 +104,12 @@ impl State {
             rtc::InsertQuery::new(room_id).execute(&conn)?
         };
 
-        inreq.to_response(object, ResponseStatus::OK).into()
+        endpoint::respond_and_notify(
+            &inreq,
+            object,
+            "rtc.create",
+            &format!("rooms/{}/events", room_id),
+        )
     }
 
     pub(crate) async fn connect(&self, inreq: ConnectRequest) -> endpoint::Result {
@@ -278,6 +283,7 @@ mod test {
 
     use diesel::prelude::*;
     use serde_json::{json, Value as JsonValue};
+    use svc_agent::Destination;
 
     use crate::test_helpers::{
         agent::TestAgent,
@@ -325,11 +331,27 @@ mod test {
             let payload = json!({"room_id": room.id()});
             let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
             let mut result = state.create(request).await.into_result().unwrap();
-            let message = result.remove(0);
 
             // Assert response.
+            let message = result.remove(0);
+            assert_eq!(message.message_type(), "response");
+
             let resp: RtcResponse = extract_payload(message).unwrap();
             assert_eq!(resp.room_id, room.id());
+
+            // Assert notification.
+            let message = result.remove(0);
+            assert_eq!(message.message_type(), "event");
+
+            match message.destination() {
+                Destination::Broadcast(destination) => {
+                    assert_eq!(destination, &format!("rooms/{}/events", room.id()))
+                }
+                _ => panic!("Expected broadcast destination"),
+            }
+
+            let payload: RtcResponse = extract_payload(message).unwrap();
+            assert_eq!(payload.room_id, room.id());
 
             // Assert room presence in the DB.
             let conn = db.connection_pool().get().unwrap();

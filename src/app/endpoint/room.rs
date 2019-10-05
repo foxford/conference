@@ -9,7 +9,7 @@ use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
-use crate::app::endpoint::shared_helpers::check_room_presence;
+use crate::app::endpoint::shared::check_room_presence;
 use crate::db::{room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -110,7 +110,7 @@ impl State {
             .execute(&conn)?
         };
 
-        inreq.to_response(object, ResponseStatus::OK).into()
+        endpoint::respond_and_notify(&inreq, object, "room.create", "rooms")
     }
 
     pub(crate) async fn read(&self, inreq: ReadRequest) -> endpoint::Result {
@@ -174,7 +174,12 @@ impl State {
             inreq.payload().execute(&conn)?
         };
 
-        inreq.to_response(object, ResponseStatus::OK).into()
+        endpoint::respond_and_notify(
+            &inreq,
+            object,
+            "room.update",
+            &format!("rooms/{}/events", room_id),
+        )
     }
 
     pub(crate) async fn delete(&self, inreq: DeleteRequest) -> endpoint::Result {
@@ -209,7 +214,7 @@ impl State {
             room::DeleteQuery::new(inreq.payload().id).execute(&conn)?
         };
 
-        inreq.to_response(object, ResponseStatus::OK).into()
+        endpoint::respond_and_notify(&inreq, object, "room.delete", "rooms")
     }
 
     pub(crate) async fn enter(&self, inreq: EnterRequest) -> endpoint::Result {
@@ -346,14 +351,31 @@ mod test {
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: CreateRequest = agent.build_request("room.create", &payload).unwrap();
             let mut result = state.create(request).await.into_result().unwrap();
-            let message = result.remove(0);
 
             // Assert response.
+            let message = result.remove(0);
+            assert_eq!(message.message_type(), "response");
+
             let resp: RoomResponse = extract_payload(message).unwrap();
             assert_eq!(resp.time, vec![Some(now), None]);
             assert_eq!(resp.audience, AUDIENCE);
             assert!(resp.created_at >= now);
             assert_eq!(resp.backend, "janus");
+
+            // Assert notification.
+            let message = result.remove(0);
+            assert_eq!(message.message_type(), "event");
+
+            match message.destination() {
+                Destination::Broadcast(destination) => assert_eq!(destination, "rooms"),
+                _ => panic!("Expected broadcast destination"),
+            }
+
+            let payload: RoomResponse = extract_payload(message).unwrap();
+            assert_eq!(payload.time, vec![Some(now), None]);
+            assert_eq!(payload.audience, AUDIENCE);
+            assert!(payload.created_at >= now);
+            assert_eq!(payload.backend, "janus");
 
             // Assert room presence in the DB.
             let conn = db.connection_pool().get().unwrap();
@@ -519,21 +541,36 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
             let mut result = state.update(request).await.into_result().unwrap();
-            let message = result.remove(0);
 
             // Assert response.
+            let message = result.remove(0);
+            assert_eq!(message.message_type(), "response");
+
             let resp: RoomResponse = extract_payload(message).unwrap();
 
-            assert_eq!(
-                resp,
-                RoomResponse {
-                    id: room.id().to_owned(),
-                    time: vec![Some(now), None],
-                    audience: "dev.svc.example.net".to_string(),
-                    created_at: room.created_at().timestamp(),
-                    backend: "none".to_string(),
+            let expected_payload = RoomResponse {
+                id: room.id().to_owned(),
+                time: vec![Some(now), None],
+                audience: "dev.svc.example.net".to_string(),
+                created_at: room.created_at().timestamp(),
+                backend: "none".to_string(),
+            };
+
+            assert_eq!(resp, expected_payload);
+
+            // Assert notification.
+            let message = result.remove(0);
+            assert_eq!(message.message_type(), "event");
+
+            match message.destination() {
+                Destination::Broadcast(destination) => {
+                    assert_eq!(destination, &format!("rooms/{}/events", room.id()))
                 }
-            );
+                _ => panic!("Expected broadcast destination"),
+            }
+
+            let payload: RoomResponse = extract_payload(message).unwrap();
+            assert_eq!(payload, expected_payload);
         });
     }
 
@@ -623,7 +660,26 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
-            state.delete(request).await.into_result().unwrap();
+            let mut result = state.delete(request).await.into_result().unwrap();
+
+            // Assert response.
+            let message = result.remove(0);
+            assert_eq!(message.message_type(), "response");
+
+            let payload: RoomResponse = extract_payload(message).unwrap();
+            assert_eq!(payload.id, room.id());
+
+            // Assert notification.
+            let message = result.remove(0);
+            assert_eq!(message.message_type(), "event");
+
+            match message.destination() {
+                Destination::Broadcast(destination) => assert_eq!(destination, "rooms"),
+                _ => panic!("Expected broadcast destination"),
+            }
+
+            let payload: RoomResponse = extract_payload(message).unwrap();
+            assert_eq!(payload.id, room.id());
 
             // Assert room abscence in the DB.
             let conn = db.connection_pool().get().unwrap();
@@ -882,7 +938,7 @@ mod test {
                 .unwrap();
 
             // Make room.leave request.
-            let state = build_state(no_authz(AUDIENCE), &db);
+            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
             let result = state.leave(request).await.into_result();
