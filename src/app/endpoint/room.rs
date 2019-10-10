@@ -255,7 +255,16 @@ impl State {
             inreq.properties().correlation_data(),
         );
 
-        OutgoingRequest::unicast(payload, props, inreq.properties().broker()).into()
+        // FIXME: It looks like sending a request to the client but the broker intercepts it
+        //        creates a subscription and replaces the request with the response.
+        //        This is kind of ugly but it guaranties that the request will be processed by
+        //        the broker node where the client is connected to. We need that because
+        //        the request changes local state on that node.
+        //        A better solution will be possible after resolution of this issue:
+        //        https://github.com/vernemq/vernemq/issues/1326.
+        //        Then we won't need the local state on the broker at all and will be able
+        //        to send a multicast request to the broker.
+        OutgoingRequest::unicast(payload, props, inreq.properties()).into()
     }
 
     pub(crate) async fn leave(&self, inreq: LeaveRequest) -> endpoint::Result {
@@ -289,7 +298,16 @@ impl State {
             inreq.properties().correlation_data(),
         );
 
-        OutgoingRequest::unicast(payload, props, inreq.properties().broker()).into()
+        // FIXME: It looks like sending a request to the client but the broker intercepts it
+        //        deletes the subscription and replaces the request with the response.
+        //        This is kind of ugly but it guaranties that the request will be processed by
+        //        the broker node where the client is connected to. We need that because
+        //        the request changes local state on that node.
+        //        A better solution will be possible after resolution of this issue:
+        //        https://github.com/vernemq/vernemq/issues/1326.
+        //        Then we won't need the local state on the broker at all and will be able
+        //        to send a multicast request to the broker.
+        OutgoingRequest::unicast(payload, props, inreq.properties()).into()
     }
 }
 
