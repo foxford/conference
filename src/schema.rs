@@ -7,6 +7,7 @@ table! {
         agent_id -> Agent_id,
         room_id -> Uuid,
         created_at -> Timestamptz,
+        status -> Agent_status,
     }
 }
 

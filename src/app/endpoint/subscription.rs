@@ -70,7 +70,9 @@ impl State {
                     .build()
             })?;
 
-        agent::InsertQuery::new(agent_id, room_id).execute(&conn)?;
+        agent::UpdateQuery::new(agent_id, room_id)
+            .status(agent::Status::Ready)
+            .execute(&conn)?;
 
         let payload = RoomEnterLeaveEventData::new(room_id.to_owned(), agent_id.to_owned());
         let props = OutgoingEventProperties::new("room.enter");
@@ -169,17 +171,28 @@ mod test {
     fn create_subscription() {
         futures::executor::block_on(async {
             let db = TestDb::new();
+            let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
 
-            // Insert room.
+            // Insert room and agent in `in_progress` status.
             let room = db
                 .connection_pool()
                 .get()
-                .map(|conn| insert_room(&conn, AUDIENCE))
+                .map(|conn| {
+                    let room = insert_room(&conn, AUDIENCE);
+
+                    factory::Agent::new()
+                        .audience(AUDIENCE)
+                        .agent_id(user_agent.agent_id())
+                        .room_id(room.id())
+                        .status(crate::db::agent::Status::InProgress)
+                        .insert(&conn)
+                        .unwrap();
+
+                    room
+                })
                 .unwrap();
 
             // Send subscription.create event.
-            let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
-
             let payload = json!({
                 "object": vec!["rooms", &room.id().to_string(), "events"],
                 "subject": format!("v1/agents/{}", user_agent.agent_id()),
@@ -218,6 +231,7 @@ mod test {
                 .unwrap();
 
             assert_eq!(db_agent.room_id(), room.id());
+            assert_eq!(*db_agent.status(), crate::db::agent::Status::Ready);
         });
     }
 
