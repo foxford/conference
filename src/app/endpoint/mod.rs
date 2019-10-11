@@ -179,8 +179,13 @@ where
             .or_else(|mut err| {
                 err.set_kind(kind, title);
 
-                sentry::send(err)
-                    .map_err(|err| format_err!("Error sending error to Sentry: {}", err))?;
+                sentry::send(err.clone()).map_err(|send_err| {
+                    format_err!(
+                        "Error sending error to Sentry: {}\nOriginal error: {}",
+                        send_err,
+                        err,
+                    )
+                })?;
 
                 Ok(vec![])
             }),
