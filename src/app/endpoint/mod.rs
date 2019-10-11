@@ -1,7 +1,8 @@
 use core::future::Future;
 use std::ops::Try;
 
-use failure::{format_err, Error};
+use failure::Error;
+use log::warn;
 use serde::{de::DeserializeOwned, Serialize};
 use svc_agent::mqtt::{
     compat, IncomingEventProperties, IncomingMessage, IncomingRequest, IncomingRequestProperties,
@@ -137,7 +138,7 @@ pub(crate) fn handle_error(
         || status >= ResponseStatus::INTERNAL_SERVER_ERROR
     {
         sentry::send(err.clone())
-            .map_err(|err| format_err!("Error sending error to Sentry: {}", err))?;
+            .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
     }
 
     let resp = OutgoingResponse::unicast(err, props.to_response(status), props);
@@ -179,13 +180,8 @@ where
             .or_else(|mut err| {
                 err.set_kind(kind, title);
 
-                sentry::send(err.clone()).map_err(|send_err| {
-                    format_err!(
-                        "Error sending error to Sentry: {}\nOriginal error: {}",
-                        send_err,
-                        err,
-                    )
-                })?;
+                sentry::send(err)
+                    .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
 
                 Ok(vec![])
             }),

@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::app::endpoint;
 use crate::app::endpoint::shared::check_room_presence;
-use crate::db::{room, ConnectionPool};
+use crate::db::{agent, room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -219,20 +219,18 @@ impl State {
 
     pub(crate) async fn enter(&self, inreq: EnterRequest) -> endpoint::Result {
         let room_id = inreq.payload().id.to_string();
+        let conn = self.db.get()?;
 
-        let object = {
-            let conn = self.db.get()?;
-            room::FindQuery::new()
-                .time(room::now())
-                .id(inreq.payload().id)
-                .execute(&conn)?
-                .ok_or_else(|| {
-                    SvcError::builder()
-                        .status(ResponseStatus::NOT_FOUND)
-                        .detail(&format!("the room = '{}' is not found", &room_id))
-                        .build()
-                })?
-        };
+        let object = room::FindQuery::new()
+            .time(room::now())
+            .id(inreq.payload().id)
+            .execute(&conn)?
+            .ok_or_else(|| {
+                SvcError::builder()
+                    .status(ResponseStatus::NOT_FOUND)
+                    .detail(&format!("the room = '{}' is not found", &room_id))
+                    .build()
+            })?;
 
         // Authorization: room's owner has to allow the action
         self.authz
@@ -243,6 +241,8 @@ impl State {
                 "subscribe",
             )
             .map_err(|err| SvcError::from(err))?;
+
+        agent::InsertQuery::new(inreq.properties().as_agent_id(), object.id()).execute(&conn)?;
 
         let payload = SubscriptionRequest::new(
             inreq.properties().to_connection(),
@@ -790,8 +790,8 @@ mod test {
             // Assert outgoing broker request.
             match message.destination() {
                 &Destination::Unicast(ref agent_id) => {
-                    assert_eq!(agent_id.label(), "alpha");
-                    assert_eq!(agent_id.as_account_id().label(), "mqtt-gateway");
+                    assert_eq!(agent_id.label(), "web");
+                    assert_eq!(agent_id.as_account_id().label(), "user123");
                     assert_eq!(agent_id.as_account_id().audience(), AUDIENCE);
                 }
                 _ => panic!("Expected unicast destination"),
@@ -812,6 +812,20 @@ mod test {
                 resp.object,
                 vec!["rooms", room.id().to_string().as_str(), "events"]
             );
+
+            // Assert agent presence in the DB.
+            use crate::db::agent::{Object, Status};
+            use crate::schema::agent as agent_schema;
+
+            let conn = db.connection_pool().get().unwrap();
+
+            let agent_object = agent_schema::table
+                .filter(agent_schema::agent_id.eq(agent.agent_id()))
+                .filter(agent_schema::room_id.eq(room.id()))
+                .get_result::<Object>(&conn)
+                .expect("Agent not found in the DB");
+
+            assert_eq!(*agent_object.status(), Status::InProgress);
         });
     }
 
@@ -896,8 +910,8 @@ mod test {
             // Assert outgoing broker request.
             match message.destination() {
                 &Destination::Unicast(ref agent_id) => {
-                    assert_eq!(agent_id.label(), "alpha");
-                    assert_eq!(agent_id.as_account_id().label(), "mqtt-gateway");
+                    assert_eq!(agent_id.label(), "web");
+                    assert_eq!(agent_id.as_account_id().label(), "user123");
                     assert_eq!(agent_id.as_account_id().audience(), AUDIENCE);
                 }
                 _ => panic!("Expected unicast destination"),

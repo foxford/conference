@@ -15,6 +15,7 @@ pub struct Agent<'a> {
     audience: Option<&'a str>,
     agent_id: Option<&'a AgentId>,
     room_id: Option<Uuid>,
+    status: agent::Status,
 }
 
 impl<'a> Agent<'a> {
@@ -23,6 +24,7 @@ impl<'a> Agent<'a> {
             audience: None,
             agent_id: None,
             room_id: None,
+            status: agent::Status::Ready,
         }
     }
 
@@ -47,6 +49,10 @@ impl<'a> Agent<'a> {
         }
     }
 
+    pub(crate) fn status(self, status: agent::Status) -> Self {
+        Self { status, ..self }
+    }
+
     pub(crate) fn insert(&self, conn: &PgConnection) -> Result<agent::Object, Error> {
         let agent_id = match (self.agent_id, self.audience) {
             (Some(agent_id), _) => Ok(agent_id.to_owned()),
@@ -66,6 +72,7 @@ impl<'a> Agent<'a> {
         }?;
 
         agent::InsertQuery::new(&agent_id, room_id)
+            .status(self.status)
             .execute(conn)
             .map_err(|err| format_err!("Failed to insert agent: {}", err))
     }

@@ -72,6 +72,7 @@ impl State {
                     inreq.payload().limit.unwrap_or_else(|| MAX_LIMIT),
                     MAX_LIMIT,
                 )),
+                Some(agent::Status::Ready),
             ))
             .execute(&conn)?
         };
