@@ -9,7 +9,7 @@ use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
-use crate::app::endpoint::shared::check_room_presence;
+use crate::app::endpoint::shared;
 use crate::db::{agent, room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -88,9 +88,14 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(&self, inreq: CreateRequest) -> endpoint::Result {
+    pub(crate) async fn create(
+        &self,
+        inreq: CreateRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         // Authorization: future room's owner has to allow the action
-        self.authz
+        let authz_time = self
+            .authz
             .authorize(
                 &inreq.payload().audience,
                 inreq.properties(),
@@ -110,10 +115,20 @@ impl State {
             .execute(&conn)?
         };
 
-        endpoint::respond_and_notify(&inreq, object, "room.create", "rooms")
+        shared::respond(
+            &inreq,
+            object,
+            Some(("room.create", "rooms")),
+            start_timestamp,
+            Some(authz_time),
+        )
     }
 
-    pub(crate) async fn read(&self, inreq: ReadRequest) -> endpoint::Result {
+    pub(crate) async fn read(
+        &self,
+        inreq: ReadRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let room_id = inreq.payload().id.to_string();
 
         let object = {
@@ -130,7 +145,8 @@ impl State {
         };
 
         // Authorization: room's owner has to allow the action
-        self.authz
+        let authz_time = self
+            .authz
             .authorize(
                 object.audience(),
                 inreq.properties(),
@@ -139,10 +155,14 @@ impl State {
             )
             .map_err(|err| SvcError::from(err))?;
 
-        inreq.to_response(object, ResponseStatus::OK).into()
+        shared::respond(&inreq, object, None, start_timestamp, Some(authz_time))
     }
 
-    pub(crate) async fn update(&self, inreq: UpdateRequest) -> endpoint::Result {
+    pub(crate) async fn update(
+        &self,
+        inreq: UpdateRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let room_id = inreq.payload().id().to_string();
 
         let object = {
@@ -160,7 +180,8 @@ impl State {
         };
 
         // Authorization: room's owner has to allow the action
-        self.authz
+        let authz_time = self
+            .authz
             .authorize(
                 object.audience(),
                 inreq.properties(),
@@ -174,15 +195,20 @@ impl State {
             inreq.payload().execute(&conn)?
         };
 
-        endpoint::respond_and_notify(
+        shared::respond(
             &inreq,
             object,
-            "room.update",
-            &format!("rooms/{}/events", room_id),
+            Some(("room.update", &format!("rooms/{}/events", room_id))),
+            start_timestamp,
+            Some(authz_time),
         )
     }
 
-    pub(crate) async fn delete(&self, inreq: DeleteRequest) -> endpoint::Result {
+    pub(crate) async fn delete(
+        &self,
+        inreq: DeleteRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let room_id = inreq.payload().id.to_string();
 
         let object = {
@@ -200,7 +226,8 @@ impl State {
         };
 
         // Authorization: room's owner has to allow the action
-        self.authz
+        let authz_time = self
+            .authz
             .authorize(
                 object.audience(),
                 inreq.properties(),
@@ -214,10 +241,20 @@ impl State {
             room::DeleteQuery::new(inreq.payload().id).execute(&conn)?
         };
 
-        endpoint::respond_and_notify(&inreq, object, "room.delete", "rooms")
+        shared::respond(
+            &inreq,
+            object,
+            Some(("room.delete", "rooms")),
+            start_timestamp,
+            Some(authz_time),
+        )
     }
 
-    pub(crate) async fn enter(&self, inreq: EnterRequest) -> endpoint::Result {
+    pub(crate) async fn enter(
+        &self,
+        inreq: EnterRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let room_id = inreq.payload().id.to_string();
         let conn = self.db.get()?;
 
@@ -233,7 +270,8 @@ impl State {
             })?;
 
         // Authorization: room's owner has to allow the action
-        self.authz
+        let authz_time = self
+            .authz
             .authorize(
                 object.audience(),
                 inreq.properties(),
@@ -249,11 +287,17 @@ impl State {
             vec!["rooms", &room_id, "events"],
         );
 
-        let props = OutgoingRequestProperties::new(
+        let (long_term_timing, short_term_timing) =
+            shared::build_timings(inreq.properties(), start_timestamp, Some(authz_time));
+
+        let mut props = OutgoingRequestProperties::new(
             "subscription.create",
             inreq.properties().response_topic(),
             inreq.properties().correlation_data(),
+            short_term_timing,
         );
+
+        props.set_long_term_timing(long_term_timing);
 
         // FIXME: It looks like sending a request to the client but the broker intercepts it
         //        creates a subscription and replaces the request with the response.
@@ -267,7 +311,11 @@ impl State {
         OutgoingRequest::unicast(payload, props, inreq.properties()).into()
     }
 
-    pub(crate) async fn leave(&self, inreq: LeaveRequest) -> endpoint::Result {
+    pub(crate) async fn leave(
+        &self,
+        inreq: LeaveRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let room_id = inreq.payload().id.to_string();
 
         {
@@ -284,7 +332,7 @@ impl State {
                         .build()
                 })?;
 
-            check_room_presence(&room, &inreq.properties().as_agent_id(), &conn)?;
+            shared::check_room_presence(&room, &inreq.properties().as_agent_id(), &conn)?;
         }
 
         let payload = SubscriptionRequest::new(
@@ -292,11 +340,17 @@ impl State {
             vec!["rooms", &room_id, "events"],
         );
 
-        let props = OutgoingRequestProperties::new(
+        let (long_term_timing, short_term_timing) =
+            shared::build_timings(inreq.properties(), start_timestamp, None);
+
+        let mut props = OutgoingRequestProperties::new(
             "subscription.delete",
             inreq.properties().response_topic(),
             inreq.properties().correlation_data(),
+            short_term_timing,
         );
+
+        props.set_long_term_timing(long_term_timing);
 
         // FIXME: It looks like sending a request to the client but the broker intercepts it
         //        deletes the subscription and replaces the request with the response.
@@ -367,7 +421,11 @@ mod test {
 
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: CreateRequest = agent.build_request("room.create", &payload).unwrap();
-            let mut result = state.create(request).await.into_result().unwrap();
+            let mut result = state
+                .create(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
 
             // Assert response.
             let message = result.remove(0);
@@ -419,7 +477,7 @@ mod test {
 
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: CreateRequest = agent.build_request("room.create", &payload).unwrap();
-            let result = state.create(request).await.into_result();
+            let result = state.create(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {
@@ -453,7 +511,7 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
-            let mut result = state.read(request).await.into_result().unwrap();
+            let mut result = state.read(request, Utc::now()).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert response.
@@ -487,7 +545,7 @@ mod test {
             let payload = json!({ "id": Uuid::new_v4() });
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
-            let result = state.read(request).await.into_result();
+            let result = state.read(request, Utc::now()).await.into_result();
 
             // Assert 404 error response.
             match result {
@@ -515,7 +573,7 @@ mod test {
             let payload = json!({ "id": room.id() });
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
-            let result = state.read(request).await.into_result();
+            let result = state.read(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {
@@ -557,7 +615,11 @@ mod test {
 
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
-            let mut result = state.update(request).await.into_result().unwrap();
+            let mut result = state
+                .update(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
 
             // Assert response.
             let message = result.remove(0);
@@ -608,7 +670,7 @@ mod test {
 
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
-            let result = state.update(request).await.into_result();
+            let result = state.update(request, Utc::now()).await.into_result();
 
             // Assert 404 error response.
             match result {
@@ -643,7 +705,7 @@ mod test {
 
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: UpdateRequest = agent.build_request("room.update", &payload).unwrap();
-            let result = state.update(request).await.into_result();
+            let result = state.update(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {
@@ -677,7 +739,11 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
-            let mut result = state.delete(request).await.into_result().unwrap();
+            let mut result = state
+                .delete(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
 
             // Assert response.
             let message = result.remove(0);
@@ -715,7 +781,7 @@ mod test {
             let payload = json!({ "id": Uuid::new_v4() });
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
-            let result = state.delete(request).await.into_result();
+            let result = state.delete(request, Utc::now()).await.into_result();
 
             // Assert 404 error response.
             match result {
@@ -743,7 +809,7 @@ mod test {
             let payload = json!({"id": room.id()});
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
-            let result = state.delete(request).await.into_result();
+            let result = state.delete(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {
@@ -784,7 +850,11 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
-            let mut result = state.enter(request).await.into_result().unwrap();
+            let mut result = state
+                .enter(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
             let message = result.remove(0);
 
             // Assert outgoing broker request.
@@ -839,7 +909,7 @@ mod test {
             let payload = json!({ "id": Uuid::new_v4() });
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
-            let result = state.enter(request).await.into_result();
+            let result = state.enter(request, Utc::now()).await.into_result();
 
             // Assert 404 error response.
             match result {
@@ -867,7 +937,7 @@ mod test {
             let payload = json!({"id": room.id()});
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
-            let result = state.enter(request).await.into_result();
+            let result = state.enter(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {
@@ -904,7 +974,11 @@ mod test {
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
-            let mut result = state.leave(request).await.into_result().unwrap();
+            let mut result = state
+                .leave(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
             let message = result.remove(0);
 
             // Assert outgoing broker request.
@@ -945,7 +1019,7 @@ mod test {
             let payload = json!({ "id": Uuid::new_v4() });
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
-            let result = state.leave(request).await.into_result();
+            let result = state.leave(request, Utc::now()).await.into_result();
 
             // Assert 404 error response.
             match result {
@@ -972,7 +1046,7 @@ mod test {
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
-            let result = state.leave(request).await.into_result();
+            let result = state.leave(request, Utc::now()).await.into_result();
 
             // Assert 404 error response.
             match result {

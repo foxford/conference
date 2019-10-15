@@ -1,13 +1,13 @@
 use core::future::Future;
 use std::ops::Try;
 
+use chrono::{DateTime, Utc};
 use failure::Error;
 use log::warn;
 use serde::{de::DeserializeOwned, Serialize};
 use svc_agent::mqtt::{
-    compat, IncomingEventProperties, IncomingMessage, IncomingRequest, IncomingRequestProperties,
-    OutgoingEvent, OutgoingEventProperties, OutgoingRequest, OutgoingResponse, Publishable,
-    ResponseStatus,
+    compat, IncomingEventProperties, IncomingMessage, IncomingRequestProperties, OutgoingEvent,
+    OutgoingRequest, OutgoingResponse, Publishable, ResponseStatus,
 };
 use svc_error::{extension::sentry, Error as SvcError, ProblemDetails};
 
@@ -98,17 +98,18 @@ pub(crate) async fn handle_request<H, S, P, R>(
     handler: H,
     state: S,
     envelope: compat::IncomingEnvelope,
+    start_timestamp: DateTime<Utc>,
 ) -> std::result::Result<Vec<Box<dyn Publishable>>, Error>
 where
-    H: Fn(S, IncomingMessage<P, IncomingRequestProperties>) -> R,
+    H: Fn(S, IncomingMessage<P, IncomingRequestProperties>, DateTime<Utc>) -> R,
     P: DeserializeOwned,
     R: Future<Output = Result>,
 {
     match compat::into_request::<P>(envelope) {
-        Ok(request) => handler(state, request)
+        Ok(request) => handler(state, request, start_timestamp)
             .await
             .into_result()
-            .or_else(|err| handle_error(kind, title, props, err)),
+            .or_else(|err| handle_error(kind, title, props, err, start_timestamp)),
         Err(err) => {
             let status = ResponseStatus::BAD_REQUEST;
 
@@ -118,7 +119,10 @@ where
                 .detail(&err.to_string())
                 .build();
 
-            let resp = OutgoingResponse::unicast(err, props.to_response(status), props);
+            let timing = shared::build_short_term_timing(start_timestamp, None);
+
+            let resp = OutgoingResponse::unicast(err, props.to_response(status, timing), props);
+
             Ok(vec![Box::new(resp) as Box<dyn Publishable>])
         }
     }
@@ -129,6 +133,7 @@ pub(crate) fn handle_error(
     title: &str,
     props: &IncomingRequestProperties,
     mut err: impl ProblemDetails + Send + Clone + 'static,
+    start_timestamp: DateTime<Utc>,
 ) -> std::result::Result<Vec<Box<dyn Publishable>>, Error> {
     err.set_kind(kind, title);
     let status = err.status_code();
@@ -141,13 +146,15 @@ pub(crate) fn handle_error(
             .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
     }
 
-    let resp = OutgoingResponse::unicast(err, props.to_response(status), props);
+    let timing = shared::build_short_term_timing(start_timestamp, None);
+    let resp = OutgoingResponse::unicast(err, props.to_response(status, timing), props);
     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
 }
 
 pub(crate) fn handle_unknown_method(
     method: &str,
     props: &IncomingRequestProperties,
+    start_timestamp: DateTime<Utc>,
 ) -> std::result::Result<Vec<Box<dyn Publishable>>, Error> {
     let status = ResponseStatus::BAD_REQUEST;
 
@@ -157,7 +164,8 @@ pub(crate) fn handle_unknown_method(
         .detail(&format!("invalid request method = '{}'", method))
         .build();
 
-    let resp = OutgoingResponse::unicast(err, props.to_response(status), props);
+    let timing = shared::build_short_term_timing(start_timestamp, None);
+    let resp = OutgoingResponse::unicast(err, props.to_response(status, timing), props);
     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
 }
 
@@ -167,14 +175,15 @@ pub(crate) async fn handle_event<H, S, P, R>(
     handler: H,
     state: S,
     envelope: compat::IncomingEnvelope,
+    start_timestamp: DateTime<Utc>,
 ) -> std::result::Result<Vec<Box<dyn Publishable>>, Error>
 where
-    H: Fn(S, IncomingMessage<P, IncomingEventProperties>) -> R,
+    H: Fn(S, IncomingMessage<P, IncomingEventProperties>, DateTime<Utc>) -> R,
     P: DeserializeOwned,
     R: Future<Output = Result>,
 {
     match compat::into_event::<P>(envelope) {
-        Ok(event) => handler(state, event)
+        Ok(event) => handler(state, event, start_timestamp)
             .await
             .into_result()
             .or_else(|mut err| {
@@ -187,24 +196,6 @@ where
             }),
         Err(err) => Err(err.into()),
     }
-}
-
-pub(crate) fn respond_and_notify<R, O: 'static + Clone + Serialize>(
-    inreq: &IncomingRequest<R>,
-    object: O,
-    label: &'static str,
-    notification_topic: &str,
-) -> Result {
-    let resp: Box<dyn Publishable> =
-        Box::new(inreq.to_response(object.clone(), ResponseStatus::OK));
-
-    let notification: Box<dyn Publishable> = Box::new(OutgoingEvent::broadcast(
-        object,
-        OutgoingEventProperties::new(label),
-        notification_topic,
-    ));
-
-    vec![resp, notification].into()
 }
 
 pub(crate) mod shared;

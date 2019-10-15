@@ -1,8 +1,11 @@
+use std::fmt;
+use std::str::FromStr;
+use std::time::Duration;
+
+use chrono::{DateTime, Utc};
 use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use std::fmt;
-use std::str::FromStr;
 use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, ResponseStatus};
 use svc_agent::{Addressable, AgentId};
 use svc_error::Error as SvcError;
@@ -50,7 +53,11 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(&self, inreq: CreateRequest) -> endpoint::Result {
+    pub(crate) async fn create(
+        &self,
+        inreq: CreateRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let handle_id = &inreq.payload().handle_id;
         let jsep = &inreq.payload().jsep;
 
@@ -74,7 +81,7 @@ impl State {
                         .build()
                 })? {
                     // Authorization
-                    self.authorize(&inreq, "read").await?;
+                    let authz_time = self.authorize(&inreq, "read").await?;
 
                     let result = crate::app::janus::read_stream_request(
                         inreq.properties().clone(),
@@ -83,6 +90,8 @@ impl State {
                         handle_id.rtc_id(),
                         jsep.clone(),
                         handle_id.backend_id(),
+                        start_timestamp,
+                        Some(authz_time),
                     );
 
                     match result {
@@ -95,7 +104,7 @@ impl State {
                     }
                 } else {
                     // Authorization
-                    self.authorize(&inreq, "update").await?;
+                    let authz_time = self.authorize(&inreq, "update").await?;
 
                     // Updating the Real-Time Connection state
                     {
@@ -125,6 +134,8 @@ impl State {
                         handle_id.rtc_id(),
                         jsep.clone(),
                         handle_id.backend_id(),
+                        start_timestamp,
+                        Some(authz_time),
                     );
 
                     match result {
@@ -143,7 +154,7 @@ impl State {
                 .build())?,
             SdpType::IceCandidate => {
                 // Authorization
-                self.authorize(&inreq, "read").await?;
+                let authz_time = self.authorize(&inreq, "read").await?;
 
                 let result = crate::app::janus::trickle_request(
                     inreq.properties().clone(),
@@ -151,6 +162,8 @@ impl State {
                     handle_id.janus_handle_id(),
                     jsep.clone(),
                     handle_id.backend_id(),
+                    start_timestamp,
+                    Some(authz_time),
                 );
 
                 match result {
@@ -166,7 +179,7 @@ impl State {
     }
 
     // Authorization: room's owner has to allow the action
-    async fn authorize(&self, inreq: &CreateRequest, action: &str) -> Result<(), SvcError> {
+    async fn authorize(&self, inreq: &CreateRequest, action: &str) -> Result<Duration, SvcError> {
         let rtc_id = inreq.payload().handle_id.rtc_id();
 
         let room = {
@@ -531,7 +544,11 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let mut result = state.create(request).await.into_result().unwrap();
+            let mut result = state
+                .create(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
             let outgoing_envelope = result.remove(0);
 
             // Assert outgoing broker request.
@@ -597,7 +614,7 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let result = state.create(request).await.into_result();
+            let result = state.create(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {
@@ -676,7 +693,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let result = state.create(request).await.into_result();
+            let result = state.create(request, Utc::now()).await.into_result();
 
             // Expecting error 400.
             match result {
@@ -753,7 +770,11 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let mut result = state.create(request).await.into_result().unwrap();
+            let mut result = state
+                .create(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
             let message = result.remove(0);
 
             // Assert outgoing broker request.
@@ -806,7 +827,7 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
-            let result = state.create(request).await.into_result();
+            let result = state.create(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {

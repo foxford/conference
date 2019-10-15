@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use chrono::{DateTime, NaiveDateTime, Utc};
 use failure::{err_msg, format_err, Error};
 use log::{info, warn};
@@ -15,6 +17,7 @@ use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
+use crate::app::endpoint::shared;
 use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
     StatusEvent, TrickleRequest,
@@ -53,13 +56,21 @@ impl CreateSessionTransaction {
 
 pub(crate) fn create_session_request<A>(
     to: &A,
+    start_timestamp: DateTime<Utc>,
 ) -> Result<OutgoingRequest<CreateSessionRequest>, Error>
 where
     A: Addressable,
 {
     let transaction = Transaction::CreateSession(CreateSessionTransaction::new());
     let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
-    let props = OutgoingRequestProperties::new("janus_session.create", IGNORE, IGNORE);
+
+    let props = OutgoingRequestProperties::new(
+        "janus_session.create",
+        IGNORE,
+        IGNORE,
+        shared::build_short_term_timing(start_timestamp, None),
+    );
+
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -79,18 +90,27 @@ impl CreateHandleTransaction {
 pub(crate) fn create_handle_request<A>(
     session_id: i64,
     to: &A,
+    start_timestamp: DateTime<Utc>,
 ) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
 where
     A: Addressable,
 {
     let transaction = Transaction::CreateHandle(CreateHandleTransaction::new(session_id));
+
     let payload = CreateHandleRequest::new(
         &to_base64(&transaction)?,
         session_id,
         "janus.plugin.conference",
         None,
     );
-    let props = OutgoingRequestProperties::new("janus_handle.create", IGNORE, IGNORE);
+
+    let props = OutgoingRequestProperties::new(
+        "janus_handle.create",
+        IGNORE,
+        IGNORE,
+        shared::build_short_term_timing(start_timestamp, None),
+    );
+
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -126,23 +146,33 @@ pub(crate) fn create_rtc_handle_request<A>(
     rtc_id: Uuid,
     session_id: i64,
     to: &A,
+    start_timestamp: DateTime<Utc>,
+    authz_time: Option<Duration>,
 ) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
 where
     A: Addressable,
 {
+    let (long_term_timing, short_term_timing) =
+        shared::build_timings(&reqp, start_timestamp, authz_time);
+
     let transaction = Transaction::CreateRtcHandle(CreateRtcHandleTransaction::new(
         reqp,
         rtc_handle_id,
         rtc_id,
         session_id,
     ));
+
     let payload = CreateHandleRequest::new(
         &to_base64(&transaction)?,
         session_id,
         "janus.plugin.conference",
         Some(&rtc_handle_id.to_string()),
     );
-    let props = OutgoingRequestProperties::new("janus_handle.create", IGNORE, IGNORE);
+
+    let mut props =
+        OutgoingRequestProperties::new("janus_handle.create", IGNORE, IGNORE, short_term_timing);
+
+    props.set_long_term_timing(long_term_timing);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -181,12 +211,18 @@ pub(crate) fn create_stream_request<A>(
     rtc_id: Uuid,
     jsep: JsonValue,
     to: &A,
+    start_timestamp: DateTime<Utc>,
+    authz_time: Option<Duration>,
 ) -> Result<OutgoingRequest<MessageRequest>, Error>
 where
     A: Addressable,
 {
+    let (long_term_timing, short_term_timing) =
+        shared::build_timings(&reqp, start_timestamp, authz_time);
+
     let transaction = Transaction::CreateStream(CreateStreamTransaction::new(reqp));
     let body = CreateStreamRequestBody::new(rtc_id);
+
     let payload = MessageRequest::new(
         &to_base64(&transaction)?,
         session_id,
@@ -194,7 +230,15 @@ where
         serde_json::to_value(&body)?,
         Some(jsep),
     );
-    let props = OutgoingRequestProperties::new("janus_conference_stream.create", IGNORE, IGNORE);
+
+    let mut props = OutgoingRequestProperties::new(
+        "janus_conference_stream.create",
+        IGNORE,
+        IGNORE,
+        short_term_timing,
+    );
+
+    props.set_long_term_timing(long_term_timing);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -233,12 +277,18 @@ pub(crate) fn read_stream_request<A>(
     rtc_id: Uuid,
     jsep: JsonValue,
     to: &A,
+    start_timestamp: DateTime<Utc>,
+    authz_time: Option<Duration>,
 ) -> Result<OutgoingRequest<MessageRequest>, Error>
 where
     A: Addressable,
 {
+    let (long_term_timing, short_term_timing) =
+        shared::build_timings(&reqp, start_timestamp, authz_time);
+
     let transaction = Transaction::ReadStream(ReadStreamTransaction::new(reqp));
     let body = ReadStreamRequestBody::new(rtc_id);
+
     let payload = MessageRequest::new(
         &to_base64(&transaction)?,
         session_id,
@@ -246,7 +296,15 @@ where
         serde_json::to_value(&body)?,
         Some(jsep),
     );
-    let props = OutgoingRequestProperties::new("janus_conference_stream.create", IGNORE, IGNORE);
+
+    let mut props = OutgoingRequestProperties::new(
+        "janus_conference_stream.create",
+        IGNORE,
+        IGNORE,
+        short_term_timing,
+    );
+
+    props.set_long_term_timing(long_term_timing);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -291,8 +349,10 @@ pub(crate) fn upload_stream_request(
     handle_id: i64,
     body: UploadStreamRequestBody,
     to: &AgentId,
+    start_timestamp: DateTime<Utc>,
 ) -> Result<OutgoingRequest<MessageRequest>, Error> {
     let transaction = Transaction::UploadStream(UploadStreamTransaction::new(body.id));
+
     let payload = MessageRequest::new(
         &to_base64(&transaction)?,
         session_id,
@@ -300,7 +360,14 @@ pub(crate) fn upload_stream_request(
         serde_json::to_value(&body)?,
         None,
     );
-    let props = OutgoingRequestProperties::new("janus_conference_stream.upload", IGNORE, IGNORE);
+
+    let props = OutgoingRequestProperties::new(
+        "janus_conference_stream.upload",
+        IGNORE,
+        IGNORE,
+        shared::build_short_term_timing(start_timestamp, None),
+    );
+
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -323,13 +390,22 @@ pub(crate) fn trickle_request<A>(
     handle_id: i64,
     jsep: JsonValue,
     to: &A,
+    start_timestamp: DateTime<Utc>,
+    authz_time: Option<Duration>,
 ) -> Result<OutgoingRequest<TrickleRequest>, Error>
 where
     A: Addressable,
 {
+    let (long_term_timing, short_term_timing) =
+        shared::build_timings(&reqp, start_timestamp, authz_time);
+
     let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
     let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
-    let props = OutgoingRequestProperties::new("janus_trickle.create", IGNORE, IGNORE);
+
+    let mut props =
+        OutgoingRequestProperties::new("janus_trickle.create", IGNORE, IGNORE, short_term_timing);
+
+    props.set_long_term_timing(long_term_timing);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -348,6 +424,7 @@ impl State {
 pub(crate) async fn handle_response(
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
+    start_timestamp: DateTime<Utc>,
 ) -> Result<Vec<Box<dyn Publishable>>, Error> {
     use endpoint::handle_error;
 
@@ -361,7 +438,8 @@ pub(crate) async fn handle_response(
                     let session_id = inresp.data().id();
 
                     // Creating Handle
-                    let backreq = create_handle_request(session_id, message.properties())?;
+                    let backreq =
+                        create_handle_request(session_id, message.properties(), start_timestamp)?;
                     Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
                 }
                 // Handle has been created
@@ -391,7 +469,10 @@ pub(crate) async fn handle_response(
                                 agent_id.clone(),
                             ),
                         ),
-                        reqp.to_response(ResponseStatus::OK),
+                        reqp.to_response(
+                            ResponseStatus::OK,
+                            shared::build_short_term_timing(start_timestamp, None),
+                        ),
                         &reqp,
                     );
 
@@ -415,7 +496,10 @@ pub(crate) async fn handle_response(
                 Transaction::Trickle(tn) => {
                     let resp = endpoint::rtc_signal::CreateResponse::unicast(
                         endpoint::rtc_signal::CreateResponseData::new(None),
-                        tn.reqp.to_response(ResponseStatus::OK),
+                        tn.reqp.to_response(
+                            ResponseStatus::OK,
+                            shared::build_short_term_timing(start_timestamp, None),
+                        ),
                         tn.reqp.as_agent_id(),
                     );
 
@@ -474,7 +558,10 @@ pub(crate) async fn handle_response(
 
                             let resp = endpoint::rtc_signal::CreateResponse::unicast(
                                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                                tn.reqp.to_response(ResponseStatus::OK),
+                                tn.reqp.to_response(
+                                    ResponseStatus::OK,
+                                    shared::build_short_term_timing(start_timestamp, None),
+                                ),
                                 tn.reqp.as_agent_id(),
                             );
 
@@ -487,6 +574,7 @@ pub(crate) async fn handle_response(
                             "Error creating a Janus Conference Stream",
                             &tn.reqp,
                             err,
+                            start_timestamp,
                         )
                     })
                 }
@@ -534,7 +622,10 @@ pub(crate) async fn handle_response(
 
                             let resp = endpoint::rtc_signal::CreateResponse::unicast(
                                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                                tn.reqp.to_response(ResponseStatus::OK),
+                                tn.reqp.to_response(
+                                    ResponseStatus::OK,
+                                    shared::build_short_term_timing(start_timestamp, None),
+                                ),
                                 tn.reqp.as_agent_id(),
                             );
 
@@ -547,6 +638,7 @@ pub(crate) async fn handle_response(
                             "Error reading a Janus Conference Stream",
                             &tn.reqp,
                             err,
+                            start_timestamp,
                         )
                     })
                 }
@@ -702,7 +794,7 @@ pub(crate) async fn handle_response(
 
                             match maybe_rtcs_and_recordings {
                                 Some(rtcs_and_recordings) => {
-                                    let event = endpoint::system::upload_event(&room, rtcs_and_recordings.into_iter())
+                                    let event = endpoint::system::upload_event(&room, rtcs_and_recordings.into_iter(), start_timestamp)
                                         .map_err(|e| format_err!("error creating a system event, {}", e))?;
 
                                     Ok(vec![Box::new(event) as Box<dyn Publishable>])
@@ -750,7 +842,9 @@ pub(crate) async fn handle_response(
                     .execute(&conn)?
                     .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
 
-                let event = endpoint::rtc_stream::update_event(room.id(), rtc_stream);
+                let event =
+                    endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp)?;
+
                 Ok(vec![Box::new(event) as Box<dyn Publishable>])
             } else {
                 Ok(vec![])
@@ -775,7 +869,9 @@ pub(crate) async fn handle_response(
                 // Publish the update event if only stream object has been changed
                 // (if there was't any actual media stream, the object won't contain its start time)
                 if let Some(_) = rtc_stream.time() {
-                    let event = endpoint::rtc_stream::update_event(room.id(), rtc_stream);
+                    let event =
+                        endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp)?;
+
                     return Ok(vec![Box::new(event) as Box<dyn Publishable>]);
                 }
             }
@@ -802,13 +898,14 @@ pub(crate) async fn handle_response(
 pub(crate) async fn handle_status(
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
+    start_timestamp: DateTime<Utc>,
 ) -> Result<Vec<Box<dyn Publishable>>, Error> {
     let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
     let inev = into_event::<StatusEvent>(envelope)?;
     let agent_id = inev.properties().as_agent_id();
 
     if let true = inev.payload().online() {
-        let event = create_session_request(agent_id)?;
+        let event = create_session_request(agent_id, start_timestamp)?;
         Ok(vec![Box::new(event) as Box<dyn Publishable>])
     } else {
         let conn = janus.db.get()?;

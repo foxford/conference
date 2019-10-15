@@ -153,7 +153,7 @@ dependencies = [
  "serde 1.0.94 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.94 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
- "svc-agent 0.8.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "svc-agent 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-authn 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-authz 0.5.0 (git+https://github.com/netology-group/svc-authz-rs?branch=sync)",
  "svc-error 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1641,10 +1641,11 @@ dependencies = [
 
 [[package]]
 name = "svc-agent"
-version = "0.8.5"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "chrono 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "diesel 1.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "http 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "rumqtt 0.31.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1670,7 +1671,7 @@ dependencies = [
 [[package]]
 name = "svc-authz"
 version = "0.5.0"
-source = "git+https://github.com/netology-group/svc-authz-rs?branch=sync#8180f30de6ecf945540c396332ec357b3cacebba"
+source = "git+https://github.com/netology-group/svc-authz-rs?branch=sync#1207182a7c99943f1fce5d67e94aa5605dfa5940"
 dependencies = [
  "jsonwebtoken 6.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "reqwest 0.9.18 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1693,7 +1694,7 @@ dependencies = [
  "sentry 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.94 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.94 (registry+https://github.com/rust-lang/crates.io-index)",
- "svc-agent 0.8.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "svc-agent 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-authn 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-authz 0.5.0 (git+https://github.com/netology-group/svc-authz-rs?branch=sync)",
 ]
@@ -2183,11 +2184,6 @@ dependencies = [
  "linked-hash-map 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
-[[patch.unused]]
-name = "rumqtt"
-version = "0.30.2"
-source = "git+https://github.com/AtherEnergy/rumqtt.git#dc98f5bf538e10db6ea6c928c6a42d1ad7cd3216"
-
 [metadata]
 "checksum adler32 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "7e522997b529f05601e05166c07ed17789691f562762c7f3b987263d2dedee5c"
 "checksum aho-corasick 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)" = "e6f484ae0c99fec2e858eb6134949117399f222608d84cadb3f58c1f97c2364c"
@@ -2369,7 +2365,7 @@ source = "git+https://github.com/AtherEnergy/rumqtt.git#dc98f5bf538e10db6ea6c928
 "checksum spin 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "44363f6f51401c34e7be73db0db371c04705d35efbe9f7d6082e03a921a32c55"
 "checksum stable_deref_trait 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "dba1a27d3efae4351c8051072d619e3ade2820635c3958d826bfea39d59b54c8"
 "checksum string 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d24114bfcceb867ca7f71a0d3fe45d45619ec47a6fbfa98cb14e14250bfa5d6d"
-"checksum svc-agent 0.8.5 (registry+https://github.com/rust-lang/crates.io-index)" = "2b7b107fce138e05449438cca70c5738f450d30323b62e5a4fd11d51a2876772"
+"checksum svc-agent 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "dda0a7f1f55f36fa0286013bcf99b896eac70cbb80552286272440875a8d22d9"
 "checksum svc-authn 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "155857a0822913ba103a75f043e2e8594e78d071fe4440b443870e7559681664"
 "checksum svc-authz 0.5.0 (git+https://github.com/netology-group/svc-authz-rs?branch=sync)" = "<none>"
 "checksum svc-error 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "8b943a26cffcf0db2ac3e278006e5976e3a9e07d9487ff7c76fc0a04cbc8303a"

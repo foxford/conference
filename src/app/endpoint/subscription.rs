@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
     Connection, IncomingEvent, IncomingEventProperties, OutgoingEvent, OutgoingEventProperties,
@@ -9,6 +10,7 @@ use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
+use crate::app::endpoint::shared;
 use crate::db::{agent, room, ConnectionPool};
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -51,7 +53,11 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(&self, evt: CreateDeleteEvent) -> endpoint::Result {
+    pub(crate) async fn create(
+        &self,
+        evt: CreateDeleteEvent,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         self.is_broker(&evt.properties())?;
 
         let agent_id = evt.payload().subject.agent_id();
@@ -75,12 +81,22 @@ impl State {
             .execute(&conn)?;
 
         let payload = RoomEnterLeaveEventData::new(room_id.to_owned(), agent_id.to_owned());
-        let props = OutgoingEventProperties::new("room.enter");
+
+        let (long_term_timing, short_term_timing) =
+            shared::build_timings(evt.properties(), start_timestamp, None);
+
+        let mut props = OutgoingEventProperties::new("room.enter", short_term_timing);
+        props.set_long_term_timing(long_term_timing);
+
         let to_uri = format!("rooms/{}/events", room_id);
         OutgoingEvent::broadcast(payload, props, &to_uri).into()
     }
 
-    pub(crate) async fn delete(&self, evt: CreateDeleteEvent) -> endpoint::Result {
+    pub(crate) async fn delete(
+        &self,
+        evt: CreateDeleteEvent,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         self.is_broker(&evt.properties())?;
 
         let agent_id = evt.payload().subject.agent_id();
@@ -91,7 +107,13 @@ impl State {
 
         if row_count == 1 {
             let payload = RoomEnterLeaveEventData::new(room_id.to_owned(), agent_id.to_owned());
-            let props = OutgoingEventProperties::new("room.leave");
+
+            let (long_term_timing, short_term_timing) =
+                shared::build_timings(evt.properties(), start_timestamp, None);
+
+            let mut props = OutgoingEventProperties::new("room.leave", short_term_timing);
+            props.set_long_term_timing(long_term_timing);
+
             let to_uri = format!("rooms/{}/events", room_id);
             OutgoingEvent::broadcast(payload, props, &to_uri).into()
         } else {
@@ -205,7 +227,7 @@ mod test {
                 .unwrap();
 
             let state = build_state(&db);
-            let mut result = state.create(event).await.into_result().unwrap();
+            let mut result = state.create(event, Utc::now()).await.into_result().unwrap();
 
             // Assert notification to the room topic.
             let message = result.remove(0);
@@ -257,7 +279,7 @@ mod test {
             let state = build_state(&db);
 
             // Assert 403 error.
-            match state.create(event).await.into_result() {
+            match state.create(event, Utc::now()).await.into_result() {
                 Ok(_) => panic!("Expected subscription.create to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
             }
@@ -286,7 +308,7 @@ mod test {
             let state = build_state(&db);
 
             // Assert 404 error.
-            match state.create(event).await.into_result() {
+            match state.create(event, Utc::now()).await.into_result() {
                 Ok(_) => panic!("Expected subscription.create to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
             }
@@ -315,7 +337,7 @@ mod test {
             let state = build_state(&db);
 
             // Assert 400 error.
-            match state.create(event).await.into_result() {
+            match state.create(event, Utc::now()).await.into_result() {
                 Ok(_) => panic!("Expected subscription.create to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::BAD_REQUEST),
             }
@@ -350,7 +372,7 @@ mod test {
                 .unwrap();
 
             let state = build_state(&db);
-            let mut result = state.delete(event).await.into_result().unwrap();
+            let mut result = state.delete(event, Utc::now()).await.into_result().unwrap();
 
             // Assert notification to the room topic.
             let message = result.remove(0);
@@ -396,7 +418,7 @@ mod test {
             let state = build_state(&db);
 
             // Assert 403 error.
-            match state.delete(event).await.into_result() {
+            match state.delete(event, Utc::now()).await.into_result() {
                 Ok(_) => panic!("Expected subscription.delete to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
             }
@@ -425,7 +447,7 @@ mod test {
             let state = build_state(&db);
 
             // Assert 404 error.
-            match state.delete(event).await.into_result() {
+            match state.delete(event, Utc::now()).await.into_result() {
                 Ok(_) => panic!("Expected subscription.delete to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
             }
@@ -454,7 +476,7 @@ mod test {
             let state = build_state(&db);
 
             // Assert 400 error.
-            match state.delete(event).await.into_result() {
+            match state.delete(event, Utc::now()).await.into_result() {
                 Ok(_) => panic!("Expected subscription.delete to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::BAD_REQUEST),
             }
