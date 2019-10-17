@@ -12,6 +12,7 @@ pub(crate) fn check_room_presence(
     let results = agent::ListQuery::new()
         .room_id(room.id())
         .agent_id(agent_id)
+        .status(agent::Status::Ready)
         .execute(conn)?;
 
     if results.len() == 0 {
