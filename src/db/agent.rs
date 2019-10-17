@@ -178,12 +178,13 @@ impl<'a> InsertQuery<'a> {
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::agent::dsl::*;
-        use diesel::RunQueryDsl;
+        use diesel::{ExpressionMethods, RunQueryDsl};
 
         diesel::insert_into(agent)
             .values(self)
             .on_conflict((agent_id, room_id))
-            .do_nothing()
+            .do_update()
+            .set(status.eq(Status::InProgress))
             .get_result(conn)
     }
 }

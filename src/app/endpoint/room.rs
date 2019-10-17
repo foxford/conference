@@ -877,6 +877,59 @@ mod test {
         });
     }
 
+    #[test]
+    fn enter_room_twice() {
+        use crate::db::agent::{Object, Status};
+        use crate::schema::agent as agent_schema;
+
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+
+            // Insert a room and an agent in `ready` status.
+            let room = db
+                .connection_pool()
+                .get()
+                .map_err(|err| format_err!("Failed to get DB connection: {}", err))
+                .and_then(|conn| {
+                    let room = insert_room(&conn, AUDIENCE);
+
+                    factory::Agent::new()
+                        .audience(AUDIENCE)
+                        .room_id(room.id())
+                        .agent_id(agent.agent_id())
+                        .status(Status::Ready)
+                        .insert(&conn)?;
+
+                    Ok(room)
+                })
+                .unwrap();
+
+            // Allow the agent to enter the room.
+            let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id, "events"];
+            authz.allow(agent.account_id(), object, "subscribe");
+
+            // Make room.enter request.
+            let payload = json!({"id": room.id()});
+            let state = State::new(authz.into(), db.connection_pool().clone());
+            let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
+            state.enter(request).await.into_result().unwrap();
+
+            // Assert agent is in `in_progress` state in the DB.
+            let conn = db.connection_pool().get().unwrap();
+
+            let agent_object = agent_schema::table
+                .filter(agent_schema::agent_id.eq(agent.agent_id()))
+                .filter(agent_schema::room_id.eq(room.id()))
+                .get_result::<Object>(&conn)
+                .expect("Agent not found in the DB");
+
+            assert_eq!(*agent_object.status(), Status::InProgress);
+        });
+    }
+
     ///////////////////////////////////////////////////////////////////////////
 
     #[test]
