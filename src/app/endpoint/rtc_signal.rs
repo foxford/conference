@@ -91,7 +91,7 @@ impl State {
                         jsep.clone(),
                         handle_id.backend_id(),
                         start_timestamp,
-                        Some(authz_time),
+                        authz_time,
                     );
 
                     match result {
@@ -135,7 +135,7 @@ impl State {
                         jsep.clone(),
                         handle_id.backend_id(),
                         start_timestamp,
-                        Some(authz_time),
+                        authz_time,
                     );
 
                     match result {
@@ -163,7 +163,7 @@ impl State {
                     jsep.clone(),
                     handle_id.backend_id(),
                     start_timestamp,
-                    Some(authz_time),
+                    authz_time,
                 );
 
                 match result {

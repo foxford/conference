@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
-    Connection, IncomingEvent, IncomingEventProperties, OutgoingEvent, OutgoingEventProperties,
-    ResponseStatus,
+    Connection, IncomingEvent, IncomingEventProperties, OutgoingEvent, ResponseStatus,
+    ShortTermTimingProperties,
 };
 use svc_agent::AgentId;
 use svc_authn::Authenticable;
@@ -10,7 +10,6 @@ use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
-use crate::app::endpoint::shared;
 use crate::db::{agent, room, ConnectionPool};
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -81,13 +80,8 @@ impl State {
             .execute(&conn)?;
 
         let payload = RoomEnterLeaveEventData::new(room_id.to_owned(), agent_id.to_owned());
-
-        let (long_term_timing, short_term_timing) =
-            shared::build_timings(evt.properties(), start_timestamp, None);
-
-        let mut props = OutgoingEventProperties::new("room.enter", short_term_timing);
-        props.set_long_term_timing(long_term_timing);
-
+        let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+        let props = evt.properties().to_event("room.enter", short_term_timing);
         let to_uri = format!("rooms/{}/events", room_id);
         OutgoingEvent::broadcast(payload, props, &to_uri).into()
     }
@@ -107,13 +101,8 @@ impl State {
 
         if row_count == 1 {
             let payload = RoomEnterLeaveEventData::new(room_id.to_owned(), agent_id.to_owned());
-
-            let (long_term_timing, short_term_timing) =
-                shared::build_timings(evt.properties(), start_timestamp, None);
-
-            let mut props = OutgoingEventProperties::new("room.leave", short_term_timing);
-            props.set_long_term_timing(long_term_timing);
-
+            let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+            let props = evt.properties().to_event("room.leave", short_term_timing);
             let to_uri = format!("rooms/{}/events", room_id);
             OutgoingEvent::broadcast(payload, props, &to_uri).into()
         } else {

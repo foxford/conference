@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, ResponseStatus};
+use svc_agent::mqtt::{
+    IncomingRequest, OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
+};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
@@ -115,7 +117,7 @@ impl State {
             object,
             Some(("rtc.create", &format!("rooms/{}/events", room_id))),
             start_timestamp,
-            Some(authz_time),
+            authz_time,
         )
     }
 
@@ -185,7 +187,7 @@ impl State {
             backend.session_id(),
             backend.id(),
             start_timestamp,
-            Some(authz_time),
+            authz_time,
         )
         .map_err(|_| {
             SvcError::builder()
@@ -244,7 +246,8 @@ impl State {
                 })?
         };
 
-        let timing = shared::build_short_term_timing(start_timestamp, Some(authz_time));
+        let mut timing = ShortTermTimingProperties::until_now(start_timestamp);
+        timing.set_authorization_time(authz_time);
         inreq.to_response(object, ResponseStatus::OK, timing).into()
     }
 
@@ -295,7 +298,9 @@ impl State {
             .execute(&conn)?
         };
 
-        let timing = shared::build_short_term_timing(start_timestamp, Some(authz_time));
+        let mut timing = ShortTermTimingProperties::until_now(start_timestamp);
+        timing.set_authorization_time(authz_time);
+
         inreq
             .to_response(objects, ResponseStatus::OK, timing)
             .into()

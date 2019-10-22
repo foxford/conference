@@ -4,10 +4,10 @@ use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use serde::Serialize;
 use svc_agent::mqtt::{
-    IncomingRequest, LongTermTimingProperties, Measurable, OutgoingEvent, OutgoingEventProperties,
-    Publishable, ResponseStatus, ShortTermTimingProperties,
+    IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publishable, ResponseStatus,
+    ShortTermTimingProperties,
 };
-use svc_agent::{Addressable, AgentId};
+use svc_agent::AgentId;
 use svc_error::Error as SvcError;
 
 use crate::app::endpoint;
@@ -18,9 +18,10 @@ pub(crate) fn respond<R, O: 'static + Clone + Serialize>(
     object: O,
     notification: Option<(&'static str, &str)>,
     start_timestamp: DateTime<Utc>,
-    authz_time: Option<Duration>,
+    authz_time: Duration,
 ) -> endpoint::Result {
-    let short_term_timing = build_short_term_timing(start_timestamp, authz_time);
+    let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+    short_term_timing.set_authorization_time(authz_time);
 
     let resp = inreq.to_response(
         object.clone(),
@@ -36,39 +37,6 @@ pub(crate) fn respond<R, O: 'static + Clone + Serialize>(
     }
 
     messages.into()
-}
-
-pub(crate) fn build_short_term_timing(
-    start_timestamp: DateTime<Utc>,
-    authz_time: Option<Duration>,
-) -> ShortTermTimingProperties {
-    let now = Utc::now();
-    let mut timing = ShortTermTimingProperties::new(now);
-
-    if let Ok(value) = (now - start_timestamp).to_std() {
-        timing.set_processing_time(value);
-    }
-
-    if let Some(value) = authz_time {
-        timing.set_authorization_time(value);
-    }
-
-    timing
-}
-
-pub(crate) fn build_timings<P: Addressable + Measurable>(
-    incoming_properties: &P,
-    start_timestamp: DateTime<Utc>,
-    authz_time: Option<Duration>,
-) -> (LongTermTimingProperties, ShortTermTimingProperties) {
-    let short_term_timing = build_short_term_timing(start_timestamp, authz_time);
-
-    let long_term_timing = incoming_properties
-        .long_term_timing()
-        .clone()
-        .update_cumulative_timings(&short_term_timing);
-
-    (long_term_timing, short_term_timing)
 }
 
 pub(crate) fn check_room_presence(

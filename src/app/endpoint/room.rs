@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use std::ops::Bound;
 use svc_agent::mqtt::{
-    Connection, IncomingRequest, OutgoingRequest, OutgoingRequestProperties, ResponseStatus,
+    Connection, IncomingRequest, OutgoingRequest, ResponseStatus, ShortTermTimingProperties,
 };
 use svc_agent::Addressable;
 use svc_error::Error as SvcError;
@@ -120,7 +120,7 @@ impl State {
             object,
             Some(("room.create", "rooms")),
             start_timestamp,
-            Some(authz_time),
+            authz_time,
         )
     }
 
@@ -155,7 +155,7 @@ impl State {
             )
             .map_err(|err| SvcError::from(err))?;
 
-        shared::respond(&inreq, object, None, start_timestamp, Some(authz_time))
+        shared::respond(&inreq, object, None, start_timestamp, authz_time)
     }
 
     pub(crate) async fn update(
@@ -200,7 +200,7 @@ impl State {
             object,
             Some(("room.update", &format!("rooms/{}/events", room_id))),
             start_timestamp,
-            Some(authz_time),
+            authz_time,
         )
     }
 
@@ -246,7 +246,7 @@ impl State {
             object,
             Some(("room.delete", "rooms")),
             start_timestamp,
-            Some(authz_time),
+            authz_time,
         )
     }
 
@@ -287,17 +287,15 @@ impl State {
             vec!["rooms", &room_id, "events"],
         );
 
-        let (long_term_timing, short_term_timing) =
-            shared::build_timings(inreq.properties(), start_timestamp, Some(authz_time));
+        let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+        short_term_timing.set_authorization_time(authz_time);
 
-        let mut props = OutgoingRequestProperties::new(
+        let props = inreq.properties().to_request(
             "subscription.create",
             inreq.properties().response_topic(),
             inreq.properties().correlation_data(),
             short_term_timing,
         );
-
-        props.set_long_term_timing(long_term_timing);
 
         // FIXME: It looks like sending a request to the client but the broker intercepts it
         //        creates a subscription and replaces the request with the response.
@@ -340,17 +338,12 @@ impl State {
             vec!["rooms", &room_id, "events"],
         );
 
-        let (long_term_timing, short_term_timing) =
-            shared::build_timings(inreq.properties(), start_timestamp, None);
-
-        let mut props = OutgoingRequestProperties::new(
+        let props = inreq.properties().to_request(
             "subscription.delete",
             inreq.properties().response_topic(),
             inreq.properties().correlation_data(),
-            short_term_timing,
+            ShortTermTimingProperties::until_now(start_timestamp),
         );
-
-        props.set_long_term_timing(long_term_timing);
 
         // FIXME: It looks like sending a request to the client but the broker intercepts it
         //        deletes the subscription and replaces the request with the response.

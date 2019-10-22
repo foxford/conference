@@ -7,7 +7,7 @@ use log::warn;
 use serde::{de::DeserializeOwned, Serialize};
 use svc_agent::mqtt::{
     compat, IncomingEventProperties, IncomingMessage, IncomingRequestProperties, OutgoingEvent,
-    OutgoingRequest, OutgoingResponse, Publishable, ResponseStatus,
+    OutgoingRequest, OutgoingResponse, Publishable, ResponseStatus, ShortTermTimingProperties,
 };
 use svc_error::{extension::sentry, Error as SvcError, ProblemDetails};
 
@@ -119,10 +119,8 @@ where
                 .detail(&err.to_string())
                 .build();
 
-            let timing = shared::build_short_term_timing(start_timestamp, None);
-
+            let timing = ShortTermTimingProperties::until_now(start_timestamp);
             let resp = OutgoingResponse::unicast(err, props.to_response(status, timing), props);
-
             Ok(vec![Box::new(resp) as Box<dyn Publishable>])
         }
     }
@@ -146,7 +144,7 @@ pub(crate) fn handle_error(
             .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
     }
 
-    let timing = shared::build_short_term_timing(start_timestamp, None);
+    let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let resp = OutgoingResponse::unicast(err, props.to_response(status, timing), props);
     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
 }
@@ -164,7 +162,7 @@ pub(crate) fn handle_unknown_method(
         .detail(&format!("invalid request method = '{}'", method))
         .build();
 
-    let timing = shared::build_short_term_timing(start_timestamp, None);
+    let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let resp = OutgoingResponse::unicast(err, props.to_response(status, timing), props);
     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
 }

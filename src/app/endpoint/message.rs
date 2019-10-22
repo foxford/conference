@@ -4,9 +4,9 @@ use failure::Error;
 use serde_derive::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use svc_agent::mqtt::{
-    IncomingRequest, IncomingRequestProperties, IncomingResponse, OutgoingEvent,
-    OutgoingEventProperties, OutgoingRequest, OutgoingRequestProperties, OutgoingResponse,
-    OutgoingResponseProperties, Publishable, ResponseStatus, SubscriptionTopic,
+    IncomingRequest, IncomingRequestProperties, IncomingResponse, OutgoingEvent, OutgoingRequest,
+    OutgoingResponse, OutgoingResponseProperties, Publishable, ResponseStatus,
+    ShortTermTimingProperties, SubscriptionTopic,
 };
 use svc_agent::{Addressable, AgentId, Subscription};
 use svc_error::Error as SvcError;
@@ -61,18 +61,14 @@ impl State {
         let room = find_room(inreq.payload().room_id, &conn)?;
         shared::check_room_presence(&room, &inreq.properties().as_agent_id(), &conn)?;
 
-        let (long_term_timing, short_term_timing) =
-            shared::build_timings(inreq.properties(), start_timestamp, None);
-
+        let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
         let resp = inreq.to_response(json!({}), ResponseStatus::OK, short_term_timing.clone());
         let resp_box = Box::new(resp) as Box<dyn Publishable>;
 
         let payload = inreq.payload().data.to_owned();
-
-        let mut props = OutgoingEventProperties::new("message.broadcast", short_term_timing);
-
-        props.set_long_term_timing(long_term_timing);
-
+        let props = inreq
+            .properties()
+            .to_event("message.broadcast", short_term_timing);
         let to_uri = format!("rooms/{}/events", inreq.payload().room_id);
         let event = OutgoingEvent::broadcast(payload, props, &to_uri);
         let event_box = Box::new(event) as Box<dyn Publishable>;
@@ -109,17 +105,13 @@ impl State {
                 .build()
         })?;
 
-        let (long_term_timing, short_term_timing) =
-            shared::build_timings(inreq.properties(), start_timestamp, None);
-
-        let mut props = OutgoingRequestProperties::new(
+        let props = inreq.properties().to_request(
             inreq.properties().method(),
             &response_topic,
             &correlation_data,
-            short_term_timing,
+            ShortTermTimingProperties::until_now(start_timestamp),
         );
 
-        props.set_long_term_timing(long_term_timing);
         OutgoingRequest::unicast(payload.to_owned(), props, to).into()
     }
 
@@ -131,10 +123,13 @@ impl State {
         let reqp =
             from_base64::<IncomingRequestProperties>(inresp.properties().correlation_data())?;
 
-        let payload = inresp.payload();
+        let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
 
-        let (long_term_timing, short_term_timing) =
-            shared::build_timings(inresp.properties(), start_timestamp, None);
+        let long_term_timing = inresp
+            .properties()
+            .long_term_timing()
+            .clone()
+            .update_cumulative_timings(&short_term_timing);
 
         let props = OutgoingResponseProperties::new(
             inresp.properties().status(),
@@ -143,6 +138,7 @@ impl State {
             short_term_timing,
         );
 
+        let payload = inresp.payload();
         let message = OutgoingResponse::unicast(payload.to_owned(), props, &reqp);
         Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }

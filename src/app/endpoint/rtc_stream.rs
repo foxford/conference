@@ -1,11 +1,13 @@
 use chrono::{DateTime, Utc};
 use serde_derive::Deserialize;
-use svc_agent::mqtt::{IncomingRequest, OutgoingEvent, OutgoingEventProperties, ResponseStatus};
+use svc_agent::mqtt::{
+    IncomingRequest, OutgoingEvent, OutgoingEventProperties, ResponseStatus,
+    ShortTermTimingProperties,
+};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
-use crate::app::endpoint::shared;
 use crate::db::{janus_rtc_stream, janus_rtc_stream::Time, room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -99,7 +101,8 @@ impl State {
             .execute(&conn)?
         };
 
-        let timing = shared::build_short_term_timing(start_timestamp, Some(authz_time));
+        let mut timing = ShortTermTimingProperties::until_now(start_timestamp);
+        timing.set_authorization_time(authz_time);
 
         inreq
             .to_response(objects, ResponseStatus::OK, timing)
@@ -115,7 +118,8 @@ pub(crate) fn update_event(
     start_timestamp: DateTime<Utc>,
 ) -> Result<ObjectUpdateEvent, SvcError> {
     let uri = format!("rooms/{}/events", room_id);
-    let timing = shared::build_short_term_timing(start_timestamp, None);
+
+    let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let props = OutgoingEventProperties::new("rtc_stream.update", timing);
     Ok(OutgoingEvent::broadcast(object, props, &uri))
 }

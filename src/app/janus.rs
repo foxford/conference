@@ -10,14 +10,13 @@ use std::sync::Arc;
 use svc_agent::mqtt::{
     compat::{into_event, IncomingEnvelope},
     IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties, Publishable,
-    ResponseStatus,
+    ResponseStatus, ShortTermTimingProperties,
 };
 use svc_agent::{Addressable, AgentId};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
-use crate::app::endpoint::shared;
 use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
     StatusEvent, TrickleRequest,
@@ -68,7 +67,7 @@ where
         "janus_session.create",
         IGNORE,
         IGNORE,
-        shared::build_short_term_timing(start_timestamp, None),
+        ShortTermTimingProperties::until_now(start_timestamp),
     );
 
     Ok(OutgoingRequest::unicast(payload, props, to))
@@ -108,9 +107,8 @@ where
         "janus_handle.create",
         IGNORE,
         IGNORE,
-        shared::build_short_term_timing(start_timestamp, None),
+        ShortTermTimingProperties::until_now(start_timestamp),
     );
-
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -147,13 +145,15 @@ pub(crate) fn create_rtc_handle_request<A>(
     session_id: i64,
     to: &A,
     start_timestamp: DateTime<Utc>,
-    authz_time: Option<Duration>,
+    authz_time: Duration,
 ) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
 where
     A: Addressable,
 {
-    let (long_term_timing, short_term_timing) =
-        shared::build_timings(&reqp, start_timestamp, authz_time);
+    let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+    short_term_timing.set_authorization_time(authz_time);
+
+    let props = reqp.to_request("janus_handle.create", IGNORE, IGNORE, short_term_timing);
 
     let transaction = Transaction::CreateRtcHandle(CreateRtcHandleTransaction::new(
         reqp,
@@ -169,10 +169,6 @@ where
         Some(&rtc_handle_id.to_string()),
     );
 
-    let mut props =
-        OutgoingRequestProperties::new("janus_handle.create", IGNORE, IGNORE, short_term_timing);
-
-    props.set_long_term_timing(long_term_timing);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -212,13 +208,20 @@ pub(crate) fn create_stream_request<A>(
     jsep: JsonValue,
     to: &A,
     start_timestamp: DateTime<Utc>,
-    authz_time: Option<Duration>,
+    authz_time: Duration,
 ) -> Result<OutgoingRequest<MessageRequest>, Error>
 where
     A: Addressable,
 {
-    let (long_term_timing, short_term_timing) =
-        shared::build_timings(&reqp, start_timestamp, authz_time);
+    let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+    short_term_timing.set_authorization_time(authz_time);
+
+    let props = reqp.to_request(
+        "janus_conference_stream.create",
+        IGNORE,
+        IGNORE,
+        short_term_timing,
+    );
 
     let transaction = Transaction::CreateStream(CreateStreamTransaction::new(reqp));
     let body = CreateStreamRequestBody::new(rtc_id);
@@ -231,14 +234,6 @@ where
         Some(jsep),
     );
 
-    let mut props = OutgoingRequestProperties::new(
-        "janus_conference_stream.create",
-        IGNORE,
-        IGNORE,
-        short_term_timing,
-    );
-
-    props.set_long_term_timing(long_term_timing);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -278,13 +273,20 @@ pub(crate) fn read_stream_request<A>(
     jsep: JsonValue,
     to: &A,
     start_timestamp: DateTime<Utc>,
-    authz_time: Option<Duration>,
+    authz_time: Duration,
 ) -> Result<OutgoingRequest<MessageRequest>, Error>
 where
     A: Addressable,
 {
-    let (long_term_timing, short_term_timing) =
-        shared::build_timings(&reqp, start_timestamp, authz_time);
+    let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+    short_term_timing.set_authorization_time(authz_time);
+
+    let props = reqp.to_request(
+        "janus_conference_stream.create",
+        IGNORE,
+        IGNORE,
+        short_term_timing,
+    );
 
     let transaction = Transaction::ReadStream(ReadStreamTransaction::new(reqp));
     let body = ReadStreamRequestBody::new(rtc_id);
@@ -297,14 +299,6 @@ where
         Some(jsep),
     );
 
-    let mut props = OutgoingRequestProperties::new(
-        "janus_conference_stream.create",
-        IGNORE,
-        IGNORE,
-        short_term_timing,
-    );
-
-    props.set_long_term_timing(long_term_timing);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -365,7 +359,7 @@ pub(crate) fn upload_stream_request(
         "janus_conference_stream.upload",
         IGNORE,
         IGNORE,
-        shared::build_short_term_timing(start_timestamp, None),
+        ShortTermTimingProperties::until_now(start_timestamp),
     );
 
     Ok(OutgoingRequest::unicast(payload, props, to))
@@ -391,21 +385,17 @@ pub(crate) fn trickle_request<A>(
     jsep: JsonValue,
     to: &A,
     start_timestamp: DateTime<Utc>,
-    authz_time: Option<Duration>,
+    authz_time: Duration,
 ) -> Result<OutgoingRequest<TrickleRequest>, Error>
 where
     A: Addressable,
 {
-    let (long_term_timing, short_term_timing) =
-        shared::build_timings(&reqp, start_timestamp, authz_time);
+    let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+    short_term_timing.set_authorization_time(authz_time);
 
+    let props = reqp.to_request("janus_trickle.create", IGNORE, IGNORE, short_term_timing);
     let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
     let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
-
-    let mut props =
-        OutgoingRequestProperties::new("janus_trickle.create", IGNORE, IGNORE, short_term_timing);
-
-    props.set_long_term_timing(long_term_timing);
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -471,7 +461,7 @@ pub(crate) async fn handle_response(
                         ),
                         reqp.to_response(
                             ResponseStatus::OK,
-                            shared::build_short_term_timing(start_timestamp, None),
+                            ShortTermTimingProperties::until_now(start_timestamp),
                         ),
                         &reqp,
                     );
@@ -498,7 +488,7 @@ pub(crate) async fn handle_response(
                         endpoint::rtc_signal::CreateResponseData::new(None),
                         tn.reqp.to_response(
                             ResponseStatus::OK,
-                            shared::build_short_term_timing(start_timestamp, None),
+                            ShortTermTimingProperties::until_now(start_timestamp),
                         ),
                         tn.reqp.as_agent_id(),
                     );
@@ -558,10 +548,7 @@ pub(crate) async fn handle_response(
 
                             let resp = endpoint::rtc_signal::CreateResponse::unicast(
                                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                                tn.reqp.to_response(
-                                    ResponseStatus::OK,
-                                    shared::build_short_term_timing(start_timestamp, None),
-                                ),
+                                tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
                                 tn.reqp.as_agent_id(),
                             );
 
@@ -622,10 +609,7 @@ pub(crate) async fn handle_response(
 
                             let resp = endpoint::rtc_signal::CreateResponse::unicast(
                                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                                tn.reqp.to_response(
-                                    ResponseStatus::OK,
-                                    shared::build_short_term_timing(start_timestamp, None),
-                                ),
+                                tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
                                 tn.reqp.as_agent_id(),
                             );
 

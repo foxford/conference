@@ -5,13 +5,13 @@ use failure::Error;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
     IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publishable, ResponseStatus,
+    ShortTermTimingProperties,
 };
 use svc_authn::AccountId;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
-use crate::app::endpoint::shared;
 use crate::db::{janus_backend, recording, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -150,7 +150,7 @@ where
     }
 
     let uri = format!("audiences/{}/events", room.audience());
-    let timing = shared::build_short_term_timing(start_timestamp, None);
+    let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let props = OutgoingEventProperties::new("room.upload", timing);
 
     let event = RoomUploadEventData {
