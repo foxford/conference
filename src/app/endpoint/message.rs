@@ -1,18 +1,19 @@
+use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use failure::Error;
 use serde_derive::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use svc_agent::mqtt::{
-    IncomingRequest, IncomingRequestProperties, IncomingResponse, OutgoingEvent,
-    OutgoingEventProperties, OutgoingRequest, OutgoingRequestProperties, OutgoingResponse,
-    OutgoingResponseProperties, Publishable, ResponseStatus, SubscriptionTopic,
+    IncomingRequest, IncomingRequestProperties, IncomingResponse, OutgoingEvent, OutgoingRequest,
+    OutgoingResponse, OutgoingResponseProperties, Publishable, ResponseStatus,
+    ShortTermTimingProperties, SubscriptionTopic,
 };
 use svc_agent::{Addressable, AgentId, Subscription};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
-use crate::app::endpoint::shared::check_room_presence;
+use crate::app::endpoint::shared;
 use crate::db::{room, ConnectionPool};
 use crate::util::{from_base64, to_base64};
 
@@ -51,16 +52,23 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn broadcast(&self, inreq: BroadcastRequest) -> endpoint::Result {
+    pub(crate) async fn broadcast(
+        &self,
+        inreq: BroadcastRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let conn = self.db.get()?;
         let room = find_room(inreq.payload().room_id, &conn)?;
-        check_room_presence(&room, &inreq.properties().as_agent_id(), &conn)?;
+        shared::check_room_presence(&room, &inreq.properties().as_agent_id(), &conn)?;
 
-        let resp = inreq.to_response(json!({}), ResponseStatus::OK);
+        let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+        let resp = inreq.to_response(json!({}), ResponseStatus::OK, short_term_timing.clone());
         let resp_box = Box::new(resp) as Box<dyn Publishable>;
 
         let payload = inreq.payload().data.to_owned();
-        let props = OutgoingEventProperties::new("message.broadcast");
+        let props = inreq
+            .properties()
+            .to_event("message.broadcast", short_term_timing);
         let to_uri = format!("rooms/{}/events", inreq.payload().room_id);
         let event = OutgoingEvent::broadcast(payload, props, &to_uri);
         let event_box = Box::new(event) as Box<dyn Publishable>;
@@ -68,11 +76,15 @@ impl State {
         vec![resp_box, event_box].into()
     }
 
-    pub(crate) async fn unicast(&self, inreq: UnicastRequest) -> endpoint::Result {
+    pub(crate) async fn unicast(
+        &self,
+        inreq: UnicastRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let conn = self.db.get()?;
         let room = find_room(inreq.payload().room_id, &conn)?;
-        check_room_presence(&room, &inreq.properties().as_agent_id(), &conn)?;
-        check_room_presence(&room, &inreq.payload().agent_id, &conn)?;
+        shared::check_room_presence(&room, &inreq.properties().as_agent_id(), &conn)?;
+        shared::check_room_presence(&room, &inreq.payload().agent_id, &conn)?;
 
         let to = &inreq.payload().agent_id;
         let payload = &inreq.payload().data;
@@ -93,10 +105,11 @@ impl State {
                 .build()
         })?;
 
-        let props = OutgoingRequestProperties::new(
+        let props = inreq.properties().to_request(
             inreq.properties().method(),
             &response_topic,
             &correlation_data,
+            ShortTermTimingProperties::until_now(start_timestamp),
         );
 
         OutgoingRequest::unicast(payload.to_owned(), props, to).into()
@@ -105,14 +118,27 @@ impl State {
     pub(crate) async fn callback(
         &self,
         inresp: UnicastIncomingResponse,
+        start_timestamp: DateTime<Utc>,
     ) -> Result<Vec<Box<dyn Publishable>>, Error> {
         let reqp =
             from_base64::<IncomingRequestProperties>(inresp.properties().correlation_data())?;
+
+        let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+
+        let long_term_timing = inresp
+            .properties()
+            .long_term_timing()
+            .clone()
+            .update_cumulative_timings(&short_term_timing);
+
+        let props = OutgoingResponseProperties::new(
+            inresp.properties().status(),
+            reqp.correlation_data(),
+            long_term_timing,
+            short_term_timing,
+        );
+
         let payload = inresp.payload();
-
-        let props =
-            OutgoingResponseProperties::new(inresp.properties().status(), reqp.correlation_data());
-
         let message = OutgoingResponse::unicast(payload.to_owned(), props, &reqp);
         Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
@@ -186,7 +212,11 @@ mod test {
                 sender.build_request("message.unicast", &payload).unwrap();
 
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
-            let mut result = state.unicast(request).await.into_result().unwrap();
+            let mut result = state
+                .unicast(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
             let message = result.remove(0);
 
             match message.destination() {
@@ -219,7 +249,7 @@ mod test {
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
 
             // Assert 404 response.
-            match state.unicast(request).await.into_result() {
+            match state.unicast(request, Utc::now()).await.into_result() {
                 Ok(_) => panic!("Expected message.unicast to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
             }
@@ -263,7 +293,7 @@ mod test {
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
 
             // Assert 404 response.
-            match state.unicast(request).await.into_result() {
+            match state.unicast(request, Utc::now()).await.into_result() {
                 Ok(_) => panic!("Expected message.unicast to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
             }
@@ -307,7 +337,7 @@ mod test {
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
 
             // Assert 404 response.
-            match state.unicast(request).await.into_result() {
+            match state.unicast(request, Utc::now()).await.into_result() {
                 Ok(_) => panic!("Expected message.unicast to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
             }
@@ -345,7 +375,11 @@ mod test {
                 sender.build_request("message.broadcast", &payload).unwrap();
 
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
-            let mut result = state.broadcast(request).await.into_result().unwrap();
+            let mut result = state
+                .broadcast(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
 
             // Assert response.
             let message = result.remove(0);
@@ -385,7 +419,7 @@ mod test {
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
 
             // Assert 404 response.
-            match state.broadcast(request).await.into_result() {
+            match state.broadcast(request, Utc::now()).await.into_result() {
                 Ok(_) => panic!("Expected message.broadcast to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
             }
@@ -418,7 +452,7 @@ mod test {
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
 
             // Assert 404 response.
-            match state.broadcast(request).await.into_result() {
+            match state.broadcast(request, Utc::now()).await.into_result() {
                 Ok(_) => panic!("Expected message.broadcast to fail"),
                 Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
             }

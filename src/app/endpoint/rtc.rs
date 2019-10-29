@@ -1,9 +1,13 @@
+use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::mqtt::{IncomingRequest, OutgoingResponse, ResponseStatus};
+use svc_agent::mqtt::{
+    IncomingRequest, OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
+};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
+use crate::app::endpoint::shared;
 use crate::db::{janus_backend, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -69,11 +73,15 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn create(&self, inreq: CreateRequest) -> endpoint::Result {
+    pub(crate) async fn create(
+        &self,
+        inreq: CreateRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
-        {
+        let authz_time = {
             let conn = self.db.get()?;
             let room = room::FindQuery::new()
                 .time(room::now())
@@ -95,7 +103,7 @@ impl State {
                     vec!["rooms", &room_id, "rtcs"],
                     "create",
                 )
-                .map_err(|err| SvcError::from(err))?;
+                .map_err(|err| SvcError::from(err))?
         };
 
         // Creating a Real-Time Connection
@@ -104,19 +112,24 @@ impl State {
             rtc::InsertQuery::new(room_id).execute(&conn)?
         };
 
-        endpoint::respond_and_notify(
+        shared::respond(
             &inreq,
             object,
-            "rtc.create",
-            &format!("rooms/{}/events", room_id),
+            Some(("rtc.create", &format!("rooms/{}/events", room_id))),
+            start_timestamp,
+            authz_time,
         )
     }
 
-    pub(crate) async fn connect(&self, inreq: ConnectRequest) -> endpoint::Result {
+    pub(crate) async fn connect(
+        &self,
+        inreq: ConnectRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let id = inreq.payload().id;
 
         // Authorization
-        {
+        let authz_time = {
             let conn = self.db.get()?;
             let room = room::FindQuery::new()
                 .time(room::now())
@@ -150,7 +163,7 @@ impl State {
                     vec!["rooms", &room_id, "rtcs", &rtc_id],
                     "read",
                 )
-                .map_err(|err| SvcError::from(err))?;
+                .map_err(|err| SvcError::from(err))?
         };
 
         // TODO: implement resource management
@@ -173,6 +186,8 @@ impl State {
             id,
             backend.session_id(),
             backend.id(),
+            start_timestamp,
+            authz_time,
         )
         .map_err(|_| {
             SvcError::builder()
@@ -183,11 +198,15 @@ impl State {
         .into()
     }
 
-    pub(crate) async fn read(&self, inreq: ReadRequest) -> endpoint::Result {
+    pub(crate) async fn read(
+        &self,
+        inreq: ReadRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let id = inreq.payload().id;
 
         // Authorization
-        {
+        let authz_time = {
             let conn = self.db.get()?;
             let room = room::FindQuery::new()
                 .time(room::now())
@@ -210,7 +229,7 @@ impl State {
                     vec!["rooms", &room_id, "rtcs", &rtc_id],
                     "read",
                 )
-                .map_err(|err| SvcError::from(err))?;
+                .map_err(|err| SvcError::from(err))?
         };
 
         // Returning Real-Time connection
@@ -227,14 +246,20 @@ impl State {
                 })?
         };
 
-        inreq.to_response(object, ResponseStatus::OK).into()
+        let mut timing = ShortTermTimingProperties::until_now(start_timestamp);
+        timing.set_authorization_time(authz_time);
+        inreq.to_response(object, ResponseStatus::OK, timing).into()
     }
 
-    pub(crate) async fn list(&self, inreq: ListRequest) -> endpoint::Result {
+    pub(crate) async fn list(
+        &self,
+        inreq: ListRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
-        {
+        let authz_time = {
             let conn = self.db.get()?;
             let room = room::FindQuery::new()
                 .time(room::now())
@@ -256,7 +281,7 @@ impl State {
                     vec!["rooms", &room_id, "rtcs"],
                     "list",
                 )
-                .map_err(|err| SvcError::from(err))?;
+                .map_err(|err| SvcError::from(err))?
         };
 
         // Looking up for Real-Time Connections
@@ -273,7 +298,12 @@ impl State {
             .execute(&conn)?
         };
 
-        inreq.to_response(objects, ResponseStatus::OK).into()
+        let mut timing = ShortTermTimingProperties::until_now(start_timestamp);
+        timing.set_authorization_time(authz_time);
+
+        inreq
+            .to_response(objects, ResponseStatus::OK, timing)
+            .into()
     }
 }
 
@@ -330,7 +360,11 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"room_id": room.id()});
             let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
-            let mut result = state.create(request).await.into_result().unwrap();
+            let mut result = state
+                .create(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
 
             // Assert response.
             let message = result.remove(0);
@@ -370,7 +404,7 @@ mod test {
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let payload = json!({ "room_id": Uuid::new_v4() });
             let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
-            let result = state.create(request).await.into_result();
+            let result = state.create(request, Utc::now()).await.into_result();
 
             // Assert 404 error response.
             match result {
@@ -398,7 +432,7 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"room_id": room.id()});
             let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
-            let result = state.create(request).await.into_result();
+            let result = state.create(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {
@@ -434,7 +468,7 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": rtc.id()});
             let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
-            let mut result = state.read(request).await.into_result().unwrap();
+            let mut result = state.read(request, Utc::now()).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert response.
@@ -453,7 +487,7 @@ mod test {
             let payload = json!({ "id": Uuid::new_v4() });
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
-            let result = state.read(request).await.into_result();
+            let result = state.read(request, Utc::now()).await.into_result();
 
             // Assert 404 error response.
             match result {
@@ -481,7 +515,7 @@ mod test {
             let payload = json!({ "id": rtc.id() });
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
-            let result = state.read(request).await.into_result();
+            let result = state.read(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {
@@ -520,7 +554,7 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"room_id": rtc.room_id()});
             let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
-            let mut result = state.list(request).await.into_result().unwrap();
+            let mut result = state.list(request, Utc::now()).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert response.
@@ -540,7 +574,7 @@ mod test {
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let payload = json!({ "room_id": Uuid::new_v4() });
             let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
-            let result = state.list(request).await.into_result();
+            let result = state.list(request, Utc::now()).await.into_result();
 
             // Assert 404 error response.
             match result {
@@ -568,7 +602,7 @@ mod test {
             let payload = json!({ "room_id": rtc.room_id() });
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
-            let result = state.list(request).await.into_result();
+            let result = state.list(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {
@@ -632,7 +666,11 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": rtc.id()});
             let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
-            let mut result = state.connect(request).await.into_result().unwrap();
+            let mut result = state
+                .connect(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
             let message = result.remove(0);
 
             // Assert outgoing request to Janus.
@@ -672,7 +710,7 @@ mod test {
             let payload = json!({ "id": Uuid::new_v4() });
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
-            let result = state.connect(request).await.into_result();
+            let result = state.connect(request, Utc::now()).await.into_result();
 
             // Assert 404 error response.
             match result {
@@ -700,7 +738,7 @@ mod test {
             let payload = json!({ "id": rtc.id() });
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
-            let result = state.connect(request).await.into_result();
+            let result = state.connect(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {

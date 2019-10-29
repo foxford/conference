@@ -5,6 +5,7 @@ use failure::Error;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
     IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publishable, ResponseStatus,
+    ShortTermTimingProperties,
 };
 use svc_authn::AccountId;
 use svc_error::Error as SvcError;
@@ -61,7 +62,11 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn vacuum(&self, inreq: VacuumRequest) -> endpoint::Result {
+    pub(crate) async fn vacuum(
+        &self,
+        inreq: VacuumRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         self.authz
             .authorize(
@@ -96,6 +101,7 @@ impl State {
                         &record_name(&rtc),
                     ),
                     backend.id(),
+                    start_timestamp,
                 )
                 .map_err(|_| {
                     // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
@@ -118,6 +124,7 @@ impl State {
 pub(crate) fn upload_event<I>(
     room: &room::Object,
     rtcs_and_recordings: I,
+    start_timestamp: DateTime<Utc>,
 ) -> Result<RoomUploadEvent, Error>
 where
     I: Iterator<Item = (rtc::Object, recording::Object)>,
@@ -143,16 +150,15 @@ where
     }
 
     let uri = format!("audiences/{}/events", room.audience());
+    let timing = ShortTermTimingProperties::until_now(start_timestamp);
+    let props = OutgoingEventProperties::new("room.upload", timing);
+
     let event = RoomUploadEventData {
         id: room.id(),
         rtcs: event_entries,
     };
 
-    Ok(OutgoingEvent::broadcast(
-        event,
-        OutgoingEventProperties::new("room.upload"),
-        &uri,
-    ))
+    Ok(OutgoingEvent::broadcast(event, props, &uri))
 }
 
 fn bucket_name(room: &room::Object) -> String {
@@ -245,7 +251,11 @@ mod test {
             let state = build_state(authz.into(), &db);
             let payload = json!({});
             let request: VacuumRequest = agent.build_request("system.vacuum", &payload).unwrap();
-            let result = state.vacuum(request).await.into_result().unwrap();
+            let result = state
+                .vacuum(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
             assert_eq!(result.len(), 2);
 
             // Assert outgoing Janus stream.upload requests.
@@ -279,7 +289,7 @@ mod test {
             let state = build_state(authz.into(), &db);
             let payload = json!({});
             let request: VacuumRequest = agent.build_request("system.vacuum", &payload).unwrap();
-            let result = state.vacuum(request).await.into_result();
+            let result = state.vacuum(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {

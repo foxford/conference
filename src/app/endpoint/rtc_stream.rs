@@ -1,5 +1,9 @@
+use chrono::{DateTime, Utc};
 use serde_derive::Deserialize;
-use svc_agent::mqtt::{IncomingRequest, OutgoingEvent, OutgoingEventProperties, ResponseStatus};
+use svc_agent::mqtt::{
+    IncomingRequest, OutgoingEvent, OutgoingEventProperties, ResponseStatus,
+    ShortTermTimingProperties,
+};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
@@ -39,11 +43,15 @@ impl State {
         Self { authz, db }
     }
 
-    pub(crate) async fn list(&self, inreq: ListRequest) -> endpoint::Result {
+    pub(crate) async fn list(
+        &self,
+        inreq: ListRequest,
+        start_timestamp: DateTime<Utc>,
+    ) -> endpoint::Result {
         let room_id = inreq.payload().room_id;
 
         // Authorization: room's owner has to allow the action
-        {
+        let authz_time = {
             let conn = self.db.get()?;
             let room = room::FindQuery::new()
                 .time(room::now())
@@ -75,7 +83,7 @@ impl State {
                     vec!["rooms", &room_id, "rtcs"],
                     "list",
                 )
-                .map_err(|err| SvcError::from(err))?;
+                .map_err(|err| SvcError::from(err))?
         };
 
         let objects = {
@@ -93,19 +101,27 @@ impl State {
             .execute(&conn)?
         };
 
-        inreq.to_response(objects, ResponseStatus::OK).into()
+        let mut timing = ShortTermTimingProperties::until_now(start_timestamp);
+        timing.set_authorization_time(authz_time);
+
+        inreq
+            .to_response(objects, ResponseStatus::OK, timing)
+            .into()
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn update_event(room_id: Uuid, object: janus_rtc_stream::Object) -> ObjectUpdateEvent {
+pub(crate) fn update_event(
+    room_id: Uuid,
+    object: janus_rtc_stream::Object,
+    start_timestamp: DateTime<Utc>,
+) -> Result<ObjectUpdateEvent, SvcError> {
     let uri = format!("rooms/{}/events", room_id);
-    OutgoingEvent::broadcast(
-        object,
-        OutgoingEventProperties::new("rtc_stream.update"),
-        &uri,
-    )
+
+    let timing = ShortTermTimingProperties::until_now(start_timestamp);
+    let props = OutgoingEventProperties::new("rtc_stream.update", timing);
+    Ok(OutgoingEvent::broadcast(object, props, &uri))
 }
 
 #[cfg(test)]
@@ -176,7 +192,7 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"room_id": rtc.room_id(), "rtc_id": rtc.id()});
             let request: ListRequest = agent.build_request("rtc_stream.list", &payload).unwrap();
-            let mut result = state.list(request).await.into_result().unwrap();
+            let mut result = state.list(request, Utc::now()).await.into_result().unwrap();
             let message = result.remove(0);
 
             // Assert response.
@@ -214,7 +230,7 @@ mod test {
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let payload = json!({"room_id": Uuid::new_v4(), "rtc_id": Uuid::new_v4()});
             let request: ListRequest = agent.build_request("rtc_stream.list", &payload).unwrap();
-            let result = state.list(request).await.into_result();
+            let result = state.list(request, Utc::now()).await.into_result();
 
             // Assert 404 error response.
             match result {
@@ -242,7 +258,7 @@ mod test {
             let payload = json!({ "room_id": rtc.room_id(), "rtc_id": rtc.id() });
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: ListRequest = agent.build_request("rtc_stream.list", &payload).unwrap();
-            let result = state.list(request).await.into_result();
+            let result = state.list(request, Utc::now()).await.into_result();
 
             // Assert 403 error response.
             match result {

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::thread;
 
+use chrono::{DateTime, Utc};
 use failure::Error;
 use futures::{executor::ThreadPoolBuilder, task::SpawnExt, StreamExt};
 use log::{error, info, warn};
@@ -129,6 +130,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     let mut threadpool = ThreadPoolBuilder::new().create()?;
 
     while let Some(message) = mq_rx.next().await {
+        let start_timestamp = Utc::now();
         let mut tx = tx.clone();
         let state = state.clone();
         let backend = backend.clone();
@@ -149,17 +151,20 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
                             janus::handle_status(
                                 message.payload.clone(),
                                 backend.clone(),
+                                start_timestamp,
                             ).await
                         }
                         val if val == &route.janus_responses_subscription_topic => {
                             janus::handle_response(
                                 message.payload.clone(),
                                 backend.clone(),
+                                start_timestamp,
                             ).await
                         }
                         _ => handle_message(
                             message.payload.clone(),
                             state.clone(),
+                            start_timestamp,
                         ).await,
                     };
 
@@ -192,6 +197,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
 async fn handle_message(
     payload: Arc<Vec<u8>>,
     state: Arc<State>,
+    start_timestamp: DateTime<Utc>,
 ) -> Result<Vec<Box<dyn Publishable>>, Error> {
     use endpoint::{handle_event, handle_request, handle_unknown_method};
 
@@ -208,6 +214,7 @@ async fn handle_message(
                         endpoint::agent::State::list,
                         &state.agent,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -219,6 +226,7 @@ async fn handle_message(
                         endpoint::room::State::create,
                         &state.room,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -230,6 +238,7 @@ async fn handle_message(
                         endpoint::room::State::read,
                         &state.room,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -241,6 +250,7 @@ async fn handle_message(
                         endpoint::room::State::update,
                         &state.room,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -252,6 +262,7 @@ async fn handle_message(
                         endpoint::room::State::delete,
                         &state.room,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -263,6 +274,7 @@ async fn handle_message(
                         endpoint::room::State::enter,
                         &state.room,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -274,6 +286,7 @@ async fn handle_message(
                         endpoint::room::State::leave,
                         &state.room,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -285,6 +298,7 @@ async fn handle_message(
                         endpoint::rtc::State::create,
                         &state.rtc,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -296,6 +310,7 @@ async fn handle_message(
                         endpoint::rtc::State::connect,
                         &state.rtc,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -307,6 +322,7 @@ async fn handle_message(
                         endpoint::rtc::State::read,
                         &state.rtc,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -318,6 +334,7 @@ async fn handle_message(
                         endpoint::rtc::State::list,
                         &state.rtc,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -329,6 +346,7 @@ async fn handle_message(
                         endpoint::rtc_signal::State::create,
                         &state.rtc_signal,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -340,6 +358,7 @@ async fn handle_message(
                         endpoint::rtc_stream::State::list,
                         &state.rtc_stream,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -351,6 +370,7 @@ async fn handle_message(
                         endpoint::message::State::broadcast,
                         &state.message,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -363,6 +383,7 @@ async fn handle_message(
                         endpoint::message::State::unicast,
                         &state.message,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
@@ -374,15 +395,16 @@ async fn handle_message(
                         endpoint::system::State::vacuum,
                         &state.system,
                         envelope,
+                        start_timestamp,
                     )
                     .await
                 }
-                method => handle_unknown_method(method, &reqp),
+                method => handle_unknown_method(method, &reqp, start_timestamp),
             }
         }
         compat::IncomingEnvelopeProperties::Response(_) => {
             let resp = compat::into_response(envelope)?;
-            state.message.callback(resp).await
+            state.message.callback(resp, start_timestamp).await
         }
         compat::IncomingEnvelopeProperties::Event(ref evp) => match evp.label() {
             Some("subscription.create") => {
@@ -392,6 +414,7 @@ async fn handle_message(
                     endpoint::subscription::State::create,
                     &state.subscription,
                     envelope,
+                    start_timestamp,
                 )
                 .await
             }
@@ -402,6 +425,7 @@ async fn handle_message(
                     endpoint::subscription::State::delete,
                     &state.subscription,
                     envelope,
+                    start_timestamp,
                 )
                 .await
             }

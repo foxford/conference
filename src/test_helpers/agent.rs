@@ -1,8 +1,10 @@
+use std::time::Duration;
+
+use chrono::Utc;
 use failure::{format_err, Error};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde_json::{json, Value as JsonValue};
-
 use svc_agent::mqtt::{compat, compat::IncomingEnvelope, IncomingEvent, IncomingRequest};
 use svc_agent::{AccountId, AgentId};
 
@@ -47,6 +49,7 @@ impl TestAgent {
         let conference_account_id = AccountId::new("svc", self.account_id.audience());
         let conference_agent_id = AgentId::new("conference", conference_account_id);
         let response_topic = format!("agents/{}/api/v1/in/{}", self.agent_id, conference_agent_id);
+        let now = Utc::now();
 
         let message = json!({
             "payload": serde_json::to_string(payload)?,
@@ -63,6 +66,10 @@ impl TestAgent {
                 "broker_agent_label": "alpha",
                 "broker_account_label": "mqtt-gateway",
                 "broker_audience": self.account_id.audience(),
+                "broker_timestamp": now,
+                "broker_processing_timestamp": now,
+                "broker_initial_processing_timestamp": now,
+                "local_initial_timediff": Duration::from_millis(0),
             }
         });
 
@@ -81,6 +88,8 @@ impl TestAgent {
     where
         T: serde::de::DeserializeOwned,
     {
+        let now = Utc::now();
+
         let message = json!({
             "payload": serde_json::to_string(payload)?,
             "properties": {
@@ -91,6 +100,10 @@ impl TestAgent {
                 "audience": self.account_id.audience(),
                 "connection_mode": "agents",
                 "connection_version": "v1",
+                "broker_timestamp": now,
+                "broker_processing_timestamp": now,
+                "broker_initial_processing_timestamp": now,
+                "local_initial_timediff": Duration::from_millis(0),
             }
         });
 
