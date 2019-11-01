@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use chrono::Utc;
 use failure::{format_err, Error};
 use rand::distributions::Alphanumeric;
@@ -49,7 +47,7 @@ impl TestAgent {
         let conference_account_id = AccountId::new("svc", self.account_id.audience());
         let conference_agent_id = AgentId::new("conference", conference_account_id);
         let response_topic = format!("agents/{}/api/v1/in/{}", self.agent_id, conference_agent_id);
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis().to_string();
 
         let message = json!({
             "payload": serde_json::to_string(payload)?,
@@ -69,7 +67,6 @@ impl TestAgent {
                 "broker_timestamp": now,
                 "broker_processing_timestamp": now,
                 "broker_initial_processing_timestamp": now,
-                "local_initial_timediff": Duration::from_millis(0),
             }
         });
 
@@ -88,7 +85,7 @@ impl TestAgent {
     where
         T: serde::de::DeserializeOwned,
     {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis().to_string();
 
         let message = json!({
             "payload": serde_json::to_string(payload)?,
@@ -103,7 +100,6 @@ impl TestAgent {
                 "broker_timestamp": now,
                 "broker_processing_timestamp": now,
                 "broker_initial_processing_timestamp": now,
-                "local_initial_timediff": Duration::from_millis(0),
             }
         });
 
