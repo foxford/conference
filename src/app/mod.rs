@@ -281,7 +281,7 @@ async fn handle_message(
                 "room.leave" => {
                     handle_request(
                         "rtc.leave",
-                        "Error entering a room",
+                        "Error leaving a room",
                         &reqp,
                         endpoint::room::State::leave,
                         &state.room,

@@ -978,7 +978,7 @@ mod test {
             let payload = json!({"id": room.id()});
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
-            state.enter(request).await.into_result().unwrap();
+            state.enter(request, Utc::now()).await.into_result().unwrap();
 
             // Assert agent is in `in_progress` state in the DB.
             let conn = db.connection_pool().get().unwrap();
