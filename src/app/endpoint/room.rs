@@ -102,6 +102,7 @@ impl State {
                 vec!["rooms"],
                 "create",
             )
+            .await
             .map_err(|err| SvcError::from(err))?;
 
         // Creating a Room
@@ -153,6 +154,7 @@ impl State {
                 vec!["rooms", &room_id],
                 "read",
             )
+            .await
             .map_err(|err| SvcError::from(err))?;
 
         shared::respond(&inreq, object, None, start_timestamp, authz_time)
@@ -188,6 +190,7 @@ impl State {
                 vec!["rooms", &room_id],
                 "update",
             )
+            .await
             .map_err(|err| SvcError::from(err))?;
 
         let object = {
@@ -234,6 +237,7 @@ impl State {
                 vec!["rooms", &room_id],
                 "delete",
             )
+            .await
             .map_err(|err| SvcError::from(err))?;
 
         {
@@ -278,6 +282,7 @@ impl State {
                 vec!["rooms", &room_id, "events"],
                 "subscribe",
             )
+            .await
             .map_err(|err| SvcError::from(err))?;
 
         agent::InsertQuery::new(inreq.properties().as_agent_id(), object.id()).execute(&conn)?;
@@ -978,7 +983,11 @@ mod test {
             let payload = json!({"id": room.id()});
             let state = State::new(authz.into(), db.connection_pool().clone());
             let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
-            state.enter(request, Utc::now()).await.into_result().unwrap();
+            state
+                .enter(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
 
             // Assert agent is in `in_progress` state in the DB.
             let conn = db.connection_pool().get().unwrap();

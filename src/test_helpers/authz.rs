@@ -31,7 +31,7 @@ impl Into<ClientMap> for TestAuthz {
         config_map.insert(self.audience.to_owned(), Config::LocalWhitelist(config));
 
         let account_id = AccountId::new("conference", &self.audience);
-        ClientMap::new(&account_id, config_map).expect("Failed to build authz")
+        ClientMap::new(&account_id, None, config_map).expect("Failed to build authz")
     }
 }
 
@@ -44,5 +44,5 @@ pub(crate) fn no_authz(audience: &str) -> ClientMap {
     authz_config_map.insert(audience.to_owned(), authz_none_config);
 
     let account_id = AccountId::new("conference", audience);
-    svc_authz::ClientMap::new(&account_id, authz_config_map).expect("Failed to build authz")
+    svc_authz::ClientMap::new(&account_id, None, authz_config_map).expect("Failed to build authz")
 }

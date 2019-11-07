@@ -103,6 +103,7 @@ impl State {
                     vec!["rooms", &room_id, "rtcs"],
                     "create",
                 )
+                .await
                 .map_err(|err| SvcError::from(err))?
         };
 
@@ -163,6 +164,7 @@ impl State {
                     vec!["rooms", &room_id, "rtcs", &rtc_id],
                     "read",
                 )
+                .await
                 .map_err(|err| SvcError::from(err))?
         };
 
@@ -229,6 +231,7 @@ impl State {
                     vec!["rooms", &room_id, "rtcs", &rtc_id],
                     "read",
                 )
+                .await
                 .map_err(|err| SvcError::from(err))?
         };
 
@@ -281,6 +284,7 @@ impl State {
                     vec!["rooms", &room_id, "rtcs"],
                     "list",
                 )
+                .await
                 .map_err(|err| SvcError::from(err))?
         };
 

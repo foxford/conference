@@ -75,6 +75,7 @@ impl State {
                 vec!["system"],
                 "update",
             )
+            .await
             .map_err(|err| SvcError::from(err))?;
 
         // TODO: Update 'finished_without_recordings' in order to return (backend,room,rtc)

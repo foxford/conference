@@ -83,6 +83,7 @@ impl State {
                     vec!["rooms", &room_id, "rtcs"],
                     "list",
                 )
+                .await
                 .map_err(|err| SvcError::from(err))?
         };
 
