@@ -1,8 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
-use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
