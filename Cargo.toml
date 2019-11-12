@@ -20,23 +20,12 @@ chrono = { version = "0.4", features = ["serde"] }
 openssl = "*"
 diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
 diesel-derive-enum = { version = "0.4", features = ["postgres"] }
+futures = { version = "0.3", features = ["thread-pool"] }
+futures-channel = "0.3"
 svc-agent = { version = "0.9", features = ["diesel"] }
-svc-authz = "0.5"
+svc-authz = "0.9"
 svc-authn = { version = "0.5", features = ["jose", "diesel"] }
 svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz", "sentry-extension"] }
 
 [dev-dependencies]
 rand = "0.7"
-
-[dependencies.futures]
-version = "=0.3.0-alpha.18"
-package = "futures-preview"
-features = ["compat"]
-
-[dependencies.futures-channel]
-version = "=0.3.0-alpha.18"
-package = "futures-channel-preview"
-
-[patch.crates-io]
-# Use a branch with synchronous authz until 1.39 becomes stable (07.11.2019)
-svc-authz = { git = "https://github.com/netology-group/svc-authz-rs", branch = "sync" }

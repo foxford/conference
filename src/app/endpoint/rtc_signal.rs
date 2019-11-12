@@ -215,6 +215,7 @@ impl State {
                 vec!["rooms", &room_id, "rtcs", &rtc_id],
                 action,
             )
+            .await
             .map_err(|err| SvcError::from(err))
     }
 }

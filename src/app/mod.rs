@@ -75,7 +75,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     });
 
     // Authz
-    let authz = svc_authz::ClientMap::new(&config.id, config.authz)
+    let authz = svc_authz::ClientMap::new(&config.id, None, config.authz)
         .expect("Error converting authz config to clients");
 
     // Sentry
@@ -127,7 +127,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     .expect("Error subscribing to everyone's output messages");
 
     // Thread Pool
-    let mut threadpool = ThreadPoolBuilder::new().create()?;
+    let threadpool = ThreadPoolBuilder::new().create()?;
 
     while let Some(message) = mq_rx.next().await {
         let start_timestamp = Utc::now();
