@@ -1,6 +1,4 @@
-use std::time::Duration;
-
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use diesel::pg::PgConnection;
 use serde::Serialize;
 use svc_agent::mqtt::{

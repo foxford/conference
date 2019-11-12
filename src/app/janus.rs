@@ -1,6 +1,4 @@
-use std::time::Duration;
-
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use failure::{err_msg, format_err, Error};
 use log::{info, warn};
 use serde_derive::{Deserialize, Serialize};
