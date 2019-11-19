@@ -30,7 +30,8 @@ pub(crate) fn respond<R, O: 'static + Clone + Serialize>(
     let mut messages: Vec<Box<dyn Publishable>> = vec![Box::new(resp)];
 
     if let Some((label, topic)) = notification {
-        let props = OutgoingEventProperties::new(label, short_term_timing);
+        let mut props = OutgoingEventProperties::new(label, short_term_timing);
+        props.set_tracking(inreq.properties().tracking().to_owned());
         messages.push(Box::new(OutgoingEvent::broadcast(object, props, topic)));
     }
 

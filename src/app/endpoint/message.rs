@@ -136,6 +136,7 @@ impl State {
             reqp.correlation_data(),
             long_term_timing,
             short_term_timing,
+            inresp.properties().tracking().clone(),
         );
 
         let payload = inresp.payload();

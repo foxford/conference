@@ -67,6 +67,8 @@ impl TestAgent {
                 "broker_timestamp": now,
                 "broker_processing_timestamp": now,
                 "broker_initial_processing_timestamp": now,
+                "tracking_id": "16911d40-0b13-11ea-8171-60f81db6d53e",
+                "session_tracking_label": "16cc4294-0b13-11ea-91ae-60f81db6d53e.16ee876e-0b13-11ea-8c32-60f81db6d53e 2565f962-0b13-11ea-9359-60f81db6d53e.25c2b97c-0b13-11ea-9f20-60f81db6d53e",
             }
         });
 
@@ -100,6 +102,8 @@ impl TestAgent {
                 "broker_timestamp": now,
                 "broker_processing_timestamp": now,
                 "broker_initial_processing_timestamp": now,
+                "tracking_id": "16911d40-0b13-11ea-8171-60f81db6d53e",
+                "session_tracking_label": "16cc4294-0b13-11ea-91ae-60f81db6d53e.16ee876e-0b13-11ea-8c32-60f81db6d53e 2565f962-0b13-11ea-9359-60f81db6d53e.25c2b97c-0b13-11ea-9f20-60f81db6d53e",
             }
         });
 
