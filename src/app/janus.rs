@@ -8,7 +8,7 @@ use std::sync::Arc;
 use svc_agent::mqtt::{
     compat::{into_event, IncomingEnvelope},
     IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties, Publishable,
-    ResponseStatus, ShortTermTimingProperties,
+    ResponseStatus, ShortTermTimingProperties, TrackingProperties,
 };
 use svc_agent::{Addressable, AgentId};
 use svc_error::Error as SvcError;
@@ -54,6 +54,7 @@ impl CreateSessionTransaction {
 pub(crate) fn create_session_request<A>(
     to: &A,
     start_timestamp: DateTime<Utc>,
+    tracking: &TrackingProperties,
 ) -> Result<OutgoingRequest<CreateSessionRequest>, Error>
 where
     A: Addressable,
@@ -61,13 +62,14 @@ where
     let transaction = Transaction::CreateSession(CreateSessionTransaction::new());
     let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
 
-    let props = OutgoingRequestProperties::new(
+    let mut props = OutgoingRequestProperties::new(
         "janus_session.create",
         IGNORE,
         IGNORE,
         ShortTermTimingProperties::until_now(start_timestamp),
     );
 
+    props.set_tracking(tracking.to_owned());
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -88,6 +90,7 @@ pub(crate) fn create_handle_request<A>(
     session_id: i64,
     to: &A,
     start_timestamp: DateTime<Utc>,
+    tracking: &TrackingProperties,
 ) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
 where
     A: Addressable,
@@ -101,12 +104,14 @@ where
         None,
     );
 
-    let props = OutgoingRequestProperties::new(
+    let mut props = OutgoingRequestProperties::new(
         "janus_handle.create",
         IGNORE,
         IGNORE,
         ShortTermTimingProperties::until_now(start_timestamp),
     );
+
+    props.set_tracking(tracking.to_owned());
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -342,6 +347,7 @@ pub(crate) fn upload_stream_request(
     body: UploadStreamRequestBody,
     to: &AgentId,
     start_timestamp: DateTime<Utc>,
+    tracking: &TrackingProperties,
 ) -> Result<OutgoingRequest<MessageRequest>, Error> {
     let transaction = Transaction::UploadStream(UploadStreamTransaction::new(body.id));
 
@@ -353,13 +359,14 @@ pub(crate) fn upload_stream_request(
         None,
     );
 
-    let props = OutgoingRequestProperties::new(
+    let mut props = OutgoingRequestProperties::new(
         "janus_conference_stream.upload",
         IGNORE,
         IGNORE,
         ShortTermTimingProperties::until_now(start_timestamp),
     );
 
+    props.set_tracking(tracking.to_owned());
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 
@@ -423,11 +430,14 @@ pub(crate) async fn handle_response(
             match from_base64::<Transaction>(&inresp.transaction())? {
                 // Session has been created
                 Transaction::CreateSession(_tn) => {
-                    let session_id = inresp.data().id();
-
                     // Creating Handle
-                    let backreq =
-                        create_handle_request(session_id, message.properties(), start_timestamp)?;
+                    let backreq = create_handle_request(
+                        inresp.data().id(),
+                        message.properties(),
+                        start_timestamp,
+                        message.properties().tracking(),
+                    )?;
+
                     Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
                 }
                 // Handle has been created
@@ -776,8 +786,14 @@ pub(crate) async fn handle_response(
 
                             match maybe_rtcs_and_recordings {
                                 Some(rtcs_and_recordings) => {
-                                    let event = endpoint::system::upload_event(&room, rtcs_and_recordings.into_iter(), start_timestamp)
-                                        .map_err(|e| format_err!("error creating a system event, {}", e))?;
+                                    let event = endpoint::system::upload_event(
+                                        &room,
+                                        rtcs_and_recordings.into_iter(),
+                                        start_timestamp,
+                                        message.properties().tracking(),
+                                    ).map_err(|e| {
+                                        format_err!("error creating a system event, {}", e)
+                                    })?;
 
                                     Ok(vec![Box::new(event) as Box<dyn Publishable>])
                                 }
@@ -824,8 +840,12 @@ pub(crate) async fn handle_response(
                     .execute(&conn)?
                     .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
 
-                let event =
-                    endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp)?;
+                let event = endpoint::rtc_stream::update_event(
+                    room.id(),
+                    rtc_stream,
+                    start_timestamp,
+                    message.properties().tracking(),
+                )?;
 
                 Ok(vec![Box::new(event) as Box<dyn Publishable>])
             } else {
@@ -851,8 +871,12 @@ pub(crate) async fn handle_response(
                 // Publish the update event if only stream object has been changed
                 // (if there was't any actual media stream, the object won't contain its start time)
                 if let Some(_) = rtc_stream.time() {
-                    let event =
-                        endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp)?;
+                    let event = endpoint::rtc_stream::update_event(
+                        room.id(),
+                        rtc_stream,
+                        start_timestamp,
+                        message.properties().tracking(),
+                    )?;
 
                     return Ok(vec![Box::new(event) as Box<dyn Publishable>]);
                 }
@@ -887,7 +911,8 @@ pub(crate) async fn handle_status(
     let agent_id = inev.properties().as_agent_id();
 
     if let true = inev.payload().online() {
-        let event = create_session_request(agent_id, start_timestamp)?;
+        let tracking = inev.properties().tracking();
+        let event = create_session_request(agent_id, start_timestamp, tracking)?;
         Ok(vec![Box::new(event) as Box<dyn Publishable>])
     } else {
         let conn = janus.db.get()?;

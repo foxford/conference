@@ -5,7 +5,7 @@ use failure::Error;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
     IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publishable, ResponseStatus,
-    ShortTermTimingProperties,
+    ShortTermTimingProperties, TrackingProperties,
 };
 use svc_authn::AccountId;
 use svc_error::Error as SvcError;
@@ -103,6 +103,7 @@ impl State {
                     ),
                     backend.id(),
                     start_timestamp,
+                    inreq.properties().tracking(),
                 )
                 .map_err(|_| {
                     // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
@@ -126,6 +127,7 @@ pub(crate) fn upload_event<I>(
     room: &room::Object,
     rtcs_and_recordings: I,
     start_timestamp: DateTime<Utc>,
+    tracking: &TrackingProperties,
 ) -> Result<RoomUploadEvent, Error>
 where
     I: Iterator<Item = (rtc::Object, recording::Object)>,
@@ -152,7 +154,8 @@ where
 
     let uri = format!("audiences/{}/events", room.audience());
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
-    let props = OutgoingEventProperties::new("room.upload", timing);
+    let mut props = OutgoingEventProperties::new("room.upload", timing);
+    props.set_tracking(tracking.to_owned());
 
     let event = RoomUploadEventData {
         id: room.id(),
