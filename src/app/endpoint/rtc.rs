@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::app::endpoint::shared;
 use crate::app::{endpoint, API_VERSION};
-use crate::db::{janus_backend, room, rtc, ConnectionPool};
+use crate::db::{janus_backend, janus_rtc_stream, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -168,18 +168,34 @@ impl State {
                 .map_err(|err| SvcError::from(err))?
         };
 
-        // TODO: implement resource management
-        // Picking up first available backend
-        let backends = {
+        let backend = {
             let conn = self.db.get()?;
-            janus_backend::ListQuery::new().limit(1).execute(&conn)?
+
+            // If there is an active stream choose its backend since Janus doesn't support
+            // clustering so all agents within one rtc must be sent to the same node. If there's no
+            // active stream it means we're connecting as publisher and going to create it.
+            // Then select the least loaded node: the one with the least active rtc streams count.
+            match janus_rtc_stream::FindQuery::new()
+                .rtc_id(id)
+                .execute(&conn)?
+            {
+                Some(ref stream) => janus_backend::FindQuery::new()
+                    .id(stream.backend_id().to_owned())
+                    .execute(&conn)?
+                    .ok_or_else(|| {
+                        SvcError::builder()
+                            .status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                            .detail("no backend found for stream")
+                            .build()
+                    })?,
+                None => janus_backend::least_loaded(&conn)?.ok_or_else(|| {
+                    SvcError::builder()
+                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                        .detail("no available backends")
+                        .build()
+                })?,
+            }
         };
-        let backend = backends.first().ok_or_else(|| {
-            SvcError::builder()
-                .status(ResponseStatus::UNPROCESSABLE_ENTITY)
-                .detail("no available backends")
-                .build()
-        })?;
 
         // Building a Create Janus Gateway Handle request
         crate::app::janus::create_rtc_handle_request(
@@ -321,12 +337,13 @@ mod test {
     use serde_json::{json, Value as JsonValue};
     use svc_agent::{AccountId, AgentId, Destination};
 
+    use crate::db::janus_rtc_stream;
     use crate::test_helpers::{
         agent::TestAgent,
         authz::{no_authz, TestAuthz},
         db::TestDb,
         extract_payload,
-        factory::{insert_janus_backend, insert_room, insert_rtc},
+        factory::{insert_janus_backend, insert_room, insert_rtc, JanusRtcStream},
     };
     use crate::util::from_base64;
 
@@ -393,7 +410,7 @@ mod test {
             let payload: RtcResponse = extract_payload(message).unwrap();
             assert_eq!(payload.room_id, room.id());
 
-            // Assert room presence in the DB.
+            // Assert rtc presence in the DB.
             let conn = db.connection_pool().get().unwrap();
             let query = crate::schema::rtc::table.find(resp.id);
             assert_eq!(query.execute(&conn).unwrap(), 1);
@@ -652,10 +669,27 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    (
-                        insert_rtc(&conn, AUDIENCE),
-                        insert_janus_backend(&conn, AUDIENCE),
-                    )
+                    // Insert janus backends.
+                    let backend1 = insert_janus_backend(&conn, AUDIENCE);
+                    let backend2 = insert_janus_backend(&conn, AUDIENCE);
+
+                    // The first backend has 1 active stream.
+                    let stream1 = JanusRtcStream::new(AUDIENCE)
+                        .backend(&backend1)
+                        .insert(&conn)
+                        .unwrap();
+
+                    janus_rtc_stream::start(*stream1.id(), &conn).unwrap();
+
+                    // The second backend has 1 stream that is not started
+                    // so it's free and should be selected by the balancer.
+                    let _stream2 = JanusRtcStream::new(AUDIENCE)
+                        .backend(&backend2)
+                        .insert(&conn)
+                        .unwrap();
+
+                    let rtc = insert_rtc(&conn, AUDIENCE);
+                    (rtc, backend2)
                 })
                 .unwrap();
 
@@ -699,6 +733,59 @@ mod test {
                     }
                 }
             )
+        });
+    }
+
+    #[test]
+    fn connect_to_rtc_with_existing_stream() {
+        futures::executor::block_on(async {
+            let db = TestDb::new();
+            let mut authz = TestAuthz::new(AUDIENCE);
+
+            // Insert an rtc and janus backend.
+            let (rtc, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let rtc = insert_rtc(&conn, AUDIENCE);
+
+                    // Insert janus backends.
+                    let _backend1 = insert_janus_backend(&conn, AUDIENCE);
+                    let backend2 = insert_janus_backend(&conn, AUDIENCE);
+
+                    // The second backend has an active stream already.
+                    let stream = JanusRtcStream::new(AUDIENCE)
+                        .backend(&backend2)
+                        .rtc(&rtc)
+                        .insert(&conn)
+                        .unwrap();
+
+                    janus_rtc_stream::start(*stream.id(), &conn).unwrap();
+                    (rtc, backend2)
+                })
+                .unwrap();
+
+            // Allow user to read the rtc.
+            let agent = TestAgent::new("web", "user123", AUDIENCE);
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "read");
+
+            // Make rtc.connect request.
+            let state = State::new(authz.into(), db.connection_pool().clone());
+            let payload = json!({"id": rtc.id()});
+            let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
+            let mut result = state
+                .connect(request, Utc::now())
+                .await
+                .into_result()
+                .unwrap();
+            let message = result.remove(0);
+
+            // Ensure we're balanced to the backend with the stream.
+            let resp: RtcConnectResponse = extract_payload(message).unwrap();
+            assert_eq!(resp.session_id, backend.session_id());
         });
     }
 

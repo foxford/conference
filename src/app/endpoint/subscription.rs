@@ -393,7 +393,11 @@ mod test {
                 .get()
                 .map_err(|err| format_err!("Failed to get DB connection: {}", err))
                 .and_then(|conn| {
-                    let stream = factory::insert_janus_rtc_stream(&conn, AUDIENCE);
+                    let stream = factory::JanusRtcStream::new(AUDIENCE).insert(&conn)?;
+
+                    let stream = janus_rtc_stream::start(*stream.id(), &conn)
+                        .expect("Failed to start stream")
+                        .expect("No stream returned");
 
                     let agent = factory::Agent::new()
                         .agent_id(stream.sent_by())

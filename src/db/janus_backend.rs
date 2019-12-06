@@ -87,6 +87,36 @@ impl<'a> ListQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+pub(crate) struct FindQuery {
+    id: Option<AgentId>,
+}
+
+impl FindQuery {
+    pub(crate) fn new() -> Self {
+        Self { id: None }
+    }
+
+    pub(crate) fn id(self, id: AgentId) -> Self {
+        Self {
+            id: Some(id),
+            ..self
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+        use diesel::prelude::*;
+
+        match self.id {
+            Some(ref id) => janus_backend::table.find(id).get_result(conn).optional(),
+            None => Err(Error::QueryBuilderError(
+                "id parameter is required parameter of the query".into(),
+            )),
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "janus_backend"]
 pub(crate) struct UpdateQuery<'a> {
@@ -133,4 +163,28 @@ impl<'a> DeleteQuery<'a> {
 
         diesel::delete(janus_backend::table.filter(janus_backend::id.eq(self.id))).execute(conn)
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+const LEAST_LOADED_SQL: &str = r#"
+    select jb.*
+    from janus_backend as jb
+    left join (
+        select *
+        from janus_rtc_stream
+        where lower(time) is not null
+        and   upper(time) is null
+    ) as jrs
+    on jrs.backend_id = jb.id
+    group by jb.id
+    order by count(jrs.id)
+"#;
+
+pub(crate) fn least_loaded(conn: &PgConnection) -> Result<Option<Object>, Error> {
+    use diesel::prelude::*;
+
+    diesel::sql_query(LEAST_LOADED_SQL)
+        .get_result(conn)
+        .optional()
 }
