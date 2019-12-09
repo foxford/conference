@@ -44,10 +44,13 @@ impl TestAgent {
             .take(CORRELATION_DATA_LENGTH)
             .collect();
 
-        let conference_account_id = AccountId::new("svc", self.account_id.audience());
-        let conference_agent_id = AgentId::new("conference", conference_account_id);
-        let response_topic = format!("agents/{}/api/v1/in/{}", self.agent_id, conference_agent_id);
         let now = Utc::now().timestamp_millis().to_string();
+        let conference_account_id = AccountId::new("conference", self.account_id.audience());
+
+        let response_topic = format!(
+            "agents/{}/api/v1/in/{}",
+            self.agent_id, conference_account_id
+        );
 
         let message = json!({
             "payload": serde_json::to_string(payload)?,
@@ -55,15 +58,11 @@ impl TestAgent {
                 "type": "request",
                 "correlation_data": correlation_data,
                 "method": method,
-                "agent_label": self.agent_id.label(),
-                "account_label": self.account_id.label(),
-                "audience": self.account_id.audience(),
-                "connection_mode": "agents",
-                "connection_version": "v1",
+                "agent_id": self.agent_id.to_string(),
+                "connection_mode": "default",
+                "connection_version": "v2",
                 "response_topic": response_topic,
-                "broker_agent_label": "alpha",
-                "broker_account_label": "mqtt-gateway",
-                "broker_audience": self.account_id.audience(),
+                "broker_agent_id": self.account_id.to_string(),
                 "broker_timestamp": now,
                 "broker_processing_timestamp": now,
                 "broker_initial_processing_timestamp": now,
@@ -94,11 +93,9 @@ impl TestAgent {
             "properties": {
                 "type": "event",
                 "label": label,
-                "agent_label": self.agent_id.label(),
-                "account_label": &self.account_id.label(),
-                "audience": self.account_id.audience(),
-                "connection_mode": "agents",
-                "connection_version": "v1",
+                "agent_id": self.agent_id.to_string(),
+                "connection_mode": "default",
+                "connection_version": "v2",
                 "broker_timestamp": now,
                 "broker_processing_timestamp": now,
                 "broker_initial_processing_timestamp": now,

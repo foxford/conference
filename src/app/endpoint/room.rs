@@ -2,9 +2,9 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use std::ops::Bound;
 use svc_agent::mqtt::{
-    Connection, IncomingRequest, OutgoingRequest, ResponseStatus, ShortTermTimingProperties,
+    IncomingRequest, OutgoingRequest, ResponseStatus, ShortTermTimingProperties,
 };
-use svc_agent::Addressable;
+use svc_agent::{Addressable, AgentId};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
@@ -60,14 +60,14 @@ pub(crate) struct EnterRequestData {
 
 #[derive(Debug, Serialize)]
 struct SubscriptionRequest {
-    subject: Connection,
+    subject: AgentId,
     object: Vec<String>,
 }
 
 impl SubscriptionRequest {
-    fn new(subject: Connection, object: Vec<&str>) -> Self {
+    fn new(subject: AgentId, object: Vec<&str>) -> Self {
         Self {
-            subject: subject,
+            subject,
             object: object.iter().map(|&s| s.into()).collect(),
         }
     }
@@ -288,7 +288,7 @@ impl State {
         agent::InsertQuery::new(inreq.properties().as_agent_id(), object.id()).execute(&conn)?;
 
         let payload = SubscriptionRequest::new(
-            inreq.properties().to_connection(),
+            inreq.properties().as_agent_id().to_owned(),
             vec!["rooms", &room_id, "events"],
         );
 
@@ -339,7 +339,7 @@ impl State {
         }
 
         let payload = SubscriptionRequest::new(
-            inreq.properties().to_connection(),
+            inreq.properties().as_agent_id().to_owned(),
             vec!["rooms", &room_id, "events"],
         );
 
@@ -875,7 +875,7 @@ mod test {
             assert_eq!(method, "subscription.create");
 
             let resp: RoomEnterLeaveBrokerRequest = parse_payload(message_value).unwrap();
-            assert_eq!(resp.subject, format!("v1/agents/{}", agent.agent_id()));
+            assert_eq!(resp.subject, agent.agent_id().to_string());
             assert_eq!(
                 resp.object,
                 vec!["rooms", room.id().to_string().as_str(), "events"]
@@ -1056,7 +1056,7 @@ mod test {
             assert_eq!(method, "subscription.delete");
 
             let resp: RoomEnterLeaveBrokerRequest = parse_payload(message_value).unwrap();
-            assert_eq!(resp.subject, format!("v1/agents/{}", agent.agent_id()));
+            assert_eq!(resp.subject, agent.agent_id().to_string());
             assert_eq!(
                 resp.object,
                 vec!["rooms", room.id().to_string().as_str(), "events"]
