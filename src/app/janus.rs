@@ -7,8 +7,8 @@ use std::ops::Bound;
 use std::sync::Arc;
 use svc_agent::mqtt::{
     compat::{into_event, IncomingEnvelope},
-    IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties, Publishable,
-    ResponseStatus, ShortTermTimingProperties, TrackingProperties,
+    IncomingEventProperties, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties,
+    Publishable, ResponseStatus, ShortTermTimingProperties, TrackingProperties,
 };
 use svc_agent::{Addressable, AgentId};
 use svc_error::Error as SvcError;
@@ -38,6 +38,7 @@ pub(crate) enum Transaction {
     ReadStream(ReadStreamTransaction),
     UploadStream(UploadStreamTransaction),
     Trickle(TrickleTransaction),
+    AgentLeave(AgentLeaveTransaction),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -192,13 +193,15 @@ impl CreateStreamTransaction {
 pub(crate) struct CreateStreamRequestBody {
     method: &'static str,
     id: Uuid,
+    agent_id: AgentId,
 }
 
 impl CreateStreamRequestBody {
-    pub(crate) fn new(id: Uuid) -> Self {
+    pub(crate) fn new(id: Uuid, agent_id: AgentId) -> Self {
         Self {
             method: "stream.create",
             id,
+            agent_id,
         }
     }
 }
@@ -226,8 +229,9 @@ where
         short_term_timing,
     );
 
+    let agent_id = reqp.to_connection().agent_id().to_owned();
+    let body = CreateStreamRequestBody::new(rtc_id, agent_id);
     let transaction = Transaction::CreateStream(CreateStreamTransaction::new(reqp));
-    let body = CreateStreamRequestBody::new(rtc_id);
 
     let payload = MessageRequest::new(
         &to_base64(&transaction)?,
@@ -257,13 +261,15 @@ impl ReadStreamTransaction {
 pub(crate) struct ReadStreamRequestBody {
     method: &'static str,
     id: Uuid,
+    agent_id: AgentId,
 }
 
 impl ReadStreamRequestBody {
-    pub(crate) fn new(id: Uuid) -> Self {
+    pub(crate) fn new(id: Uuid, agent_id: AgentId) -> Self {
         Self {
             method: "stream.read",
             id,
+            agent_id,
         }
     }
 }
@@ -291,8 +297,9 @@ where
         short_term_timing,
     );
 
+    let agent_id = reqp.to_connection().agent_id().to_owned();
+    let body = ReadStreamRequestBody::new(rtc_id, agent_id);
     let transaction = Transaction::ReadStream(ReadStreamTransaction::new(reqp));
-    let body = ReadStreamRequestBody::new(rtc_id);
 
     let payload = MessageRequest::new(
         &to_base64(&transaction)?,
@@ -401,6 +408,68 @@ where
     let props = reqp.to_request("janus_trickle.create", IGNORE, IGNORE, short_term_timing);
     let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
     let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
+    Ok(OutgoingRequest::unicast(payload, props, to))
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct AgentLeaveTransaction {
+    evp: IncomingEventProperties,
+}
+
+impl AgentLeaveTransaction {
+    pub(crate) fn new(evp: IncomingEventProperties) -> Self {
+        Self { evp }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct AgentLeaveRequestBody {
+    method: &'static str,
+    agent_id: AgentId,
+}
+
+impl AgentLeaveRequestBody {
+    pub(crate) fn new(agent_id: AgentId) -> Self {
+        Self {
+            method: "agent.leave",
+            agent_id,
+        }
+    }
+}
+
+pub(crate) fn agent_leave_request<A>(
+    evp: IncomingEventProperties,
+    session_id: i64,
+    handle_id: i64,
+    agent_id: &AgentId,
+    to: &A,
+    tracking: &TrackingProperties,
+) -> Result<OutgoingRequest<MessageRequest>, Error>
+where
+    A: Addressable,
+{
+    let mut props = OutgoingRequestProperties::new(
+        "janus_conference_agent.leave",
+        IGNORE,
+        IGNORE,
+        ShortTermTimingProperties::new(Utc::now()),
+    );
+
+    props.set_tracking(tracking.to_owned());
+
+    let transaction = Transaction::AgentLeave(AgentLeaveTransaction::new(evp));
+    let body = AgentLeaveRequestBody::new(agent_id.to_owned());
+
+    let payload = MessageRequest::new(
+        &to_base64(&transaction)?,
+        session_id,
+        handle_id,
+        serde_json::to_value(&body)?,
+        None,
+    );
+
     Ok(OutgoingRequest::unicast(payload, props, to))
 }
 

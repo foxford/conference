@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
-    Connection, IncomingEvent, IncomingEventProperties, OutgoingEvent, ResponseStatus,
+    Connection, IncomingEvent, IncomingEventProperties, OutgoingEvent, Publishable, ResponseStatus,
     ShortTermTimingProperties,
 };
 use svc_agent::AgentId;
@@ -10,7 +10,7 @@ use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::endpoint;
-use crate::db::{agent, room, ConnectionPool};
+use crate::db::{agent, janus_backend, janus_rtc_stream, room, ConnectionPool};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -100,11 +100,54 @@ impl State {
         let row_count = agent::DeleteQuery::new(agent_id, room_id).execute(&conn)?;
 
         if row_count == 1 {
+            // Event to room topic.
             let payload = RoomEnterLeaveEventData::new(room_id.to_owned(), agent_id.to_owned());
             let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
             let props = evt.properties().to_event("room.leave", short_term_timing);
             let to_uri = format!("rooms/{}/events", room_id);
-            OutgoingEvent::broadcast(payload, props, &to_uri).into()
+            let outgoing_event = OutgoingEvent::broadcast(payload, props, &to_uri);
+            let mut messages: Vec<Box<dyn Publishable>> = vec![Box::new(outgoing_event)];
+
+            // `agent.leave` requests to Janus instances that host active streams in this room.
+            let streams = janus_rtc_stream::ListQuery::new()
+                .room_id(room_id)
+                .active(true)
+                .execute(&conn)?;
+
+            let mut backend_ids = streams
+                .iter()
+                .map(|stream| stream.backend_id())
+                .collect::<Vec<&AgentId>>();
+
+            backend_ids.dedup();
+
+            let backends = janus_backend::ListQuery::new()
+                .ids(&backend_ids[..])
+                .execute(&conn)?;
+
+            for backend in backends {
+                let result = crate::app::janus::agent_leave_request(
+                    evt.properties().to_owned(),
+                    backend.session_id(),
+                    backend.handle_id(),
+                    agent_id,
+                    backend.id(),
+                    evt.properties().tracking(),
+                );
+
+                match result {
+                    Ok(req) => messages.push(Box::new(req)),
+                    Err(_) => {
+                        return SvcError::builder()
+                            .status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                            .detail("error creating a backend request")
+                            .build()
+                            .into()
+                    }
+                }
+            }
+
+            messages.into()
         } else {
             let err = format!(
                 "the agent is not found for agent_id = '{}', room = '{}'",

@@ -29,3 +29,6 @@ svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-a
 
 [dev-dependencies]
 rand = "0.7"
+
+[patch.crates-io]
+svc-agent = { git = "https://github.com/netology-group/svc-agent-rs" }
