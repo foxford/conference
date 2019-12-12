@@ -93,6 +93,7 @@ impl State {
                 Some(room_id),
                 inreq.payload().rtc_id,
                 inreq.payload().time,
+                None,
                 inreq.payload().offset,
                 Some(std::cmp::min(
                     inreq.payload().limit.unwrap_or_else(|| MAX_LIMIT),

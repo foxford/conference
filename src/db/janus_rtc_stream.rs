@@ -109,10 +109,16 @@ impl FindQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+const ACTIVE_SQL: &str = r#"(
+    lower("janus_rtc_stream"."time") is not null
+    and upper("janus_rtc_stream"."time") is null
+)"#;
+
 pub(crate) struct ListQuery {
     room_id: Option<Uuid>,
     rtc_id: Option<Uuid>,
     time: Option<Time>,
+    active: Option<bool>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
@@ -123,6 +129,7 @@ impl ListQuery {
             room_id: None,
             rtc_id: None,
             time: None,
+            active: None,
             offset: None,
             limit: None,
         }
@@ -145,6 +152,13 @@ impl ListQuery {
     pub(crate) fn time(self, time: Time) -> Self {
         Self {
             time: Some(time),
+            ..self
+        }
+    }
+
+    pub(crate) fn active(self, active: bool) -> Self {
+        Self {
+            active: Some(active),
             ..self
         }
     }
@@ -174,6 +188,11 @@ impl ListQuery {
         if let Some(time) = self.time {
             q = q.filter(sql("time && ").bind::<Tstzrange, _>(time));
         }
+        match self.active {
+            None => (),
+            Some(true) => q = q.filter(sql(ACTIVE_SQL)),
+            Some(false) => q = q.filter(sql(&format!("not {}", ACTIVE_SQL))),
+        }
         if let Some(offset) = self.offset {
             q = q.offset(offset);
         }
@@ -200,6 +219,7 @@ impl
         Option<Uuid>,
         Option<Uuid>,
         Option<Time>,
+        Option<bool>,
         Option<i64>,
         Option<i64>,
     )> for ListQuery
@@ -209,6 +229,7 @@ impl
             Option<Uuid>,
             Option<Uuid>,
             Option<Time>,
+            Option<bool>,
             Option<i64>,
             Option<i64>,
         ),
@@ -217,8 +238,9 @@ impl
             room_id: value.0,
             rtc_id: value.1,
             time: value.2,
-            offset: value.3,
-            limit: value.4,
+            active: value.3,
+            offset: value.4,
+            limit: value.5,
         }
     }
 }

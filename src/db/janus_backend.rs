@@ -32,16 +32,25 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct ListQuery {
+pub(crate) struct ListQuery<'a> {
+    ids: Option<&'a [&'a AgentId]>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
-impl ListQuery {
+impl<'a> ListQuery<'a> {
     pub(crate) fn new() -> Self {
         Self {
+            ids: None,
             offset: None,
             limit: None,
+        }
+    }
+
+    pub(crate) fn ids(self, ids: &'a [&'a AgentId]) -> Self {
+        Self {
+            ids: Some(ids),
+            ..self
         }
     }
 
@@ -63,6 +72,9 @@ impl ListQuery {
         use diesel::prelude::*;
 
         let mut q = janus_backend::table.into_boxed();
+        if let Some(ids) = self.ids {
+            q = q.filter(janus_backend::id.eq_any(ids))
+        }
         if let Some(offset) = self.offset {
             q = q.offset(offset);
         }
