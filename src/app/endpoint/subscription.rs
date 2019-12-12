@@ -18,7 +18,7 @@ pub(crate) type CreateDeleteEvent = IncomingEvent<CreateDeleteEventData>;
 
 #[derive(Deserialize)]
 pub(crate) struct CreateDeleteEventData {
-    subject: Connection,
+    subject: AgentId,
     object: Vec<String>,
 }
 
@@ -59,7 +59,7 @@ impl State {
     ) -> endpoint::Result {
         self.is_broker(&evt.properties())?;
 
-        let agent_id = evt.payload().subject.agent_id();
+        let agent_id = &evt.payload().subject;
         let room_id = parse_room_id(&evt)?;
 
         let conn = self.db.get()?;
@@ -93,7 +93,7 @@ impl State {
     ) -> endpoint::Result {
         self.is_broker(&evt.properties())?;
 
-        let agent_id = evt.payload().subject.agent_id();
+        let agent_id = &evt.payload().subject;
         let room_id = parse_room_id(&evt)?;
 
         let conn = self.db.get()?;
@@ -249,7 +249,7 @@ mod test {
             // Send subscription.create event.
             let payload = json!({
                 "object": vec!["rooms", &room.id().to_string(), "events"],
-                "subject": format!("v1/agents/{}", user_agent.agent_id()),
+                "subject": user_agent.agent_id().to_string(),
             });
 
             let broker_agent = TestAgent::new("alpha", "mqtt-gateway", AUDIENCE);
@@ -299,7 +299,7 @@ mod test {
 
             let payload = json!({
                 "object": vec!["rooms", &Uuid::new_v4().to_string(), "events"],
-                "subject": format!("v1/agents/{}", user_agent.agent_id()),
+                "subject": user_agent.agent_id().to_string(),
             });
 
             let broker_agent = TestAgent::new("web", "wrong_user", AUDIENCE);
@@ -328,7 +328,7 @@ mod test {
 
             let payload = json!({
                 "object": vec!["rooms", &Uuid::new_v4().to_string(), "events"],
-                "subject": format!("v1/agents/{}", user_agent.agent_id()),
+                "subject": user_agent.agent_id().to_string(),
             });
 
             let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
@@ -357,7 +357,7 @@ mod test {
 
             let payload = json!({
                 "object": vec!["wrong"],
-                "subject": format!("v1/agents/{}", user_agent.agent_id()),
+                "subject": user_agent.agent_id().to_string(),
             });
 
             let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
@@ -394,7 +394,7 @@ mod test {
             // Send subscription.delete event.
             let payload = json!({
                 "object": vec!["rooms", &db_agent.room_id().to_string(), "events"],
-                "subject": format!("v1/agents/{}", db_agent.agent_id()),
+                "subject": db_agent.agent_id().to_string(),
             });
 
             let broker_agent = TestAgent::new("alpha", "mqtt-gateway", AUDIENCE);
@@ -438,7 +438,7 @@ mod test {
 
             let payload = json!({
                 "object": vec!["rooms", &Uuid::new_v4().to_string(), "events"],
-                "subject": format!("v1/agents/{}", user_agent.agent_id()),
+                "subject": user_agent.agent_id().to_string(),
             });
 
             let broker_agent = TestAgent::new("web", "wrong_user", AUDIENCE);
@@ -467,7 +467,7 @@ mod test {
 
             let payload = json!({
                 "object": vec!["rooms", &Uuid::new_v4().to_string(), "events"],
-                "subject": format!("v1/agents/{}", user_agent.agent_id()),
+                "subject": user_agent.agent_id().to_string(),
             });
 
             let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
@@ -496,7 +496,7 @@ mod test {
 
             let payload = json!({
                 "object": vec!["wrong"],
-                "subject": format!("v1/agents/{}", user_agent.agent_id()),
+                "subject": user_agent.agent_id().to_string(),
             });
 
             let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);

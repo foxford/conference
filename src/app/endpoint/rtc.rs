@@ -317,7 +317,7 @@ mod test {
 
     use diesel::prelude::*;
     use serde_json::{json, Value as JsonValue};
-    use svc_agent::Destination;
+    use svc_agent::{AccountId, AgentId, Destination};
 
     use crate::test_helpers::{
         agent::TestAgent,
@@ -636,9 +636,7 @@ mod test {
     #[derive(Debug, PartialEq, Deserialize)]
     struct RtcConnectTransactionReqp {
         method: String,
-        agent_label: String,
-        account_label: String,
-        audience: String,
+        agent_id: AgentId,
     }
 
     #[test]
@@ -695,9 +693,7 @@ mod test {
                     session_id: backend.session_id(),
                     reqp: RtcConnectTransactionReqp {
                         method: "rtc.connect".to_string(),
-                        agent_label: "web".to_string(),
-                        account_label: "user123".to_string(),
-                        audience: AUDIENCE.to_string(),
+                        agent_id: AgentId::new("web", AccountId::new("user123", AUDIENCE)),
                     }
                 }
             )
