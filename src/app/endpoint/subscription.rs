@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
-    Connection, IncomingEvent, IncomingEventProperties, OutgoingEvent, Publishable, ResponseStatus,
+    IncomingEvent, IncomingEventProperties, OutgoingEvent, Publishable, ResponseStatus,
     ShortTermTimingProperties,
 };
 use svc_agent::AgentId;
