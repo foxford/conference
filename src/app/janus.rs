@@ -71,7 +71,7 @@ where
     );
 
     props.set_tracking(tracking.to_owned());
-    Ok(OutgoingRequest::unicast(payload, props, to))
+    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -113,7 +113,7 @@ where
     );
 
     props.set_tracking(tracking.to_owned());
-    Ok(OutgoingRequest::unicast(payload, props, to))
+    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -173,7 +173,7 @@ where
         Some(&rtc_handle_id.to_string()),
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, to))
+    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -241,7 +241,7 @@ where
         Some(jsep),
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, to))
+    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -309,7 +309,7 @@ where
         Some(jsep),
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, to))
+    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -374,7 +374,7 @@ pub(crate) fn upload_stream_request(
     );
 
     props.set_tracking(tracking.to_owned());
-    Ok(OutgoingRequest::unicast(payload, props, to))
+    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -408,7 +408,7 @@ where
     let props = reqp.to_request("janus_trickle.create", IGNORE, IGNORE, short_term_timing);
     let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
     let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
-    Ok(OutgoingRequest::unicast(payload, props, to))
+    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -470,7 +470,7 @@ where
         None,
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, to))
+    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -541,6 +541,7 @@ pub(crate) async fn handle_response(
                             ShortTermTimingProperties::until_now(start_timestamp),
                         ),
                         &reqp,
+                        "v1",
                     );
 
                     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
@@ -568,6 +569,7 @@ pub(crate) async fn handle_response(
                             ShortTermTimingProperties::until_now(start_timestamp),
                         ),
                         tn.reqp.as_agent_id(),
+                        "v1",
                     );
 
                     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
@@ -627,6 +629,7 @@ pub(crate) async fn handle_response(
                                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
                                 tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
                                 tn.reqp.as_agent_id(),
+                                "v1",
                             );
 
                             Ok(vec![Box::new(resp) as Box<dyn Publishable>])
@@ -688,6 +691,7 @@ pub(crate) async fn handle_response(
                                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
                                 tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
                                 tn.reqp.as_agent_id(),
+                                "v1",
                             );
 
                             Ok(vec![Box::new(resp) as Box<dyn Publishable>])

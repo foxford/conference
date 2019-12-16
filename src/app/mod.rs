@@ -101,26 +101,27 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     // Create Subscriptions
     let route = Arc::new(Route {
         janus_status_subscription_topic: {
-            let subscription = Subscription::broadcast_events(&config.backend_id, "status");
+            let subscription = Subscription::broadcast_events(&config.backend_id, "v1", "status");
             tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
                 .expect("Error subscribing to backend events topic");
 
             subscription
-                .subscription_topic(&agent_id)
+                .subscription_topic(&agent_id, "v1")
                 .expect("Error building janus events subscription topic")
         },
         janus_responses_subscription_topic: {
-            let subscription = Subscription::broadcast_events(&config.backend_id, "responses");
+            let subscription =
+                Subscription::broadcast_events(&config.backend_id, "v1", "responses");
             tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
                 .expect("Error subscribing to backend responses topic");
 
             subscription
-                .subscription_topic(&agent_id)
+                .subscription_topic(&agent_id, "v1")
                 .expect("Error building janus responses subscription topic")
         },
     });
     tx.subscribe(
-        &Subscription::multicast_requests(),
+        &Subscription::multicast_requests(Some("v1")),
         QoS::AtMostOnce,
         Some(&group),
     )
