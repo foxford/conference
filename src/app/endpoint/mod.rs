@@ -120,7 +120,14 @@ where
                 .build();
 
             let timing = ShortTermTimingProperties::until_now(start_timestamp);
-            let resp = OutgoingResponse::unicast(err, props.to_response(status, timing), props);
+
+            let resp = OutgoingResponse::unicast(
+                err,
+                props.to_response(status, timing),
+                props,
+                props.to_connection().version(),
+            );
+
             Ok(vec![Box::new(resp) as Box<dyn Publishable>])
         }
     }
@@ -145,7 +152,14 @@ pub(crate) fn handle_error(
     }
 
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
-    let resp = OutgoingResponse::unicast(err, props.to_response(status, timing), props);
+
+    let resp = OutgoingResponse::unicast(
+        err,
+        props.to_response(status, timing),
+        props,
+        props.to_connection().version(),
+    );
+
     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
 }
 
@@ -163,7 +177,7 @@ pub(crate) fn handle_unknown_method(
         .build();
 
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
-    let resp = OutgoingResponse::unicast(err, props.to_response(status, timing), props);
+    let resp = OutgoingResponse::unicast(err, props.to_response(status, timing), props, "v1");
     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
 }
 

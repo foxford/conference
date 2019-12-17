@@ -311,7 +311,7 @@ impl State {
         //        https://github.com/vernemq/vernemq/issues/1326.
         //        Then we won't need the local state on the broker at all and will be able
         //        to send a multicast request to the broker.
-        OutgoingRequest::unicast(payload, props, inreq.properties()).into()
+        OutgoingRequest::unicast(payload, props, inreq.properties(), "v1").into()
     }
 
     pub(crate) async fn leave(
@@ -359,7 +359,7 @@ impl State {
         //        https://github.com/vernemq/vernemq/issues/1326.
         //        Then we won't need the local state on the broker at all and will be able
         //        to send a multicast request to the broker.
-        OutgoingRequest::unicast(payload, props, inreq.properties()).into()
+        OutgoingRequest::unicast(payload, props, inreq.properties(), "v1").into()
     }
 }
 
@@ -371,7 +371,7 @@ mod test {
     use diesel::prelude::*;
     use failure::format_err;
     use serde_json::{json, Value as JsonValue};
-    use svc_agent::Destination;
+    use svc_agent::{AccountId, AgentId, Destination};
     use svc_authn::Authenticable;
 
     use crate::test_helpers::{
@@ -857,10 +857,13 @@ mod test {
 
             // Assert outgoing broker request.
             match message.destination() {
-                &Destination::Unicast(ref agent_id) => {
-                    assert_eq!(agent_id.label(), "web");
-                    assert_eq!(agent_id.as_account_id().label(), "user123");
-                    assert_eq!(agent_id.as_account_id().audience(), AUDIENCE);
+                &Destination::Unicast(ref agent_id, ref version) => {
+                    assert_eq!(
+                        agent_id.to_owned(),
+                        AgentId::new("web", AccountId::new("user123", AUDIENCE))
+                    );
+
+                    assert_eq!(version, "v1");
                 }
                 _ => panic!("Expected unicast destination"),
             }
@@ -1038,10 +1041,13 @@ mod test {
 
             // Assert outgoing broker request.
             match message.destination() {
-                &Destination::Unicast(ref agent_id) => {
-                    assert_eq!(agent_id.label(), "web");
-                    assert_eq!(agent_id.as_account_id().label(), "user123");
-                    assert_eq!(agent_id.as_account_id().audience(), AUDIENCE);
+                &Destination::Unicast(ref agent_id, ref version) => {
+                    assert_eq!(
+                        agent_id.to_owned(),
+                        AgentId::new("web", AccountId::new("user123", AUDIENCE))
+                    );
+
+                    assert_eq!(version, "v1");
                 }
                 _ => panic!("Expected unicast destination"),
             }

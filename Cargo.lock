@@ -1948,7 +1948,7 @@ dependencies = [
 [[package]]
 name = "svc-agent"
 version = "0.9.6"
-source = "git+https://github.com/netology-group/svc-agent-rs#991f2b484ea0082a5fee770f3ebd0dd4ddc870ef"
+source = "git+https://github.com/netology-group/svc-agent-rs#6feb43b12c8d26d62f7de4978b468483d7807a5f"
 dependencies = [
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",

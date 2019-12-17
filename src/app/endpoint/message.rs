@@ -89,8 +89,8 @@ impl State {
         let to = &inreq.payload().agent_id;
         let payload = &inreq.payload().data;
 
-        let response_topic = Subscription::multicast_requests_from(to)
-            .subscription_topic(&self.me)
+        let response_topic = Subscription::multicast_requests_from(to, Some("v1"))
+            .subscription_topic(&self.me, "v2")
             .map_err(|_| {
                 SvcError::builder()
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)
@@ -112,7 +112,7 @@ impl State {
             ShortTermTimingProperties::until_now(start_timestamp),
         );
 
-        OutgoingRequest::unicast(payload.to_owned(), props, to).into()
+        OutgoingRequest::unicast(payload.to_owned(), props, to, "v1").into()
     }
 
     pub(crate) async fn callback(
@@ -139,8 +139,13 @@ impl State {
             inresp.properties().tracking().clone(),
         );
 
-        let payload = inresp.payload();
-        let message = OutgoingResponse::unicast(payload.to_owned(), props, &reqp);
+        let message = OutgoingResponse::unicast(
+            inresp.payload().to_owned(),
+            props,
+            &reqp,
+            reqp.to_connection().version(),
+        );
+
         Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
 }
@@ -221,7 +226,10 @@ mod test {
             let message = result.remove(0);
 
             match message.destination() {
-                &Destination::Unicast(ref agent_id) => assert_eq!(agent_id, receiver.agent_id()),
+                &Destination::Unicast(ref agent_id, ref version) => {
+                    assert_eq!(agent_id, receiver.agent_id());
+                    assert_eq!(version, "v1");
+                }
                 _ => panic!("Expected unicast destination"),
             }
 
