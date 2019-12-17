@@ -14,7 +14,7 @@ use svc_agent::{Addressable, AgentId};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::endpoint;
+use crate::app::{endpoint, API_VERSION};
 use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
     StatusEvent, TrickleRequest,
@@ -71,7 +71,7 @@ where
     );
 
     props.set_tracking(tracking.to_owned());
-    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
+    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -113,7 +113,7 @@ where
     );
 
     props.set_tracking(tracking.to_owned());
-    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
+    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -173,7 +173,7 @@ where
         Some(&rtc_handle_id.to_string()),
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
+    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -241,7 +241,7 @@ where
         Some(jsep),
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
+    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -309,7 +309,7 @@ where
         Some(jsep),
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
+    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -374,7 +374,7 @@ pub(crate) fn upload_stream_request(
     );
 
     props.set_tracking(tracking.to_owned());
-    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
+    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -408,7 +408,7 @@ where
     let props = reqp.to_request("janus_trickle.create", IGNORE, IGNORE, short_term_timing);
     let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
     let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
-    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
+    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -470,7 +470,7 @@ where
         None,
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, to, "v1"))
+    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -541,7 +541,7 @@ pub(crate) async fn handle_response(
                             ShortTermTimingProperties::until_now(start_timestamp),
                         ),
                         &reqp,
-                        "v1",
+                        API_VERSION,
                     );
 
                     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
@@ -569,7 +569,7 @@ pub(crate) async fn handle_response(
                             ShortTermTimingProperties::until_now(start_timestamp),
                         ),
                         tn.reqp.as_agent_id(),
-                        "v1",
+                        API_VERSION,
                     );
 
                     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
@@ -629,7 +629,7 @@ pub(crate) async fn handle_response(
                                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
                                 tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
                                 tn.reqp.as_agent_id(),
-                                "v1",
+                                API_VERSION,
                             );
 
                             Ok(vec![Box::new(resp) as Box<dyn Publishable>])
@@ -691,7 +691,7 @@ pub(crate) async fn handle_response(
                                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
                                 tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
                                 tn.reqp.as_agent_id(),
-                                "v1",
+                                API_VERSION,
                             );
 
                             Ok(vec![Box::new(resp) as Box<dyn Publishable>])

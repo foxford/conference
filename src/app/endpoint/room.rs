@@ -8,8 +8,8 @@ use svc_agent::{Addressable, AgentId};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::endpoint;
 use crate::app::endpoint::shared;
+use crate::app::{endpoint, API_VERSION};
 use crate::db::{agent, room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -311,7 +311,7 @@ impl State {
         //        https://github.com/vernemq/vernemq/issues/1326.
         //        Then we won't need the local state on the broker at all and will be able
         //        to send a multicast request to the broker.
-        OutgoingRequest::unicast(payload, props, inreq.properties(), "v1").into()
+        OutgoingRequest::unicast(payload, props, inreq.properties(), API_VERSION).into()
     }
 
     pub(crate) async fn leave(
@@ -359,7 +359,7 @@ impl State {
         //        https://github.com/vernemq/vernemq/issues/1326.
         //        Then we won't need the local state on the broker at all and will be able
         //        to send a multicast request to the broker.
-        OutgoingRequest::unicast(payload, props, inreq.properties(), "v1").into()
+        OutgoingRequest::unicast(payload, props, inreq.properties(), API_VERSION).into()
     }
 }
 
@@ -863,7 +863,7 @@ mod test {
                         AgentId::new("web", AccountId::new("user123", AUDIENCE))
                     );
 
-                    assert_eq!(version, "v1");
+                    assert_eq!(version, API_VERSION);
                 }
                 _ => panic!("Expected unicast destination"),
             }
@@ -1047,7 +1047,7 @@ mod test {
                         AgentId::new("web", AccountId::new("user123", AUDIENCE))
                     );
 
-                    assert_eq!(version, "v1");
+                    assert_eq!(version, API_VERSION);
                 }
                 _ => panic!("Expected unicast destination"),
             }

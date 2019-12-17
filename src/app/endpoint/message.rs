@@ -12,8 +12,8 @@ use svc_agent::{Addressable, AgentId, Subscription};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::endpoint;
 use crate::app::endpoint::shared;
+use crate::app::{endpoint, API_VERSION};
 use crate::db::{room, ConnectionPool};
 use crate::util::{from_base64, to_base64};
 
@@ -62,13 +62,21 @@ impl State {
         shared::check_room_presence(&room, &inreq.properties().as_agent_id(), &conn)?;
 
         let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-        let resp = inreq.to_response(json!({}), ResponseStatus::OK, short_term_timing.clone());
-        let resp_box = Box::new(resp) as Box<dyn Publishable>;
 
+        let resp = inreq.to_response(
+            json!({}),
+            ResponseStatus::OK,
+            short_term_timing.clone(),
+            API_VERSION,
+        );
+
+        let resp_box = Box::new(resp) as Box<dyn Publishable>;
         let payload = inreq.payload().data.to_owned();
+
         let props = inreq
             .properties()
             .to_event("message.broadcast", short_term_timing);
+
         let to_uri = format!("rooms/{}/events", inreq.payload().room_id);
         let event = OutgoingEvent::broadcast(payload, props, &to_uri);
         let event_box = Box::new(event) as Box<dyn Publishable>;
@@ -89,8 +97,8 @@ impl State {
         let to = &inreq.payload().agent_id;
         let payload = &inreq.payload().data;
 
-        let response_topic = Subscription::multicast_requests_from(to, Some("v1"))
-            .subscription_topic(&self.me, "v2")
+        let response_topic = Subscription::multicast_requests_from(to, Some(API_VERSION))
+            .subscription_topic(&self.me, API_VERSION)
             .map_err(|_| {
                 SvcError::builder()
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)
@@ -112,7 +120,7 @@ impl State {
             ShortTermTimingProperties::until_now(start_timestamp),
         );
 
-        OutgoingRequest::unicast(payload.to_owned(), props, to, "v1").into()
+        OutgoingRequest::unicast(payload.to_owned(), props, to, API_VERSION).into()
     }
 
     pub(crate) async fn callback(
@@ -139,12 +147,8 @@ impl State {
             inresp.properties().tracking().clone(),
         );
 
-        let message = OutgoingResponse::unicast(
-            inresp.payload().to_owned(),
-            props,
-            &reqp,
-            reqp.to_connection().version(),
-        );
+        let message =
+            OutgoingResponse::unicast(inresp.payload().to_owned(), props, &reqp, API_VERSION);
 
         Ok(vec![Box::new(message) as Box<dyn Publishable>])
     }
@@ -228,7 +232,7 @@ mod test {
             match message.destination() {
                 &Destination::Unicast(ref agent_id, ref version) => {
                     assert_eq!(agent_id, receiver.agent_id());
-                    assert_eq!(version, "v1");
+                    assert_eq!(version, API_VERSION);
                 }
                 _ => panic!("Expected unicast destination"),
             }
