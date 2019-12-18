@@ -11,6 +11,8 @@ use svc_agent::mqtt::{
 };
 use svc_error::{extension::sentry, Error as SvcError, ProblemDetails};
 
+use crate::app::API_VERSION;
+
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct Result {
@@ -125,7 +127,7 @@ where
                 err,
                 props.to_response(status, timing),
                 props,
-                props.to_connection().version(),
+                API_VERSION,
             );
 
             Ok(vec![Box::new(resp) as Box<dyn Publishable>])
@@ -153,12 +155,8 @@ pub(crate) fn handle_error(
 
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
 
-    let resp = OutgoingResponse::unicast(
-        err,
-        props.to_response(status, timing),
-        props,
-        props.to_connection().version(),
-    );
+    let resp =
+        OutgoingResponse::unicast(err, props.to_response(status, timing), props, API_VERSION);
 
     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
 }
@@ -177,7 +175,8 @@ pub(crate) fn handle_unknown_method(
         .build();
 
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
-    let resp = OutgoingResponse::unicast(err, props.to_response(status, timing), props, "v1");
+    let resp =
+        OutgoingResponse::unicast(err, props.to_response(status, timing), props, API_VERSION);
     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
 }
 

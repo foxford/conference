@@ -14,6 +14,8 @@ use svc_authn::{jose::Algorithm, token::jws_compact};
 
 use crate::db::ConnectionPool;
 
+pub(crate) const API_VERSION: &str = "v1";
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
@@ -59,8 +61,8 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     let mut agent_config = config.mqtt.clone();
     agent_config.set_password(&token);
     let group = SharedGroup::new("loadbalancer", agent_id.as_account_id().clone());
-    let (mut tx, rx) = AgentBuilder::new(agent_id.clone())
-        .mode(ConnectionMode::Service)
+    let (mut tx, rx) = AgentBuilder::new(agent_id.clone(), API_VERSION)
+        .connection_mode(ConnectionMode::Service)
         .start(&agent_config)
         .expect("Failed to create an agent");
 
@@ -101,27 +103,28 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     // Create Subscriptions
     let route = Arc::new(Route {
         janus_status_subscription_topic: {
-            let subscription = Subscription::broadcast_events(&config.backend_id, "v1", "status");
+            let subscription =
+                Subscription::broadcast_events(&config.backend_id, API_VERSION, "status");
             tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
                 .expect("Error subscribing to backend events topic");
 
             subscription
-                .subscription_topic(&agent_id, "v1")
+                .subscription_topic(&agent_id, API_VERSION)
                 .expect("Error building janus events subscription topic")
         },
         janus_responses_subscription_topic: {
             let subscription =
-                Subscription::broadcast_events(&config.backend_id, "v1", "responses");
+                Subscription::broadcast_events(&config.backend_id, API_VERSION, "responses");
             tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
                 .expect("Error subscribing to backend responses topic");
 
             subscription
-                .subscription_topic(&agent_id, "v1")
+                .subscription_topic(&agent_id, API_VERSION)
                 .expect("Error building janus responses subscription topic")
         },
     });
     tx.subscribe(
-        &Subscription::multicast_requests(Some("v1")),
+        &Subscription::multicast_requests(Some(API_VERSION)),
         QoS::AtMostOnce,
         Some(&group),
     )

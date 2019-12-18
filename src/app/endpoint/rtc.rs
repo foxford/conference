@@ -6,8 +6,8 @@ use svc_agent::mqtt::{
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::endpoint;
 use crate::app::endpoint::shared;
+use crate::app::{endpoint, API_VERSION};
 use crate::db::{janus_backend, room, rtc, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -251,7 +251,9 @@ impl State {
 
         let mut timing = ShortTermTimingProperties::until_now(start_timestamp);
         timing.set_authorization_time(authz_time);
-        inreq.to_response(object, ResponseStatus::OK, timing).into()
+        inreq
+            .to_response(object, ResponseStatus::OK, timing, API_VERSION)
+            .into()
     }
 
     pub(crate) async fn list(
@@ -306,7 +308,7 @@ impl State {
         timing.set_authorization_time(authz_time);
 
         inreq
-            .to_response(objects, ResponseStatus::OK, timing)
+            .to_response(objects, ResponseStatus::OK, timing, API_VERSION)
             .into()
     }
 }

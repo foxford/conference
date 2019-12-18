@@ -8,7 +8,7 @@ use svc_agent::mqtt::{
 use svc_agent::AgentId;
 use svc_error::Error as SvcError;
 
-use crate::app::endpoint;
+use crate::app::{endpoint, API_VERSION};
 use crate::db::{agent, room};
 
 pub(crate) fn respond<R, O: 'static + Clone + Serialize>(
@@ -25,6 +25,7 @@ pub(crate) fn respond<R, O: 'static + Clone + Serialize>(
         object.clone(),
         ResponseStatus::OK,
         short_term_timing.clone(),
+        API_VERSION,
     );
 
     let mut messages: Vec<Box<dyn Publishable>> = vec![Box::new(resp)];

@@ -4,7 +4,7 @@ use svc_agent::mqtt::{IncomingRequest, ResponseStatus, ShortTermTimingProperties
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::endpoint;
+use crate::app::{endpoint, API_VERSION};
 use crate::db::{agent, room, ConnectionPool};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -87,7 +87,7 @@ impl State {
         timing.set_authorization_time(authz_time);
 
         inreq
-            .to_response(objects, ResponseStatus::OK, timing)
+            .to_response(objects, ResponseStatus::OK, timing, API_VERSION)
             .into()
     }
 }
