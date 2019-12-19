@@ -372,7 +372,6 @@ mod test {
     use failure::format_err;
     use serde_json::{json, Value as JsonValue};
     use svc_agent::{AccountId, AgentId, Destination};
-    use svc_authn::Authenticable;
 
     use crate::test_helpers::{
         agent::TestAgent,
