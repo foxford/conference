@@ -322,3 +322,18 @@ pub(crate) fn stop(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Erro
     .get_result(conn)
     .optional()
 }
+
+pub(crate) fn stop_by_agent_id(agent_id: &AgentId, conn: &PgConnection) -> Result<usize, Error> {
+    use diesel::prelude::*;
+    use svc_agent::sql::Agent_id;
+
+    diesel::sql_query(
+        "\
+         update janus_rtc_stream \
+         set time = case when time is not null then tstzrange(lower(time), now(), '[)') end \
+         where sent_by = $1 \
+         ",
+    )
+    .bind::<Agent_id, _>(agent_id)
+    .execute(conn)
+}
