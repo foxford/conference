@@ -141,7 +141,7 @@ mod test {
         authz::{no_authz, TestAuthz},
         db::TestDb,
         extract_payload,
-        factory::{insert_janus_rtc_stream, insert_rtc},
+        factory::{insert_rtc, JanusRtcStream},
     };
 
     use super::*;
@@ -172,9 +172,13 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    // Insert a janus rtc stream.
-                    let rtc_stream = insert_janus_rtc_stream(&conn, AUDIENCE);
-                    let _other_rtc_stream = insert_janus_rtc_stream(&conn, AUDIENCE);
+                    // Insert janus rtc streams.
+                    let rtc_stream = JanusRtcStream::new(AUDIENCE).insert(&conn).unwrap();
+                    let start_result = janus_rtc_stream::start(*rtc_stream.id(), &conn).unwrap();
+                    let rtc_stream = start_result.unwrap();
+
+                    let other_rtc_stream = JanusRtcStream::new(AUDIENCE).insert(&conn).unwrap();
+                    janus_rtc_stream::start(*other_rtc_stream.id(), &conn).unwrap();
 
                     // Find rtc.
                     let rtc: crate::db::rtc::Object = crate::schema::rtc::table

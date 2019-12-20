@@ -3,7 +3,13 @@
 Connect to the real-time connection to send signal messages and media.
 The method isn't available for `none` backend.
 
-*NOTE: If Janus Gateway is used as a backend, a handle to the conference plugin for the patricular agent will be created.*
+Creates a Janus handle for the particular agent.
+
+If there's already a stream present for the RTC then the returned handle would be bound to the
+Janus instance that hosts this stream.
+
+If there's no stream yet then the handle is being balanced to the instance with the least number
+of active RTC streams.
 
 **Request**
 

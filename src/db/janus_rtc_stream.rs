@@ -86,33 +86,74 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct FindQuery {
-    id: Option<Uuid>,
-}
-
-impl FindQuery {
-    pub(crate) fn new() -> Self {
-        Self { id: None }
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        match self.id {
-            Some(ref id) => janus_rtc_stream::table.find(id).get_result(conn).optional(),
-            _ => Err(Error::QueryBuilderError(
-                "id is required parameter of the query".into(),
-            )),
-        }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 const ACTIVE_SQL: &str = r#"(
     lower("janus_rtc_stream"."time") is not null
     and upper("janus_rtc_stream"."time") is null
 )"#;
+
+pub(crate) struct FindQuery {
+    id: Option<Uuid>,
+    rtc_id: Option<Uuid>,
+    active: Option<bool>,
+}
+
+impl FindQuery {
+    pub(crate) fn new() -> Self {
+        Self {
+            id: None,
+            rtc_id: None,
+            active: None,
+        }
+    }
+
+    pub(crate) fn id(self, id: Uuid) -> Self {
+        Self {
+            id: Some(id),
+            ..self
+        }
+    }
+
+    pub(crate) fn rtc_id(self, rtc_id: Uuid) -> Self {
+        Self {
+            rtc_id: Some(rtc_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn active(self, active: bool) -> Self {
+        Self {
+            active: Some(active),
+            ..self
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+        use diesel::dsl::sql;
+        use diesel::prelude::*;
+
+        let mut query = match (self.id, self.rtc_id) {
+            (Some(ref id), None) => janus_rtc_stream::table.find(id.to_owned()).into_boxed(),
+            (None, Some(ref rtc_id)) => janus_rtc_stream::table
+                .filter(janus_rtc_stream::rtc_id.eq(rtc_id.to_owned()))
+                .into_boxed(),
+            _ => {
+                return Err(Error::QueryBuilderError(
+                    "id either rtc_id is required parameter of the query".into(),
+                ))
+            }
+        };
+
+        let query = match self.active {
+            Some(true) => query.filter(sql(ACTIVE_SQL)),
+            Some(false) => query.filter(sql(&format!("not {}", ACTIVE_SQL))),
+            None => query,
+        };
+
+        query.get_result(conn).optional()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct ListQuery {
     room_id: Option<Uuid>,
