@@ -131,7 +131,7 @@ impl FindQuery {
         use diesel::dsl::sql;
         use diesel::prelude::*;
 
-        let mut query = match (self.id, self.rtc_id) {
+        let query = match (self.id, self.rtc_id) {
             (Some(ref id), None) => janus_rtc_stream::table.find(id.to_owned()).into_boxed(),
             (None, Some(ref rtc_id)) => janus_rtc_stream::table
                 .filter(janus_rtc_stream::rtc_id.eq(rtc_id.to_owned()))
