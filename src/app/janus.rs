@@ -6,11 +6,12 @@ use serde_json::Value as JsonValue;
 use std::ops::Bound;
 use std::sync::Arc;
 use svc_agent::mqtt::{
-    compat::{into_event, IncomingEnvelope},
-    IncomingEventProperties, IncomingRequestProperties, OutgoingRequest, OutgoingRequestProperties,
-    Publishable, ResponseStatus, ShortTermTimingProperties, TrackingProperties,
+    compat::{into_event, into_response, IncomingEnvelope},
+    IncomingEventProperties, IncomingRequestProperties, IncomingResponseProperties,
+    OutgoingRequest, OutgoingRequestProperties, Publishable, ResponseStatus,
+    ShortTermTimingProperties, SubscriptionTopic, TrackingProperties,
 };
-use svc_agent::{Addressable, AgentId};
+use svc_agent::{Addressable, AgentId, Subscription};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
@@ -20,11 +21,10 @@ use crate::backend::janus::{
     StatusEvent, TrickleRequest,
 };
 use crate::db::{janus_backend, janus_rtc_stream, recording, room, rtc, ConnectionPool};
-use crate::util::{from_base64, to_base64};
+use crate::util::{from_base64, generate_correlation_data, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const IGNORE: &str = "ignore";
 const STREAM_UPLOAD_METHOD: &str = "stream.upload";
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -52,25 +52,26 @@ impl CreateSessionTransaction {
     }
 }
 
-pub(crate) fn create_session_request<A>(
-    to: &A,
+pub(crate) fn create_session_request<M>(
+    evp: &IncomingEventProperties,
+    me: &M,
     start_timestamp: DateTime<Utc>,
-    tracking: &TrackingProperties,
 ) -> Result<OutgoingRequest<CreateSessionRequest>, Error>
 where
-    A: Addressable,
+    M: Addressable,
 {
+    let to = evp.as_agent_id();
     let transaction = Transaction::CreateSession(CreateSessionTransaction::new());
     let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
 
     let mut props = OutgoingRequestProperties::new(
         "janus_session.create",
-        IGNORE,
-        IGNORE,
+        &response_topic(to, me)?,
+        &generate_correlation_data(),
         ShortTermTimingProperties::until_now(start_timestamp),
     );
 
-    props.set_tracking(tracking.to_owned());
+    props.set_tracking(evp.tracking().to_owned());
     Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
 }
 
@@ -87,15 +88,16 @@ impl CreateHandleTransaction {
     }
 }
 
-pub(crate) fn create_handle_request<A>(
+pub(crate) fn create_handle_request<M>(
+    respp: &IncomingResponseProperties,
     session_id: i64,
-    to: &A,
+    me: &M,
     start_timestamp: DateTime<Utc>,
-    tracking: &TrackingProperties,
 ) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
 where
-    A: Addressable,
+    M: Addressable,
 {
+    let to = respp.as_agent_id();
     let transaction = Transaction::CreateHandle(CreateHandleTransaction::new(session_id));
 
     let payload = CreateHandleRequest::new(
@@ -107,12 +109,12 @@ where
 
     let mut props = OutgoingRequestProperties::new(
         "janus_handle.create",
-        IGNORE,
-        IGNORE,
+        &response_topic(to, me)?,
+        &generate_correlation_data(),
         ShortTermTimingProperties::until_now(start_timestamp),
     );
 
-    props.set_tracking(tracking.to_owned());
+    props.set_tracking(respp.tracking().to_owned());
     Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
 }
 
@@ -142,22 +144,29 @@ impl CreateRtcHandleTransaction {
     }
 }
 
-pub(crate) fn create_rtc_handle_request<A>(
+pub(crate) fn create_rtc_handle_request<A, M>(
     reqp: IncomingRequestProperties,
     rtc_handle_id: Uuid,
     rtc_id: Uuid,
     session_id: i64,
     to: &A,
+    me: &M,
     start_timestamp: DateTime<Utc>,
     authz_time: Duration,
 ) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
 where
     A: Addressable,
+    M: Addressable,
 {
     let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
     short_term_timing.set_authorization_time(authz_time);
 
-    let props = reqp.to_request("janus_handle.create", IGNORE, IGNORE, short_term_timing);
+    let props = reqp.to_request(
+        "janus_handle.create",
+        &response_topic(to, me)?,
+        &generate_correlation_data(),
+        short_term_timing,
+    );
 
     let transaction = Transaction::CreateRtcHandle(CreateRtcHandleTransaction::new(
         reqp,
@@ -206,30 +215,32 @@ impl CreateStreamRequestBody {
     }
 }
 
-pub(crate) fn create_stream_request<A>(
+pub(crate) fn create_stream_request<A, M>(
     reqp: IncomingRequestProperties,
     session_id: i64,
     handle_id: i64,
     rtc_id: Uuid,
     jsep: JsonValue,
     to: &A,
+    me: &M,
     start_timestamp: DateTime<Utc>,
     authz_time: Duration,
 ) -> Result<OutgoingRequest<MessageRequest>, Error>
 where
     A: Addressable,
+    M: Addressable,
 {
     let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
     short_term_timing.set_authorization_time(authz_time);
 
     let props = reqp.to_request(
         "janus_conference_stream.create",
-        IGNORE,
-        IGNORE,
+        &response_topic(to, me)?,
+        &generate_correlation_data(),
         short_term_timing,
     );
 
-    let agent_id = reqp.to_connection().agent_id().to_owned();
+    let agent_id = reqp.as_agent_id().to_owned();
     let body = CreateStreamRequestBody::new(rtc_id, agent_id);
     let transaction = Transaction::CreateStream(CreateStreamTransaction::new(reqp));
 
@@ -274,30 +285,32 @@ impl ReadStreamRequestBody {
     }
 }
 
-pub(crate) fn read_stream_request<A>(
+pub(crate) fn read_stream_request<A, M>(
     reqp: IncomingRequestProperties,
     session_id: i64,
     handle_id: i64,
     rtc_id: Uuid,
     jsep: JsonValue,
     to: &A,
+    me: &M,
     start_timestamp: DateTime<Utc>,
     authz_time: Duration,
 ) -> Result<OutgoingRequest<MessageRequest>, Error>
 where
     A: Addressable,
+    M: Addressable,
 {
     let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
     short_term_timing.set_authorization_time(authz_time);
 
     let props = reqp.to_request(
         "janus_conference_stream.create",
-        IGNORE,
-        IGNORE,
+        &response_topic(to, me)?,
+        &generate_correlation_data(),
         short_term_timing,
     );
 
-    let agent_id = reqp.to_connection().agent_id().to_owned();
+    let agent_id = reqp.as_agent_id().to_owned();
     let body = ReadStreamRequestBody::new(rtc_id, agent_id);
     let transaction = Transaction::ReadStream(ReadStreamTransaction::new(reqp));
 
@@ -348,14 +361,18 @@ impl UploadStreamRequestBody {
     }
 }
 
-pub(crate) fn upload_stream_request(
+pub(crate) fn upload_stream_request<M>(
+    reqp: &IncomingRequestProperties,
     session_id: i64,
     handle_id: i64,
     body: UploadStreamRequestBody,
-    to: &AgentId,
+    me: &M,
     start_timestamp: DateTime<Utc>,
-    tracking: &TrackingProperties,
-) -> Result<OutgoingRequest<MessageRequest>, Error> {
+) -> Result<OutgoingRequest<MessageRequest>, Error>
+where
+    M: Addressable,
+{
+    let to = reqp.as_agent_id();
     let transaction = Transaction::UploadStream(UploadStreamTransaction::new(body.id));
 
     let payload = MessageRequest::new(
@@ -368,12 +385,12 @@ pub(crate) fn upload_stream_request(
 
     let mut props = OutgoingRequestProperties::new(
         "janus_conference_stream.upload",
-        IGNORE,
-        IGNORE,
+        &response_topic(to, me)?,
+        &generate_correlation_data(),
         ShortTermTimingProperties::until_now(start_timestamp),
     );
 
-    props.set_tracking(tracking.to_owned());
+    props.set_tracking(reqp.tracking().to_owned());
     Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
 }
 
@@ -390,22 +407,30 @@ impl TrickleTransaction {
     }
 }
 
-pub(crate) fn trickle_request<A>(
+pub(crate) fn trickle_request<A, M>(
     reqp: IncomingRequestProperties,
     session_id: i64,
     handle_id: i64,
     jsep: JsonValue,
     to: &A,
+    me: &M,
     start_timestamp: DateTime<Utc>,
     authz_time: Duration,
 ) -> Result<OutgoingRequest<TrickleRequest>, Error>
 where
     A: Addressable,
+    M: Addressable,
 {
     let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
     short_term_timing.set_authorization_time(authz_time);
 
-    let props = reqp.to_request("janus_trickle.create", IGNORE, IGNORE, short_term_timing);
+    let props = reqp.to_request(
+        "janus_trickle.create",
+        &response_topic(to, me)?,
+        &generate_correlation_data(),
+        short_term_timing,
+    );
+
     let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
     let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
     Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
@@ -439,21 +464,23 @@ impl AgentLeaveRequestBody {
     }
 }
 
-pub(crate) fn agent_leave_request<A>(
+pub(crate) fn agent_leave_request<M>(
     evp: IncomingEventProperties,
     session_id: i64,
     handle_id: i64,
     agent_id: &AgentId,
-    to: &A,
+    me: &M,
     tracking: &TrackingProperties,
 ) -> Result<OutgoingRequest<MessageRequest>, Error>
 where
-    A: Addressable,
+    M: Addressable,
 {
+    let to = evp.as_agent_id().to_owned();
+
     let mut props = OutgoingRequestProperties::new(
         "janus_conference_agent.leave",
-        IGNORE,
-        IGNORE,
+        &response_topic(&to, me)?,
+        &generate_correlation_data(),
         ShortTermTimingProperties::new(Utc::now()),
     );
 
@@ -470,7 +497,17 @@ where
         None,
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
+    Ok(OutgoingRequest::unicast(payload, props, &to, API_VERSION))
+}
+
+fn response_topic<T, M>(to: &T, me: &M) -> Result<String, Error>
+where
+    T: Addressable,
+    M: Addressable,
+{
+    Subscription::unicast_responses_from(to)
+        .subscription_topic(me, API_VERSION)
+        .map_err(|err| format_err!("Failed to build subscription topic: {}", err))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -485,15 +522,19 @@ impl State {
     }
 }
 
-pub(crate) async fn handle_response(
+pub(crate) async fn handle_message<M>(
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
     start_timestamp: DateTime<Utc>,
-) -> Result<Vec<Box<dyn Publishable>>, Error> {
+    me: M,
+) -> Result<Vec<Box<dyn Publishable>>, Error>
+where
+    M: Addressable,
+{
     use endpoint::handle_error;
 
     let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
-    let message = into_event::<IncomingMessage>(envelope)?;
+    let message = into_response::<IncomingMessage>(envelope)?;
     match message.payload() {
         IncomingMessage::Success(ref inresp) => {
             match from_base64::<Transaction>(&inresp.transaction())? {
@@ -501,10 +542,10 @@ pub(crate) async fn handle_response(
                 Transaction::CreateSession(_tn) => {
                     // Creating Handle
                     let backreq = create_handle_request(
-                        inresp.data().id(),
                         message.properties(),
+                        inresp.data().id(),
+                        &me,
                         start_timestamp,
-                        message.properties().tracking(),
                     )?;
 
                     Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
@@ -974,21 +1015,24 @@ pub(crate) async fn handle_response(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) async fn handle_status(
+pub(crate) async fn handle_status<M>(
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
     start_timestamp: DateTime<Utc>,
-) -> Result<Vec<Box<dyn Publishable>>, Error> {
+    me: M,
+) -> Result<Vec<Box<dyn Publishable>>, Error>
+where
+    M: Addressable,
+{
     let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
     let inev = into_event::<StatusEvent>(envelope)?;
-    let agent_id = inev.properties().as_agent_id();
 
     if let true = inev.payload().online() {
-        let tracking = inev.properties().tracking();
-        let event = create_session_request(agent_id, start_timestamp, tracking)?;
+        let event = create_session_request(inev.properties(), &me, start_timestamp)?;
         Ok(vec![Box::new(event) as Box<dyn Publishable>])
     } else {
         let conn = janus.db.get()?;
+        let agent_id = inev.properties().as_agent_id();
         let _ = janus_backend::DeleteQuery::new(agent_id).execute(&conn)?;
         Ok(vec![])
     }

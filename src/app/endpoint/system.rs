@@ -94,6 +94,7 @@ impl State {
 
             for (room, rtc) in rooms.into_iter() {
                 let backreq = crate::app::janus::upload_stream_request(
+                    inreq.properties(),
                     backend.session_id(),
                     backend.handle_id(),
                     crate::app::janus::UploadStreamRequestBody::new(
@@ -103,7 +104,6 @@ impl State {
                     ),
                     backend.id(),
                     start_timestamp,
-                    inreq.properties().tracking(),
                 )
                 .map_err(|_| {
                     // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
