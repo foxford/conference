@@ -22,10 +22,8 @@ diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_jso
 diesel-derive-enum = { version = "0.4", features = ["postgres"] }
 futures = { version = "0.3", features = ["thread-pool"] }
 futures-channel = "0.3"
+rand = "0.7"
 svc-agent = { version = "0.10", features = ["diesel"] }
 svc-authz = "0.9"
 svc-authn = { version = "0.5", features = ["jose", "diesel"] }
 svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz", "sentry-extension"] }
-
-[dev-dependencies]
-rand = "0.7"

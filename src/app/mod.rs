@@ -41,6 +41,7 @@ struct State {
 
 struct Route {
     janus_status_subscription_topic: String,
+    janus_events_subscription_topic: String,
     janus_responses_subscription_topic: String,
 }
 
@@ -89,8 +90,8 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     let state = Arc::new(State {
         agent: endpoint::agent::State::new(authz.clone(), db.clone()),
         room: endpoint::room::State::new(authz.clone(), db.clone()),
-        rtc: endpoint::rtc::State::new(authz.clone(), db.clone()),
-        rtc_signal: endpoint::rtc_signal::State::new(authz.clone(), db.clone()),
+        rtc: endpoint::rtc::State::new(authz.clone(), db.clone(), agent_id.clone()),
+        rtc_signal: endpoint::rtc_signal::State::new(authz.clone(), db.clone(), agent_id.clone()),
         rtc_stream: endpoint::rtc_stream::State::new(authz.clone(), db.clone()),
         message: endpoint::message::State::new(agent_id.clone(), db.clone()),
         subscription: endpoint::subscription::State::new(config.broker_id, db.clone()),
@@ -105,6 +106,18 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
         janus_status_subscription_topic: {
             let subscription =
                 Subscription::broadcast_events(&config.backend_id, API_VERSION, "status");
+
+            tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
+                .expect("Error subscribing to backend events topic");
+
+            subscription
+                .subscription_topic(&agent_id, API_VERSION)
+                .expect("Error building janus events subscription topic")
+        },
+        janus_events_subscription_topic: {
+            let subscription =
+                Subscription::broadcast_events(&config.backend_id, API_VERSION, "events");
+
             tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
                 .expect("Error subscribing to backend events topic");
 
@@ -113,8 +126,8 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
                 .expect("Error building janus events subscription topic")
         },
         janus_responses_subscription_topic: {
-            let subscription =
-                Subscription::broadcast_events(&config.backend_id, API_VERSION, "responses");
+            let subscription = Subscription::unicast_responses_from(&config.backend_id);
+
             tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
                 .expect("Error subscribing to backend responses topic");
 
@@ -139,6 +152,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
         let state = state.clone();
         let backend = backend.clone();
         let route = route.clone();
+        let agent_id = agent_id.clone();
         threadpool.spawn(async move {
             match message {
                 svc_agent::mqtt::Notification::Publish(message) => {
@@ -156,13 +170,16 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
                                 message.payload.clone(),
                                 backend.clone(),
                                 start_timestamp,
+                                agent_id,
                             ).await
                         }
-                        val if val == &route.janus_responses_subscription_topic => {
-                            janus::handle_response(
+                        val if val == &route.janus_responses_subscription_topic ||
+                               val == &route.janus_events_subscription_topic => {
+                            janus::handle_message(
                                 message.payload.clone(),
                                 backend.clone(),
                                 start_timestamp,
+                                agent_id,
                             ).await
                         }
                         _ => handle_message(

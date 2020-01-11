@@ -1,7 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::mqtt::{
-    IncomingRequest, OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
+use svc_agent::{
+    mqtt::{IncomingRequest, OutgoingResponse, ResponseStatus, ShortTermTimingProperties},
+    AgentId,
 };
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -64,11 +65,16 @@ pub(crate) type ConnectResponse = OutgoingResponse<ConnectResponseData>;
 pub(crate) struct State {
     authz: svc_authz::ClientMap,
     db: ConnectionPool,
+    agent_id: AgentId,
 }
 
 impl State {
-    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
-        Self { authz, db }
+    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool, agent_id: AgentId) -> Self {
+        Self {
+            authz,
+            db,
+            agent_id,
+        }
     }
 }
 
@@ -204,6 +210,7 @@ impl State {
             id,
             backend.session_id(),
             backend.id(),
+            &self.agent_id,
             start_timestamp,
             authz_time,
         )
@@ -358,6 +365,11 @@ mod test {
         created_at: i64,
     }
 
+    fn build_state(authz: svc_authz::ClientMap, db: ConnectionPool) -> State {
+        let me = TestAgent::new("alpha", "conference", AUDIENCE);
+        State::new(authz, db, me.agent_id().to_owned())
+    }
+
     ///////////////////////////////////////////////////////////////////////////
 
     #[test]
@@ -380,7 +392,7 @@ mod test {
             authz.allow(agent.account_id(), object, "create");
 
             // Make rtc.create request.
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let payload = json!({"room_id": room.id()});
             let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
             let mut result = state
@@ -424,7 +436,7 @@ mod test {
 
             // Make rtc.create request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
+            let state = build_state(no_authz(AUDIENCE), db.connection_pool().clone());
             let payload = json!({ "room_id": Uuid::new_v4() });
             let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
             let result = state.create(request, Utc::now()).await.into_result();
@@ -452,7 +464,7 @@ mod test {
 
             // Make rtc.create request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let payload = json!({"room_id": room.id()});
             let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
             let result = state.create(request, Utc::now()).await.into_result();
@@ -488,7 +500,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.read request.
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": rtc.id()});
             let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
             let mut result = state.read(request, Utc::now()).await.into_result().unwrap();
@@ -508,7 +520,7 @@ mod test {
             // Make rtc.read request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({ "id": Uuid::new_v4() });
-            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
+            let state = build_state(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
             let result = state.read(request, Utc::now()).await.into_result();
 
@@ -536,7 +548,7 @@ mod test {
             // Make rtc.read request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({ "id": rtc.id() });
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
             let result = state.read(request, Utc::now()).await.into_result();
 
@@ -574,7 +586,7 @@ mod test {
             authz.allow(agent.account_id(), object, "list");
 
             // Make rtc.list request.
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let payload = json!({"room_id": rtc.room_id()});
             let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
             let mut result = state.list(request, Utc::now()).await.into_result().unwrap();
@@ -594,7 +606,7 @@ mod test {
 
             // Make rtc.list request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
+            let state = build_state(no_authz(AUDIENCE), db.connection_pool().clone());
             let payload = json!({ "room_id": Uuid::new_v4() });
             let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
             let result = state.list(request, Utc::now()).await.into_result();
@@ -623,7 +635,7 @@ mod test {
             // Make rtc.list request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({ "room_id": rtc.room_id() });
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
             let result = state.list(request, Utc::now()).await.into_result();
 
@@ -701,7 +713,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": rtc.id()});
             let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
             let mut result = state
@@ -773,7 +785,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": rtc.id()});
             let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
             let mut result = state
@@ -797,7 +809,7 @@ mod test {
             // Make rtc.connect request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({ "id": Uuid::new_v4() });
-            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
+            let state = build_state(no_authz(AUDIENCE), db.connection_pool().clone());
             let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
             let result = state.connect(request, Utc::now()).await.into_result();
 
@@ -825,7 +837,7 @@ mod test {
             // Make rtc.connect request.
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let payload = json!({ "id": rtc.id() });
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
             let result = state.connect(request, Utc::now()).await.into_result();
 

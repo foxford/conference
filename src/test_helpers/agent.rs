@@ -1,12 +1,10 @@
 use chrono::Utc;
 use failure::{format_err, Error};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 use serde_json::{json, Value as JsonValue};
 use svc_agent::mqtt::{compat, compat::IncomingEnvelope, IncomingEvent, IncomingRequest};
 use svc_agent::{AccountId, AgentId};
 
-const CORRELATION_DATA_LENGTH: usize = 16;
+use crate::util::generate_correlation_data;
 
 pub(crate) struct TestAgent {
     agent_id: AgentId,
@@ -39,11 +37,6 @@ impl TestAgent {
     where
         T: serde::de::DeserializeOwned,
     {
-        let correlation_data: String = thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(CORRELATION_DATA_LENGTH)
-            .collect();
-
         let now = Utc::now().timestamp_millis().to_string();
         let conference_account_id = AccountId::new("conference", self.account_id.audience());
 
@@ -56,7 +49,7 @@ impl TestAgent {
             "payload": serde_json::to_string(payload)?,
             "properties": {
                 "type": "request",
-                "correlation_data": correlation_data,
+                "correlation_data": generate_correlation_data(),
                 "method": method,
                 "agent_id": self.agent_id.to_string(),
                 "connection_mode": "default",

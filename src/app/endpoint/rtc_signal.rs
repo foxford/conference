@@ -43,11 +43,16 @@ impl CreateResponseData {
 pub(crate) struct State {
     authz: svc_authz::ClientMap,
     db: ConnectionPool,
+    agent_id: AgentId,
 }
 
 impl State {
-    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
-        Self { authz, db }
+    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool, agent_id: AgentId) -> Self {
+        Self {
+            authz,
+            db,
+            agent_id,
+        }
     }
 }
 
@@ -89,6 +94,7 @@ impl State {
                         handle_id.rtc_id(),
                         jsep.clone(),
                         handle_id.backend_id(),
+                        &self.agent_id,
                         start_timestamp,
                         authz_time,
                     );
@@ -133,6 +139,7 @@ impl State {
                         handle_id.rtc_id(),
                         jsep.clone(),
                         handle_id.backend_id(),
+                        &self.agent_id,
                         start_timestamp,
                         authz_time,
                     );
@@ -161,6 +168,7 @@ impl State {
                     handle_id.janus_handle_id(),
                     jsep.clone(),
                     handle_id.backend_id(),
+                    &self.agent_id,
                     start_timestamp,
                     authz_time,
                 );
@@ -427,8 +435,6 @@ mod test {
 
     const AUDIENCE: &str = "dev.svc.example.org";
 
-    ///////////////////////////////////////////////////////////////////////////
-
     #[derive(Debug, PartialEq, Deserialize)]
     struct RtcSignalCreateJanusRequestOffer {
         janus: String,
@@ -498,6 +504,13 @@ mod test {
     a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
     "#;
 
+    fn build_state(authz: svc_authz::ClientMap, db: ConnectionPool) -> State {
+        let me = TestAgent::new("alpha", "conference", AUDIENCE);
+        State::new(authz, db, me.agent_id().to_owned())
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+
     #[test]
     fn create_rtc_signal_for_offer() {
         futures::executor::block_on(async {
@@ -541,7 +554,7 @@ mod test {
                 "label": "whatever",
             });
 
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
             let mut result = state
@@ -611,7 +624,7 @@ mod test {
             });
 
             let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
             let result = state.create(request, Utc::now()).await.into_result();
@@ -689,7 +702,7 @@ mod test {
                 "label": "whatever",
             });
 
-            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
+            let state = build_state(no_authz(AUDIENCE), db.connection_pool().clone());
             let agent = TestAgent::new("web", "user123", AUDIENCE);
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
@@ -767,7 +780,7 @@ mod test {
                 "jsep": {"sdpMid": 0, "sdpMLineIndex": 0, "candidate": ICE_CANDIDATE},
             });
 
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
             let mut result = state
@@ -824,7 +837,7 @@ mod test {
             });
 
             let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let state = State::new(authz.into(), db.connection_pool().clone());
+            let state = build_state(authz.into(), db.connection_pool().clone());
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
             let result = state.create(request, Utc::now()).await.into_result();
