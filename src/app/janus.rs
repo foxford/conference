@@ -17,8 +17,8 @@ use uuid::Uuid;
 
 use crate::app::{endpoint, API_VERSION};
 use crate::backend::janus::{
-    CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingMessage, MessageRequest,
-    StatusEvent, TrickleRequest,
+    CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingEvent, IncomingResponse,
+    MessageRequest, StatusEvent, TrickleRequest,
 };
 use crate::db::{janus_backend, janus_rtc_stream, recording, room, rtc, ConnectionPool};
 use crate::util::{from_base64, generate_correlation_data, to_base64};
@@ -522,7 +522,7 @@ impl State {
     }
 }
 
-pub(crate) async fn handle_message<M>(
+pub(crate) async fn handle_response<M>(
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
     start_timestamp: DateTime<Utc>,
@@ -534,9 +534,9 @@ where
     use endpoint::handle_error;
 
     let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
-    let message = into_response::<IncomingMessage>(envelope)?;
+    let message = into_response::<IncomingResponse>(envelope)?;
     match message.payload() {
-        IncomingMessage::Success(ref inresp) => {
+        IncomingResponse::Success(ref inresp) => {
             match from_base64::<Transaction>(&inresp.transaction())? {
                 // Session has been created
                 Transaction::CreateSession(_tn) => {
@@ -594,7 +594,7 @@ where
                 )),
             }
         }
-        IncomingMessage::Ack(ref inresp) => {
+        IncomingResponse::Ack(ref inresp) => {
             match from_base64::<Transaction>(&inresp.transaction())? {
                 // Conference Stream is being created
                 Transaction::CreateStream(_tn) => Err(format_err!(
@@ -622,7 +622,7 @@ where
                 )),
             }
         }
-        IncomingMessage::Event(ref inresp) => {
+        IncomingResponse::Event(ref inresp) => {
             match from_base64::<Transaction>(&inresp.transaction())? {
                 // Conference Stream has been created (an answer received)
                 Transaction::CreateStream(ref tn) => {
@@ -930,15 +930,26 @@ where
                 )),
             }
         }
-        IncomingMessage::Error(ErrorResponse::Session(ref inresp)) => Err(format_err!(
+        IncomingResponse::Error(ErrorResponse::Session(ref inresp)) => Err(format_err!(
             "received an unexpected Error message (session): {:?}",
             inresp,
         )),
-        IncomingMessage::Error(ErrorResponse::Handle(ref inresp)) => Err(format_err!(
+        IncomingResponse::Error(ErrorResponse::Handle(ref inresp)) => Err(format_err!(
             "received an unexpected Error message (handle): {:?}",
             inresp,
         )),
-        IncomingMessage::WebRtcUp(ref inev) => {
+    }
+}
+pub(crate) async fn handle_event(
+    payload: Arc<Vec<u8>>,
+    janus: Arc<State>,
+    start_timestamp: DateTime<Utc>,
+) -> Result<Vec<Box<dyn Publishable>>, Error> {
+    let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
+    let message = into_event::<IncomingEvent>(envelope)?;
+
+    match message.payload() {
+        IncomingEvent::WebRtcUp(ref inev) => {
             use std::str::FromStr;
             let rtc_stream_id = Uuid::from_str(inev.opaque_id())?;
 
@@ -966,7 +977,7 @@ where
                 Ok(vec![])
             }
         }
-        IncomingMessage::HangUp(ref inev) => {
+        IncomingEvent::HangUp(ref inev) => {
             use std::str::FromStr;
             let rtc_stream_id = Uuid::from_str(inev.opaque_id())?;
 
@@ -998,22 +1009,15 @@ where
 
             Ok(vec![])
         }
-        IncomingMessage::Media(ref inev) => Err(format_err!(
-            "received an unexpected Media message: {:?}",
-            inev,
-        )),
-        IncomingMessage::Timeout(ref inev) => Err(format_err!(
-            "received an unexpected Timeout message: {:?}",
-            inev,
-        )),
-        IncomingMessage::SlowLink(ref inev) => Err(format_err!(
-            "received an unexpected SlowLink message: {:?}",
-            inev,
-        )),
+        IncomingEvent::Media(_)
+        | IncomingEvent::Timeout(_)
+        | IncomingEvent::SlowLink(_)
+        | IncomingEvent::Detached(_) => {
+            // Ignore these kinds of events.
+            Ok(vec![])
+        }
     }
 }
-
-////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) async fn handle_status<M>(
     payload: Arc<Vec<u8>>,

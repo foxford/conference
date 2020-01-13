@@ -180,16 +180,23 @@ impl TrickleRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[serde(tag = "janus")]
-pub(crate) enum IncomingMessage {
+pub(crate) enum IncomingResponse {
     Error(ErrorResponse),
     Ack(AckResponse),
     Event(EventResponse),
     Success(SuccessResponse),
-    Timeout(TimeoutEvent),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[serde(tag = "janus")]
+pub(crate) enum IncomingEvent {
     WebRtcUp(WebRtcUpEvent),
     Media(MediaEvent),
+    Timeout(TimeoutEvent),
     HangUp(HangUpEvent),
     SlowLink(SlowLinkEvent),
+    Detached(DetachedEvent),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -392,6 +399,15 @@ pub(crate) struct SlowLinkEvent {
     opaque_id: String,
     uplink: bool,
     nacks: i32,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct DetachedEvent {
+    session_id: i64,
+    sender: i64,
+    opaque_id: String,
 }
 
 ////////////////////////////////////////////////////////////////////////////////

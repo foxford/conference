@@ -173,9 +173,15 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
                                 agent_id,
                             ).await
                         }
-                        val if val == &route.janus_responses_subscription_topic ||
-                               val == &route.janus_events_subscription_topic => {
-                            janus::handle_message(
+                        val if val == &route.janus_events_subscription_topic => {
+                            janus::handle_event(
+                                message.payload.clone(),
+                                backend.clone(),
+                                start_timestamp,
+                            ).await
+                        }
+                        val if val == &route.janus_responses_subscription_topic => {
+                            janus::handle_response(
                                 message.payload.clone(),
                                 backend.clone(),
                                 start_timestamp,
