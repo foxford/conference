@@ -3,11 +3,14 @@ use std::ops::Bound;
 use chrono::{DateTime, Utc};
 use failure::Error;
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::mqtt::{
-    IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publishable, ResponseStatus,
-    ShortTermTimingProperties, TrackingProperties,
+use svc_agent::{
+    mqtt::{
+        IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publishable, ResponseStatus,
+        ShortTermTimingProperties, TrackingProperties,
+    },
+    AgentId,
 };
-use svc_authn::AccountId;
+use svc_authn::Authenticable;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
@@ -50,13 +53,13 @@ pub(crate) type RoomUploadEvent = OutgoingEvent<RoomUploadEventData>;
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct State {
-    me: AccountId,
+    me: AgentId,
     authz: svc_authz::ClientMap,
     db: ConnectionPool,
 }
 
 impl State {
-    pub(crate) fn new(me: AccountId, authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
+    pub(crate) fn new(me: AgentId, authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
         Self { me, authz, db }
     }
 }
@@ -70,7 +73,7 @@ impl State {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         self.authz
             .authorize(
-                self.me.audience(),
+                self.me.as_account_id().audience(),
                 inreq.properties(),
                 vec!["system"],
                 "update",
@@ -103,6 +106,7 @@ impl State {
                         &record_name(&rtc),
                     ),
                     backend.id(),
+                    &self.me,
                     start_timestamp,
                 )
                 .map_err(|_| {
@@ -181,6 +185,7 @@ mod test {
     use serde_json::json;
     use svc_authz::ClientMap;
 
+    use crate::backend::janus::JANUS_API_VERSION;
     use crate::db::room;
 
     use crate::test_helpers::{
@@ -196,8 +201,12 @@ mod test {
     const AUDIENCE: &str = "dev.svc.example.org";
 
     fn build_state(authz: ClientMap, db: &TestDb) -> State {
-        let account_id = svc_agent::AccountId::new("cron", AUDIENCE);
-        State::new(account_id, authz, db.connection_pool().clone())
+        let agent = TestAgent::new("alpha", "conference", AUDIENCE);
+        State::new(
+            agent.agent_id().to_owned(),
+            authz,
+            db.connection_pool().clone(),
+        )
     }
 
     #[derive(Debug, PartialEq, Deserialize)]
@@ -264,6 +273,22 @@ mod test {
 
             // Assert outgoing Janus stream.upload requests.
             for (message, rtc) in result.into_iter().zip(rtcs.iter()) {
+                use svc_agent::mqtt::DestinationTopic;
+
+                let topic = state
+                    .me
+                    .destination_topic(&message, JANUS_API_VERSION)
+                    .unwrap();
+
+                let expected_topic = format!(
+                    "agents/{}/api/{}/in/{}",
+                    backend.id(),
+                    JANUS_API_VERSION,
+                    state.me.as_account_id(),
+                );
+
+                assert_eq!(topic, expected_topic);
+
                 assert_eq!(
                     extract_payload::<VacuumJanusRequest>(message).unwrap(),
                     VacuumJanusRequest {

@@ -15,10 +15,10 @@ use svc_agent::{Addressable, AgentId, Subscription};
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::{endpoint, API_VERSION};
+use crate::app::endpoint;
 use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingEvent, IncomingResponse,
-    MessageRequest, StatusEvent, TrickleRequest,
+    MessageRequest, StatusEvent, TrickleRequest, JANUS_API_VERSION,
 };
 use crate::db::{janus_backend, janus_rtc_stream, recording, room, rtc, ConnectionPool};
 use crate::util::{from_base64, generate_correlation_data, to_base64};
@@ -72,7 +72,12 @@ where
     );
 
     props.set_tracking(evp.tracking().to_owned());
-    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
+    Ok(OutgoingRequest::unicast(
+        payload,
+        props,
+        to,
+        JANUS_API_VERSION,
+    ))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -115,7 +120,12 @@ where
     );
 
     props.set_tracking(respp.tracking().to_owned());
-    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
+    Ok(OutgoingRequest::unicast(
+        payload,
+        props,
+        to,
+        JANUS_API_VERSION,
+    ))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -182,7 +192,12 @@ where
         Some(&rtc_handle_id.to_string()),
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
+    Ok(OutgoingRequest::unicast(
+        payload,
+        props,
+        to,
+        JANUS_API_VERSION,
+    ))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -252,7 +267,12 @@ where
         Some(jsep),
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
+    Ok(OutgoingRequest::unicast(
+        payload,
+        props,
+        to,
+        JANUS_API_VERSION,
+    ))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -322,7 +342,12 @@ where
         Some(jsep),
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
+    Ok(OutgoingRequest::unicast(
+        payload,
+        props,
+        to,
+        JANUS_API_VERSION,
+    ))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -361,18 +386,19 @@ impl UploadStreamRequestBody {
     }
 }
 
-pub(crate) fn upload_stream_request<M>(
+pub(crate) fn upload_stream_request<A, M>(
     reqp: &IncomingRequestProperties,
     session_id: i64,
     handle_id: i64,
     body: UploadStreamRequestBody,
+    to: &A,
     me: &M,
     start_timestamp: DateTime<Utc>,
 ) -> Result<OutgoingRequest<MessageRequest>, Error>
 where
+    A: Addressable,
     M: Addressable,
 {
-    let to = reqp.as_agent_id();
     let transaction = Transaction::UploadStream(UploadStreamTransaction::new(body.id));
 
     let payload = MessageRequest::new(
@@ -391,7 +417,13 @@ where
     );
 
     props.set_tracking(reqp.tracking().to_owned());
-    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
+
+    Ok(OutgoingRequest::unicast(
+        payload,
+        props,
+        to,
+        JANUS_API_VERSION,
+    ))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -433,7 +465,12 @@ where
 
     let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
     let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
-    Ok(OutgoingRequest::unicast(payload, props, to, API_VERSION))
+    Ok(OutgoingRequest::unicast(
+        payload,
+        props,
+        to,
+        JANUS_API_VERSION,
+    ))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -497,7 +534,12 @@ where
         None,
     );
 
-    Ok(OutgoingRequest::unicast(payload, props, &to, API_VERSION))
+    Ok(OutgoingRequest::unicast(
+        payload,
+        props,
+        &to,
+        JANUS_API_VERSION,
+    ))
 }
 
 fn response_topic<T, M>(to: &T, me: &M) -> Result<String, Error>
@@ -506,7 +548,7 @@ where
     M: Addressable,
 {
     Subscription::unicast_responses_from(to)
-        .subscription_topic(me, API_VERSION)
+        .subscription_topic(me, JANUS_API_VERSION)
         .map_err(|err| format_err!("Failed to build subscription topic: {}", err))
 }
 
@@ -582,7 +624,7 @@ where
                             ShortTermTimingProperties::until_now(start_timestamp),
                         ),
                         &reqp,
-                        API_VERSION,
+                        JANUS_API_VERSION,
                     );
 
                     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
@@ -610,7 +652,7 @@ where
                             ShortTermTimingProperties::until_now(start_timestamp),
                         ),
                         tn.reqp.as_agent_id(),
-                        API_VERSION,
+                        JANUS_API_VERSION,
                     );
 
                     Ok(vec![Box::new(resp) as Box<dyn Publishable>])
@@ -670,7 +712,7 @@ where
                                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
                                 tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
                                 tn.reqp.as_agent_id(),
-                                API_VERSION,
+                                JANUS_API_VERSION,
                             );
 
                             Ok(vec![Box::new(resp) as Box<dyn Publishable>])
@@ -732,7 +774,7 @@ where
                                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
                                 tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
                                 tn.reqp.as_agent_id(),
-                                API_VERSION,
+                                JANUS_API_VERSION,
                             );
 
                             Ok(vec![Box::new(resp) as Box<dyn Publishable>])
