@@ -95,7 +95,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
         rtc_stream: endpoint::rtc_stream::State::new(authz.clone(), db.clone()),
         message: endpoint::message::State::new(agent_id.clone(), db.clone()),
         subscription: endpoint::subscription::State::new(config.broker_id, db.clone()),
-        system: endpoint::system::State::new(config.id.clone(), authz.clone(), db.clone()),
+        system: endpoint::system::State::new(agent_id.clone(), authz.clone(), db.clone()),
     });
 
     // Create RoomBackend resource

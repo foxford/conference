@@ -1,6 +1,8 @@
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+pub(crate) const JANUS_API_VERSION: &str = "v1";
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // Creating a session
