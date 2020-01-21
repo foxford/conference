@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
-    IncomingEvent, IncomingEventProperties, OutgoingEvent, Publishable, ResponseStatus,
+    IncomingEvent, IncomingEventProperties, IntoPublishableDump, OutgoingEvent, ResponseStatus,
     ShortTermTimingProperties,
 };
 use svc_agent::AgentId;
@@ -106,7 +106,7 @@ impl State {
             let props = evt.properties().to_event("room.leave", short_term_timing);
             let to_uri = format!("rooms/{}/events", room_id);
             let outgoing_event = OutgoingEvent::broadcast(payload, props, &to_uri);
-            let mut messages: Vec<Box<dyn Publishable>> = vec![Box::new(outgoing_event)];
+            let mut messages: Vec<Box<dyn IntoPublishableDump>> = vec![Box::new(outgoing_event)];
 
             // `agent.leave` requests to Janus instances that host active streams in this room.
             let streams = janus_rtc_stream::ListQuery::new()
@@ -207,18 +207,16 @@ mod test {
     use diesel::prelude::*;
     use failure::format_err;
     use serde_json::json;
-    use svc_agent::Destination;
 
+    use crate::app::API_VERSION;
     use crate::db::agent::Object as Agent;
     use crate::schema::agent as agent_schema;
     use crate::schema::janus_rtc_stream as janus_rtc_stream_schema;
     use crate::test_helpers::{
-        agent::TestAgent, db::TestDb, extract_payload, factory, factory::insert_room,
+        agent::TestAgent, db::TestDb, factory, factory::insert_room, Message, AUDIENCE,
     };
 
     use super::*;
-
-    const AUDIENCE: &str = "dev.svc.example.org";
 
     fn build_state(db: &TestDb) -> State {
         let account_id = svc_agent::AccountId::new("mqtt-gateway", AUDIENCE);
@@ -266,19 +264,22 @@ mod test {
             let mut result = state.create(event, Utc::now()).await.into_result().unwrap();
 
             // Assert notification to the room topic.
-            let message = result.remove(0);
-            assert_eq!(message.message_type(), "event");
+            let message = Message::<RoomEnterLeaveEventData>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
 
-            match message.destination() {
-                Destination::Broadcast(destination) => {
-                    assert_eq!(destination, &format!("rooms/{}/events", room.id()))
-                }
-                _ => panic!("Expected broadcast destination"),
-            }
+            assert_eq!(
+                message.topic(),
+                format!(
+                    "apps/conference.{}/api/{}/rooms/{}/events",
+                    AUDIENCE,
+                    API_VERSION,
+                    room.id(),
+                )
+            );
 
-            let payload: RoomEnterLeaveEventData = extract_payload(message).unwrap();
-            assert_eq!(payload.id, room.id());
-            assert_eq!(payload.agent_id, *user_agent.agent_id());
+            assert_eq!(message.properties().kind(), "event");
+            assert_eq!(message.payload().id, room.id());
+            assert_eq!(message.payload().agent_id, *user_agent.agent_id());
 
             // Assert agent presence in the DB.
             let conn = db.connection_pool().get().unwrap();
@@ -424,19 +425,22 @@ mod test {
             let mut result = state.delete(event, Utc::now()).await.into_result().unwrap();
 
             // Assert notification to the room topic.
-            let message = result.remove(0);
-            assert_eq!(message.message_type(), "event");
+            let message = Message::<RoomEnterLeaveEventData>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
 
-            match message.destination() {
-                Destination::Broadcast(destination) => {
-                    assert_eq!(destination, &format!("rooms/{}/events", agent.room_id()))
-                }
-                _ => panic!("Expected broadcast destination"),
-            }
+            assert_eq!(
+                message.topic(),
+                format!(
+                    "apps/conference.{}/api/{}/rooms/{}/events",
+                    AUDIENCE,
+                    API_VERSION,
+                    agent.room_id(),
+                )
+            );
 
-            let payload: RoomEnterLeaveEventData = extract_payload(message).unwrap();
-            assert_eq!(payload.id, agent.room_id());
-            assert_eq!(payload.agent_id, *agent.agent_id());
+            assert_eq!(message.properties().kind(), "event");
+            assert_eq!(message.payload().id, agent.room_id());
+            assert_eq!(message.payload().agent_id, *agent.agent_id());
 
             // Assert agent absence in the DB.
             let conn = db.connection_pool().get().unwrap();

@@ -5,8 +5,8 @@ use failure::Error;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{
-        IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publishable, ResponseStatus,
-        ShortTermTimingProperties, TrackingProperties,
+        IncomingRequest, IntoPublishableDump, OutgoingEvent, OutgoingEventProperties,
+        ResponseStatus, ShortTermTimingProperties, TrackingProperties,
     },
     AgentId,
 };
@@ -117,7 +117,7 @@ impl State {
                         .build()
                 })?;
 
-                requests.push(Box::new(backreq) as Box<dyn Publishable>);
+                requests.push(Box::new(backreq) as Box<dyn IntoPublishableDump>);
             }
         }
 
@@ -192,13 +192,11 @@ mod test {
         agent::TestAgent,
         authz::TestAuthz,
         db::TestDb,
-        extract_payload,
         factory::{insert_janus_backend, insert_rtc},
+        Message, AUDIENCE,
     };
 
     use super::*;
-
-    const AUDIENCE: &str = "dev.svc.example.org";
 
     fn build_state(authz: ClientMap, db: &TestDb) -> State {
         let agent = TestAgent::new("alpha", "conference", AUDIENCE);
@@ -272,25 +270,24 @@ mod test {
             assert_eq!(result.len(), 2);
 
             // Assert outgoing Janus stream.upload requests.
-            for (message, rtc) in result.into_iter().zip(rtcs.iter()) {
-                use svc_agent::mqtt::DestinationTopic;
+            for (publishable, rtc) in result.into_iter().zip(rtcs.iter()) {
+                let message = Message::<VacuumJanusRequest>::from_publishable(publishable)
+                    .expect("Failed to parse message");
 
-                let topic = state
-                    .me
-                    .destination_topic(&message, JANUS_API_VERSION)
-                    .unwrap();
-
-                let expected_topic = format!(
-                    "agents/{}/api/{}/in/{}",
-                    backend.id(),
-                    JANUS_API_VERSION,
-                    state.me.as_account_id(),
-                );
-
-                assert_eq!(topic, expected_topic);
+                assert_eq!(message.properties().kind(), "request");
 
                 assert_eq!(
-                    extract_payload::<VacuumJanusRequest>(message).unwrap(),
+                    message.topic(),
+                    format!(
+                        "agents/{}/api/{}/in/conference.{}",
+                        backend.id(),
+                        JANUS_API_VERSION,
+                        AUDIENCE,
+                    )
+                );
+
+                assert_eq!(
+                    *message.payload(),
                     VacuumJanusRequest {
                         janus: "message".to_string(),
                         session_id: backend.session_id(),

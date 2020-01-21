@@ -7,7 +7,7 @@ use futures::{executor::ThreadPoolBuilder, task::SpawnExt, StreamExt};
 use log::{error, info, warn};
 use serde_derive::Deserialize;
 use svc_agent::mqtt::{
-    compat, AgentBuilder, ConnectionMode, Notification, Publishable, QoS, SubscriptionTopic,
+    compat, AgentBuilder, ConnectionMode, IntoPublishableDump, Notification, QoS, SubscriptionTopic,
 };
 use svc_agent::{AgentId, Authenticable, SharedGroup, Subscription};
 use svc_authn::{jose::Algorithm, token::jws_compact};
@@ -197,7 +197,15 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
 
                     let result = result.and_then(|messages| {
                         for message in messages.into_iter() {
-                            tx.publish(message)?;
+                            let dump = message.into_dump(tx.address())?;
+
+                            info!(
+                                "Outgoing message = '{}' sending to the topic = '{}'",
+                                dump.payload(),
+                                dump.topic(),
+                            );
+
+                            tx.publish_dump(dump)?;
                         }
 
                         Ok(())
@@ -225,7 +233,7 @@ async fn handle_message(
     payload: Arc<Vec<u8>>,
     state: Arc<State>,
     start_timestamp: DateTime<Utc>,
-) -> Result<Vec<Box<dyn Publishable>>, Error> {
+) -> Result<Vec<Box<dyn IntoPublishableDump>>, Error> {
     use endpoint::{handle_event, handle_request, handle_unknown_method};
 
     let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(payload.as_slice())?;

@@ -104,12 +104,10 @@ mod test {
         agent::TestAgent,
         authz::{no_authz, TestAuthz},
         db::TestDb,
-        extract_payload, factory,
+        factory, Message, AUDIENCE,
     };
 
     use super::*;
-
-    const AUDIENCE: &str = "dev.svc.example.org";
 
     #[derive(Debug, PartialEq, Deserialize)]
     struct AgentResponse {
@@ -157,14 +155,15 @@ mod test {
             let payload = json!({"room_id": online_agent.room_id()});
             let request: ListRequest = agent.build_request("agent.list", &payload).unwrap();
             let mut result = state.list(request, Utc::now()).await.into_result().unwrap();
-            let message = result.remove(0);
 
             // Assert response.
-            let resp: Vec<AgentResponse> = extract_payload(message).unwrap();
-            assert_eq!(resp.len(), 1);
+            let resp = Message::<Vec<AgentResponse>>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
+
+            assert_eq!(resp.payload().len(), 1);
 
             assert_eq!(
-                *resp.first().unwrap(),
+                *resp.payload().first().unwrap(),
                 AgentResponse {
                     id: online_agent.id(),
                     agent_id: online_agent.agent_id().to_owned(),

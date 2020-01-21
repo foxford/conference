@@ -427,13 +427,11 @@ mod test {
         agent::TestAgent,
         authz::{no_authz, TestAuthz},
         db::TestDb,
-        extract_payload,
         factory::{insert_janus_backend, insert_rtc},
+        Message, AUDIENCE,
     };
 
     use super::*;
-
-    const AUDIENCE: &str = "dev.svc.example.org";
 
     #[derive(Debug, PartialEq, Deserialize)]
     struct RtcSignalCreateJanusRequestOffer {
@@ -557,23 +555,26 @@ mod test {
             let state = build_state(authz.into(), db.connection_pool().clone());
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
+
             let mut result = state
                 .create(request, Utc::now())
                 .await
                 .into_result()
                 .unwrap();
-            let outgoing_envelope = result.remove(0);
 
             // Assert outgoing broker request.
-            let req: RtcSignalCreateJanusRequestOffer = extract_payload(outgoing_envelope).unwrap();
+            let publishable = result.remove(0);
 
-            assert_eq!(req.janus, "message");
-            assert_eq!(req.session_id, backend.session_id());
-            assert_eq!(req.handle_id, backend.handle_id());
-            assert_eq!(req.body.method, "stream.create");
-            assert_eq!(req.body.id, rtc.id());
-            assert_eq!(req.jsep.r#type, "offer");
-            assert_eq!(req.jsep.sdp, SDP_OFFER);
+            let req = Message::<RtcSignalCreateJanusRequestOffer>::from_publishable(publishable)
+                .expect("Failed to parse message");
+
+            assert_eq!(req.payload().janus, "message");
+            assert_eq!(req.payload().session_id, backend.session_id());
+            assert_eq!(req.payload().handle_id, backend.handle_id());
+            assert_eq!(req.payload().body.method, "stream.create");
+            assert_eq!(req.payload().body.id, rtc.id());
+            assert_eq!(req.payload().jsep.r#type, "offer");
+            assert_eq!(req.payload().jsep.sdp, SDP_OFFER);
 
             // Assert rtc stream presence in the DB.
             let conn = db.connection_pool().get().unwrap();
@@ -783,21 +784,26 @@ mod test {
             let state = build_state(authz.into(), db.connection_pool().clone());
             let method = "rtc_signal.create";
             let request: CreateRequest = agent.build_request(method, &payload).unwrap();
+
             let mut result = state
                 .create(request, Utc::now())
                 .await
                 .into_result()
                 .unwrap();
-            let message = result.remove(0);
 
             // Assert outgoing broker request.
-            let req: RtcSignalCreateJanusRequestIceCandidate = extract_payload(message).unwrap();
-            assert_eq!(req.janus, "trickle");
-            assert_eq!(req.session_id, backend.session_id());
-            assert_eq!(req.handle_id, backend.handle_id());
-            assert_eq!(req.candidate.sdp_m_id, 0);
-            assert_eq!(req.candidate.sdp_m_line_index, 0);
-            assert_eq!(req.candidate.candidate, ICE_CANDIDATE);
+            let publishable = result.remove(0);
+
+            let req =
+                Message::<RtcSignalCreateJanusRequestIceCandidate>::from_publishable(publishable)
+                    .expect("Failed to parse message");
+
+            assert_eq!(req.payload().janus, "trickle");
+            assert_eq!(req.payload().session_id, backend.session_id());
+            assert_eq!(req.payload().handle_id, backend.handle_id());
+            assert_eq!(req.payload().candidate.sdp_m_id, 0);
+            assert_eq!(req.payload().candidate.sdp_m_line_index, 0);
+            assert_eq!(req.payload().candidate.candidate, ICE_CANDIDATE);
         });
     }
 

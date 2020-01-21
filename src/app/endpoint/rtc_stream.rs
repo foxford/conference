@@ -140,13 +140,11 @@ mod test {
         agent::TestAgent,
         authz::{no_authz, TestAuthz},
         db::TestDb,
-        extract_payload,
         factory::{insert_rtc, JanusRtcStream},
+        Message, AUDIENCE,
     };
 
     use super::*;
-
-    const AUDIENCE: &str = "dev.svc.example.org";
 
     #[derive(Debug, PartialEq, Deserialize)]
     struct RtcStreamResponse {
@@ -201,11 +199,12 @@ mod test {
             let payload = json!({"room_id": rtc.room_id(), "rtc_id": rtc.id()});
             let request: ListRequest = agent.build_request("rtc_stream.list", &payload).unwrap();
             let mut result = state.list(request, Utc::now()).await.into_result().unwrap();
-            let message = result.remove(0);
 
             // Assert response.
-            let resp: Vec<RtcStreamResponse> = extract_payload(message).unwrap();
-            assert_eq!(resp.len(), 1);
+            let resp = Message::<Vec<RtcStreamResponse>>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
+
+            assert_eq!(resp.payload().len(), 1);
 
             let start = match rtc_stream.time().unwrap().0 {
                 Bound::Included(val) => val,
@@ -213,7 +212,7 @@ mod test {
             };
 
             assert_eq!(
-                *resp.first().unwrap(),
+                *resp.payload().first().unwrap(),
                 RtcStreamResponse {
                     id: rtc_stream.id().to_owned(),
                     handle_id: rtc_stream.handle_id(),

@@ -370,21 +370,20 @@ mod test {
     use chrono::Utc;
     use diesel::prelude::*;
     use failure::format_err;
-    use serde_json::{json, Value as JsonValue};
-    use svc_agent::{AccountId, AgentId, Destination};
+    use serde_json::json;
+    use svc_agent::{AccountId, AgentId};
+
+    use crate::app::API_VERSION;
 
     use crate::test_helpers::{
         agent::TestAgent,
         authz::{no_authz, TestAuthz},
         db::TestDb,
-        extract_payload,
         factory::{self, insert_room},
-        parse_payload,
+        Message, AUDIENCE,
     };
 
     use super::*;
-
-    const AUDIENCE: &str = "dev.svc.example.org";
 
     #[derive(Debug, PartialEq, Deserialize)]
     struct RoomResponse {
@@ -425,33 +424,33 @@ mod test {
                 .unwrap();
 
             // Assert response.
-            let message = result.remove(0);
-            assert_eq!(message.message_type(), "response");
+            let resp = Message::<RoomResponse>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
 
-            let resp: RoomResponse = extract_payload(message).unwrap();
-            assert_eq!(resp.time, vec![Some(now), None]);
-            assert_eq!(resp.audience, AUDIENCE);
-            assert!(resp.created_at >= now);
-            assert_eq!(resp.backend, "janus");
+            assert_eq!(resp.properties().kind(), "response");
+            assert_eq!(resp.payload().time, vec![Some(now), None]);
+            assert_eq!(resp.payload().audience, AUDIENCE);
+            assert!(resp.payload().created_at >= now);
+            assert_eq!(resp.payload().backend, "janus");
 
             // Assert notification.
-            let message = result.remove(0);
-            assert_eq!(message.message_type(), "event");
+            let evt = Message::<RoomResponse>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
 
-            match message.destination() {
-                Destination::Broadcast(destination) => assert_eq!(destination, "rooms"),
-                _ => panic!("Expected broadcast destination"),
-            }
+            assert_eq!(
+                evt.topic(),
+                format!("apps/conference.{}/api/{}/rooms", AUDIENCE, API_VERSION),
+            );
 
-            let payload: RoomResponse = extract_payload(message).unwrap();
-            assert_eq!(payload.time, vec![Some(now), None]);
-            assert_eq!(payload.audience, AUDIENCE);
-            assert!(payload.created_at >= now);
-            assert_eq!(payload.backend, "janus");
+            assert_eq!(evt.properties().kind(), "event");
+            assert_eq!(evt.payload().time, vec![Some(now), None]);
+            assert_eq!(evt.payload().audience, AUDIENCE);
+            assert!(evt.payload().created_at >= now);
+            assert_eq!(evt.payload().backend, "janus");
 
             // Assert room presence in the DB.
             let conn = db.connection_pool().get().unwrap();
-            let query = crate::schema::room::table.find(resp.id);
+            let query = crate::schema::room::table.find(resp.payload().id);
             assert_eq!(query.execute(&conn).unwrap(), 1);
         });
     }
@@ -509,10 +508,10 @@ mod test {
             let payload = json!({"id": room.id()});
             let request: ReadRequest = agent.build_request("room.read", &payload).unwrap();
             let mut result = state.read(request, Utc::now()).await.into_result().unwrap();
-            let message = result.remove(0);
 
             // Assert response.
-            let resp: RoomResponse = extract_payload(message).unwrap();
+            let resp = Message::<RoomResponse>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
 
             let start = match room.time().0 {
                 Bound::Included(val) => val,
@@ -520,7 +519,7 @@ mod test {
             };
 
             assert_eq!(
-                resp,
+                *resp.payload(),
                 RoomResponse {
                     id: room.id().to_owned(),
                     time: vec![Some(start.timestamp()), None],
@@ -619,11 +618,6 @@ mod test {
                 .unwrap();
 
             // Assert response.
-            let message = result.remove(0);
-            assert_eq!(message.message_type(), "response");
-
-            let resp: RoomResponse = extract_payload(message).unwrap();
-
             let expected_payload = RoomResponse {
                 id: room.id().to_owned(),
                 time: vec![Some(now), None],
@@ -632,21 +626,28 @@ mod test {
                 backend: "none".to_string(),
             };
 
-            assert_eq!(resp, expected_payload);
+            let resp = Message::<RoomResponse>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
+
+            assert_eq!(resp.properties().kind(), "response");
+            assert_eq!(*resp.payload(), expected_payload);
 
             // Assert notification.
-            let message = result.remove(0);
-            assert_eq!(message.message_type(), "event");
+            let evt = Message::<RoomResponse>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
 
-            match message.destination() {
-                Destination::Broadcast(destination) => {
-                    assert_eq!(destination, &format!("rooms/{}/events", room.id()))
-                }
-                _ => panic!("Expected broadcast destination"),
-            }
+            assert_eq!(
+                evt.topic(),
+                format!(
+                    "apps/conference.{}/api/{}/rooms/{}/events",
+                    AUDIENCE,
+                    API_VERSION,
+                    room.id()
+                ),
+            );
 
-            let payload: RoomResponse = extract_payload(message).unwrap();
-            assert_eq!(payload, expected_payload);
+            assert_eq!(evt.properties().kind(), "event");
+            assert_eq!(*evt.payload(), expected_payload);
         });
     }
 
@@ -736,6 +737,7 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: DeleteRequest = agent.build_request("room.delete", &payload).unwrap();
+
             let mut result = state
                 .delete(request, Utc::now())
                 .await
@@ -743,23 +745,23 @@ mod test {
                 .unwrap();
 
             // Assert response.
-            let message = result.remove(0);
-            assert_eq!(message.message_type(), "response");
+            let resp = Message::<RoomResponse>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
 
-            let payload: RoomResponse = extract_payload(message).unwrap();
-            assert_eq!(payload.id, room.id());
+            assert_eq!(resp.properties().kind(), "response");
+            assert_eq!(resp.payload().id, room.id());
 
             // Assert notification.
-            let message = result.remove(0);
-            assert_eq!(message.message_type(), "event");
+            let evt = Message::<RoomResponse>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
 
-            match message.destination() {
-                Destination::Broadcast(destination) => assert_eq!(destination, "rooms"),
-                _ => panic!("Expected broadcast destination"),
-            }
+            assert_eq!(
+                evt.topic(),
+                format!("apps/conference.{}/api/{}/rooms", AUDIENCE, API_VERSION),
+            );
 
-            let payload: RoomResponse = extract_payload(message).unwrap();
-            assert_eq!(payload.id, room.id());
+            assert_eq!(evt.properties().kind(), "event");
+            assert_eq!(evt.payload().id, room.id());
 
             // Assert room abscence in the DB.
             let conn = db.connection_pool().get().unwrap();
@@ -847,41 +849,37 @@ mod test {
             let state = State::new(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: EnterRequest = agent.build_request("room.enter", &payload).unwrap();
+
             let mut result = state
                 .enter(request, Utc::now())
                 .await
                 .into_result()
                 .unwrap();
-            let message = result.remove(0);
 
             // Assert outgoing broker request.
-            match message.destination() {
-                &Destination::Unicast(ref agent_id, ref version) => {
-                    assert_eq!(
-                        agent_id.to_owned(),
-                        AgentId::new("web", AccountId::new("user123", AUDIENCE))
-                    );
+            let publishable = result.remove(0);
 
-                    assert_eq!(version, API_VERSION);
-                }
-                _ => panic!("Expected unicast destination"),
-            }
+            let message = Message::<RoomEnterLeaveBrokerRequest>::from_publishable(publishable)
+                .expect("Failed to parse message");
 
-            let message_bytes = message.into_bytes().unwrap();
+            assert_eq!(message.properties().kind(), "request");
 
-            let message_value =
-                serde_json::from_slice::<JsonValue>(message_bytes.as_bytes()).unwrap();
-
-            let properties = message_value.get("properties").unwrap();
-            let method = properties.get("method").unwrap().as_str().unwrap();
-            assert_eq!(method, "subscription.create");
-
-            let resp: RoomEnterLeaveBrokerRequest = parse_payload(message_value).unwrap();
-            assert_eq!(resp.subject, agent.agent_id().to_string());
             assert_eq!(
-                resp.object,
-                vec!["rooms", room.id().to_string().as_str(), "events"]
+                message.topic(),
+                format!(
+                    "agents/{}/api/{}/in/conference.{}",
+                    AgentId::new("web", AccountId::new("user123", AUDIENCE)),
+                    API_VERSION,
+                    AUDIENCE,
+                )
             );
+
+            assert_eq!(message.properties().method(), Some("subscription.create"));
+            assert_eq!(message.payload().subject, agent.agent_id().to_string());
+
+            let room_id = room.id().to_string();
+            let expected_object = vec!["rooms", room_id.as_str(), "events"];
+            assert_eq!(message.payload().object, expected_object);
 
             // Assert agent presence in the DB.
             use crate::db::agent::{Object, Status};
@@ -1031,41 +1029,37 @@ mod test {
             let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
             let payload = json!({"id": room.id()});
             let request: LeaveRequest = agent.build_request("room.leave", &payload).unwrap();
+
             let mut result = state
                 .leave(request, Utc::now())
                 .await
                 .into_result()
                 .unwrap();
-            let message = result.remove(0);
 
             // Assert outgoing broker request.
-            match message.destination() {
-                &Destination::Unicast(ref agent_id, ref version) => {
-                    assert_eq!(
-                        agent_id.to_owned(),
-                        AgentId::new("web", AccountId::new("user123", AUDIENCE))
-                    );
+            let publishable = result.remove(0);
 
-                    assert_eq!(version, API_VERSION);
-                }
-                _ => panic!("Expected unicast destination"),
-            }
+            let message = Message::<RoomEnterLeaveBrokerRequest>::from_publishable(publishable)
+                .expect("Failed to parse message");
 
-            let message_bytes = message.into_bytes().unwrap();
+            assert_eq!(message.properties().kind(), "request");
 
-            let message_value =
-                serde_json::from_slice::<JsonValue>(message_bytes.as_bytes()).unwrap();
-
-            let properties = message_value.get("properties").unwrap();
-            let method = properties.get("method").unwrap().as_str().unwrap();
-            assert_eq!(method, "subscription.delete");
-
-            let resp: RoomEnterLeaveBrokerRequest = parse_payload(message_value).unwrap();
-            assert_eq!(resp.subject, agent.agent_id().to_string());
             assert_eq!(
-                resp.object,
-                vec!["rooms", room.id().to_string().as_str(), "events"]
+                message.topic(),
+                format!(
+                    "agents/{}/api/{}/in/conference.{}",
+                    AgentId::new("web", AccountId::new("user123", AUDIENCE)),
+                    API_VERSION,
+                    AUDIENCE,
+                )
             );
+
+            assert_eq!(message.properties().method(), Some("subscription.delete"));
+            assert_eq!(message.payload().subject, agent.agent_id().to_string());
+
+            let room_id = room.id().to_string();
+            let expected_object = vec!["rooms", room_id.as_str(), "events"];
+            assert_eq!(message.payload().object, expected_object);
         });
     }
 

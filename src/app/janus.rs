@@ -8,7 +8,7 @@ use std::sync::Arc;
 use svc_agent::mqtt::{
     compat::{into_event, into_response, IncomingEnvelope},
     IncomingEventProperties, IncomingRequestProperties, IncomingResponseProperties,
-    OutgoingRequest, OutgoingRequestProperties, Publishable, ResponseStatus,
+    IntoPublishableDump, OutgoingRequest, OutgoingRequestProperties, ResponseStatus,
     ShortTermTimingProperties, SubscriptionTopic, TrackingProperties,
 };
 use svc_agent::{Addressable, AgentId, Subscription};
@@ -569,7 +569,7 @@ pub(crate) async fn handle_response<M>(
     janus: Arc<State>,
     start_timestamp: DateTime<Utc>,
     me: M,
-) -> Result<Vec<Box<dyn Publishable>>, Error>
+) -> Result<Vec<Box<dyn IntoPublishableDump>>, Error>
 where
     M: Addressable,
 {
@@ -590,7 +590,7 @@ where
                         start_timestamp,
                     )?;
 
-                    Ok(vec![Box::new(backreq) as Box<dyn Publishable>])
+                    Ok(vec![Box::new(backreq) as Box<dyn IntoPublishableDump>])
                 }
                 // Handle has been created
                 Transaction::CreateHandle(tn) => {
@@ -627,7 +627,7 @@ where
                         JANUS_API_VERSION,
                     );
 
-                    Ok(vec![Box::new(resp) as Box<dyn Publishable>])
+                    Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
                 }
                 // An unsupported incoming Success message has been received
                 _ => Err(format_err!(
@@ -655,7 +655,7 @@ where
                         JANUS_API_VERSION,
                     );
 
-                    Ok(vec![Box::new(resp) as Box<dyn Publishable>])
+                    Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
                 }
                 // An unsupported incoming Ack message has been received
                 _ => Err(format_err!(
@@ -715,7 +715,7 @@ where
                                 JANUS_API_VERSION,
                             );
 
-                            Ok(vec![Box::new(resp) as Box<dyn Publishable>])
+                            Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
                         });
 
                     next.or_else(|err| {
@@ -777,7 +777,7 @@ where
                                 JANUS_API_VERSION,
                             );
 
-                            Ok(vec![Box::new(resp) as Box<dyn Publishable>])
+                            Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
                         });
 
                     next.or_else(|err| {
@@ -951,7 +951,7 @@ where
                                         format_err!("error creating a system event, {}", e)
                                     })?;
 
-                                    Ok(vec![Box::new(event) as Box<dyn Publishable>])
+                                    Ok(vec![Box::new(event) as Box<dyn IntoPublishableDump>])
                                 }
                                 None => {
                                     // Waiting for all the room's rtc being uploaded
@@ -986,7 +986,7 @@ pub(crate) async fn handle_event(
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
     start_timestamp: DateTime<Utc>,
-) -> Result<Vec<Box<dyn Publishable>>, Error> {
+) -> Result<Vec<Box<dyn IntoPublishableDump>>, Error> {
     let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
     let message = into_event::<IncomingEvent>(envelope)?;
 
@@ -1014,7 +1014,7 @@ pub(crate) async fn handle_event(
                     message.properties().tracking(),
                 )?;
 
-                Ok(vec![Box::new(event) as Box<dyn Publishable>])
+                Ok(vec![Box::new(event) as Box<dyn IntoPublishableDump>])
             } else {
                 Ok(vec![])
             }
@@ -1045,7 +1045,7 @@ pub(crate) async fn handle_event(
                         message.properties().tracking(),
                     )?;
 
-                    return Ok(vec![Box::new(event) as Box<dyn Publishable>]);
+                    return Ok(vec![Box::new(event) as Box<dyn IntoPublishableDump>]);
                 }
             }
 
@@ -1066,7 +1066,7 @@ pub(crate) async fn handle_status<M>(
     janus: Arc<State>,
     start_timestamp: DateTime<Utc>,
     me: M,
-) -> Result<Vec<Box<dyn Publishable>>, Error>
+) -> Result<Vec<Box<dyn IntoPublishableDump>>, Error>
 where
     M: Addressable,
 {
@@ -1075,7 +1075,7 @@ where
 
     if let true = inev.payload().online() {
         let event = create_session_request(inev.properties(), &me, start_timestamp)?;
-        Ok(vec![Box::new(event) as Box<dyn Publishable>])
+        Ok(vec![Box::new(event) as Box<dyn IntoPublishableDump>])
     } else {
         let conn = janus.db.get()?;
         let agent_id = inev.properties().as_agent_id();
