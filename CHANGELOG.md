@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.3.1 (January 21, 2020)
+
+### Changes
+- Upgrade svc-agent & log outgoing messages ([b6aa6d4](https://github.com/netology-group/conference/b6aa6d49977cd153ae9c32ab00cbabf5bc982f5a))
+
+### Fixes
+- Fix topics for stream.upload request ([2ceed50](https://github.com/netology-group/conference/2ceed50705eb0109fb832d687c8f938abd59e9bd))
+
+
 ## v0.3.0 (January 15, 2020)
 
 ### Features
