@@ -6,8 +6,9 @@ use failure::Error;
 use log::warn;
 use serde::{de::DeserializeOwned, Serialize};
 use svc_agent::mqtt::{
-    compat, IncomingEventProperties, IncomingMessage, IncomingRequestProperties, OutgoingEvent,
-    OutgoingRequest, OutgoingResponse, Publishable, ResponseStatus, ShortTermTimingProperties,
+    compat, IncomingEventProperties, IncomingMessage, IncomingRequestProperties,
+    IntoPublishableDump, OutgoingEvent, OutgoingRequest, OutgoingResponse, ResponseStatus,
+    ShortTermTimingProperties,
 };
 use svc_error::{extension::sentry, Error as SvcError, ProblemDetails};
 
@@ -16,12 +17,12 @@ use crate::app::API_VERSION;
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct Result {
-    messages: Vec<Box<dyn Publishable>>,
+    messages: Vec<Box<dyn IntoPublishableDump>>,
     error: Option<SvcError>,
 }
 
 impl std::ops::Try for Result {
-    type Ok = Vec<Box<dyn Publishable>>;
+    type Ok = Vec<Box<dyn IntoPublishableDump>>;
     type Error = SvcError;
 
     fn into_result(self) -> std::result::Result<Self::Ok, Self::Error> {
@@ -73,8 +74,8 @@ impl<T: Serialize + 'static> From<OutgoingResponse<T>> for Result {
     }
 }
 
-impl From<Vec<Box<dyn Publishable>>> for Result {
-    fn from(messages: Vec<Box<dyn Publishable>>) -> Self {
+impl From<Vec<Box<dyn IntoPublishableDump>>> for Result {
+    fn from(messages: Vec<Box<dyn IntoPublishableDump>>) -> Self {
         Self {
             messages,
             error: None,
@@ -101,7 +102,7 @@ pub(crate) async fn handle_request<H, S, P, R>(
     state: S,
     envelope: compat::IncomingEnvelope,
     start_timestamp: DateTime<Utc>,
-) -> std::result::Result<Vec<Box<dyn Publishable>>, Error>
+) -> std::result::Result<Vec<Box<dyn IntoPublishableDump>>, Error>
 where
     H: Fn(S, IncomingMessage<P, IncomingRequestProperties>, DateTime<Utc>) -> R,
     P: DeserializeOwned,
@@ -130,7 +131,7 @@ where
                 API_VERSION,
             );
 
-            Ok(vec![Box::new(resp) as Box<dyn Publishable>])
+            Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
         }
     }
 }
@@ -141,7 +142,7 @@ pub(crate) fn handle_error(
     props: &IncomingRequestProperties,
     mut err: impl ProblemDetails + Send + Clone + 'static,
     start_timestamp: DateTime<Utc>,
-) -> std::result::Result<Vec<Box<dyn Publishable>>, Error> {
+) -> std::result::Result<Vec<Box<dyn IntoPublishableDump>>, Error> {
     err.set_kind(kind, title);
     let status = err.status_code();
 
@@ -158,14 +159,14 @@ pub(crate) fn handle_error(
     let resp =
         OutgoingResponse::unicast(err, props.to_response(status, timing), props, API_VERSION);
 
-    Ok(vec![Box::new(resp) as Box<dyn Publishable>])
+    Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
 }
 
 pub(crate) fn handle_unknown_method(
     method: &str,
     props: &IncomingRequestProperties,
     start_timestamp: DateTime<Utc>,
-) -> std::result::Result<Vec<Box<dyn Publishable>>, Error> {
+) -> std::result::Result<Vec<Box<dyn IntoPublishableDump>>, Error> {
     let status = ResponseStatus::BAD_REQUEST;
 
     let err = svc_error::Error::builder()
@@ -177,7 +178,7 @@ pub(crate) fn handle_unknown_method(
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let resp =
         OutgoingResponse::unicast(err, props.to_response(status, timing), props, API_VERSION);
-    Ok(vec![Box::new(resp) as Box<dyn Publishable>])
+    Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
 }
 
 pub(crate) async fn handle_event<H, S, P, R>(
@@ -187,7 +188,7 @@ pub(crate) async fn handle_event<H, S, P, R>(
     state: S,
     envelope: compat::IncomingEnvelope,
     start_timestamp: DateTime<Utc>,
-) -> std::result::Result<Vec<Box<dyn Publishable>>, Error>
+) -> std::result::Result<Vec<Box<dyn IntoPublishableDump>>, Error>
 where
     H: Fn(S, IncomingMessage<P, IncomingEventProperties>, DateTime<Utc>) -> R,
     P: DeserializeOwned,

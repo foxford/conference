@@ -342,21 +342,20 @@ mod test {
 
     use diesel::prelude::*;
     use serde_json::{json, Value as JsonValue};
-    use svc_agent::{AccountId, AgentId, Destination};
+    use svc_agent::{AccountId, AgentId};
 
+    use crate::app::API_VERSION;
     use crate::db::janus_rtc_stream;
     use crate::test_helpers::{
         agent::TestAgent,
         authz::{no_authz, TestAuthz},
         db::TestDb,
-        extract_payload,
         factory::{insert_janus_backend, insert_room, insert_rtc, JanusRtcStream},
+        Message, AUDIENCE,
     };
     use crate::util::from_base64;
 
     use super::*;
-
-    const AUDIENCE: &str = "dev.svc.example.org";
 
     #[derive(Debug, PartialEq, Deserialize)]
     struct RtcResponse {
@@ -402,29 +401,32 @@ mod test {
                 .unwrap();
 
             // Assert response.
-            let message = result.remove(0);
-            assert_eq!(message.message_type(), "response");
+            let resp = Message::<RtcResponse>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
 
-            let resp: RtcResponse = extract_payload(message).unwrap();
-            assert_eq!(resp.room_id, room.id());
+            assert_eq!(resp.properties().kind(), "response");
+            assert_eq!(resp.payload().room_id, room.id());
 
             // Assert notification.
-            let message = result.remove(0);
-            assert_eq!(message.message_type(), "event");
+            let evt = Message::<RtcResponse>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
 
-            match message.destination() {
-                Destination::Broadcast(destination) => {
-                    assert_eq!(destination, &format!("rooms/{}/events", room.id()))
-                }
-                _ => panic!("Expected broadcast destination"),
-            }
+            assert_eq!(
+                evt.topic(),
+                format!(
+                    "apps/conference.{}/api/{}/rooms/{}/events",
+                    AUDIENCE,
+                    API_VERSION,
+                    room.id(),
+                )
+            );
 
-            let payload: RtcResponse = extract_payload(message).unwrap();
-            assert_eq!(payload.room_id, room.id());
+            assert_eq!(evt.properties().kind(), "event");
+            assert_eq!(evt.payload().room_id, room.id());
 
             // Assert rtc presence in the DB.
             let conn = db.connection_pool().get().unwrap();
-            let query = crate::schema::rtc::table.find(resp.id);
+            let query = crate::schema::rtc::table.find(resp.payload().id);
             assert_eq!(query.execute(&conn).unwrap(), 1);
         });
     }
@@ -504,11 +506,12 @@ mod test {
             let payload = json!({"id": rtc.id()});
             let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
             let mut result = state.read(request, Utc::now()).await.into_result().unwrap();
-            let message = result.remove(0);
 
             // Assert response.
-            let resp: RtcResponse = extract_payload(message).unwrap();
-            assert_eq!(resp.id, rtc.id());
+            let resp = Message::<RtcResponse>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
+
+            assert_eq!(resp.payload().id, rtc.id());
         });
     }
 
@@ -590,12 +593,13 @@ mod test {
             let payload = json!({"room_id": rtc.room_id()});
             let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
             let mut result = state.list(request, Utc::now()).await.into_result().unwrap();
-            let message = result.remove(0);
 
             // Assert response.
-            let resp: Vec<RtcResponse> = extract_payload(message).unwrap();
-            assert_eq!(resp.len(), 1);
-            assert_eq!(resp.first().unwrap().id, rtc.id());
+            let resp = Message::<Vec<RtcResponse>>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
+
+            assert_eq!(resp.payload().len(), 1);
+            assert_eq!(resp.payload().first().unwrap().id, rtc.id());
         });
     }
 
@@ -716,21 +720,23 @@ mod test {
             let state = build_state(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": rtc.id()});
             let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
+
             let mut result = state
                 .connect(request, Utc::now())
                 .await
                 .into_result()
                 .unwrap();
-            let message = result.remove(0);
 
             // Assert outgoing request to Janus.
-            let resp: RtcConnectResponse = extract_payload(message).unwrap();
-            assert_eq!(resp.janus, "attach");
-            assert_eq!(resp.plugin, "janus.plugin.conference");
-            assert_eq!(resp.session_id, backend.session_id());
+            let resp = Message::<RtcConnectResponse>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
+
+            assert_eq!(resp.payload().janus, "attach");
+            assert_eq!(resp.payload().plugin, "janus.plugin.conference");
+            assert_eq!(resp.payload().session_id, backend.session_id());
 
             // `transaction` field is base64 encoded JSON. Decode and assert.
-            let txn_wrap: JsonValue = from_base64(&resp.transaction).unwrap();
+            let txn_wrap: JsonValue = from_base64(&resp.payload().transaction).unwrap();
             let txn_value = txn_wrap.get("CreateRtcHandle").unwrap().to_owned();
             let txn: RtcConnectTransaction = serde_json::from_value(txn_value).unwrap();
 
@@ -788,16 +794,18 @@ mod test {
             let state = build_state(authz.into(), db.connection_pool().clone());
             let payload = json!({"id": rtc.id()});
             let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
+
             let mut result = state
                 .connect(request, Utc::now())
                 .await
                 .into_result()
                 .unwrap();
-            let message = result.remove(0);
 
             // Ensure we're balanced to the backend with the stream.
-            let resp: RtcConnectResponse = extract_payload(message).unwrap();
-            assert_eq!(resp.session_id, backend.session_id());
+            let resp = Message::<RtcConnectResponse>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
+
+            assert_eq!(resp.payload().session_id, backend.session_id());
         });
     }
 

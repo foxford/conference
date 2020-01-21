@@ -4,8 +4,8 @@ use failure::Error;
 use serde_derive::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use svc_agent::mqtt::{
-    IncomingRequest, IncomingRequestProperties, IncomingResponse, OutgoingEvent, OutgoingRequest,
-    OutgoingResponse, OutgoingResponseProperties, Publishable, ResponseStatus,
+    IncomingRequest, IncomingRequestProperties, IncomingResponse, IntoPublishableDump,
+    OutgoingEvent, OutgoingRequest, OutgoingResponse, OutgoingResponseProperties, ResponseStatus,
     ShortTermTimingProperties, SubscriptionTopic,
 };
 use svc_agent::{Addressable, AgentId, Subscription};
@@ -70,7 +70,7 @@ impl State {
             API_VERSION,
         );
 
-        let resp_box = Box::new(resp) as Box<dyn Publishable>;
+        let resp_box = Box::new(resp) as Box<dyn IntoPublishableDump>;
         let payload = inreq.payload().data.to_owned();
 
         let props = inreq
@@ -79,7 +79,7 @@ impl State {
 
         let to_uri = format!("rooms/{}/events", inreq.payload().room_id);
         let event = OutgoingEvent::broadcast(payload, props, &to_uri);
-        let event_box = Box::new(event) as Box<dyn Publishable>;
+        let event_box = Box::new(event) as Box<dyn IntoPublishableDump>;
 
         vec![resp_box, event_box].into()
     }
@@ -127,7 +127,7 @@ impl State {
         &self,
         inresp: UnicastIncomingResponse,
         start_timestamp: DateTime<Utc>,
-    ) -> Result<Vec<Box<dyn Publishable>>, Error> {
+    ) -> Result<Vec<Box<dyn IntoPublishableDump>>, Error> {
         let reqp =
             from_base64::<IncomingRequestProperties>(inresp.properties().correlation_data())?;
 
@@ -150,7 +150,7 @@ impl State {
         let message =
             OutgoingResponse::unicast(inresp.payload().to_owned(), props, &reqp, API_VERSION);
 
-        Ok(vec![Box::new(message) as Box<dyn Publishable>])
+        Ok(vec![Box::new(message) as Box<dyn IntoPublishableDump>])
     }
 }
 
@@ -173,15 +173,15 @@ mod test {
 
     use failure::format_err;
     use serde_json::{json, Value as JsonValue};
-    use svc_agent::{mqtt::ResponseStatus, Destination};
+    use svc_agent::mqtt::ResponseStatus;
 
     use super::*;
+    use crate::app::API_VERSION;
     use crate::test_helpers::{
-        agent::TestAgent, db::TestDb, extract_payload, factory, factory::insert_room,
+        agent::TestAgent, db::TestDb, factory, factory::insert_room, Message, AUDIENCE,
     };
 
     const AGENT_LABEL: &str = "web";
-    const AUDIENCE: &str = "dev.svc.example.org";
 
     #[test]
     fn unicast_message() {
@@ -222,23 +222,27 @@ mod test {
                 sender.build_request("message.unicast", &payload).unwrap();
 
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
+
             let mut result = state
                 .unicast(request, Utc::now())
                 .await
                 .into_result()
                 .unwrap();
-            let message = result.remove(0);
 
-            match message.destination() {
-                &Destination::Unicast(ref agent_id, ref version) => {
-                    assert_eq!(agent_id, receiver.agent_id());
-                    assert_eq!(version, API_VERSION);
-                }
-                _ => panic!("Expected unicast destination"),
-            }
+            let evt = Message::<JsonValue>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
 
-            let payload: JsonValue = extract_payload(message).unwrap();
-            assert_eq!(payload, json!({"key": "value"}));
+            assert_eq!(
+                evt.topic(),
+                format!(
+                    "agents/{}/api/{}/in/conference.{}",
+                    receiver.agent_id(),
+                    API_VERSION,
+                    AUDIENCE,
+                ),
+            );
+
+            assert_eq!(*evt.payload(), json!({"key": "value"}));
         });
     }
 
@@ -388,6 +392,7 @@ mod test {
                 sender.build_request("message.broadcast", &payload).unwrap();
 
             let state = State::new(sender.agent_id().clone(), db.connection_pool().clone());
+
             let mut result = state
                 .broadcast(request, Utc::now())
                 .await
@@ -395,22 +400,28 @@ mod test {
                 .unwrap();
 
             // Assert response.
-            let message = result.remove(0);
-            assert_eq!(message.message_type(), "response");
+            let resp = Message::<JsonValue>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
+
+            assert_eq!(resp.properties().kind(), "response");
 
             // Assert broadcast event.
-            let message = result.remove(0);
-            assert_eq!(message.message_type(), "event");
+            let evt = Message::<JsonValue>::from_publishable(result.remove(0))
+                .expect("Failed to parse message");
 
-            match message.destination() {
-                Destination::Broadcast(destination) => {
-                    assert_eq!(destination, &format!("rooms/{}/events", room.id()))
-                }
-                _ => panic!("Expected broadcast destination"),
-            }
+            assert_eq!(evt.properties().kind(), "event");
 
-            let payload: JsonValue = extract_payload(message).unwrap();
-            assert_eq!(payload, json!({"key": "value"}));
+            assert_eq!(
+                evt.topic(),
+                format!(
+                    "apps/conference.{}/api/{}/rooms/{}/events",
+                    AUDIENCE,
+                    API_VERSION,
+                    room.id()
+                ),
+            );
+
+            assert_eq!(*evt.payload(), json!({"key": "value"}));
         });
     }
 

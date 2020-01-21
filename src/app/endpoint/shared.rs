@@ -2,7 +2,7 @@ use chrono::{DateTime, Duration, Utc};
 use diesel::pg::PgConnection;
 use serde::Serialize;
 use svc_agent::mqtt::{
-    IncomingRequest, OutgoingEvent, OutgoingEventProperties, Publishable, ResponseStatus,
+    IncomingRequest, IntoPublishableDump, OutgoingEvent, OutgoingEventProperties, ResponseStatus,
     ShortTermTimingProperties,
 };
 use svc_agent::AgentId;
@@ -28,7 +28,7 @@ pub(crate) fn respond<R, O: 'static + Clone + Serialize>(
         API_VERSION,
     );
 
-    let mut messages: Vec<Box<dyn Publishable>> = vec![Box::new(resp)];
+    let mut messages: Vec<Box<dyn IntoPublishableDump>> = vec![Box::new(resp)];
 
     if let Some((label, topic)) = notification {
         let mut props = OutgoingEventProperties::new(label, short_term_timing);
