@@ -11,7 +11,7 @@ addons:
   postgresql: "11.2"
   apt:
     packages:
-      - lftp
+      - awscli
 cache:
   directories:
     - ${TRAVIS_HOME}/.cargo
@@ -43,7 +43,7 @@ jobs:
     - stage: check
       name: Docs
       install: cargo install mdbook --vers 0.2.3 --force
-      script: mdbook build docs && ./deploy.init.sh && PROJECT='conference' ./deploy/docs.sh
+      script: mdbook build docs && ./deploy.init.sh && PROJECT='conference' ./deploy/s3-docs.sh
     - stage: deploy
       name: Kubernetes
       script: ./deploy.init.sh && ./deploy/travis-run.sh
