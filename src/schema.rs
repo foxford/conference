@@ -58,7 +58,7 @@ table! {
     recording (rtc_id) {
         rtc_id -> Uuid,
         started_at -> Nullable<Timestamptz>,
-        time -> Nullable<Array<Int8range>>,
+        segments -> Nullable<Array<Int8range>>,
         status -> Recording_status,
     }
 }
