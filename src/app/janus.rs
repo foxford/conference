@@ -864,7 +864,7 @@ where
                                     Ok(DateTime::<Utc>::from_utc(naive_datetime, Utc))
                                 })?;
 
-                            let time = plugin_data
+                            let segments = plugin_data
                                 .get("time")
                                 .ok_or_else(|| {
                                     format_err!(
@@ -873,8 +873,8 @@ where
                                         inresp.transaction(),
                                     )
                                 })
-                                .and_then(|time| {
-                                    Ok(serde_json::from_value::<Vec<(i64, i64)>>(time.clone())
+                                .and_then(|segments| {
+                                    Ok(serde_json::from_value::<Vec<(i64, i64)>>(segments.clone())
                                         .map_err(|_| err_msg("invalid value for 'time'"))?
                                         .into_iter()
                                         .map(|(start, end)| {
@@ -888,7 +888,7 @@ where
 
                                 recording::InsertQuery::new(rtc_id, recording::Status::Ready)
                                     .started_at(started_at)
-                                    .time(time)
+                                    .segments(segments)
                                     .execute(&conn)?;
 
                                 let rtc = rtc::FindQuery::new()

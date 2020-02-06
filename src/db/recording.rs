@@ -11,7 +11,7 @@ use crate::schema::recording;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type Time = (Bound<i64>, Bound<i64>);
+pub(crate) type Segment = (Bound<i64>, Bound<i64>);
 
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -39,21 +39,21 @@ pub(crate) struct Object {
     rtc_id: Uuid,
     #[serde(with = "crate::serde::ts_seconds_option")]
     started_at: Option<DateTime<Utc>>,
-    time: Option<Vec<Time>>,
+    segments: Option<Vec<Segment>>,
     status: Status,
 }
 
 impl Object {
-    pub(crate) fn into_tuple(self) -> (Uuid, Status, Option<DateTime<Utc>>, Option<Vec<Time>>) {
-        (self.rtc_id, self.status, self.started_at, self.time)
+    pub(crate) fn into_tuple(self) -> (Uuid, Status, Option<DateTime<Utc>>, Option<Vec<Segment>>) {
+        (self.rtc_id, self.status, self.started_at, self.segments)
     }
 
     pub(crate) fn started_at(&self) -> &Option<DateTime<Utc>> {
         &self.started_at
     }
 
-    pub(crate) fn time(&self) -> &Option<Vec<Time>> {
-        &self.time
+    pub(crate) fn segments(&self) -> &Option<Vec<Segment>> {
+        &self.segments
     }
 
     pub(crate) fn status(&self) -> &Status {
@@ -68,7 +68,7 @@ impl Object {
 pub(crate) struct InsertQuery {
     rtc_id: Uuid,
     started_at: Option<DateTime<Utc>>,
-    time: Option<Vec<Time>>,
+    segments: Option<Vec<Segment>>,
     status: Status,
 }
 
@@ -77,7 +77,7 @@ impl InsertQuery {
         Self {
             rtc_id,
             started_at: None,
-            time: None,
+            segments: None,
             status,
         }
     }
@@ -89,9 +89,9 @@ impl InsertQuery {
         }
     }
 
-    pub(crate) fn time(self, time: Vec<Time>) -> Self {
+    pub(crate) fn segments(self, segments: Vec<Segment>) -> Self {
         Self {
-            time: Some(time),
+            segments: Some(segments),
             ..self
         }
     }

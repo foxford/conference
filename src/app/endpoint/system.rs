@@ -38,7 +38,12 @@ struct RtcUploadEventData {
         serialize_with = "crate::serde::milliseconds_bound_tuples_option",
         skip_serializing_if = "Option::is_none"
     )]
-    time: Option<Vec<(Bound<i64>, Bound<i64>)>>,
+    time: Option<Vec<(Bound<i64>, Bound<i64>)>>, // Deprecated
+    #[serde(
+        serialize_with = "crate::serde::milliseconds_bound_tuples_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    segments: Option<Vec<(Bound<i64>, Bound<i64>)>>,
     #[serde(
         serialize_with = "crate::serde::ts_milliseconds_option",
         skip_serializing_if = "Option::is_none"
@@ -149,7 +154,8 @@ where
             id: rtc.id(),
             status: recording.status().to_owned(),
             uri,
-            time: recording.time().to_owned(),
+            time: recording.segments().to_owned(),
+            segments: recording.segments().to_owned(),
             started_at: recording.started_at().to_owned(),
         };
 

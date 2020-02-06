@@ -11,7 +11,7 @@ pub(crate) const AUDIENCE: &str = "dev.svc.example.org";
 
 #[derive(Deserialize)]
 pub(crate) struct MessageProperties {
-    #[serde(rename="type")]
+    #[serde(rename = "type")]
     kind: String,
     method: Option<String>,
 }
