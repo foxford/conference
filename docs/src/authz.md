@@ -8,7 +8,7 @@ In order to authorize an **action** performed by a **subject** to an **object**,
 {
     "subject": {
         "namespace": "iam.example.org",
-        "value": ["accounts", "123e4567-e89b-12d3-a456-426655440000"]
+        "value": "123e4567-e89b-12d3-a456-426655440000"
     },
     "object": {
         "namespace": "conference.example.org",
@@ -19,12 +19,6 @@ In order to authorize an **action** performed by a **subject** to an **object**,
 ```
 
 Subject's namespace and account label are retrieved from `audience` and `account_label` properties of MQTT message respectively. URI of authorization endpoint, object and anonymous namespaces are configured through the application configuration file.
-
-Possible values for `SUBJECT`:
-
-subject                     |
---------------------------- | -
-["accounts", ACCOUNT_LABEL] |
 
 Possible values for `OBJECT` and `ACTION`:
 
