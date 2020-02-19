@@ -2,36 +2,27 @@
 
 Create a Room which holds Real-Time Connections.
 
-**Request**
 
-```bash
-pub agents/${ME}/api/v1/out/${APP_NAME}
-```
 
-**Topic parameters**
-
-Name     | Type   | Default    | Description
--------- | ------ | ---------- | ------------------
-ME       | string | _required_ | Agent identifier.
-APP_NAME | string | _required_ | Name of the application.
+## Multicast request
 
 **Properties**
 
 Name             | Type   | Default    | Description
 ---------------- | ------ | ---------- | ------------------
-type             | string | _required_ | Always `request`.
-method           | string | _required_ | Always `room.create`.
-response_topic   | string | _required_ | Always `agents/${ME}/api/v1/in/${APP_NAME}`.
-correlation_data | string | _required_ | The same value will be in a response.
+method           | String | _required_ | Always `room.create`.
+
 
 **Payload**
 
 Name     | Type       | Default    | Description
 -------- | ---------- | ---------- | ------------------
-time     | [int, int] | _required_ | A [lt, rt) range of unix time (seconds) or null (unbounded).
-audience | string     | _required_ | The room audience.
-backend  | string     | none       | The room backend. Available values: janus, none.
+time     | [i64, i64) | _required_ | A [lt, rt) range of unix time (seconds) or null (unbounded).
+audience | String     | _required_ | The room audience.
+backend  | String     | none       | The room backend. Available values: janus, none.
 
-**Response**
+
+
+## Unicast response
 
 If successful, the response payload contains a **Room** object.
