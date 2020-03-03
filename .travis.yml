@@ -1,55 +1,78 @@
 language: rust
-rust:
-  - nightly-2019-09-05
-before_install:
-  - sudo apt-get update
-  - sudo apt-get --yes remove postgresql\*
-  - sudo apt-get install -y postgresql-11 postgresql-client-11
-  - sudo cp /etc/postgresql/{9.6,11}/main/pg_hba.conf
-  - sudo service postgresql restart 11  
+os: linux
+dist: xenial
+
 addons:
   postgresql: "11.2"
   apt:
     packages:
       - awscli
+      - postgresql-11
+      - postgresql-client-11
+
 cache:
   directories:
     - ${TRAVIS_HOME}/.cargo
+
 before_cache:
   - rm -rf ${TRAVIS_HOME}/.cargo/registry
+
 services:
   - docker
   - postgresql
+
 git:
   depth: 1
-before_script:
-  - psql -c 'create database conference_test;' -U postgres
-env:
-  - DATABASE_URL=postgres://postgres@localhost/conference_test
+
+install:
+  - sudo cp /etc/postgresql/10/main/pg_hba.conf /etc/postgresql/11/main/pg_hba.conf
+  - sudo systemctl restart postgresql@11-main
+
 jobs:
   include:
     - stage: check
-      name: Tests
-      install: cargo install diesel_cli --no-default-features --features postgres
-      script: diesel migration run && cargo test
-    - stage: check
-      name : Rustfmt
-      install: rustup component add rustfmt
+      name: Format
+
+      before_install:
+        - rustup component add rustfmt
+
       script: cargo fmt -- --check
-#    - stage: check
-#      name: Clippy
-#      install: rustup component add clippy
-#      script: cargo clippy
+
     - stage: check
-      name: Docs
-      install: cargo install mdbook --vers 0.2.3 --force
-      script: mdbook build docs && ./deploy.init.sh && PROJECT='conference' ./deploy/s3-docs.sh
+      name: Lint
+
+      before_install:
+        - rustup component add clippy
+
+      script: cargo clippy
+
+    - stage: check
+      name: Tests
+      rust: nightly-2019-11-05
+
+      env:
+        - RUST_BACKTRACE=1
+        - PGPORT=5433
+        - DATABASE_URL=postgres://postgres@localhost:5433/conference.test
+
+      script:
+        - which diesel || cargo install diesel_cli --vers 1.4.0 --no-default-features --features postgres
+        - diesel database setup --locked-schema
+        - cargo test
+
     - stage: deploy
       name: Kubernetes
       script: ./deploy.init.sh && ./deploy/travis-run.sh
+
+    - stage: deploy
+      name: Docs
+      install: cargo install mdbook --vers 0.3.5 --force
+      script: mdbook build docs && ./deploy.init.sh && PROJECT='conference' ./deploy/s3-docs.sh
+
 stages:
   - name: check
   - name: deploy
-    if: (branch = master AND type = push) OR tag IS present
+    if: tag IS present
+
 notifications:
   email: false
