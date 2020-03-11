@@ -20,6 +20,14 @@ fn main() {
                     .expect("Error converting DATABASE_POOL_SIZE variable into u32")
             })
             .unwrap_or_else(|_| 5);
+
+        let idle_size = var("DATABASE_POOL_IDLE_SIZE")
+            .map(|val| {
+                val.parse::<u32>()
+                    .expect("Error converting DATABASE_POOL_IDLE_SIZE variable into u32")
+            })
+            .ok();
+
         let timeout = var("DATABASE_POOL_TIMEOUT")
             .map(|val| {
                 val.parse::<u64>()
@@ -27,7 +35,7 @@ fn main() {
             })
             .unwrap_or_else(|_| 5);
 
-        crate::db::create_pool(&url, size, timeout)
+        crate::db::create_pool(&url, size, idle_size, timeout)
     };
 
     executor::block_on(app::run(&db)).expect("Error running an executor");
