@@ -5,10 +5,11 @@ use std::time::Duration;
 
 pub(crate) type ConnectionPool = Arc<Pool<ConnectionManager<PgConnection>>>;
 
-pub(crate) fn create_pool(url: &str, size: u32, timeout: u64) -> ConnectionPool {
+pub(crate) fn create_pool(url: &str, size: u32, idle_size: Option<u32>, timeout: u64) -> ConnectionPool {
     let manager = ConnectionManager::<PgConnection>::new(url);
     let pool = Pool::builder()
         .max_size(size)
+        .min_idle(idle_size)
         .connection_timeout(Duration::from_secs(timeout))
         .build(manager)
         .expect("Error creating a database pool");
