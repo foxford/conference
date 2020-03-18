@@ -167,7 +167,7 @@ dependencies = [
 
 [[package]]
 name = "conference"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",

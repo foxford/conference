@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.2 (March 18, 2020)
+
+### Changes
+- Rename recording time to segments ([5bccc43](https://github.com/netology-group/conference/5bccc43b2bfb7a5e61ea2bb84d7ebd3dd733b2fc))
+- Allow to specify a number of minimum idle database connections ([f3f6b6f](https://github.com/netology-group/conference/f3f6b6f4409d26004c30427c093bd739add94d13))
+- Enable authz cache ([7a57450](https://github.com/netology-group/conference/7a57450fa951c952b3fccabdc900b28a99d02bb6))
+
+
 ## v0.3.1 (January 21, 2020)
 
 ### Changes
