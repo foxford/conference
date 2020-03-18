@@ -11,6 +11,7 @@ use svc_agent::mqtt::{
 };
 use svc_agent::{AgentId, Authenticable, SharedGroup, Subscription};
 use svc_authn::{jose::Algorithm, token::jws_compact};
+use svc_authz::cache::Cache as AuthzCache;
 
 use crate::db::ConnectionPool;
 
@@ -45,7 +46,7 @@ struct Route {
     janus_responses_subscription_topic: String,
 }
 
-pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
+pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) -> Result<(), Error> {
     // Config
     let config = config::load().expect("Failed to load config");
     info!("App config: {:?}", config);
@@ -78,7 +79,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
     });
 
     // Authz
-    let authz = svc_authz::ClientMap::new(&config.id, None, config.authz)
+    let authz = svc_authz::ClientMap::new(&config.id, authz_cache, config.authz)
         .expect("Error converting authz config to clients");
 
     // Sentry
