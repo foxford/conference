@@ -54,20 +54,6 @@ impl<'a> ListQuery<'a> {
         }
     }
 
-    pub(crate) fn offset(self, offset: i64) -> Self {
-        Self {
-            offset: Some(offset),
-            ..self
-        }
-    }
-
-    pub(crate) fn limit(self, limit: i64) -> Self {
-        Self {
-            limit: Some(limit),
-            ..self
-        }
-    }
-
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
 

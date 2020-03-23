@@ -73,6 +73,7 @@ pub(crate) mod ts_seconds_option {
         }
     }
 
+    #[cfg(test)]
     pub fn deserialize<'de, D>(d: D) -> Result<Option<DateTime<Utc>>, D::Error>
     where
         D: de::Deserializer<'de>,

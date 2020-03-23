@@ -251,7 +251,7 @@ mod test {
 
                     for rtc in rtcs.iter() {
                         room::UpdateQuery::new(rtc.room_id().to_owned())
-                            .set_time(time)
+                            .time(time)
                             .execute(&conn)
                             .unwrap();
                     }

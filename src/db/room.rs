@@ -94,10 +94,12 @@ impl Object {
         self.id
     }
 
+    #[cfg(test)]
     pub(crate) fn time(&self) -> Time {
         self.time
     }
 
+    #[cfg(test)]
     pub(crate) fn created_at(&self) -> DateTime<Utc> {
         self.created_at
     }
@@ -170,35 +172,6 @@ impl FindQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct ListQuery {
-    finished: Option<bool>,
-}
-
-impl ListQuery {
-    pub(crate) fn new() -> Self {
-        Self { finished: None }
-    }
-
-    pub(crate) fn finished(self, finished: bool) -> Self {
-        Self {
-            finished: Some(finished),
-            ..self
-        }
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use diesel::{dsl::sql, prelude::*};
-
-        let mut q = room::table.into_boxed();
-
-        if let Some(true) = self.finished {
-            q = q.filter(sql("upper(\"room\".\"time\") < now()"));
-        }
-
-        q.load(conn)
-    }
-}
-
 // Filtering out rooms with every recording ready using left and inner joins
 // and condition that recording.rtc_id is null. In diagram below room1
 // and room3 will be selected (room1 - there's one recording that is not
@@ -227,7 +200,6 @@ pub(crate) fn finished_without_recordings(
 #[derive(Debug, Insertable)]
 #[table_name = "room"]
 pub(crate) struct InsertQuery<'a> {
-    id: Option<Uuid>,
     time: Time,
     audience: &'a str,
     backend: RoomBackend,
@@ -236,17 +208,9 @@ pub(crate) struct InsertQuery<'a> {
 impl<'a> InsertQuery<'a> {
     pub(crate) fn new(time: Time, audience: &'a str, backend: RoomBackend) -> Self {
         Self {
-            id: None,
             time,
             audience,
             backend,
-        }
-    }
-
-    pub(crate) fn id(self, id: Uuid) -> Self {
-        Self {
-            id: Some(id),
-            ..self
         }
     }
 
@@ -290,6 +254,7 @@ pub(crate) struct UpdateQuery {
 }
 
 impl UpdateQuery {
+    #[cfg(test)]
     pub(crate) fn new(id: Uuid) -> Self {
         Self {
             id,
@@ -303,7 +268,8 @@ impl UpdateQuery {
         self.id
     }
 
-    pub(crate) fn set_time(self, time: Time) -> Self {
+    #[cfg(test)]
+    pub(crate) fn time(self, time: Time) -> Self {
         Self {
             time: Some(time),
             ..self

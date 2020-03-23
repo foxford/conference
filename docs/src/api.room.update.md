@@ -23,6 +23,6 @@ backend  | String     | _optional_ | The room backend. Available values: janus, 
 
 
 
-## Unicast rxesponse
+## Unicast response
 
 If successful, the response payload contains an updated **Room** object.
