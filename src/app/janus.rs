@@ -1036,7 +1036,7 @@ pub(crate) async fn handle_event(
                     .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
 
                 // Publish the update event if only stream object has been changed
-                // (if there was't any actual media stream, the object won't contain its start time)
+                // (if there weren't any actual media stream, the object won't contain its start time)
                 if let Some(_) = rtc_stream.time() {
                     let event = endpoint::rtc_stream::update_event(
                         room.id(),

@@ -32,6 +32,7 @@ pub(crate) struct Object {
     status: Status,
 }
 
+#[cfg(test)]
 impl Object {
     pub(crate) fn id(&self) -> Uuid {
         self.id
@@ -92,20 +93,6 @@ impl<'a> ListQuery<'a> {
     pub(crate) fn status(self, status: Status) -> Self {
         Self {
             status: Some(status),
-            ..self
-        }
-    }
-
-    pub(crate) fn offset(self, offset: i64) -> Self {
-        Self {
-            offset: Some(offset),
-            ..self
-        }
-    }
-
-    pub(crate) fn limit(self, limit: i64) -> Self {
-        Self {
-            limit: Some(limit),
             ..self
         }
     }
@@ -172,6 +159,7 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn status(self, status: Status) -> Self {
         Self { status, ..self }
     }

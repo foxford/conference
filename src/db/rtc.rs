@@ -35,10 +35,6 @@ impl Object {
     pub(crate) fn room_id(&self) -> Uuid {
         self.room_id
     }
-
-    pub(crate) fn created_at(&self) -> DateTime<Utc> {
-        self.created_at
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -78,35 +74,6 @@ pub(crate) struct ListQuery {
 }
 
 impl ListQuery {
-    pub(crate) fn new() -> Self {
-        Self {
-            room_id: None,
-            offset: None,
-            limit: None,
-        }
-    }
-
-    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
-        Self {
-            room_id: Some(room_id),
-            ..self
-        }
-    }
-
-    pub(crate) fn offset(self, offset: i64) -> Self {
-        Self {
-            offset: Some(offset),
-            ..self
-        }
-    }
-
-    pub(crate) fn limit(self, limit: i64) -> Self {
-        Self {
-            limit: Some(limit),
-            ..self
-        }
-    }
-
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
 

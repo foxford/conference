@@ -71,6 +71,7 @@ fn main() {
 mod app;
 mod backend;
 mod db;
+#[allow(unused_imports)]
 mod schema;
 mod serde;
 #[cfg(test)]

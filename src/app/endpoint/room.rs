@@ -763,7 +763,7 @@ mod test {
             assert_eq!(evt.properties().kind(), "event");
             assert_eq!(evt.payload().id, room.id());
 
-            // Assert room abscence in the DB.
+            // Assert room absence in the DB.
             let conn = db.connection_pool().get().unwrap();
             let query = crate::schema::room::table.find(room.id());
             assert_eq!(query.execute(&conn).unwrap(), 0);

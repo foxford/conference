@@ -44,10 +44,6 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub(crate) fn into_tuple(self) -> (Uuid, Status, Option<DateTime<Utc>>, Option<Vec<Segment>>) {
-        (self.rtc_id, self.status, self.started_at, self.segments)
-    }
-
     pub(crate) fn started_at(&self) -> &Option<DateTime<Utc>> {
         &self.started_at
     }

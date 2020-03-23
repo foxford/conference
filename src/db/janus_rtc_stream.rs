@@ -55,6 +55,7 @@ pub(crate) struct Object {
 }
 
 impl Object {
+    #[cfg(test)]
     pub(crate) fn handle_id(&self) -> i64 {
         self.handle_id
     }
@@ -67,10 +68,12 @@ impl Object {
         &self.backend_id
     }
 
+    #[cfg(test)]
     pub(crate) fn label(&self) -> &str {
         self.label.as_ref()
     }
 
+    #[cfg(test)]
     pub(crate) fn sent_by(&self) -> &AgentId {
         &self.sent_by
     }
@@ -79,6 +82,7 @@ impl Object {
         self.time
     }
 
+    #[cfg(test)]
     pub(crate) fn created_at(&self) -> DateTime<Utc> {
         self.created_at
     }
@@ -86,15 +90,9 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const ACTIVE_SQL: &str = r#"(
-    lower("janus_rtc_stream"."time") is not null
-    and upper("janus_rtc_stream"."time") is null
-)"#;
-
 pub(crate) struct FindQuery {
     id: Option<Uuid>,
     rtc_id: Option<Uuid>,
-    active: Option<bool>,
 }
 
 impl FindQuery {
@@ -102,14 +100,6 @@ impl FindQuery {
         Self {
             id: None,
             rtc_id: None,
-            active: None,
-        }
-    }
-
-    pub(crate) fn id(self, id: Uuid) -> Self {
-        Self {
-            id: Some(id),
-            ..self
         }
     }
 
@@ -120,15 +110,7 @@ impl FindQuery {
         }
     }
 
-    pub(crate) fn active(self, active: bool) -> Self {
-        Self {
-            active: Some(active),
-            ..self
-        }
-    }
-
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::dsl::sql;
         use diesel::prelude::*;
 
         let query = match (self.id, self.rtc_id) {
@@ -143,17 +125,16 @@ impl FindQuery {
             }
         };
 
-        let query = match self.active {
-            Some(true) => query.filter(sql(ACTIVE_SQL)),
-            Some(false) => query.filter(sql(&format!("not {}", ACTIVE_SQL))),
-            None => query,
-        };
-
         query.get_result(conn).optional()
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+const ACTIVE_SQL: &str = r#"(
+    lower("janus_rtc_stream"."time") is not null
+    and upper("janus_rtc_stream"."time") is null
+)"#;
 
 pub(crate) struct ListQuery {
     room_id: Option<Uuid>,
@@ -183,37 +164,9 @@ impl ListQuery {
         }
     }
 
-    pub(crate) fn rtc_id(self, rtc_id: Uuid) -> Self {
-        Self {
-            rtc_id: Some(rtc_id),
-            ..self
-        }
-    }
-
-    pub(crate) fn time(self, time: Time) -> Self {
-        Self {
-            time: Some(time),
-            ..self
-        }
-    }
-
     pub(crate) fn active(self, active: bool) -> Self {
         Self {
             active: Some(active),
-            ..self
-        }
-    }
-
-    pub(crate) fn offset(self, offset: i64) -> Self {
-        Self {
-            offset: Some(offset),
-            ..self
-        }
-    }
-
-    pub(crate) fn limit(self, limit: i64) -> Self {
-        Self {
-            limit: Some(limit),
             ..self
         }
     }
