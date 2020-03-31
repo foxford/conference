@@ -24,6 +24,6 @@ futures = { version = "0.3", features = ["thread-pool"] }
 futures-channel = "0.3"
 rand = "0.7"
 svc-agent = { version = "0.11", features = ["diesel"] }
-svc-authz = "0.9"
+svc-authz = "0.10"
 svc-authn = { version = "0.5", features = ["jose", "diesel"] }
 svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz", "sentry-extension"] }
