@@ -105,13 +105,13 @@ impl FindQuery {
 
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "janus_backend"]
-pub(crate) struct UpdateQuery<'a> {
+pub(crate) struct UpsertQuery<'a> {
     id: &'a AgentId,
     handle_id: i64,
     session_id: i64,
 }
 
-impl<'a> UpdateQuery<'a> {
+impl<'a> UpsertQuery<'a> {
     pub(crate) fn new(id: &'a AgentId, handle_id: i64, session_id: i64) -> Self {
         Self {
             id,

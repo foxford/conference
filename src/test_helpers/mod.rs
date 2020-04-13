@@ -1,94 +1,159 @@
-use failure::{err_msg, format_err, Error};
+use async_std::prelude::*;
+use chrono::Utc;
 use serde::de::DeserializeOwned;
-use serde_derive::Deserialize;
-use serde_json::Value as JsonValue;
-use svc_agent::mqtt::{Address, IntoPublishableDump};
+use serde_json::json;
+use svc_agent::mqtt::{IncomingEventProperties, IncomingRequestProperties};
+use svc_error::Error as SvcError;
 
-use crate::app::API_VERSION;
-use agent::TestAgent;
+use crate::app::endpoint::{EventHandler, RequestHandler};
+use crate::app::message_handler::MessageStream;
 
-pub(crate) const AUDIENCE: &str = "dev.svc.example.org";
+use self::agent::TestAgent;
+use self::context::TestContext;
+use self::outgoing_envelope::{
+    OutgoingEnvelope, OutgoingEnvelopeProperties, OutgoingEventProperties,
+    OutgoingRequestProperties, OutgoingResponseProperties,
+};
 
-#[derive(Deserialize)]
-pub(crate) struct MessageProperties {
-    #[serde(rename = "type")]
-    kind: String,
-    method: Option<String>,
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) const SVC_AUDIENCE: &'static str = "dev.svc.example.org";
+pub(crate) const USR_AUDIENCE: &'static str = "dev.usr.example.org";
+
+pub(crate) async fn handle_request<H: RequestHandler>(
+    context: &TestContext,
+    agent: &TestAgent,
+    payload: H::Payload,
+) -> Result<Vec<OutgoingEnvelope>, SvcError> {
+    let agent_id = agent.agent_id().to_string();
+    let now = Utc::now().timestamp().to_string();
+
+    let reqp_json = json!({
+        "type": "request",
+        "correlation_data": "ignore",
+        "method": "ignore",
+        "agent_id": agent_id,
+        "connection_mode": "default",
+        "connection_version": "v2",
+        "response_topic": format!("agents/{}/api/v1/in/event.{}", agent_id, SVC_AUDIENCE),
+        "broker_agent_id": format!("alpha.mqtt-gateway.{}", SVC_AUDIENCE),
+        "broker_timestamp": now,
+        "broker_processing_timestamp": now,
+        "broker_initial_processing_timestamp": now,
+        "tracking_id": "16911d40-0b13-11ea-8171-60f81db6d53e.14097484-0c8d-11ea-bb82-60f81db6d53e.147b2994-0c8d-11ea-8933-60f81db6d53e",
+        "session_tracking_label": "16cc4294-0b13-11ea-91ae-60f81db6d53e.16ee876e-0b13-11ea-8c32-60f81db6d53e 2565f962-0b13-11ea-9359-60f81db6d53e.25c2b97c-0b13-11ea-9f20-60f81db6d53e",
+    });
+
+    let reqp = serde_json::from_value::<IncomingRequestProperties>(reqp_json)
+        .expect("Failed to parse reqp");
+
+    let messages = H::handle(context, payload, &reqp, Utc::now()).await?;
+    Ok(parse_messages(messages).await)
 }
 
-impl MessageProperties {
-    pub(crate) fn kind(&self) -> &str {
-        &self.kind
-    }
+pub(crate) async fn handle_event<H: EventHandler>(
+    context: &TestContext,
+    agent: &TestAgent,
+    payload: H::Payload,
+) -> Result<Vec<OutgoingEnvelope>, SvcError> {
+    let agent_id = agent.agent_id().to_string();
+    let now = Utc::now().timestamp().to_string();
 
-    pub(crate) fn method(&self) -> Option<&str> {
-        self.method.as_ref().map(String::as_ref)
-    }
+    let evp_json = json!({
+        "type": "event",
+        "label": "ignore",
+        "agent_id": agent_id,
+        "connection_mode": "default",
+        "connection_version": "v2",
+        "broker_agent_id": format!("alpha.mqtt-gateway.{}", SVC_AUDIENCE),
+        "broker_timestamp": now,
+        "broker_processing_timestamp": now,
+        "broker_initial_processing_timestamp": now,
+        "tracking_id": "16911d40-0b13-11ea-8171-60f81db6d53e.14097484-0c8d-11ea-bb82-60f81db6d53e.147b2994-0c8d-11ea-8933-60f81db6d53e",
+        "session_tracking_label": "16cc4294-0b13-11ea-91ae-60f81db6d53e.16ee876e-0b13-11ea-8c32-60f81db6d53e 2565f962-0b13-11ea-9359-60f81db6d53e.25c2b97c-0b13-11ea-9f20-60f81db6d53e",
+    });
+
+    let evp =
+        serde_json::from_value::<IncomingEventProperties>(evp_json).expect("Failed to parse evp");
+
+    let messages = H::handle(context, payload, &evp, Utc::now()).await?;
+    Ok(parse_messages(messages).await)
 }
 
-pub(crate) struct Message<T: DeserializeOwned> {
-    topic: String,
-    payload: T,
-    properties: MessageProperties,
-}
+async fn parse_messages(mut messages: MessageStream) -> Vec<OutgoingEnvelope> {
+    let mut parsed_messages = vec![];
 
-impl<T: DeserializeOwned> Message<T> {
-    pub(crate) fn from_publishable(message: Box<dyn IntoPublishableDump>) -> Result<Self, Error> {
-        let service_agent = TestAgent::new("test", "conference", AUDIENCE);
-        let api = Address::new(service_agent.agent_id().to_owned(), API_VERSION);
-
+    while let Some(message) = messages.next().await {
         let dump = message
-            .into_dump(&api)
-            .map_err(|err| format_err!("Failed to dump message: {}", err))?;
+            .into_dump(TestAgent::new("alpha", "conference", SVC_AUDIENCE).address())
+            .expect("Failed to dump outgoing message");
 
-        let envelope_value = serde_json::from_str::<JsonValue>(dump.payload())?;
+        let mut parsed_message = serde_json::from_str::<OutgoingEnvelope>(dump.payload())
+            .expect("Failed to parse dumped message");
 
-        let payload = envelope_value
-            .get("payload")
-            .ok_or_else(|| err_msg("Missing payload"))
-            .and_then(|value| {
-                value
-                    .as_str()
-                    .ok_or_else(|| err_msg("Failed to cast 'payload' field to string"))
-            })
-            .and_then(|payload_str| {
-                serde_json::from_slice::<T>(payload_str.as_bytes())
-                    .map_err(|err| format_err!("Failed to parse payload: {}", err))
-            })?;
-
-        let properties = envelope_value
-            .get("properties")
-            .ok_or_else(|| err_msg("Missing properties"))
-            .and_then(|value| {
-                serde_json::from_value::<MessageProperties>(value.to_owned())
-                    .map_err(|err| format_err!("Failed to parse properties: {}", err))
-            })?;
-
-        Ok(Self::new(dump.topic(), payload, properties))
+        parsed_message.set_topic(dump.topic());
+        parsed_messages.push(parsed_message);
     }
 
-    fn new(topic: &str, payload: T, properties: MessageProperties) -> Self {
-        Self {
-            topic: topic.to_owned(),
-            payload,
-            properties,
+    parsed_messages
+}
+
+pub(crate) fn find_event<P>(messages: &[OutgoingEnvelope]) -> (P, &OutgoingEventProperties, &str)
+where
+    P: DeserializeOwned,
+{
+    for message in messages {
+        if let OutgoingEnvelopeProperties::Event(evp) = message.properties() {
+            return (message.payload::<P>(), evp, message.topic());
         }
     }
 
-    pub(crate) fn properties(&self) -> &MessageProperties {
-        &self.properties
+    panic!("Event not found");
+}
+
+pub(crate) fn find_response<P>(messages: &[OutgoingEnvelope]) -> (P, &OutgoingResponseProperties)
+where
+    P: DeserializeOwned,
+{
+    for message in messages {
+        if let OutgoingEnvelopeProperties::Response(respp) = message.properties() {
+            return (message.payload::<P>(), respp);
+        }
     }
 
-    pub(crate) fn topic(&self) -> &str {
-        &self.topic
+    panic!("Response not found");
+}
+
+pub(crate) fn find_request<P>(
+    messages: &[OutgoingEnvelope],
+) -> (P, &OutgoingRequestProperties, &str)
+where
+    P: DeserializeOwned,
+{
+    for message in messages {
+        if let OutgoingEnvelopeProperties::Request(reqp) = message.properties() {
+            return (message.payload::<P>(), reqp, message.topic());
+        }
     }
 
-    pub(crate) fn payload(&self) -> &T {
-        &self.payload
-    }
+    panic!("Request not found");
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) mod prelude {
+    #[allow(unused_imports)]
+    pub(crate) use super::{
+        agent::TestAgent, authz::TestAuthz, context::TestContext, db::TestDb, factory, find_event,
+        find_request, find_response, handle_event, handle_request, shared_helpers, SVC_AUDIENCE,
+        USR_AUDIENCE,
+    };
 }
 
 pub(crate) mod agent;
 pub(crate) mod authz;
+pub(crate) mod context;
 pub(crate) mod db;
 pub(crate) mod factory;
+pub(crate) mod outgoing_envelope;
+pub(crate) mod shared_helpers;

@@ -73,7 +73,7 @@ impl fmt::Display for RoomBackend {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Debug, Serialize, Identifiable, Queryable, QueryableByName)]
+#[derive(Clone, Debug, Deserialize, Serialize, Identifiable, Queryable, QueryableByName)]
 #[table_name = "room"]
 pub(crate) struct Object {
     id: Uuid,
@@ -95,17 +95,12 @@ impl Object {
     }
 
     #[cfg(test)]
-    pub(crate) fn time(&self) -> Time {
-        self.time
+    pub(crate) fn time(&self) -> &Time {
+        &self.time
     }
 
-    #[cfg(test)]
-    pub(crate) fn created_at(&self) -> DateTime<Utc> {
-        self.created_at
-    }
-
-    pub(crate) fn backend(&self) -> &RoomBackend {
-        &self.backend
+    pub(crate) fn backend(&self) -> RoomBackend {
+        self.backend
     }
 }
 

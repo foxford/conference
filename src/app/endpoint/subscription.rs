@@ -1,117 +1,152 @@
+use std::result::Result as StdResult;
+
+use async_std::stream;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::mqtt::{
-    IncomingEvent, IncomingEventProperties, IntoPublishableDump, OutgoingEvent, ResponseStatus,
-    ShortTermTimingProperties,
+use svc_agent::{
+    mqtt::{
+        IncomingEventProperties, IntoPublishableDump, OutgoingEvent, ResponseStatus,
+        ShortTermTimingProperties,
+    },
+    AgentId, Authenticable,
 };
-use svc_agent::{AccountId, AgentId};
-use svc_authn::Authenticable;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::endpoint;
-use crate::db::{agent, janus_backend, janus_rtc_stream, room, ConnectionPool};
+use crate::app::context::Context;
+use crate::app::endpoint::prelude::*;
+use crate::app::janus;
+use crate::db;
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type CreateDeleteEvent = IncomingEvent<CreateDeleteEventData>;
-
-#[derive(Deserialize)]
-pub(crate) struct CreateDeleteEventData {
+#[derive(Debug, Deserialize)]
+pub(crate) struct SubscriptionEvent {
     subject: AgentId,
     object: Vec<String>,
 }
 
+impl SubscriptionEvent {
+    fn try_room_id(&self) -> StdResult<Uuid, SvcError> {
+        let object: Vec<&str> = self.object.iter().map(AsRef::as_ref).collect();
+
+        match object.as_slice() {
+            ["rooms", room_id, "events"] => {
+                Uuid::parse_str(room_id).map_err(|err| format!("UUID parse error: {}", err))
+            }
+            _ => Err(String::from(
+                "Bad 'object' format; expected [\"room\", <ROOM_ID>, \"events\"]",
+            )),
+        }
+        .status(ResponseStatus::BAD_REQUEST)
+    }
+}
+
 #[derive(Deserialize, Serialize)]
-pub(crate) struct RoomEnterLeaveEventData {
+pub(crate) struct RoomEnterLeaveEvent {
     id: Uuid,
     agent_id: AgentId,
 }
 
-impl RoomEnterLeaveEventData {
-    fn new(id: Uuid, agent_id: AgentId) -> Self {
-        Self { id, agent_id }
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct CreateHandler;
+
+#[async_trait]
+impl EventHandler for CreateHandler {
+    type Payload = SubscriptionEvent;
+
+    async fn handle<C: Context>(
+        context: &C,
+        payload: Self::Payload,
+        evp: &IncomingEventProperties,
+        start_timestamp: DateTime<Utc>,
+    ) -> Result {
+        // Check if the event is sent by the broker.
+        if evp.as_account_id() != &context.config().broker_id {
+            return Err(format!(
+                "Expected subscription.create event to be sent from the broker account '{}', got '{}'",
+                context.config().broker_id,
+                evp.as_account_id()
+            )).status(ResponseStatus::FORBIDDEN);
+        }
+
+        // Find room.
+        let room_id = payload.try_room_id()?;
+        let conn = context.db().get()?;
+
+        db::room::FindQuery::new()
+            .id(room_id)
+            .time(db::room::now())
+            .execute(&conn)?
+            .ok_or_else(|| format!("the room = '{}' is not found or closed", room_id))
+            .status(ResponseStatus::NOT_FOUND)?;
+
+        // Update agent state to `ready`.
+        db::agent::UpdateQuery::new(&payload.subject, room_id)
+            .status(db::agent::Status::Ready)
+            .execute(&conn)?;
+
+        // Send broadcast notification that the agent has entered the room.
+        let outgoing_event_payload = RoomEnterLeaveEvent {
+            id: room_id.to_owned(),
+            agent_id: payload.subject,
+        };
+
+        let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+        let props = evp.to_event("room.enter", short_term_timing);
+        let to_uri = format!("rooms/{}/events", room_id);
+        let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
+        let boxed_event = Box::new(outgoing_event) as Box<dyn IntoPublishableDump + Send>;
+        Ok(Box::new(stream::once(boxed_event)))
     }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone)]
-pub(crate) struct State {
-    broker_account_id: svc_agent::AccountId,
-    db: ConnectionPool,
-    me: AgentId,
-}
+pub(crate) struct DeleteHandler;
 
-impl State {
-    pub(crate) fn new(broker_account_id: AccountId, db: ConnectionPool, me: AgentId) -> Self {
-        Self {
-            broker_account_id,
-            db,
-            me,
+#[async_trait]
+impl EventHandler for DeleteHandler {
+    type Payload = SubscriptionEvent;
+
+    async fn handle<C: Context>(
+        context: &C,
+        payload: Self::Payload,
+        evp: &IncomingEventProperties,
+        start_timestamp: DateTime<Utc>,
+    ) -> Result {
+        // Check if the event is sent by the broker.
+        if evp.as_account_id() != &context.config().broker_id {
+            return Err(format!(
+                "Expected subscription.delete event to be sent from the broker account '{}', got '{}'",
+                context.config().broker_id,
+                evp.as_account_id()
+            )).status(ResponseStatus::FORBIDDEN);
         }
-    }
-}
 
-impl State {
-    pub(crate) async fn create(
-        &self,
-        evt: CreateDeleteEvent,
-        start_timestamp: DateTime<Utc>,
-    ) -> endpoint::Result {
-        self.is_broker(&evt.properties())?;
-
-        let agent_id = &evt.payload().subject;
-        let room_id = parse_room_id(&evt)?;
-
-        let conn = self.db.get()?;
-
-        room::FindQuery::new()
-            .time(room::now())
-            .id(room_id)
-            .execute(&conn)?
-            .ok_or_else(|| {
-                SvcError::builder()
-                    .status(ResponseStatus::NOT_FOUND)
-                    .detail(&format!("the room = '{}' is not found", room_id))
-                    .build()
-            })?;
-
-        agent::UpdateQuery::new(agent_id, room_id)
-            .status(agent::Status::Ready)
-            .execute(&conn)?;
-
-        let payload = RoomEnterLeaveEventData::new(room_id.to_owned(), agent_id.to_owned());
-        let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-        let props = evt.properties().to_event("room.enter", short_term_timing);
-        let to_uri = format!("rooms/{}/events", room_id);
-        OutgoingEvent::broadcast(payload, props, &to_uri).into()
-    }
-
-    pub(crate) async fn delete(
-        &self,
-        evt: CreateDeleteEvent,
-        start_timestamp: DateTime<Utc>,
-    ) -> endpoint::Result {
-        self.is_broker(&evt.properties())?;
-
-        let agent_id = &evt.payload().subject;
-        let room_id = parse_room_id(&evt)?;
-
-        let conn = self.db.get()?;
-        let row_count = agent::DeleteQuery::new(agent_id, room_id).execute(&conn)?;
+        // Delete agent from the DB.
+        let room_id = payload.try_room_id()?;
+        let conn = context.db().get()?;
+        let row_count = db::agent::DeleteQuery::new(&payload.subject, room_id).execute(&conn)?;
 
         if row_count == 1 {
-            // Event to room topic.
-            let payload = RoomEnterLeaveEventData::new(room_id.to_owned(), agent_id.to_owned());
+            // Send broadcast notification that the agent has left the room.
+            let outgoing_event_payload = RoomEnterLeaveEvent {
+                id: room_id.to_owned(),
+                agent_id: payload.subject.to_owned(),
+            };
+
             let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-            let props = evt.properties().to_event("room.leave", short_term_timing);
+            let props = evp.to_event("room.leave", short_term_timing);
             let to_uri = format!("rooms/{}/events", room_id);
-            let outgoing_event = OutgoingEvent::broadcast(payload, props, &to_uri);
-            let mut messages: Vec<Box<dyn IntoPublishableDump>> = vec![Box::new(outgoing_event)];
+            let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
+            let boxed_event = Box::new(outgoing_event) as Box<dyn IntoPublishableDump + Send>;
+            let mut messages = vec![boxed_event];
 
             // `agent.leave` requests to Janus instances that host active streams in this room.
-            let streams = janus_rtc_stream::ListQuery::new()
+            let streams = db::janus_rtc_stream::ListQuery::new()
                 .room_id(room_id)
                 .active(true)
                 .execute(&conn)?;
@@ -123,270 +158,175 @@ impl State {
 
             backend_ids.dedup();
 
-            let backends = janus_backend::ListQuery::new()
+            let backends = db::janus_backend::ListQuery::new()
                 .ids(&backend_ids[..])
                 .execute(&conn)?;
 
             for backend in backends {
-                let result = crate::app::janus::agent_leave_request(
-                    evt.properties().to_owned(),
+                let result = janus::agent_leave_request(
+                    evp.to_owned(),
                     backend.session_id(),
                     backend.handle_id(),
-                    agent_id,
+                    &payload.subject,
                     backend.id(),
-                    &self.me,
-                    evt.properties().tracking(),
+                    context.agent_id(),
+                    evp.tracking(),
                 );
 
                 match result {
                     Ok(req) => messages.push(Box::new(req)),
-                    Err(_) => {
-                        return SvcError::builder()
-                            .status(ResponseStatus::UNPROCESSABLE_ENTITY)
-                            .detail("error creating a backend request")
-                            .build()
-                            .into()
+                    Err(err) => {
+                        let err = format!("error creating a backend request: {}", err);
+                        return Err(err).status(ResponseStatus::UNPROCESSABLE_ENTITY);
                     }
                 }
             }
 
             // Stop Janus active rtc streams of this agent.
-            janus_rtc_stream::stop_by_agent_id(agent_id, &conn)?;
+            db::janus_rtc_stream::stop_by_agent_id(&payload.subject, &conn)?;
 
-            messages.into()
+            Ok(Box::new(stream::from_iter(messages)))
         } else {
             let err = format!(
                 "the agent is not found for agent_id = '{}', room = '{}'",
-                agent_id, room_id
+                payload.subject, room_id
             );
 
-            SvcError::builder()
-                .status(ResponseStatus::NOT_FOUND)
-                .detail(&err)
-                .build()
-                .into()
-        }
-    }
-
-    fn is_broker(&self, evp: &IncomingEventProperties) -> Result<(), SvcError> {
-        // Authorization: sender's account id = broker id
-        if evp.as_account_id() == &self.broker_account_id {
-            Ok(())
-        } else {
-            let err = SvcError::builder()
-                .status(ResponseStatus::FORBIDDEN)
-                .detail("Forbidden")
-                .build();
-
-            return Err(err);
+            Err(err).status(ResponseStatus::NOT_FOUND)
         }
     }
 }
 
-fn parse_room_id(evt: &CreateDeleteEvent) -> Result<Uuid, SvcError> {
-    let object: Vec<&str> = evt.payload().object.iter().map(AsRef::as_ref).collect();
-
-    let result = match object.as_slice() {
-        ["rooms", room_id, "events"] => {
-            Uuid::parse_str(room_id).map_err(|err| format!("UUID parse error: {}", err))
-        }
-        _ => Err(String::from(
-            "Bad 'object' format; expected [\"room\", <ROOM_ID>, \"events\"]",
-        )),
-    };
-
-    result.map_err(|err| {
-        SvcError::builder()
-            .status(ResponseStatus::BAD_REQUEST)
-            .detail(&err)
-            .build()
-    })
-}
+///////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
-mod test {
-    use std::ops::Try;
-
-    use diesel::prelude::*;
-    use failure::format_err;
-    use serde_json::json;
-
-    use crate::app::API_VERSION;
-    use crate::db::agent::Object as Agent;
-    use crate::schema::agent as agent_schema;
-    use crate::schema::janus_rtc_stream as janus_rtc_stream_schema;
-    use crate::test_helpers::{
-        agent::TestAgent, db::TestDb, factory, factory::insert_room, Message, AUDIENCE,
-    };
+mod tests {
+    use crate::db::agent::{ListQuery as AgentListQuery, Status as AgentStatus};
+    use crate::test_helpers::prelude::*;
 
     use super::*;
 
-    fn build_state(db: &TestDb) -> State {
-        let broker_account_id = svc_agent::AccountId::new("mqtt-gateway", AUDIENCE);
-        let me = TestAgent::new("alpha", "conference", AUDIENCE);
-
-        State::new(
-            broker_account_id,
-            db.connection_pool().clone(),
-            me.agent_id().to_owned(),
-        )
-    }
+    ///////////////////////////////////////////////////////////////////////////
 
     #[test]
     fn create_subscription() {
-        futures::executor::block_on(async {
+        async_std::task::block_on(async {
             let db = TestDb::new();
-            let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            // Insert room and agent in `in_progress` status.
-            let room = db
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                // Create room.
+                let room = shared_helpers::insert_room(&conn);
+
+                // Put agent in the room in `in_progress` status.
+                factory::Agent::new()
+                    .room_id(room.id())
+                    .agent_id(agent.agent_id())
+                    .insert(&conn);
+
+                room
+            };
+
+            // Send subscription.create event.
+            let context = TestContext::new(db.clone(), TestAuthz::new());
+            let room_id = room.id().to_string();
+
+            let payload = SubscriptionEvent {
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
+
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+
+            let messages = handle_event::<CreateHandler>(&context, &broker, payload)
+                .await
+                .expect("Subscription creation failed");
+
+            // Assert notification.
+            let (payload, evp, topic) = find_event::<RoomEnterLeaveEvent>(messages.as_slice());
+            assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
+            assert_eq!(evp.label(), "room.enter");
+            assert_eq!(payload.id, room.id());
+            assert_eq!(&payload.agent_id, agent.agent_id());
+
+            // Assert agent turned to `ready` status.
+            let conn = db
                 .connection_pool()
                 .get()
-                .map(|conn| {
-                    let room = insert_room(&conn, AUDIENCE);
+                .expect("Failed to get DB connection");
 
-                    factory::Agent::new()
-                        .audience(AUDIENCE)
-                        .agent_id(user_agent.agent_id())
-                        .room_id(room.id())
-                        .status(crate::db::agent::Status::InProgress)
-                        .insert(&conn)
-                        .unwrap();
+            let db_agents = AgentListQuery::new()
+                .agent_id(agent.agent_id())
+                .room_id(room.id())
+                .execute(&conn)
+                .expect("Failed to execute agent list query");
 
-                    room
-                })
-                .unwrap();
-
-            // Send subscription.create event.
-            let payload = json!({
-                "object": vec!["rooms", &room.id().to_string(), "events"],
-                "subject": user_agent.agent_id().to_string(),
-            });
-
-            let broker_agent = TestAgent::new("alpha", "mqtt-gateway", AUDIENCE);
-
-            let event: CreateDeleteEvent = broker_agent
-                .build_event("subscription.create", &payload)
-                .unwrap();
-
-            let state = build_state(&db);
-            let mut result = state.create(event, Utc::now()).await.into_result().unwrap();
-
-            // Assert notification to the room topic.
-            let message = Message::<RoomEnterLeaveEventData>::from_publishable(result.remove(0))
-                .expect("Failed to parse message");
-
-            assert_eq!(
-                message.topic(),
-                format!(
-                    "apps/conference.{}/api/{}/rooms/{}/events",
-                    AUDIENCE,
-                    API_VERSION,
-                    room.id(),
-                )
-            );
-
-            assert_eq!(message.properties().kind(), "event");
-            assert_eq!(message.payload().id, room.id());
-            assert_eq!(message.payload().agent_id, *user_agent.agent_id());
-
-            // Assert agent presence in the DB.
-            let conn = db.connection_pool().get().unwrap();
-
-            let agent: Agent = agent_schema::table
-                .filter(agent_schema::agent_id.eq(user_agent.agent_id()))
-                .get_result(&conn)
-                .unwrap();
-
-            assert_eq!(agent.room_id(), room.id());
-            assert_eq!(*agent.status(), crate::db::agent::Status::Ready);
-        });
-    }
-
-    #[test]
-    fn create_subscription_unauthorized() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-
-            // Send subscription.create event.
-            let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
-
-            let payload = json!({
-                "object": vec!["rooms", &Uuid::new_v4().to_string(), "events"],
-                "subject": user_agent.agent_id().to_string(),
-            });
-
-            let broker_agent = TestAgent::new("web", "wrong_user", AUDIENCE);
-
-            let event: CreateDeleteEvent = broker_agent
-                .build_event("subscription.create", &payload)
-                .unwrap();
-
-            let state = build_state(&db);
-
-            // Assert 403 error.
-            match state.create(event, Utc::now()).await.into_result() {
-                Ok(_) => panic!("Expected subscription.create to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
-            }
+            let db_agent = db_agents.first().expect("Missing agent in the DB");
+            assert_eq!(db_agent.status(), AgentStatus::Ready);
         });
     }
 
     #[test]
     fn create_subscription_missing_room() {
-        futures::executor::block_on(async {
+        async_std::task::block_on(async {
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let db = TestDb::new();
+            let context = TestContext::new(db, TestAuthz::new());
+            let room_id = Uuid::new_v4().to_string();
 
-            // Send subscription.create event.
-            let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
+            let payload = SubscriptionEvent {
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
 
-            let payload = json!({
-                "object": vec!["rooms", &Uuid::new_v4().to_string(), "events"],
-                "subject": user_agent.agent_id().to_string(),
-            });
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
 
-            let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
+            let err = handle_event::<CreateHandler>(&context, &broker, payload)
+                .await
+                .expect_err("Unexpected success on subscription creation");
 
-            let event: CreateDeleteEvent = broker_agent
-                .build_event("subscription.create", &payload)
-                .unwrap();
-
-            let state = build_state(&db);
-
-            // Assert 404 error.
-            match state.create(event, Utc::now()).await.into_result() {
-                Ok(_) => panic!("Expected subscription.create to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
-            }
+            assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
         });
     }
 
     #[test]
-    fn create_subscription_bad_object() {
-        futures::executor::block_on(async {
+    fn create_subscription_closed_room() {
+        async_std::task::block_on(async {
             let db = TestDb::new();
 
-            // Send subscription.create event.
-            let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-            let payload = json!({
-                "object": vec!["wrong"],
-                "subject": user_agent.agent_id().to_string(),
-            });
+                shared_helpers::insert_closed_room(&conn)
+            };
 
-            let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
+            let context = TestContext::new(db, TestAuthz::new());
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let room_id = room.id().to_string();
 
-            let event: CreateDeleteEvent = broker_agent
-                .build_event("subscription.create", &payload)
-                .unwrap();
+            let payload = SubscriptionEvent {
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
 
-            let state = build_state(&db);
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
 
-            // Assert 400 error.
-            match state.create(event, Utc::now()).await.into_result() {
-                Ok(_) => panic!("Expected subscription.create to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::BAD_REQUEST),
-            }
+            let err = handle_event::<CreateHandler>(&context, &broker, payload)
+                .await
+                .expect_err("Unexpected success on subscription creation");
+
+            assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
         });
     }
 
@@ -394,164 +334,116 @@ mod test {
 
     #[test]
     fn delete_subscription() {
-        futures::executor::block_on(async {
+        async_std::task::block_on(async {
             let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            // Insert agent.
-            let (agent, stream) = db
-                .connection_pool()
-                .get()
-                .map_err(|err| format_err!("Failed to get DB connection: {}", err))
-                .and_then(|conn| {
-                    let stream = factory::JanusRtcStream::new(AUDIENCE).insert(&conn)?;
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    let stream = janus_rtc_stream::start(*stream.id(), &conn)
-                        .expect("Failed to start stream")
-                        .expect("No stream returned");
-
-                    let agent = factory::Agent::new()
-                        .agent_id(stream.sent_by())
-                        .audience(AUDIENCE)
-                        .insert(&conn)?;
-
-                    Ok((agent, stream))
-                })
-                .expect("Failed to insert test data");
+                // Create room and put the agent online.
+                let room = shared_helpers::insert_room(&conn);
+                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                room
+            };
 
             // Send subscription.delete event.
-            let payload = json!({
-                "object": vec!["rooms", &agent.room_id().to_string(), "events"],
-                "subject": agent.agent_id().to_string(),
-            });
+            let context = TestContext::new(db.clone(), TestAuthz::new());
+            let room_id = room.id().to_string();
 
-            let broker_agent = TestAgent::new("alpha", "mqtt-gateway", AUDIENCE);
+            let payload = SubscriptionEvent {
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
 
-            let event: CreateDeleteEvent = broker_agent
-                .build_event("subscription.delete", &payload)
-                .unwrap();
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
 
-            let state = build_state(&db);
-            let mut result = state.delete(event, Utc::now()).await.into_result().unwrap();
+            let messages = handle_event::<DeleteHandler>(&context, &broker, payload)
+                .await
+                .expect("Subscription deletion failed");
 
-            // Assert notification to the room topic.
-            let message = Message::<RoomEnterLeaveEventData>::from_publishable(result.remove(0))
-                .expect("Failed to parse message");
+            // Assert notification.
+            let (payload, evp, topic) = find_event::<RoomEnterLeaveEvent>(messages.as_slice());
+            assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
+            assert_eq!(evp.label(), "room.leave");
+            assert_eq!(payload.id, room.id());
+            assert_eq!(&payload.agent_id, agent.agent_id());
 
-            assert_eq!(
-                message.topic(),
-                format!(
-                    "apps/conference.{}/api/{}/rooms/{}/events",
-                    AUDIENCE,
-                    API_VERSION,
-                    agent.room_id(),
-                )
-            );
+            // Assert agent deleted from the DB.
+            let conn = db
+                .connection_pool()
+                .get()
+                .expect("Failed to get DB connection");
 
-            assert_eq!(message.properties().kind(), "event");
-            assert_eq!(message.payload().id, agent.room_id());
-            assert_eq!(message.payload().agent_id, *agent.agent_id());
+            let db_agents = AgentListQuery::new()
+                .agent_id(agent.agent_id())
+                .room_id(room.id())
+                .execute(&conn)
+                .expect("Failed to execute agent list query");
 
-            // Assert agent absence in the DB.
-            let conn = db.connection_pool().get().unwrap();
-            let query = agent_schema::table.filter(agent_schema::agent_id.eq(agent.agent_id()));
-            assert_eq!(query.execute(&conn).unwrap(), 0);
-
-            // Assert active Janus RTC stream closed.
-            assert!(janus_rtc_stream_schema::table
-                .find(stream.id())
-                // TODO: https://burning-heart.atlassian.net/browse/ULMS-969
-                .select(diesel::dsl::sql(
-                    "time is not null and (time = 'empty'::tstzrange or upper(time) is not null)"
-                ))
-                .get_result::<bool>(&conn)
-                .expect("Failed to fetch closing time"));
-        });
-    }
-
-    #[test]
-    fn delete_subscription_unauthorized() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-
-            // Send subscription.create event.
-            let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
-
-            let payload = json!({
-                "object": vec!["rooms", &Uuid::new_v4().to_string(), "events"],
-                "subject": user_agent.agent_id().to_string(),
-            });
-
-            let broker_agent = TestAgent::new("web", "wrong_user", AUDIENCE);
-
-            let event: CreateDeleteEvent = broker_agent
-                .build_event("subscription.create", &payload)
-                .unwrap();
-
-            let state = build_state(&db);
-
-            // Assert 403 error.
-            match state.delete(event, Utc::now()).await.into_result() {
-                Ok(_) => panic!("Expected subscription.delete to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
-            }
+            assert_eq!(db_agents.len(), 0);
         });
     }
 
     #[test]
     fn delete_subscription_missing_agent() {
-        futures::executor::block_on(async {
+        async_std::task::block_on(async {
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let db = TestDb::new();
 
-            // Send subscription.create event.
-            let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-            let payload = json!({
-                "object": vec!["rooms", &Uuid::new_v4().to_string(), "events"],
-                "subject": user_agent.agent_id().to_string(),
-            });
+                shared_helpers::insert_room(&conn)
+            };
 
-            let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
+            let context = TestContext::new(db.clone(), TestAuthz::new());
+            let room_id = room.id().to_string();
 
-            let event: CreateDeleteEvent = broker_agent
-                .build_event("subscription.create", &payload)
-                .unwrap();
+            let payload = SubscriptionEvent {
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
 
-            let state = build_state(&db);
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
 
-            // Assert 404 error.
-            match state.delete(event, Utc::now()).await.into_result() {
-                Ok(_) => panic!("Expected subscription.delete to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
-            }
+            let err = handle_event::<DeleteHandler>(&context, &broker, payload)
+                .await
+                .expect_err("Unexpected success on subscription deletion");
+
+            assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
         });
     }
 
     #[test]
-    fn delete_subscription_bad_object() {
-        futures::executor::block_on(async {
+    fn delete_subscription_missing_room() {
+        async_std::task::block_on(async {
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let db = TestDb::new();
+            let context = TestContext::new(db.clone(), TestAuthz::new());
+            let room_id = Uuid::new_v4().to_string();
 
-            // Send subscription.create event.
-            let user_agent = TestAgent::new("web", "user_agent", AUDIENCE);
+            let payload = SubscriptionEvent {
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
 
-            let payload = json!({
-                "object": vec!["wrong"],
-                "subject": user_agent.agent_id().to_string(),
-            });
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
 
-            let broker_agent = TestAgent::new("web", "mqtt-gateway", AUDIENCE);
+            let err = handle_event::<DeleteHandler>(&context, &broker, payload)
+                .await
+                .expect_err("Unexpected success on subscription deletion");
 
-            let event: CreateDeleteEvent = broker_agent
-                .build_event("subscription.create", &payload)
-                .unwrap();
-
-            let state = build_state(&db);
-
-            // Assert 400 error.
-            match state.delete(event, Utc::now()).await.into_result() {
-                Ok(_) => panic!("Expected subscription.delete to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::BAD_REQUEST),
-            }
+            assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
         });
     }
 }

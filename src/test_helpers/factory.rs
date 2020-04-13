@@ -1,14 +1,57 @@
-use std::ops::Bound;
-
-use chrono::Utc;
 use diesel::pg::PgConnection;
-use failure::{err_msg, format_err, Error};
 use rand::Rng;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
+use crate::db;
+
 use super::agent::TestAgent;
-use crate::db::{agent, janus_backend, janus_rtc_stream, room, rtc};
+use super::shared_helpers::{insert_janus_backend, insert_room, insert_rtc};
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct Room {
+    audience: Option<String>,
+    time: Option<db::room::Time>,
+    backend: db::room::RoomBackend,
+}
+
+impl Room {
+    pub(crate) fn new() -> Self {
+        Self {
+            audience: None,
+            time: None,
+            backend: db::room::RoomBackend::None,
+        }
+    }
+
+    pub(crate) fn audience(self, audience: &str) -> Self {
+        Self {
+            audience: Some(audience.to_owned()),
+            ..self
+        }
+    }
+
+    pub(crate) fn time(self, time: db::room::Time) -> Self {
+        Self {
+            time: Some(time),
+            ..self
+        }
+    }
+
+    pub(crate) fn backend(self, backend: db::room::RoomBackend) -> Self {
+        Self { backend, ..self }
+    }
+
+    pub(crate) fn insert(self, conn: &PgConnection) -> db::room::Object {
+        let audience = self.audience.expect("Audience not set");
+        let time = self.time.expect("Time not set");
+
+        db::room::InsertQuery::new(time, &audience, self.backend)
+            .execute(conn)
+            .expect("Failed to insert room")
+    }
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -16,7 +59,7 @@ pub struct Agent<'a> {
     audience: Option<&'a str>,
     agent_id: Option<&'a AgentId>,
     room_id: Option<Uuid>,
-    status: agent::Status,
+    status: db::agent::Status,
 }
 
 impl<'a> Agent<'a> {
@@ -25,14 +68,7 @@ impl<'a> Agent<'a> {
             audience: None,
             agent_id: None,
             room_id: None,
-            status: agent::Status::Ready,
-        }
-    }
-
-    pub(crate) fn audience(self, audience: &'a str) -> Self {
-        Self {
-            audience: Some(audience),
-            ..self
+            status: db::agent::Status::Ready,
         }
     }
 
@@ -50,32 +86,70 @@ impl<'a> Agent<'a> {
         }
     }
 
-    pub(crate) fn status(self, status: agent::Status) -> Self {
+    pub(crate) fn status(self, status: db::agent::Status) -> Self {
         Self { status, ..self }
     }
 
-    pub(crate) fn insert(&self, conn: &PgConnection) -> Result<agent::Object, Error> {
+    pub(crate) fn insert(&self, conn: &PgConnection) -> db::agent::Object {
         let agent_id = match (self.agent_id, self.audience) {
-            (Some(agent_id), _) => Ok(agent_id.to_owned()),
+            (Some(agent_id), _) => agent_id.to_owned(),
             (None, Some(audience)) => {
                 let mut rng = rand::thread_rng();
                 let label = format!("user{}", rng.gen::<u16>());
                 let test_agent = TestAgent::new("web", &label, audience);
-                Ok(test_agent.agent_id().to_owned())
+                test_agent.agent_id().to_owned()
             }
-            _ => Err(err_msg("Expected agent_id either audience")),
-        }?;
+            _ => panic!("Expected agent_id either audience"),
+        };
 
-        let room_id = match (self.room_id, self.audience) {
-            (Some(room_id), _) => Ok(room_id),
-            (None, Some(audience)) => Ok(insert_room(conn, audience).id()),
-            _ => Err(err_msg("Expected room_id either audience")),
-        }?;
+        let room_id = self.room_id.unwrap_or_else(|| insert_room(conn).id());
 
-        agent::InsertQuery::new(&agent_id, room_id)
+        db::agent::InsertQuery::new(&agent_id, room_id)
             .status(self.status)
             .execute(conn)
-            .map_err(|err| format_err!("Failed to insert agent: {}", err))
+            .expect("Failed to insert agent")
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct Rtc {
+    room_id: Uuid,
+}
+
+impl Rtc {
+    pub(crate) fn new(room_id: Uuid) -> Self {
+        Self { room_id }
+    }
+
+    pub(crate) fn insert(&self, conn: &PgConnection) -> db::rtc::Object {
+        db::rtc::InsertQuery::new(self.room_id)
+            .execute(conn)
+            .expect("Failed to insert janus_backend")
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct JanusBackend {
+    id: AgentId,
+    handle_id: i64,
+    session_id: i64,
+}
+
+impl JanusBackend {
+    pub(crate) fn new(id: AgentId, handle_id: i64, session_id: i64) -> Self {
+        Self {
+            id,
+            handle_id,
+            session_id,
+        }
+    }
+
+    pub(crate) fn insert(&self, conn: &PgConnection) -> db::janus_backend::Object {
+        db::janus_backend::UpsertQuery::new(&self.id, self.handle_id, self.session_id)
+            .execute(conn)
+            .expect("Failed to insert janus_backend")
     }
 }
 
@@ -83,8 +157,8 @@ impl<'a> Agent<'a> {
 
 pub(crate) struct JanusRtcStream<'a> {
     audience: &'a str,
-    backend: Option<&'a janus_backend::Object>,
-    rtc: Option<&'a rtc::Object>,
+    backend: Option<&'a db::janus_backend::Object>,
+    rtc: Option<&'a db::rtc::Object>,
 }
 
 impl<'a> JanusRtcStream<'a> {
@@ -96,27 +170,27 @@ impl<'a> JanusRtcStream<'a> {
         }
     }
 
-    pub(crate) fn backend(self, backend: &'a janus_backend::Object) -> Self {
+    pub(crate) fn backend(self, backend: &'a db::janus_backend::Object) -> Self {
         Self {
             backend: Some(backend),
             ..self
         }
     }
 
-    pub(crate) fn rtc(self, rtc: &'a rtc::Object) -> Self {
+    pub(crate) fn rtc(self, rtc: &'a db::rtc::Object) -> Self {
         Self {
             rtc: Some(rtc),
             ..self
         }
     }
 
-    pub(crate) fn insert(&self, conn: &PgConnection) -> Result<janus_rtc_stream::Object, Error> {
+    pub(crate) fn insert(&self, conn: &PgConnection) -> db::janus_rtc_stream::Object {
         let default_backend;
 
         let backend = match self.backend {
             Some(value) => value,
             None => {
-                default_backend = insert_janus_backend(conn, self.audience);
+                default_backend = insert_janus_backend(conn);
                 &default_backend
             }
         };
@@ -126,14 +200,14 @@ impl<'a> JanusRtcStream<'a> {
         let rtc = match self.rtc {
             Some(value) => value,
             None => {
-                default_rtc = insert_rtc(conn, self.audience);
+                default_rtc = insert_rtc(conn);
                 &default_rtc
             }
         };
 
         let agent = TestAgent::new("web", "user123", self.audience);
 
-        janus_rtc_stream::InsertQuery::new(
+        db::janus_rtc_stream::InsertQuery::new(
             Uuid::new_v4(),
             backend.handle_id(),
             rtc.id(),
@@ -141,33 +215,7 @@ impl<'a> JanusRtcStream<'a> {
             "alpha",
             agent.agent_id(),
         )
-        .execute(&conn)
-        .map_err(|err| format_err!("Failed to insert janus_rtc_stream: {}", err))
+        .execute(conn)
+        .expect("Failed to insert janus_rtc_stream")
     }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-pub(crate) fn insert_janus_backend(conn: &PgConnection, audience: &str) -> janus_backend::Object {
-    let mut rng = rand::thread_rng();
-    let agent = TestAgent::new("alpha", "janus-gateway", audience);
-
-    janus_backend::UpdateQuery::new(agent.agent_id(), rng.gen(), rng.gen())
-        .execute(conn)
-        .expect("Failed to insert janus backend")
-}
-
-pub(crate) fn insert_room(conn: &PgConnection, audience: &str) -> room::Object {
-    let time = (Bound::Included(Utc::now()), Bound::Unbounded);
-
-    room::InsertQuery::new(time, audience, room::RoomBackend::Janus)
-        .execute(conn)
-        .expect("Failed to insert room")
-}
-
-pub(crate) fn insert_rtc(conn: &PgConnection, audience: &str) -> rtc::Object {
-    let room = insert_room(conn, audience);
-    rtc::InsertQuery::new(room.id())
-        .execute(conn)
-        .expect("Failed to insert rtc")
 }

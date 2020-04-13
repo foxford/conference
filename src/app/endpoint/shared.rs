@@ -1,67 +1,40 @@
 use chrono::{DateTime, Duration, Utc};
-use diesel::pg::PgConnection;
 use serde::Serialize;
 use svc_agent::mqtt::{
-    IncomingRequest, IntoPublishableDump, OutgoingEvent, OutgoingEventProperties, ResponseStatus,
-    ShortTermTimingProperties,
+    IncomingRequestProperties, IntoPublishableDump, OutgoingEvent, OutgoingEventProperties,
+    OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
 };
-use svc_agent::AgentId;
-use svc_error::Error as SvcError;
 
-use crate::app::{endpoint, API_VERSION};
-use crate::db::{agent, room};
+use crate::app::API_VERSION;
 
-pub(crate) fn respond<R, O: 'static + Clone + Serialize>(
-    inreq: &IncomingRequest<R>,
-    object: O,
-    notification: Option<(&'static str, &str)>,
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) fn build_response(
+    status: ResponseStatus,
+    payload: impl Serialize + Send + 'static,
+    reqp: &IncomingRequestProperties,
     start_timestamp: DateTime<Utc>,
-    authz_time: Duration,
-) -> endpoint::Result {
-    let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-    short_term_timing.set_authorization_time(authz_time);
+    maybe_authz_time: Option<Duration>,
+) -> Box<dyn IntoPublishableDump + Send> {
+    let mut timing = ShortTermTimingProperties::until_now(start_timestamp);
 
-    let resp = inreq.to_response(
-        object.clone(),
-        ResponseStatus::OK,
-        short_term_timing.clone(),
-        API_VERSION,
-    );
-
-    let mut messages: Vec<Box<dyn IntoPublishableDump>> = vec![Box::new(resp)];
-
-    if let Some((label, topic)) = notification {
-        let mut props = OutgoingEventProperties::new(label, short_term_timing);
-        props.set_tracking(inreq.properties().tracking().to_owned());
-        messages.push(Box::new(OutgoingEvent::broadcast(object, props, topic)));
+    if let Some(authz_time) = maybe_authz_time {
+        timing.set_authorization_time(authz_time);
     }
 
-    messages.into()
+    let props = reqp.to_response(status, timing);
+    Box::new(OutgoingResponse::unicast(payload, props, reqp, API_VERSION))
 }
 
-pub(crate) fn check_room_presence(
-    room: &room::Object,
-    agent_id: &AgentId,
-    conn: &PgConnection,
-) -> Result<(), SvcError> {
-    let results = agent::ListQuery::new()
-        .room_id(room.id())
-        .agent_id(agent_id)
-        .status(agent::Status::Ready)
-        .execute(conn)?;
-
-    if results.len() == 0 {
-        let err = SvcError::builder()
-            .status(ResponseStatus::NOT_FOUND)
-            .detail(&format!(
-                "agent = '{}' is not online in the room = '{}'",
-                agent_id,
-                room.id()
-            ))
-            .build();
-
-        Err(err)
-    } else {
-        Ok(())
-    }
+pub(crate) fn build_notification(
+    label: &'static str,
+    path: &str,
+    payload: impl Serialize + Send + 'static,
+    reqp: &IncomingRequestProperties,
+    start_timestamp: DateTime<Utc>,
+) -> Box<dyn IntoPublishableDump + Send> {
+    let timing = ShortTermTimingProperties::until_now(start_timestamp);
+    let mut props = OutgoingEventProperties::new(label, timing);
+    props.set_tracking(reqp.tracking().to_owned());
+    Box::new(OutgoingEvent::broadcast(payload, props, path))
 }

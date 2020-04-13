@@ -1,28 +1,32 @@
 use std::str::FromStr;
 
+use async_std::stream;
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
-use failure::{err_msg, format_err, Error};
-use log::{info, warn};
+use failure::{format_err, Error};
+use log::{error, info, warn};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::ops::Bound;
-use std::sync::Arc;
 use svc_agent::mqtt::{
     compat::{into_event, into_response, IncomingEnvelope},
     IncomingEventProperties, IncomingRequestProperties, IncomingResponseProperties,
-    IntoPublishableDump, OutgoingRequest, OutgoingRequestProperties, ResponseStatus,
-    ShortTermTimingProperties, SubscriptionTopic, TrackingProperties,
+    IntoPublishableDump, OutgoingRequest, OutgoingRequestProperties, OutgoingResponse,
+    ResponseStatus, ShortTermTimingProperties, SubscriptionTopic, TrackingProperties,
 };
 use svc_agent::{Addressable, AgentId, Subscription};
-use svc_error::Error as SvcError;
+use svc_error::{extension::sentry, Error as SvcError};
 use uuid::Uuid;
 
+use crate::app::context::Context;
 use crate::app::endpoint;
+use crate::app::handle_id::HandleId;
+use crate::app::message_handler::{MessageStream, SvcErrorSugar};
+use crate::app::API_VERSION;
 use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingEvent, IncomingResponse,
     MessageRequest, StatusEvent, TrickleRequest, JANUS_API_VERSION,
 };
-use crate::db::{janus_backend, janus_rtc_stream, recording, room, rtc, ConnectionPool};
+use crate::db::{janus_backend, janus_rtc_stream, recording, room, rtc};
 use crate::util::{from_base64, generate_correlation_data, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -202,7 +206,7 @@ where
     ))
 }
 
-////////////////////////////////////////////////////////////////////////////////
+// ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateStreamTransaction {
@@ -556,71 +560,78 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct State {
-    db: ConnectionPool,
-}
-
-impl State {
-    pub(crate) fn new(db: ConnectionPool) -> Self {
-        Self { db }
-    }
-}
-
-pub(crate) async fn handle_response<M>(
-    payload: Arc<Vec<u8>>,
-    janus: Arc<State>,
+pub(crate) async fn handle_response<C: Context>(
+    context: &C,
+    envelope: IncomingEnvelope,
+    respp: &IncomingResponseProperties,
     start_timestamp: DateTime<Utc>,
-    me: M,
-) -> Result<Vec<Box<dyn IntoPublishableDump>>, Error>
-where
-    M: Addressable,
-{
-    use endpoint::handle_error;
+) -> MessageStream {
+    handle_response_impl(context, envelope, respp, start_timestamp)
+        .await
+        .unwrap_or_else(|err| {
+            error!("Failed to handle a response from janus: {}", err);
+            sentry::send(err).unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+            Box::new(stream::empty())
+        })
+}
 
-    let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
-    let message = into_response::<IncomingResponse>(envelope)?;
+async fn handle_response_impl<C: Context>(
+    context: &C,
+    envelope: IncomingEnvelope,
+    respp: &IncomingResponseProperties,
+    start_timestamp: DateTime<Utc>,
+) -> Result<MessageStream, SvcError> {
+    let message = into_response::<IncomingResponse>(envelope)
+        .map_err(|err| format!("failed to parse response: {}", err))
+        .status(ResponseStatus::BAD_REQUEST)?;
+
     match message.payload() {
         IncomingResponse::Success(ref inresp) => {
-            match from_base64::<Transaction>(&inresp.transaction())? {
+            let txn = from_base64::<Transaction>(&inresp.transaction())
+                .map_err(|err| format!("failed to parse transaction: {}", err))
+                .status(ResponseStatus::BAD_REQUEST)?;
+
+            match txn {
                 // Session has been created
                 Transaction::CreateSession(_tn) => {
                     // Creating Handle
                     let backreq = create_handle_request(
-                        message.properties(),
+                        respp,
                         inresp.data().id(),
-                        &me,
+                        context.agent_id(),
                         start_timestamp,
-                    )?;
+                    )
+                    .map_err(|err| err.to_string())
+                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
-                    Ok(vec![Box::new(backreq) as Box<dyn IntoPublishableDump>])
+                    let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableDump + Send>;
+                    Ok(Box::new(stream::once(boxed_backreq)))
                 }
                 // Handle has been created
                 Transaction::CreateHandle(tn) => {
-                    let backend_id = message.properties().as_agent_id();
+                    let backend_id = respp.as_agent_id();
                     let handle_id = inresp.data().id();
+                    let conn = context.db().get()?;
 
-                    let conn = janus.db.get()?;
-                    let _ = janus_backend::UpdateQuery::new(backend_id, handle_id, tn.session_id)
+                    janus_backend::UpsertQuery::new(backend_id, handle_id, tn.session_id)
                         .execute(&conn)?;
 
-                    Ok(vec![])
+                    Ok(Box::new(stream::empty()))
                 }
                 // Rtc Handle has been created
                 Transaction::CreateRtcHandle(tn) => {
-                    let agent_id = message.properties().as_agent_id();
+                    let agent_id = respp.as_agent_id();
                     let reqp = tn.reqp;
 
                     // Returning Real-Time connection handle
                     let resp = endpoint::rtc::ConnectResponse::unicast(
-                        endpoint::rtc::ConnectResponseData::new(
-                            endpoint::rtc_signal::HandleId::new(
-                                tn.rtc_stream_id,
-                                tn.rtc_id,
-                                inresp.data().id(),
-                                tn.session_id,
-                                agent_id.clone(),
-                            ),
-                        ),
+                        endpoint::rtc::ConnectResponseData::new(HandleId::new(
+                            tn.rtc_stream_id,
+                            tn.rtc_id,
+                            inresp.data().id(),
+                            tn.session_id,
+                            agent_id.clone(),
+                        )),
                         reqp.to_response(
                             ResponseStatus::OK,
                             ShortTermTimingProperties::until_now(start_timestamp),
@@ -629,22 +640,31 @@ where
                         JANUS_API_VERSION,
                     );
 
-                    Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
+                    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableDump + Send>;
+                    Ok(Box::new(stream::once(boxed_resp)))
                 }
                 // An unsupported incoming Success message has been received
-                _ => Err(format_err!(
-                    "received an unexpected Success message: {:?}",
-                    inresp,
-                )),
+                _ => {
+                    let err = format!("received an unexpected Success message: {:?}", inresp);
+                    Err(err).status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                }
             }
         }
         IncomingResponse::Ack(ref inresp) => {
-            match from_base64::<Transaction>(&inresp.transaction())? {
+            let txn = from_base64::<Transaction>(&inresp.transaction())
+                .map_err(|err| format!("failed to parse transaction: {}", err))
+                .status(ResponseStatus::BAD_REQUEST)?;
+
+            match txn {
                 // Conference Stream is being created
-                Transaction::CreateStream(_tn) => Err(format_err!(
-                    "received an unexpected Ack message (stream.create): {:?}",
-                    inresp,
-                )),
+                Transaction::CreateStream(_tn) => {
+                    let err = format!(
+                        "received an unexpected Ack message (stream.create): {:?}",
+                        inresp,
+                    );
+
+                    Err(err).status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                }
                 // Trickle message has been received by Janus Gateway
                 Transaction::Trickle(tn) => {
                     let resp = endpoint::rtc_signal::CreateResponse::unicast(
@@ -657,141 +677,137 @@ where
                         JANUS_API_VERSION,
                     );
 
-                    Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
+                    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableDump + Send>;
+                    Ok(Box::new(stream::once(boxed_resp)))
                 }
                 // An unsupported incoming Ack message has been received
-                _ => Err(format_err!(
-                    "received an unexpected Ack message: {:?}",
-                    inresp,
-                )),
+                _ => {
+                    let err = format!("received an unexpected Ack message: {:?}", inresp);
+                    Err(err).status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                }
             }
         }
         IncomingResponse::Event(ref inresp) => {
-            match from_base64::<Transaction>(&inresp.transaction())? {
-                // Conference Stream has been created (an answer received)
-                Transaction::CreateStream(ref tn) => {
-                    // TODO: improve error handling
-                    let plugin_data = inresp.plugin().data();
-                    let next = plugin_data
-                        .get("status")
-                        .ok_or_else(|| {
-                            // We fail if response doesn't contain a status
-                            SvcError::builder()
-                                .status(ResponseStatus::FAILED_DEPENDENCY)
-                                .detail(&format!(
-                                    "missing 'status' in a response on method = '{}', transaction = '{}'",
-                                    tn.reqp.method(),
-                                    inresp.transaction()
-                                ))
-                                .build()
-                        })
-                        .and_then(|status| match status {
-                            // We fail if the status isn't equal to 200
-                            val if val == "200" => Ok(()),
-                            _ => Err(SvcError::builder()
-                                .status(ResponseStatus::FAILED_DEPENDENCY)
-                                .detail(&format!(
-                                    "error received on method = '{}', transaction = '{}'",
-                                    tn.reqp.method(),
-                                    inresp.transaction()
-                                ))
-                                .build()),
-                        })
-                        .and_then(|_| {
-                            // Getting answer (as JSEP)
-                            let jsep = inresp.jsep().ok_or_else(|| {
-                                SvcError::builder()
-                                    .status(ResponseStatus::FAILED_DEPENDENCY)
-                                    .detail(&format!(
-                                        "missing 'jsep' in a response on method = '{}', transaction = '{}'",
-                                        tn.reqp.method(),
-                                        inresp.transaction(),
-                                    ))
-                                    .build()
-                            })?;
+            let txn = from_base64::<Transaction>(&inresp.transaction())
+                .map_err(|err| format!("failed to parse transaction: {}", err))
+                .status(ResponseStatus::BAD_REQUEST)?;
 
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                                tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
-                                tn.reqp.as_agent_id(),
-                                JANUS_API_VERSION,
+            match txn {
+                // Conference Stream has been created (an answer received)
+                Transaction::CreateStream(ref tn) => inresp
+                    .plugin()
+                    .data()
+                    .get("status")
+                    .ok_or_else(|| {
+                        // We fail if response doesn't contain a status
+                        format!(
+                            "missing 'status' in a response on method = '{}', transaction = '{}'",
+                            tn.reqp.method(),
+                            inresp.transaction()
+                        )
+                    })
+                    .status(ResponseStatus::FAILED_DEPENDENCY)
+                    .and_then(|status| match status {
+                        // We fail if the status isn't equal to 200
+                        val if val == "200" => Ok(()),
+                        status => {
+                            let err = format!(
+                                "error received on method = '{}', transaction = '{}', status = '{}'",
+                                tn.reqp.method(),
+                                inresp.transaction(),
+                                status,
                             );
 
-                            Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
-                        });
+                            Err(err).status(ResponseStatus::FAILED_DEPENDENCY)
+                        }
+                    })
+                    .and_then(|_| {
+                        // Getting answer (as JSEP)
+                        let jsep = inresp
+                            .jsep()
+                            .ok_or_else(|| format!(
+                                "missing 'jsep' in a response on method = '{}', transaction = '{}'",
+                                tn.reqp.method(),
+                                inresp.transaction(),
+                            ))
+                            .status(ResponseStatus::FAILED_DEPENDENCY)?;
 
-                    next.or_else(|err| {
-                        handle_error(
-                            "error:janus_stream.create",
+                        let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                            endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                            tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
+                            tn.reqp.as_agent_id(),
+                            JANUS_API_VERSION,
+                        );
+
+                        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableDump + Send>;
+                        Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                    })
+                    .or_else(|err| {
+                        Ok(handle_response_error(
+                            "janus_stream.create",
                             "Error creating a Janus Conference Stream",
                             &tn.reqp,
                             err,
                             start_timestamp,
+                        ))
+                    }),
+                // Conference Stream has been read (an answer received)
+                Transaction::ReadStream(ref tn) => inresp
+                    .plugin()
+                    .data()
+                    .get("status")
+                    .ok_or_else(|| {
+                        // We fail if response doesn't contain a status
+                        format!(
+                            "missing 'status' in a response on method = '{}', transaction = '{}'",
+                            tn.reqp.method(),
+                            inresp.transaction()
                         )
                     })
-                }
-                // Conference Stream has been read (an answer received)
-                Transaction::ReadStream(ref tn) => {
-                    // TODO: improve error handling
-                    let plugin_data = inresp.plugin().data();
-                    let next = plugin_data
-                        .get("status")
-                        .ok_or_else(|| {
-                            // We fail if response doesn't contain a status
-                            SvcError::builder()
-                                .status(ResponseStatus::FAILED_DEPENDENCY)
-                                .detail(&format!(
-                                    "missing 'status' in a response on method = '{}', transaction = '{}'",
-                                    tn.reqp.method(),
-                                    inresp.transaction()
-                                ))
-                                .build()
-                        })
-                        // We fail if the status isn't equal to 200
-                        .and_then(|status| match status {
-                            val if val == "200" => Ok(()),
-                            _ => Err(SvcError::builder()
-                                .status(ResponseStatus::FAILED_DEPENDENCY)
-                                .detail(&format!(
-                                    "error received on method = '{}', transaction = '{}'",
-                                    tn.reqp.method(),
-                                    inresp.transaction()
-                                ))
-                                .build()),
-                        })
-                        .and_then(|_| {
-                            // Getting answer (as JSEP)
-                            let jsep = inresp.jsep().ok_or_else(|| {
-                                SvcError::builder()
-                                    .status(ResponseStatus::FAILED_DEPENDENCY)
-                                    .detail(&format!(
-                                        "missing 'jsep' in a response on method = '{}', transaction = '{}'",
-                                        tn.reqp.method(),
-                                        inresp.transaction(),
-                                    ))
-                                    .build()
-                            })?;
-
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                                tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
-                                tn.reqp.as_agent_id(),
-                                JANUS_API_VERSION,
+                    .status(ResponseStatus::FAILED_DEPENDENCY)
+                    // We fail if the status isn't equal to 200
+                    .and_then(|status| match status {
+                        val if val == "200" => Ok(()),
+                        _ => {
+                            let err = format!(
+                                "error received on method = '{}', transaction = '{}'",
+                                tn.reqp.method(),
+                                inresp.transaction()
                             );
 
-                            Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
-                        });
+                            Err(err).status(ResponseStatus::FAILED_DEPENDENCY)
+                        }
+                    })
+                    .and_then(|_| {
+                        // Getting answer (as JSEP)
+                        let jsep = inresp
+                            .jsep()
+                            .ok_or_else(|| format!(
+                                "missing 'jsep' in a response on method = '{}', transaction = '{}'",
+                                tn.reqp.method(),
+                                inresp.transaction()
+                            ))
+                            .status(ResponseStatus::FAILED_DEPENDENCY)?;
 
-                    next.or_else(|err| {
-                        handle_error(
-                            "error:janus_stream.read",
+                        let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                            endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                            tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
+                            tn.reqp.as_agent_id(),
+                            JANUS_API_VERSION,
+                        );
+
+                        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableDump + Send>;
+                        Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                    })
+                    .or_else(|err| {
+                        Ok(handle_response_error(
+                            "janus_stream.read",
                             "Error reading a Janus Conference Stream",
                             &tn.reqp,
                             err,
                             start_timestamp,
-                        )
-                    })
-                }
+                        ))
+                    }),
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
                 Transaction::UploadStream(ref tn) => {
                     // TODO: improve error handling
@@ -801,62 +817,69 @@ where
                         .get("status")
                         .ok_or_else(|| {
                             // We fail if response doesn't contain a status
-                            format_err!(
+                            format!(
                                 "missing 'status' in a response on method = '{}', transaction = '{}'",
                                 tn.method(),
                                 inresp.transaction(),
                             )
                         })
+                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                         // We fail if the status isn't equal to 200
                         .and_then(|status| match status {
                             val if val == "200" => Ok(()),
                             val if val == "404" => {
-                                let conn = janus.db.get()?;
+                                let conn = context.db().get()?;
 
                                 recording::InsertQuery::new(tn.rtc_id, recording::Status::Missing)
                                     .execute(&conn)?;
 
-                                Err(format_err!(
+                                let err = format!(
                                     "janus is missing recording for rtc = '{}', method = '{}', transaction = '{}'",
                                     tn.rtc_id,
                                     tn.method(),
                                     inresp.transaction(),
-                                ))
+                                );
+
+                                Err(err).status(ResponseStatus::UNPROCESSABLE_ENTITY)
                             }
-                            _ => Err(format_err!(
-                                "error with status code = '{}' received in a response on method = '{}', transaction = '{}'",
-                                status,
-                                tn.method(),
-                                inresp.transaction(),
-                            ))
+                            _ => {
+                                let err = format!(
+                                    "error with status code = '{}' received in a response on method = '{}', transaction = '{}'",
+                                    status,
+                                    tn.method(),
+                                    inresp.transaction(),
+                                );
+
+                                Err(err).status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                            }
                         })
                         .and_then(|_| {
                             let rtc_id = plugin_data
                                 .get("id")
-                                .ok_or_else(|| {
-                                    format_err!(
-                                        "Missing 'id' in response on method = '{}', transaction = '{}'",
-                                        tn.method(),
-                                        inresp.transaction()
-                                    )
-                                })
+                                .ok_or_else(|| format!(
+                                    "Missing 'id' in response on method = '{}', transaction = '{}'",
+                                    tn.method(),
+                                    inresp.transaction()
+                                ))
+                                .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                                 .and_then(|val| {
                                     serde_json::from_value::<Uuid>(val.clone())
-                                        .map_err(|_| err_msg("invalid value for 'id'"))
+                                        .map_err(|_| String::from("invalid value for 'id'"))
+                                        .status(ResponseStatus::BAD_REQUEST)
                                 })?;
 
                             let started_at = plugin_data
                                 .get("started_at")
-                                .ok_or_else(|| {
-                                    format_err!(
-                                        "Missing 'started_at' in response on method = '{}', transaction = '{}'",
-                                        tn.method(),
-                                        inresp.transaction()
-                                    )
-                                })
+                                .ok_or_else(|| format!(
+                                    "Missing 'started_at' in response on method = '{}', transaction = '{}'",
+                                    tn.method(),
+                                    inresp.transaction()
+                                ))
+                                .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                                 .and_then(|val| {
                                     let unix_ts = serde_json::from_value::<u64>(val.clone())
-                                        .map_err(|_| err_msg("invalid value for 'started_at'"))?;
+                                        .map_err(|_| String::from("invalid value for 'started_at'"))
+                                        .status(ResponseStatus::BAD_REQUEST)?;
 
                                     let naive_datetime = NaiveDateTime::from_timestamp(
                                         unix_ts as i64 / 1000,
@@ -868,16 +891,16 @@ where
 
                             let segments = plugin_data
                                 .get("time")
-                                .ok_or_else(|| {
-                                    format_err!(
-                                        "missing 'time' in a response on method = '{}', transaction = '{}'",
-                                        tn.method(),
-                                        inresp.transaction(),
-                                    )
-                                })
+                                .ok_or_else(|| format!(
+                                    "missing 'time' in a response on method = '{}', transaction = '{}'",
+                                    tn.method(),
+                                    inresp.transaction(),
+                                ))
+                                .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                                 .and_then(|segments| {
                                     Ok(serde_json::from_value::<Vec<(i64, i64)>>(segments.clone())
-                                        .map_err(|_| err_msg("invalid value for 'time'"))?
+                                        .map_err(|_| "invalid value for 'time'")
+                                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
                                         .into_iter()
                                         .map(|(start, end)| {
                                             (Bound::Included(start), Bound::Excluded(end))
@@ -886,7 +909,7 @@ where
                                 })?;
 
                             let (room, rtcs, recs) = {
-                                let conn = janus.db.get()?;
+                                let conn = context.db().get()?;
 
                                 recording::InsertQuery::new(rtc_id, recording::Status::Ready)
                                     .started_at(started_at)
@@ -896,26 +919,24 @@ where
                                 let rtc = rtc::FindQuery::new()
                                     .id(rtc_id)
                                     .execute(&conn)?
-                                    .ok_or_else(|| {
-                                        format_err!(
-                                            "the rtc = '{}' is not found on method = '{}', transaction = '{}'",
-                                            rtc_id,
-                                            tn.method(),
-                                            inresp.transaction(),
-                                        )
-                                    })?;
+                                    .ok_or_else(|| format!(
+                                        "the rtc = '{}' is not found on method = '{}', transaction = '{}'",
+                                        rtc_id,
+                                        tn.method(),
+                                        inresp.transaction(),
+                                    ))
+                                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
                                 let room = room::FindQuery::new()
                                     .id(rtc.room_id())
                                     .execute(&conn)?
-                                    .ok_or_else(|| {
-                                        format_err!(
-                                            "the room = '{}' is not found on method = '{}', transaction = '{}'",
-                                            rtc.room_id(),
-                                            tn.method(),
-                                            inresp.transaction(),
-                                        )
-                                    })?;
+                                    .ok_or_else(|| format!(
+                                        "the room = '{}' is not found on method = '{}', transaction = '{}'",
+                                        rtc.room_id(),
+                                        tn.method(),
+                                        inresp.transaction(),
+                                    ))
+                                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
                                 // TODO: move to db module
                                 use diesel::prelude::*;
@@ -948,12 +969,13 @@ where
                                         &room,
                                         rtcs_and_recordings.into_iter(),
                                         start_timestamp,
-                                        message.properties().tracking(),
-                                    ).map_err(|e| {
-                                        format_err!("error creating a system event, {}", e)
-                                    })?;
+                                        respp.tracking(),
+                                    )
+                                    .map_err(|e| format!("error creating a system event, {}", e))
+                                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
-                                    Ok(vec![Box::new(event) as Box<dyn IntoPublishableDump>])
+                                    let event_box = Box::new(event) as Box<dyn IntoPublishableDump + Send>;
+                                    Ok(Box::new(stream::once(event_box)) as MessageStream)
                                 }
                                 None => {
                                     // Waiting for all the room's rtc being uploaded
@@ -962,41 +984,93 @@ where
                                         room.id(),
                                     );
 
-                                    Ok(vec![])
+                                    Ok(Box::new(stream::empty()) as MessageStream)
                                 }
                             }
                         })
                 }
                 // An unsupported incoming Event message has been received
-                _ => Err(format_err!(
-                    "received an unexpected Event message: {:?}",
-                    inresp,
-                )),
+                _ => {
+                    let err = format!("received an unexpected Event message: {:?}", inresp);
+                    Err(err).status(ResponseStatus::BAD_REQUEST)
+                }
             }
         }
-        IncomingResponse::Error(ErrorResponse::Session(ref inresp)) => Err(format_err!(
-            "received an unexpected Error message (session): {:?}",
-            inresp,
-        )),
-        IncomingResponse::Error(ErrorResponse::Handle(ref inresp)) => Err(format_err!(
-            "received an unexpected Error message (handle): {:?}",
-            inresp,
-        )),
+        IncomingResponse::Error(ErrorResponse::Session(ref inresp)) => {
+            let err = format!(
+                "received an unexpected Error message (session): {:?}",
+                inresp
+            );
+            Err(err).status(ResponseStatus::BAD_REQUEST)
+        }
+        IncomingResponse::Error(ErrorResponse::Handle(ref inresp)) => {
+            let err = format!(
+                "received an unexpected Error message (handle): {:?}",
+                inresp
+            );
+            Err(err).status(ResponseStatus::BAD_REQUEST)
+        }
     }
 }
 
-pub(crate) async fn handle_event(
-    payload: Arc<Vec<u8>>,
-    janus: Arc<State>,
+fn handle_response_error(
+    kind: &str,
+    title: &str,
+    reqp: &IncomingRequestProperties,
+    mut err: SvcError,
     start_timestamp: DateTime<Utc>,
-) -> Result<Vec<Box<dyn IntoPublishableDump>>, Error> {
-    let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
+) -> MessageStream {
+    err.set_kind(kind, title);
+    let status = err.status_code();
+
+    error!(
+        "Failed to handle a response from janus, kind = '{}': {}",
+        kind, err
+    );
+
+    sentry::send(err.clone()).unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+
+    let timing = ShortTermTimingProperties::until_now(start_timestamp);
+    let resp = OutgoingResponse::unicast(err, reqp.to_response(status, timing), reqp, API_VERSION);
+    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableDump + Send>;
+    Box::new(stream::once(boxed_resp))
+}
+
+pub(crate) async fn handle_event<C: Context>(
+    context: &C,
+    envelope: IncomingEnvelope,
+    evp: &IncomingEventProperties,
+    start_timestamp: DateTime<Utc>,
+) -> MessageStream {
+    handle_event_impl(context, envelope, evp, start_timestamp)
+        .await
+        .unwrap_or_else(|err| {
+            error!(
+                "Failed to handle an event from janus, label = '{}': {}",
+                evp.label().unwrap_or("none"),
+                err,
+            );
+
+            sentry::send(err).unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+            Box::new(stream::empty())
+        })
+}
+
+async fn handle_event_impl<C: Context>(
+    context: &C,
+    envelope: IncomingEnvelope,
+    evp: &IncomingEventProperties,
+    start_timestamp: DateTime<Utc>,
+) -> Result<MessageStream, SvcError> {
     let message = into_event::<IncomingEvent>(envelope)?;
 
     match message.payload() {
         IncomingEvent::WebRtcUp(ref inev) => {
-            let rtc_stream_id = Uuid::from_str(inev.opaque_id())?;
-            let conn = janus.db.get()?;
+            let rtc_stream_id = Uuid::from_str(inev.opaque_id())
+                .map_err(|err| format!("Failed to parse opaque id as uuid: {}", err))
+                .status(ResponseStatus::BAD_REQUEST)?;
+
+            let conn = context.db().get()?;
 
             // If the event relates to a publisher's handle,
             // we will find the corresponding stream and send event w/ updated stream object
@@ -1008,23 +1082,29 @@ pub(crate) async fn handle_event(
                     .time(room::now())
                     .rtc_id(rtc_id)
                     .execute(&conn)?
-                    .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
+                    .ok_or_else(|| format!("a room for rtc = '{}' is not found", &rtc_id))
+                    .status(ResponseStatus::NOT_FOUND)?;
 
                 let event = endpoint::rtc_stream::update_event(
                     room.id(),
                     rtc_stream,
                     start_timestamp,
-                    message.properties().tracking(),
+                    evp.tracking(),
                 )?;
 
-                Ok(vec![Box::new(event) as Box<dyn IntoPublishableDump>])
+                Ok(Box::new(stream::once(
+                    Box::new(event) as Box<dyn IntoPublishableDump + Send>
+                )))
             } else {
-                Ok(vec![])
+                Ok(Box::new(stream::empty()))
             }
         }
         IncomingEvent::Detached(ref inev) => {
-            let rtc_stream_id = Uuid::from_str(inev.opaque_id())?;
-            let conn = janus.db.get()?;
+            let rtc_stream_id = Uuid::from_str(inev.opaque_id())
+                .map_err(|err| format!("Failed to parse opaque id as uuid: {}", err))
+                .status(ResponseStatus::BAD_REQUEST)?;
+
+            let conn = context.db().get()?;
 
             // If the event relates to a publisher's handle,
             // we will find the corresponding stream and send event w/ updated stream object
@@ -1036,7 +1116,8 @@ pub(crate) async fn handle_event(
                     .time(room::now())
                     .rtc_id(rtc_id)
                     .execute(&conn)?
-                    .ok_or_else(|| format_err!("a room for rtc = '{}' is not found", &rtc_id))?;
+                    .ok_or_else(|| format!("a room for rtc = '{}' is not found", &rtc_id))
+                    .status(ResponseStatus::NOT_FOUND)?;
 
                 // Publish the update event if only stream object has been changed
                 // (if there weren't any actual media stream, the object won't contain its start time)
@@ -1045,44 +1126,64 @@ pub(crate) async fn handle_event(
                         room.id(),
                         rtc_stream,
                         start_timestamp,
-                        message.properties().tracking(),
+                        evp.tracking(),
                     )?;
 
-                    return Ok(vec![Box::new(event) as Box<dyn IntoPublishableDump>]);
+                    let boxed_event = Box::new(event) as Box<dyn IntoPublishableDump + Send>;
+                    return Ok(Box::new(stream::once(boxed_event)));
                 }
             }
 
-            Ok(vec![])
+            Ok(Box::new(stream::empty()))
         }
         IncomingEvent::HangUp(_)
         | IncomingEvent::Media(_)
         | IncomingEvent::Timeout(_)
         | IncomingEvent::SlowLink(_) => {
             // Ignore these kinds of events.
-            Ok(vec![])
+            Ok(Box::new(stream::empty()))
         }
     }
 }
 
-pub(crate) async fn handle_status<M>(
-    payload: Arc<Vec<u8>>,
-    janus: Arc<State>,
+pub(crate) async fn handle_status_event<C: Context>(
+    context: &C,
+    envelope: IncomingEnvelope,
+    evp: &IncomingEventProperties,
     start_timestamp: DateTime<Utc>,
-    me: M,
-) -> Result<Vec<Box<dyn IntoPublishableDump>>, Error>
-where
-    M: Addressable,
-{
-    let envelope = serde_json::from_slice::<IncomingEnvelope>(payload.as_slice())?;
+) -> MessageStream {
+    handle_status_event_impl(context, envelope, evp, start_timestamp)
+        .await
+        .unwrap_or_else(|err| {
+            error!(
+                "Failed to handle a status event from janus, label = '{}': {}",
+                evp.label().unwrap_or("none"),
+                err,
+            );
+
+            sentry::send(err).unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+            Box::new(stream::empty())
+        })
+}
+
+async fn handle_status_event_impl<C: Context>(
+    context: &C,
+    envelope: IncomingEnvelope,
+    evp: &IncomingEventProperties,
+    start_timestamp: DateTime<Utc>,
+) -> Result<MessageStream, SvcError> {
     let inev = into_event::<StatusEvent>(envelope)?;
 
-    if let true = inev.payload().online() {
-        let event = create_session_request(inev.properties(), &me, start_timestamp)?;
-        Ok(vec![Box::new(event) as Box<dyn IntoPublishableDump>])
+    if inev.payload().online() {
+        let event = create_session_request(evp, context.agent_id(), start_timestamp)
+            .map_err(|err| err.to_string())
+            .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+
+        let boxed_event = Box::new(event) as Box<dyn IntoPublishableDump + Send>;
+        Ok(Box::new(stream::once(boxed_event)))
     } else {
-        let conn = janus.db.get()?;
-        let agent_id = inev.properties().as_agent_id();
-        let _ = janus_backend::DeleteQuery::new(agent_id).execute(&conn)?;
-        Ok(vec![])
+        let conn = context.db().get()?;
+        janus_backend::DeleteQuery::new(evp.as_agent_id()).execute(&conn)?;
+        Ok(Box::new(stream::empty()))
     }
 }

@@ -1,59 +1,27 @@
+use async_std::stream;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::{
-    mqtt::{IncomingRequest, OutgoingResponse, ResponseStatus, ShortTermTimingProperties},
-    AgentId,
+use svc_agent::mqtt::{
+    IncomingRequestProperties, IntoPublishableDump, OutgoingResponse, ResponseStatus,
 };
-use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::endpoint::shared;
-use crate::app::{endpoint, API_VERSION};
-use crate::db::{janus_backend, janus_rtc_stream, room, rtc, ConnectionPool};
+use crate::app::context::Context;
+use crate::app::endpoint::prelude::*;
+use crate::app::handle_id::HandleId;
+use crate::app::janus;
+use crate::db;
 
 ////////////////////////////////////////////////////////////////////////////////
-
-const MAX_LIMIT: i64 = 25;
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub(crate) type CreateRequest = IncomingRequest<CreateRequestData>;
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct CreateRequestData {
-    room_id: Uuid,
-}
-
-pub(crate) type ReadRequest = IncomingRequest<ReadRequestData>;
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct ReadRequestData {
-    id: Uuid,
-}
-
-pub(crate) type ListRequest = IncomingRequest<ListRequestData>;
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct ListRequestData {
-    room_id: Uuid,
-    offset: Option<i64>,
-    limit: Option<i64>,
-}
-
-pub(crate) type ConnectRequest = IncomingRequest<ConnectRequestData>;
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct ConnectRequestData {
-    id: Uuid,
-}
 
 #[derive(Debug, Serialize)]
 pub(crate) struct ConnectResponseData {
-    handle_id: super::rtc_signal::HandleId,
+    handle_id: HandleId,
 }
 
 impl ConnectResponseData {
-    pub(crate) fn new(handle_id: super::rtc_signal::HandleId) -> Self {
+    pub(crate) fn new(handle_id: HandleId) -> Self {
         Self { handle_id }
     }
 }
@@ -62,798 +30,787 @@ pub(crate) type ConnectResponse = OutgoingResponse<ConnectResponseData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct State {
-    authz: svc_authz::ClientMap,
-    db: ConnectionPool,
-    agent_id: AgentId,
+#[derive(Debug, Deserialize)]
+pub(crate) struct CreateRequest {
+    room_id: Uuid,
 }
 
-impl State {
-    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool, agent_id: AgentId) -> Self {
-        Self {
-            authz,
-            db,
-            agent_id,
-        }
+pub(crate) struct CreateHandler;
+
+#[async_trait]
+impl RequestHandler for CreateHandler {
+    type Payload = CreateRequest;
+    const ERROR_TITLE: &'static str = "Failed to create rtc";
+
+    async fn handle<C: Context>(
+        context: &C,
+        payload: Self::Payload,
+        reqp: &IncomingRequestProperties,
+        start_timestamp: DateTime<Utc>,
+    ) -> Result {
+        let conn = context.db().get()?;
+
+        let room = db::room::FindQuery::new()
+            .time(db::room::now())
+            .id(payload.room_id)
+            .execute(&conn)?
+            .ok_or_else(|| format!("the room = '{}' is not found", payload.room_id))
+            .status(ResponseStatus::NOT_FOUND)?;
+
+        // Authorize room creation.
+        let room_id = room.id().to_string();
+        let object = vec!["rooms", &room_id, "rtcs"];
+
+        let authz_time = context
+            .authz()
+            .authorize(room.audience(), reqp, object, "create")
+            .await?;
+
+        // Create an rtc.
+        let rtc = db::rtc::InsertQuery::new(room.id()).execute(&conn)?;
+
+        // Respond and broadcast to the room topic.
+        let response = shared::build_response(
+            ResponseStatus::CREATED,
+            rtc.clone(),
+            reqp,
+            start_timestamp,
+            Some(authz_time),
+        );
+
+        let notification = shared::build_notification(
+            "room.create",
+            &format!("rooms/{}/events", room.id()),
+            rtc,
+            reqp,
+            start_timestamp,
+        );
+
+        Ok(Box::new(stream::from_iter(vec![response, notification])))
     }
 }
 
-impl State {
-    pub(crate) async fn create(
-        &self,
-        inreq: CreateRequest,
-        start_timestamp: DateTime<Utc>,
-    ) -> endpoint::Result {
-        let room_id = inreq.payload().room_id;
+////////////////////////////////////////////////////////////////////////////////
 
-        // Authorization: room's owner has to allow the action
+#[derive(Debug, Deserialize)]
+pub(crate) struct ReadRequest {
+    id: Uuid,
+}
+
+pub(crate) struct ReadHandler;
+
+#[async_trait]
+impl RequestHandler for ReadHandler {
+    type Payload = ReadRequest;
+    const ERROR_TITLE: &'static str = "Failed to read rtc";
+
+    async fn handle<C: Context>(
+        context: &C,
+        payload: Self::Payload,
+        reqp: &IncomingRequestProperties,
+        start_timestamp: DateTime<Utc>,
+    ) -> Result {
+        let conn = context.db().get()?;
+
+        // Authorize rtc reading.
         let authz_time = {
-            let conn = self.db.get()?;
-            let room = room::FindQuery::new()
-                .time(room::now())
-                .id(room_id)
+            let room = db::room::FindQuery::new()
+                .time(db::room::now())
+                .rtc_id(payload.id)
                 .execute(&conn)?
-                .ok_or_else(|| {
-                    SvcError::builder()
-                        .status(ResponseStatus::NOT_FOUND)
-                        .detail(&format!("the room = '{}' is not found", &room_id))
-                        .build()
-                })?;
+                .ok_or_else(|| format!("a room for the rtc = '{}' is not found", payload.id))
+                .status(ResponseStatus::NOT_FOUND)?;
+
+            let rtc_id = payload.id.to_string();
+            let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+
+            context
+                .authz()
+                .authorize(room.audience(), reqp, object, "read")
+                .await?
+        };
+
+        // Return rtc.
+        let rtc = db::rtc::FindQuery::new()
+            .id(payload.id)
+            .execute(&conn)?
+            .ok_or_else(|| format!("RTC not found, id = '{}'", payload.id))
+            .status(ResponseStatus::NOT_FOUND)?;
+
+        Ok(Box::new(stream::once(shared::build_response(
+            ResponseStatus::OK,
+            rtc,
+            reqp,
+            start_timestamp,
+            Some(authz_time),
+        ))))
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+const MAX_LIMIT: i64 = 25;
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ListRequest {
+    room_id: Uuid,
+    offset: Option<i64>,
+    limit: Option<i64>,
+}
+
+pub(crate) struct ListHandler;
+
+#[async_trait]
+impl RequestHandler for ListHandler {
+    type Payload = ListRequest;
+    const ERROR_TITLE: &'static str = "Failed to list rtcs";
+
+    async fn handle<C: Context>(
+        context: &C,
+        payload: Self::Payload,
+        reqp: &IncomingRequestProperties,
+        start_timestamp: DateTime<Utc>,
+    ) -> Result {
+        let conn = context.db().get()?;
+
+        // Authorize rtc listing.
+        let authz_time = {
+            let room = db::room::FindQuery::new()
+                .time(db::room::now())
+                .id(payload.room_id)
+                .execute(&conn)?
+                .ok_or_else(|| format!("the room = '{}' is not found", payload.room_id))
+                .status(ResponseStatus::NOT_FOUND)?;
 
             let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs"];
 
-            self.authz
-                .authorize(
-                    room.audience(),
-                    inreq.properties(),
-                    vec!["rooms", &room_id, "rtcs"],
-                    "create",
-                )
-                .await
-                .map_err(|err| SvcError::from(err))?
+            context
+                .authz()
+                .authorize(room.audience(), reqp, object, "list")
+                .await?
         };
 
-        // Creating a Real-Time Connection
-        let object = {
-            let conn = self.db.get()?;
-            rtc::InsertQuery::new(room_id).execute(&conn)?
-        };
+        // Return rtc list.
+        let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
 
-        shared::respond(
-            &inreq,
-            object,
-            Some(("rtc.create", &format!("rooms/{}/events", room_id))),
+        if let Some(offset) = payload.offset {
+            query = query.offset(offset);
+        }
+
+        let limit = std::cmp::min(payload.limit.unwrap_or_else(|| MAX_LIMIT), MAX_LIMIT);
+        query = query.limit(limit);
+
+        let rtcs = query.execute(&conn)?;
+
+        Ok(Box::new(stream::once(shared::build_response(
+            ResponseStatus::OK,
+            rtcs,
+            reqp,
             start_timestamp,
-            authz_time,
-        )
+            Some(authz_time),
+        ))))
     }
+}
 
-    pub(crate) async fn connect(
-        &self,
-        inreq: ConnectRequest,
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ConnectRequest {
+    id: Uuid,
+}
+
+pub(crate) struct ConnectHandler;
+
+#[async_trait]
+impl RequestHandler for ConnectHandler {
+    type Payload = ConnectRequest;
+    const ERROR_TITLE: &'static str = "Failed to connect to rtc";
+
+    async fn handle<C: Context>(
+        context: &C,
+        payload: Self::Payload,
+        reqp: &IncomingRequestProperties,
         start_timestamp: DateTime<Utc>,
-    ) -> endpoint::Result {
-        let id = inreq.payload().id;
+    ) -> Result {
+        let conn = context.db().get()?;
 
-        // Authorization
+        // Authorize connecting to the rtc.
         let authz_time = {
-            let conn = self.db.get()?;
-            let room = room::FindQuery::new()
-                .time(room::now())
-                .rtc_id(id)
+            let room = db::room::FindQuery::new()
+                .time(db::room::now())
+                .rtc_id(payload.id)
                 .execute(&conn)?
-                .ok_or_else(|| {
-                    SvcError::builder()
-                        .status(ResponseStatus::NOT_FOUND)
-                        .detail(&format!("a room for the rtc = '{}' is not found", &id))
-                        .build()
-                })?;
+                .ok_or_else(|| format!("a room for the rtc = '{}' is not found", payload.id))
+                .status(ResponseStatus::NOT_FOUND)?;
 
-            if room.backend() != &room::RoomBackend::Janus {
-                return SvcError::builder()
-                    .status(ResponseStatus::NOT_IMPLEMENTED)
-                    .detail(&format!(
-                        "'rtc.connect' is not implemented for the backend = '{}'.",
-                        room.backend()
-                    ))
-                    .build()
-                    .into();
+            if room.backend() != db::room::RoomBackend::Janus {
+                return Err(format!(
+                    "'rtc.connect' is not implemented for the backend = '{}'.",
+                    room.backend(),
+                ))
+                .status(ResponseStatus::NOT_IMPLEMENTED);
             }
 
-            let rtc_id = id.to_string();
+            let rtc_id = payload.id.to_string();
             let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
 
-            self.authz
-                .authorize(
-                    room.audience(),
-                    inreq.properties(),
-                    vec!["rooms", &room_id, "rtcs", &rtc_id],
-                    "read",
-                )
-                .await
-                .map_err(|err| SvcError::from(err))?
+            context
+                .authz()
+                .authorize(room.audience(), reqp, object, "read")
+                .await?
         };
 
         let backend = {
-            let conn = self.db.get()?;
-
             // If there is an active stream choose its backend since Janus doesn't support
             // clustering so all agents within one rtc must be sent to the same node. If there's no
             // active stream it means we're connecting as publisher and going to create it.
             // Then select the least loaded node: the one with the least active rtc streams count.
-            match janus_rtc_stream::FindQuery::new()
-                .rtc_id(id)
-                .execute(&conn)?
-            {
-                Some(ref stream) => janus_backend::FindQuery::new()
+            let maybe_rtc_stream = db::janus_rtc_stream::FindQuery::new()
+                .rtc_id(payload.id)
+                .execute(&conn)?;
+
+            match maybe_rtc_stream {
+                Some(ref stream) => db::janus_backend::FindQuery::new()
                     .id(stream.backend_id().to_owned())
                     .execute(&conn)?
-                    .ok_or_else(|| {
-                        SvcError::builder()
-                            .status(ResponseStatus::UNPROCESSABLE_ENTITY)
-                            .detail("no backend found for stream")
-                            .build()
-                    })?,
-                None => janus_backend::least_loaded(&conn)?.ok_or_else(|| {
-                    SvcError::builder()
-                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)
-                        .detail("no available backends")
-                        .build()
-                })?,
+                    .ok_or("no backend found for stream")
+                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?,
+                None => db::janus_backend::least_loaded(&conn)?
+                    .ok_or("no available backends")
+                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?,
             }
         };
 
-        // Building a Create Janus Gateway Handle request
-        crate::app::janus::create_rtc_handle_request(
-            inreq.properties().clone(),
+        // Send janus handle creation request.
+        let janus_request_result = janus::create_rtc_handle_request(
+            reqp.clone(),
             Uuid::new_v4(),
-            id,
+            payload.id,
             backend.session_id(),
             backend.id(),
-            &self.agent_id,
+            context.agent_id(),
             start_timestamp,
             authz_time,
-        )
-        .map_err(|_| {
-            SvcError::builder()
-                .status(ResponseStatus::UNPROCESSABLE_ENTITY)
-                .detail("error creating a backend request")
-                .build()
-        })?
-        .into()
-    }
+        );
 
-    pub(crate) async fn read(
-        &self,
-        inreq: ReadRequest,
-        start_timestamp: DateTime<Utc>,
-    ) -> endpoint::Result {
-        let id = inreq.payload().id;
-
-        // Authorization
-        let authz_time = {
-            let conn = self.db.get()?;
-            let room = room::FindQuery::new()
-                .time(room::now())
-                .rtc_id(id)
-                .execute(&conn)?
-                .ok_or_else(|| {
-                    SvcError::builder()
-                        .status(ResponseStatus::NOT_FOUND)
-                        .detail(&format!("a room for the rtc = '{}' is not found", &id))
-                        .build()
-                })?;
-
-            let rtc_id = id.to_string();
-            let room_id = room.id().to_string();
-
-            self.authz
-                .authorize(
-                    room.audience(),
-                    inreq.properties(),
-                    vec!["rooms", &room_id, "rtcs", &rtc_id],
-                    "read",
-                )
-                .await
-                .map_err(|err| SvcError::from(err))?
-        };
-
-        // Returning Real-Time connection
-        let object = {
-            let conn = self.db.get()?;
-            rtc::FindQuery::new()
-                .id(id)
-                .execute(&conn)?
-                .ok_or_else(|| {
-                    SvcError::builder()
-                        .status(ResponseStatus::NOT_FOUND)
-                        .detail(&format!("the rtc = '{}' is not found", &id))
-                        .build()
-                })?
-        };
-
-        let mut timing = ShortTermTimingProperties::until_now(start_timestamp);
-        timing.set_authorization_time(authz_time);
-        inreq
-            .to_response(object, ResponseStatus::OK, timing, API_VERSION)
-            .into()
-    }
-
-    pub(crate) async fn list(
-        &self,
-        inreq: ListRequest,
-        start_timestamp: DateTime<Utc>,
-    ) -> endpoint::Result {
-        let room_id = inreq.payload().room_id;
-
-        // Authorization: room's owner has to allow the action
-        let authz_time = {
-            let conn = self.db.get()?;
-            let room = room::FindQuery::new()
-                .time(room::now())
-                .id(room_id)
-                .execute(&conn)?
-                .ok_or_else(|| {
-                    SvcError::builder()
-                        .status(ResponseStatus::NOT_FOUND)
-                        .detail(&format!("the room = '{}' is not found", &room_id))
-                        .build()
-                })?;
-
-            let room_id = room.id().to_string();
-
-            self.authz
-                .authorize(
-                    room.audience(),
-                    inreq.properties(),
-                    vec!["rooms", &room_id, "rtcs"],
-                    "list",
-                )
-                .await
-                .map_err(|err| SvcError::from(err))?
-        };
-
-        // Looking up for Real-Time Connections
-        let objects = {
-            let conn = self.db.get()?;
-            rtc::ListQuery::from((
-                Some(room_id),
-                inreq.payload().offset,
-                Some(std::cmp::min(
-                    inreq.payload().limit.unwrap_or_else(|| MAX_LIMIT),
-                    MAX_LIMIT,
-                )),
-            ))
-            .execute(&conn)?
-        };
-
-        let mut timing = ShortTermTimingProperties::until_now(start_timestamp);
-        timing.set_authorization_time(authz_time);
-
-        inreq
-            .to_response(objects, ResponseStatus::OK, timing, API_VERSION)
-            .into()
+        match janus_request_result {
+            Ok(req) => {
+                let boxed_request = Box::new(req) as Box<dyn IntoPublishableDump + Send>;
+                Ok(Box::new(stream::once(boxed_request)))
+            }
+            Err(err) => Err(format!("error creating a backend request: {}", err))
+                .status(ResponseStatus::UNPROCESSABLE_ENTITY),
+        }
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod test {
-    use std::ops::Try;
+    mod create {
+        use crate::db::rtc::Object as Rtc;
+        use crate::test_helpers::prelude::*;
 
-    use diesel::prelude::*;
-    use serde_json::{json, Value as JsonValue};
-    use svc_agent::{AccountId, AgentId};
+        use super::super::*;
 
-    use crate::app::API_VERSION;
-    use crate::db::janus_rtc_stream;
-    use crate::test_helpers::{
-        agent::TestAgent,
-        authz::{no_authz, TestAuthz},
-        db::TestDb,
-        factory::{insert_janus_backend, insert_room, insert_rtc, JanusRtcStream},
-        Message, AUDIENCE,
-    };
-    use crate::util::from_base64;
+        #[test]
+        fn create() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
 
-    use super::*;
+                // Insert a room.
+                let room = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| shared_helpers::insert_room(&conn))
+                    .unwrap();
 
-    #[derive(Debug, PartialEq, Deserialize)]
-    struct RtcResponse {
-        id: Uuid,
-        room_id: Uuid,
-        created_at: i64,
+                // Allow user to create rtcs in the room.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let room_id = room.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs"];
+                authz.allow(agent.account_id(), object, "create");
+
+                // Make rtc.create request.
+                let context = TestContext::new(db, authz);
+                let payload = CreateRequest { room_id: room.id() };
+
+                let messages = handle_request::<CreateHandler>(&context, &agent, payload)
+                    .await
+                    .expect("Rtc creation failed");
+
+                // Assert response.
+                let (rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                assert_eq!(respp.status(), ResponseStatus::CREATED);
+                assert_eq!(rtc.room_id(), room.id());
+
+                // Assert notification.
+                let (rtc, evp, topic) = find_event::<Rtc>(messages.as_slice());
+                assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
+                assert_eq!(evp.label(), "room.create");
+                assert_eq!(rtc.room_id(), room.id());
+            });
+        }
+
+        #[test]
+        fn create_rtc_missing_room() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let context = TestContext::new(TestDb::new(), TestAuthz::new());
+                let payload = CreateRequest {
+                    room_id: Uuid::new_v4(),
+                };
+
+                let err = handle_request::<CreateHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on rtc creation");
+
+                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            });
+        }
+
+        #[test]
+        fn create_rtc_unauthorized() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+                // Insert a room.
+                let room = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| shared_helpers::insert_room(&conn))
+                    .unwrap();
+
+                // Make rtc.create request.
+                let context = TestContext::new(db, TestAuthz::new());
+                let payload = CreateRequest { room_id: room.id() };
+
+                let err = handle_request::<CreateHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on rtc creation");
+
+                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+            });
+        }
     }
 
-    fn build_state(authz: svc_authz::ClientMap, db: ConnectionPool) -> State {
-        let me = TestAgent::new("alpha", "conference", AUDIENCE);
-        State::new(authz, db, me.agent_id().to_owned())
+    mod read {
+        use crate::db::rtc::Object as Rtc;
+        use crate::test_helpers::prelude::*;
+
+        use super::super::*;
+
+        #[test]
+        fn read_rtc() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+
+                let rtc = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    // Create rtc.
+                    shared_helpers::insert_rtc(&conn)
+                };
+
+                // Allow agent to read the rtc.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let mut authz = TestAuthz::new();
+                let room_id = rtc.room_id().to_string();
+                let rtc_id = rtc.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                authz.allow(agent.account_id(), object, "read");
+
+                // Make rtc.read request.
+                let context = TestContext::new(db, authz);
+                let payload = ReadRequest { id: rtc.id() };
+
+                let messages = handle_request::<ReadHandler>(&context, &agent, payload)
+                    .await
+                    .expect("RTC reading failed");
+
+                // Assert response.
+                let (resp_rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                assert_eq!(respp.status(), ResponseStatus::OK);
+                assert_eq!(resp_rtc.room_id(), rtc.room_id());
+            });
+        }
+
+        #[test]
+        fn read_rtc_not_authorized() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let db = TestDb::new();
+
+                let rtc = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    shared_helpers::insert_rtc(&conn)
+                };
+
+                let context = TestContext::new(db, TestAuthz::new());
+                let payload = ReadRequest { id: rtc.id() };
+
+                let err = handle_request::<ReadHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on rtc reading");
+
+                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+            });
+        }
+
+        #[test]
+        fn read_rtc_missing() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let context = TestContext::new(TestDb::new(), TestAuthz::new());
+                let payload = ReadRequest { id: Uuid::new_v4() };
+
+                let err = handle_request::<ReadHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on rtc reading");
+
+                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            });
+        }
     }
 
-    ///////////////////////////////////////////////////////////////////////////
+    mod list {
+        use crate::db::rtc::Object as Rtc;
+        use crate::test_helpers::prelude::*;
 
-    #[test]
-    fn create_rtc() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-            let mut authz = TestAuthz::new(AUDIENCE);
+        use super::super::*;
 
-            // Insert a room.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| insert_room(&conn, AUDIENCE))
-                .unwrap();
+        #[test]
+        fn list_rtcs() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            // Allow user to create rtcs in the room.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs"];
-            authz.allow(agent.account_id(), object, "create");
+                let rtc = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
 
-            // Make rtc.create request.
-            let state = build_state(authz.into(), db.connection_pool().clone());
-            let payload = json!({"room_id": room.id()});
-            let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
-            let mut result = state
-                .create(request, Utc::now())
-                .await
-                .into_result()
-                .unwrap();
+                    // Create rtc.
+                    shared_helpers::insert_rtc(&conn)
+                };
 
-            // Assert response.
-            let resp = Message::<RtcResponse>::from_publishable(result.remove(0))
-                .expect("Failed to parse message");
+                // Allow agent to list rtcs in the room.
+                let mut authz = TestAuthz::new();
+                let room_id = rtc.room_id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs"];
+                authz.allow(agent.account_id(), object, "list");
 
-            assert_eq!(resp.properties().kind(), "response");
-            assert_eq!(resp.payload().room_id, room.id());
+                // Make rtc.list request.
+                let context = TestContext::new(db, authz);
 
-            // Assert notification.
-            let evt = Message::<RtcResponse>::from_publishable(result.remove(0))
-                .expect("Failed to parse message");
+                let payload = ListRequest {
+                    room_id: rtc.room_id(),
+                    offset: None,
+                    limit: None,
+                };
 
-            assert_eq!(
-                evt.topic(),
-                format!(
-                    "apps/conference.{}/api/{}/rooms/{}/events",
-                    AUDIENCE,
-                    API_VERSION,
-                    room.id(),
-                )
-            );
+                let messages = handle_request::<ListHandler>(&context, &agent, payload)
+                    .await
+                    .expect("Rtc listing failed");
 
-            assert_eq!(evt.properties().kind(), "event");
-            assert_eq!(evt.payload().room_id, room.id());
+                // Assert response.
+                let (rtcs, respp) = find_response::<Vec<Rtc>>(messages.as_slice());
+                assert_eq!(respp.status(), ResponseStatus::OK);
+                assert_eq!(rtcs.len(), 1);
+                assert_eq!(rtcs[0].id(), rtc.id());
+                assert_eq!(rtcs[0].room_id(), rtc.room_id());
+            });
+        }
 
-            // Assert rtc presence in the DB.
-            let conn = db.connection_pool().get().unwrap();
-            let query = crate::schema::rtc::table.find(resp.payload().id);
-            assert_eq!(query.execute(&conn).unwrap(), 1);
-        });
+        #[test]
+        fn list_rtcs_not_authorized() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let db = TestDb::new();
+
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    shared_helpers::insert_room(&conn)
+                };
+
+                let context = TestContext::new(db, TestAuthz::new());
+
+                let payload = ListRequest {
+                    room_id: room.id(),
+                    offset: None,
+                    limit: None,
+                };
+
+                let err = handle_request::<ListHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on rtc listing");
+
+                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+            });
+        }
+
+        #[test]
+        fn list_rtcs_missing_room() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let context = TestContext::new(TestDb::new(), TestAuthz::new());
+
+                let payload = ListRequest {
+                    room_id: Uuid::new_v4(),
+                    offset: None,
+                    limit: None,
+                };
+
+                let err = handle_request::<ListHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on rtc listing");
+
+                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            });
+        }
     }
 
-    #[test]
-    fn create_rtc_missing_room() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
+    mod connect {
+        use serde_json::Value as JsonValue;
+        use svc_agent::{AccountId, AgentId};
 
-            // Make rtc.create request.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let state = build_state(no_authz(AUDIENCE), db.connection_pool().clone());
-            let payload = json!({ "room_id": Uuid::new_v4() });
-            let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
-            let result = state.create(request, Utc::now()).await.into_result();
+        use crate::backend::janus;
+        use crate::test_helpers::prelude::*;
+        use crate::util::from_base64;
 
-            // Assert 404 error response.
-            match result {
-                Ok(_) => panic!("Expected rtc.create to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
-            }
-        });
-    }
+        use super::super::*;
 
-    #[test]
-    fn create_rtc_unauthorized() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-            let authz = TestAuthz::new(AUDIENCE);
+        #[derive(Debug, PartialEq, Deserialize)]
+        struct RtcConnectTransaction {
+            rtc_id: String,
+            session_id: i64,
+            reqp: RtcConnectTransactionReqp,
+        }
 
-            // Insert a room.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| insert_room(&conn, AUDIENCE))
-                .unwrap();
+        #[derive(Debug, PartialEq, Deserialize)]
+        struct RtcConnectTransactionReqp {
+            method: String,
+            agent_id: AgentId,
+        }
 
-            // Make rtc.create request.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let state = build_state(authz.into(), db.connection_pool().clone());
-            let payload = json!({"room_id": room.id()});
-            let request: CreateRequest = agent.build_request("rtc.create", &payload).unwrap();
-            let result = state.create(request, Utc::now()).await.into_result();
+        #[derive(Debug, PartialEq, Deserialize)]
+        struct JanusAttachRequest {
+            janus: String,
+            plugin: String,
+            session_id: i64,
+            transaction: String,
+        }
 
-            // Assert 403 error response.
-            match result {
-                Ok(_) => panic!("Expected rtc.create to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
-            }
-        });
-    }
+        #[derive(Debug, PartialEq, Deserialize)]
+        struct JanusAttachRequestTransaction {
+            rtc_id: String,
+            session_id: i64,
+            reqp: JanusAttachRequestTransactionReqp,
+        }
 
-    ///////////////////////////////////////////////////////////////////////////
+        #[derive(Debug, PartialEq, Deserialize)]
+        struct JanusAttachRequestTransactionReqp {
+            method: String,
+            agent_id: AgentId,
+        }
 
-    #[test]
-    fn read_rtc() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-            let mut authz = TestAuthz::new(AUDIENCE);
+        #[test]
+        fn connect_to_rtc() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
 
-            // Insert an rtc.
-            let rtc = db
-                .connection_pool()
-                .get()
-                .map(|conn| insert_rtc(&conn, AUDIENCE))
-                .unwrap();
+                // Insert an rtc and janus backend.
+                let (rtc, backend) = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| {
+                        // Insert janus backends.
+                        let backend1 = shared_helpers::insert_janus_backend(&conn);
+                        let backend2 = shared_helpers::insert_janus_backend(&conn);
 
-            // Allow user to read the rtc.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let room_id = rtc.room_id().to_string();
-            let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-            authz.allow(agent.account_id(), object, "read");
+                        // The first backend has 1 active stream.
+                        let stream1 = factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .backend(&backend1)
+                            .insert(&conn);
 
-            // Make rtc.read request.
-            let state = build_state(authz.into(), db.connection_pool().clone());
-            let payload = json!({"id": rtc.id()});
-            let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
-            let mut result = state.read(request, Utc::now()).await.into_result().unwrap();
+                        crate::db::janus_rtc_stream::start(stream1.id(), &conn).unwrap();
 
-            // Assert response.
-            let resp = Message::<RtcResponse>::from_publishable(result.remove(0))
-                .expect("Failed to parse message");
+                        // The second backend has 1 stream that is not started
+                        // so it's free and should be selected by the balancer.
+                        let _stream2 = factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .backend(&backend2)
+                            .insert(&conn);
 
-            assert_eq!(resp.payload().id, rtc.id());
-        });
-    }
+                        let rtc = shared_helpers::insert_rtc(&conn);
+                        (rtc, backend2)
+                    })
+                    .unwrap();
 
-    #[test]
-    fn read_rtc_missing() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
+                // Allow user to read the rtc.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let room_id = rtc.room_id().to_string();
+                let rtc_id = rtc.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                authz.allow(agent.account_id(), object, "read");
 
-            // Make rtc.read request.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let payload = json!({ "id": Uuid::new_v4() });
-            let state = build_state(no_authz(AUDIENCE), db.connection_pool().clone());
-            let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
-            let result = state.read(request, Utc::now()).await.into_result();
+                // Make rtc.connect request.
+                let context = TestContext::new(db, authz);
+                let payload = ConnectRequest { id: rtc.id() };
 
-            // Assert 404 error response.
-            match result {
-                Ok(_) => panic!("Expected rtc.read to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
-            }
-        });
-    }
+                let messages = handle_request::<ConnectHandler>(&context, &agent, payload)
+                    .await
+                    .expect("RTC reading failed");
 
-    #[test]
-    fn read_rtc_unauthorized() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-            let authz = TestAuthz::new(AUDIENCE);
+                // Assert outgoing request to Janus.
+                let (req, _reqp, topic) = find_request::<JanusAttachRequest>(messages.as_slice());
 
-            // Insert an rtc.
-            let rtc = db
-                .connection_pool()
-                .get()
-                .map(|conn| insert_rtc(&conn, AUDIENCE))
-                .unwrap();
+                let expected_topic = format!(
+                    "agents/{}/api/{}/in/{}",
+                    backend.id(),
+                    janus::JANUS_API_VERSION,
+                    context.config().id,
+                );
 
-            // Make rtc.read request.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let payload = json!({ "id": rtc.id() });
-            let state = build_state(authz.into(), db.connection_pool().clone());
-            let request: ReadRequest = agent.build_request("rtc.read", &payload).unwrap();
-            let result = state.read(request, Utc::now()).await.into_result();
+                assert_eq!(topic, &expected_topic);
+                assert_eq!(req.janus, "attach");
+                assert_eq!(req.plugin, "janus.plugin.conference");
+                assert_eq!(req.session_id, backend.session_id());
 
-            // Assert 403 error response.
-            match result {
-                Ok(_) => panic!("Expected rtc.read to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
-            }
-        });
-    }
+                // `transaction` field is base64 encoded JSON. Decode and assert.
+                let txn_wrap: JsonValue = from_base64(&req.transaction).unwrap();
+                let txn_value = txn_wrap.get("CreateRtcHandle").unwrap().to_owned();
+                let txn: RtcConnectTransaction = serde_json::from_value(txn_value).unwrap();
 
-    ///////////////////////////////////////////////////////////////////////////
-
-    #[test]
-    fn list_rtcs() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-            let mut authz = TestAuthz::new(AUDIENCE);
-
-            // Insert rtcs.
-            let rtc = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let rtc = insert_rtc(&conn, AUDIENCE);
-                    let _other_rtc = insert_rtc(&conn, AUDIENCE);
-                    rtc
-                })
-                .unwrap();
-
-            // Allow user to list rtcs in the room.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let room_id = rtc.room_id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs"];
-            authz.allow(agent.account_id(), object, "list");
-
-            // Make rtc.list request.
-            let state = build_state(authz.into(), db.connection_pool().clone());
-            let payload = json!({"room_id": rtc.room_id()});
-            let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
-            let mut result = state.list(request, Utc::now()).await.into_result().unwrap();
-
-            // Assert response.
-            let resp = Message::<Vec<RtcResponse>>::from_publishable(result.remove(0))
-                .expect("Failed to parse message");
-
-            assert_eq!(resp.payload().len(), 1);
-            assert_eq!(resp.payload().first().unwrap().id, rtc.id());
-        });
-    }
-
-    #[test]
-    fn list_rtcs_missing_room() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-
-            // Make rtc.list request.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let state = build_state(no_authz(AUDIENCE), db.connection_pool().clone());
-            let payload = json!({ "room_id": Uuid::new_v4() });
-            let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
-            let result = state.list(request, Utc::now()).await.into_result();
-
-            // Assert 404 error response.
-            match result {
-                Ok(_) => panic!("Expected rtc.list to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
-            }
-        });
-    }
-
-    #[test]
-    fn list_rtcs_unauthorized() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-            let authz = TestAuthz::new(AUDIENCE);
-
-            // Insert an rtc.
-            let rtc = db
-                .connection_pool()
-                .get()
-                .map(|conn| insert_rtc(&conn, AUDIENCE))
-                .unwrap();
-
-            // Make rtc.list request.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let payload = json!({ "room_id": rtc.room_id() });
-            let state = build_state(authz.into(), db.connection_pool().clone());
-            let request: ListRequest = agent.build_request("rtc.list", &payload).unwrap();
-            let result = state.list(request, Utc::now()).await.into_result();
-
-            // Assert 403 error response.
-            match result {
-                Ok(_) => panic!("Expected rtc.list to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
-            }
-        });
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-
-    #[derive(Debug, PartialEq, Deserialize)]
-    struct RtcConnectResponse {
-        janus: String,
-        plugin: String,
-        session_id: i64,
-        transaction: String,
-    }
-
-    #[derive(Debug, PartialEq, Deserialize)]
-    struct RtcConnectTransaction {
-        rtc_id: String,
-        session_id: i64,
-        reqp: RtcConnectTransactionReqp,
-    }
-
-    #[derive(Debug, PartialEq, Deserialize)]
-    struct RtcConnectTransactionReqp {
-        method: String,
-        agent_id: AgentId,
-    }
-
-    #[test]
-    fn connect_to_rtc() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-            let mut authz = TestAuthz::new(AUDIENCE);
-
-            // Insert an rtc and janus backend.
-            let (rtc, backend) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    // Insert janus backends.
-                    let backend1 = insert_janus_backend(&conn, AUDIENCE);
-                    let backend2 = insert_janus_backend(&conn, AUDIENCE);
-
-                    // The first backend has 1 active stream.
-                    let stream1 = JanusRtcStream::new(AUDIENCE)
-                        .backend(&backend1)
-                        .insert(&conn)
-                        .unwrap();
-
-                    janus_rtc_stream::start(*stream1.id(), &conn).unwrap();
-
-                    // The second backend has 1 stream that is not started
-                    // so it's free and should be selected by the balancer.
-                    let _stream2 = JanusRtcStream::new(AUDIENCE)
-                        .backend(&backend2)
-                        .insert(&conn)
-                        .unwrap();
-
-                    let rtc = insert_rtc(&conn, AUDIENCE);
-                    (rtc, backend2)
-                })
-                .unwrap();
-
-            // Allow user to read the rtc.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let room_id = rtc.room_id().to_string();
-            let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-            authz.allow(agent.account_id(), object, "read");
-
-            // Make rtc.connect request.
-            let state = build_state(authz.into(), db.connection_pool().clone());
-            let payload = json!({"id": rtc.id()});
-            let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
-
-            let mut result = state
-                .connect(request, Utc::now())
-                .await
-                .into_result()
-                .unwrap();
-
-            // Assert outgoing request to Janus.
-            let resp = Message::<RtcConnectResponse>::from_publishable(result.remove(0))
-                .expect("Failed to parse message");
-
-            assert_eq!(resp.payload().janus, "attach");
-            assert_eq!(resp.payload().plugin, "janus.plugin.conference");
-            assert_eq!(resp.payload().session_id, backend.session_id());
-
-            // `transaction` field is base64 encoded JSON. Decode and assert.
-            let txn_wrap: JsonValue = from_base64(&resp.payload().transaction).unwrap();
-            let txn_value = txn_wrap.get("CreateRtcHandle").unwrap().to_owned();
-            let txn: RtcConnectTransaction = serde_json::from_value(txn_value).unwrap();
-
-            assert_eq!(
-                txn,
-                RtcConnectTransaction {
-                    rtc_id: rtc.id().to_string(),
-                    session_id: backend.session_id(),
-                    reqp: RtcConnectTransactionReqp {
-                        method: "rtc.connect".to_string(),
-                        agent_id: AgentId::new("web", AccountId::new("user123", AUDIENCE)),
+                assert_eq!(
+                    txn,
+                    RtcConnectTransaction {
+                        rtc_id: rtc.id().to_string(),
+                        session_id: backend.session_id(),
+                        reqp: RtcConnectTransactionReqp {
+                            method: "ignore".to_string(),
+                            agent_id: AgentId::new("web", AccountId::new("user123", USR_AUDIENCE)),
+                        }
                     }
-                }
-            )
-        });
-    }
+                )
+            });
+        }
 
-    #[test]
-    fn connect_to_rtc_with_existing_stream() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-            let mut authz = TestAuthz::new(AUDIENCE);
+        #[test]
+        fn connect_to_rtc_with_existing_stream() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
 
-            // Insert an rtc and janus backend.
-            let (rtc, backend) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let rtc = insert_rtc(&conn, AUDIENCE);
+                // Insert an rtc and janus backend.
+                let (rtc, backend) = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| {
+                        let rtc = shared_helpers::insert_rtc(&conn);
 
-                    // Insert janus backends.
-                    let _backend1 = insert_janus_backend(&conn, AUDIENCE);
-                    let backend2 = insert_janus_backend(&conn, AUDIENCE);
+                        // Insert janus backends.
+                        let _backend1 = shared_helpers::insert_janus_backend(&conn);
+                        let backend2 = shared_helpers::insert_janus_backend(&conn);
 
-                    // The second backend has an active stream already.
-                    let stream = JanusRtcStream::new(AUDIENCE)
-                        .backend(&backend2)
-                        .rtc(&rtc)
-                        .insert(&conn)
-                        .unwrap();
+                        // The second backend has an active stream already.
+                        let stream = factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .backend(&backend2)
+                            .rtc(&rtc)
+                            .insert(&conn);
 
-                    janus_rtc_stream::start(*stream.id(), &conn).unwrap();
-                    (rtc, backend2)
-                })
-                .unwrap();
+                        crate::db::janus_rtc_stream::start(stream.id(), &conn).unwrap();
+                        (rtc, backend2)
+                    })
+                    .unwrap();
 
-            // Allow user to read the rtc.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let room_id = rtc.room_id().to_string();
-            let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-            authz.allow(agent.account_id(), object, "read");
+                // Allow user to read the rtc.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let room_id = rtc.room_id().to_string();
+                let rtc_id = rtc.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                authz.allow(agent.account_id(), object, "read");
 
-            // Make rtc.connect request.
-            let state = build_state(authz.into(), db.connection_pool().clone());
-            let payload = json!({"id": rtc.id()});
-            let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
+                // Make rtc.connect request.
+                let context = TestContext::new(db, authz);
+                let payload = ConnectRequest { id: rtc.id() };
 
-            let mut result = state
-                .connect(request, Utc::now())
-                .await
-                .into_result()
-                .unwrap();
+                let messages = handle_request::<ConnectHandler>(&context, &agent, payload)
+                    .await
+                    .expect("rtc reading failed");
 
-            // Ensure we're balanced to the backend with the stream.
-            let resp = Message::<RtcConnectResponse>::from_publishable(result.remove(0))
-                .expect("Failed to parse message");
+                // Ensure we're balanced to the backend with the stream.
+                let (req, _reqp, topic) = find_request::<JanusAttachRequest>(messages.as_slice());
 
-            assert_eq!(resp.payload().session_id, backend.session_id());
-        });
-    }
+                let expected_topic = format!(
+                    "agents/{}/api/{}/in/{}",
+                    backend.id(),
+                    janus::JANUS_API_VERSION,
+                    context.config().id,
+                );
 
-    #[test]
-    fn connect_to_rtc_missing() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
+                assert_eq!(topic, expected_topic);
+                assert_eq!(req.session_id, backend.session_id());
+            });
+        }
 
-            // Make rtc.connect request.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let payload = json!({ "id": Uuid::new_v4() });
-            let state = build_state(no_authz(AUDIENCE), db.connection_pool().clone());
-            let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
-            let result = state.connect(request, Utc::now()).await.into_result();
+        #[test]
+        fn connect_to_rtc_not_authorized() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let db = TestDb::new();
 
-            // Assert 404 error response.
-            match result {
-                Ok(_) => panic!("Expected rtc.connect to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
-            }
-        });
-    }
+                let rtc = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
 
-    #[test]
-    fn connect_to_rtc_unauthorized() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-            let authz = TestAuthz::new(AUDIENCE);
+                    shared_helpers::insert_rtc(&conn)
+                };
 
-            // Insert an rtc.
-            let rtc = db
-                .connection_pool()
-                .get()
-                .map(|conn| insert_rtc(&conn, AUDIENCE))
-                .unwrap();
+                let context = TestContext::new(db, TestAuthz::new());
+                let payload = ConnectRequest { id: rtc.id() };
 
-            // Make rtc.connect request.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let payload = json!({ "id": rtc.id() });
-            let state = build_state(authz.into(), db.connection_pool().clone());
-            let request: ConnectRequest = agent.build_request("rtc.connect", &payload).unwrap();
-            let result = state.connect(request, Utc::now()).await.into_result();
+                let err = handle_request::<ConnectHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on rtc connecting");
 
-            // Assert 403 error response.
-            match result {
-                Ok(_) => panic!("Expected rtc.connect to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
-            }
-        });
+                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+            });
+        }
+
+        #[test]
+        fn connect_to_rtc_missing() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let context = TestContext::new(TestDb::new(), TestAuthz::new());
+                let payload = ConnectRequest { id: Uuid::new_v4() };
+
+                let err = handle_request::<ConnectHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on rtc connecting");
+
+                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            });
+        }
     }
 }

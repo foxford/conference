@@ -67,6 +67,7 @@ impl FindQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Default)]
 pub(crate) struct ListQuery {
     room_id: Option<Uuid>,
     offset: Option<i64>,
@@ -74,30 +75,49 @@ pub(crate) struct ListQuery {
 }
 
 impl ListQuery {
+    pub(crate) fn new() -> Self {
+        Default::default()
+    }
+
+    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
+        Self {
+            room_id: Some(room_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn offset(self, offset: i64) -> Self {
+        Self {
+            offset: Some(offset),
+            ..self
+        }
+    }
+
+    pub(crate) fn limit(self, limit: i64) -> Self {
+        Self {
+            limit: Some(limit),
+            ..self
+        }
+    }
+
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
 
         let mut q = rtc::table.into_boxed();
+
         if let Some(room_id) = self.room_id {
             q = q.filter(rtc::room_id.eq(room_id));
         }
+
         if let Some(offset) = self.offset {
             q = q.offset(offset);
         }
+
         if let Some(limit) = self.limit {
             q = q.limit(limit);
         }
-        q.order_by(rtc::created_at.desc()).get_results(conn)
-    }
-}
 
-impl From<(Option<Uuid>, Option<i64>, Option<i64>)> for ListQuery {
-    fn from(value: (Option<Uuid>, Option<i64>, Option<i64>)) -> Self {
-        Self {
-            room_id: value.0,
-            offset: value.1,
-            limit: value.2,
-        }
+        q.order_by(rtc::created_at.desc()).get_results(conn)
     }
 }
 
