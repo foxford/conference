@@ -2,7 +2,7 @@ use crate::db::{create_pool, ConnectionPool};
 use diesel::Connection;
 use std::env::var;
 
-const TIMEOUT: u64 = 60000;
+const TIMEOUT: u64 = 10;
 
 pub(crate) struct TestDb {
     connection_pool: ConnectionPool,

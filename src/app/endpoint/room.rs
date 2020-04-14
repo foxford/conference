@@ -119,7 +119,10 @@ impl State {
         shared::respond(
             &inreq,
             object,
-            Some(("room.create", "rooms")),
+            Some((
+                "room.create",
+                &format!("audiences/{}/events", inreq.payload().audience),
+            )),
             start_timestamp,
             authz_time,
         )
@@ -198,10 +201,11 @@ impl State {
             inreq.payload().execute(&conn)?
         };
 
+        let audience = object.audience().to_owned();
         shared::respond(
             &inreq,
             object,
-            Some(("room.update", &format!("rooms/{}/events", room_id))),
+            Some(("room.update", &format!("audiences/{}/events", audience))),
             start_timestamp,
             authz_time,
         )
@@ -245,10 +249,11 @@ impl State {
             room::DeleteQuery::new(inreq.payload().id).execute(&conn)?
         };
 
+        let audience = object.audience().to_owned();
         shared::respond(
             &inreq,
             object,
-            Some(("room.delete", "rooms")),
+            Some(("room.delete", &format!("audiences/{}/events", &audience))),
             start_timestamp,
             authz_time,
         )
@@ -439,7 +444,10 @@ mod test {
 
             assert_eq!(
                 evt.topic(),
-                format!("apps/conference.{}/api/{}/rooms", AUDIENCE, API_VERSION),
+                format!(
+                    "apps/conference.{}/api/{}/audiences/{}/events",
+                    AUDIENCE, API_VERSION, AUDIENCE
+                ),
             );
 
             assert_eq!(evt.properties().kind(), "event");
@@ -639,10 +647,8 @@ mod test {
             assert_eq!(
                 evt.topic(),
                 format!(
-                    "apps/conference.{}/api/{}/rooms/{}/events",
-                    AUDIENCE,
-                    API_VERSION,
-                    room.id()
+                    "apps/conference.{}/api/{}/audiences/{}/events",
+                    AUDIENCE, API_VERSION, "dev.svc.example.net"
                 ),
             );
 
@@ -757,7 +763,10 @@ mod test {
 
             assert_eq!(
                 evt.topic(),
-                format!("apps/conference.{}/api/{}/rooms", AUDIENCE, API_VERSION),
+                format!(
+                    "apps/conference.{}/api/{}/audiences/{}/events",
+                    AUDIENCE, API_VERSION, AUDIENCE
+                ),
             );
 
             assert_eq!(evt.properties().kind(), "event");
