@@ -26,3 +26,13 @@ backend  | String     | none       | The room backend. Available values: janus, 
 ## Unicast response
 
 If successful, the response payload contains a **Room** object.
+
+## Broadcast event
+
+A notification is being sent to the _audience_ topic.
+
+**URI:** `audiences/:audience/events`
+
+**Label:** `room.create`.
+
+**Payload:** created [room](../room.md#room) object.

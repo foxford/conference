@@ -23,3 +23,13 @@ id     | Uuid | _required_ | The room identifier. The room must not be expired.
 ## Unicast response
 
 If successful, the response payload contains a deleted **Room** object.
+
+## Broadcast event
+
+A notification is being sent to the _audience_ topic.
+
+**URI:** `audiences/:audience/events`
+
+**Label:** `room.delete`.
+
+**Payload:** deleted [room](../room.md#room) object.
