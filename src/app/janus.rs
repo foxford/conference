@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use failure::{err_msg, format_err, Error};
 use log::{info, warn};
@@ -982,6 +984,7 @@ where
         )),
     }
 }
+
 pub(crate) async fn handle_event(
     payload: Arc<Vec<u8>>,
     janus: Arc<State>,
@@ -992,15 +995,15 @@ pub(crate) async fn handle_event(
 
     match message.payload() {
         IncomingEvent::WebRtcUp(ref inev) => {
-            use std::str::FromStr;
             let rtc_stream_id = Uuid::from_str(inev.opaque_id())?;
-
             let conn = janus.db.get()?;
+
             // If the event relates to a publisher's handle,
             // we will find the corresponding stream and send event w/ updated stream object
             // to the room's topic.
             if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
                 let rtc_id = rtc_stream.rtc_id();
+
                 let room = room::FindQuery::new()
                     .time(room::now())
                     .rtc_id(rtc_id)
@@ -1019,16 +1022,16 @@ pub(crate) async fn handle_event(
                 Ok(vec![])
             }
         }
-        IncomingEvent::HangUp(ref inev) => {
-            use std::str::FromStr;
+        IncomingEvent::Detached(ref inev) => {
             let rtc_stream_id = Uuid::from_str(inev.opaque_id())?;
-
             let conn = janus.db.get()?;
+
             // If the event relates to a publisher's handle,
             // we will find the corresponding stream and send event w/ updated stream object
             // to the room's topic.
             if let Some(rtc_stream) = janus_rtc_stream::stop(rtc_stream_id, &conn)? {
                 let rtc_id = rtc_stream.rtc_id();
+
                 let room = room::FindQuery::new()
                     .time(room::now())
                     .rtc_id(rtc_id)
@@ -1051,10 +1054,10 @@ pub(crate) async fn handle_event(
 
             Ok(vec![])
         }
-        IncomingEvent::Media(_)
+        IncomingEvent::HangUp(_)
+        | IncomingEvent::Media(_)
         | IncomingEvent::Timeout(_)
-        | IncomingEvent::SlowLink(_)
-        | IncomingEvent::Detached(_) => {
+        | IncomingEvent::SlowLink(_) => {
             // Ignore these kinds of events.
             Ok(vec![])
         }
