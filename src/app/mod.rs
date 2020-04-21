@@ -95,7 +95,11 @@ pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) ->
         rtc_signal: endpoint::rtc_signal::State::new(authz.clone(), db.clone(), agent_id.clone()),
         rtc_stream: endpoint::rtc_stream::State::new(authz.clone(), db.clone()),
         message: endpoint::message::State::new(agent_id.clone(), db.clone()),
-        subscription: endpoint::subscription::State::new(config.broker_id, db.clone()),
+        subscription: endpoint::subscription::State::new(
+            config.broker_id,
+            db.clone(),
+            agent_id.clone(),
+        ),
         system: endpoint::system::State::new(agent_id.clone(), authz.clone(), db.clone()),
     });
 

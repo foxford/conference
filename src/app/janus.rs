@@ -503,22 +503,22 @@ impl AgentLeaveRequestBody {
     }
 }
 
-pub(crate) fn agent_leave_request<M>(
+pub(crate) fn agent_leave_request<T, M>(
     evp: IncomingEventProperties,
     session_id: i64,
     handle_id: i64,
     agent_id: &AgentId,
+    to: &T,
     me: &M,
     tracking: &TrackingProperties,
 ) -> Result<OutgoingRequest<MessageRequest>, Error>
 where
+    T: Addressable,
     M: Addressable,
 {
-    let to = evp.as_agent_id().to_owned();
-
     let mut props = OutgoingRequestProperties::new(
         "janus_conference_agent.leave",
-        &response_topic(&to, me)?,
+        &response_topic(to, me)?,
         &generate_correlation_data(),
         ShortTermTimingProperties::new(Utc::now()),
     );
@@ -539,7 +539,7 @@ where
     Ok(OutgoingRequest::unicast(
         payload,
         props,
-        &to,
+        to,
         JANUS_API_VERSION,
     ))
 }

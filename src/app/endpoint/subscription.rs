@@ -4,7 +4,7 @@ use svc_agent::mqtt::{
     IncomingEvent, IncomingEventProperties, IntoPublishableDump, OutgoingEvent, ResponseStatus,
     ShortTermTimingProperties,
 };
-use svc_agent::AgentId;
+use svc_agent::{AccountId, AgentId};
 use svc_authn::Authenticable;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -40,13 +40,15 @@ impl RoomEnterLeaveEventData {
 pub(crate) struct State {
     broker_account_id: svc_agent::AccountId,
     db: ConnectionPool,
+    me: AgentId,
 }
 
 impl State {
-    pub(crate) fn new(broker_account_id: svc_agent::AccountId, db: ConnectionPool) -> Self {
+    pub(crate) fn new(broker_account_id: AccountId, db: ConnectionPool, me: AgentId) -> Self {
         Self {
             broker_account_id,
             db,
+            me,
         }
     }
 }
@@ -132,6 +134,7 @@ impl State {
                     backend.handle_id(),
                     agent_id,
                     backend.id(),
+                    &self.me,
                     evt.properties().tracking(),
                 );
 
@@ -219,8 +222,14 @@ mod test {
     use super::*;
 
     fn build_state(db: &TestDb) -> State {
-        let account_id = svc_agent::AccountId::new("mqtt-gateway", AUDIENCE);
-        State::new(account_id, db.connection_pool().clone())
+        let broker_account_id = svc_agent::AccountId::new("mqtt-gateway", AUDIENCE);
+        let me = TestAgent::new("alpha", "conference", AUDIENCE);
+
+        State::new(
+            broker_account_id,
+            db.connection_pool().clone(),
+            me.agent_id().to_owned(),
+        )
     }
 
     #[test]
