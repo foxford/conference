@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.3 (April 21, 2020)
+
+### Changes
+- Added room time presence constraint ([4faaa13](https://github.com/netology-group/conference/commit/4faaa13f28838e3214c5dbc52f006f5aa6511897))
+- Updated svc-authz to v0.10 ([2e4cb13](https://github.com/netology-group/conference/commit/2e4cb13c42021159bb3f822dcb292f1ffe9d608e))
+- Changed topic of room update notification ([cfa2bc7](https://github.com/netology-group/conference/commit/cfa2bc7e74f2a9f4a844c694c8f01571b242736d))
+- Updated svc-agent to v0.12 ([6680242](https://github.com/netology-group/conference/commit/668024254cc5fc76eeea48e28d343bc5f1d1397f))
+
 ## v0.3.2 (March 18, 2020)
 
 ### Changes
