@@ -1,9 +1,10 @@
 use std::sync::Arc;
 use std::thread;
 
+use async_std::task;
 use chrono::{DateTime, Utc};
 use failure::Error;
-use futures::{executor::ThreadPoolBuilder, task::SpawnExt, StreamExt};
+use futures::StreamExt;
 use log::{error, info, warn};
 use serde_derive::Deserialize;
 use svc_agent::mqtt::{
@@ -148,9 +149,7 @@ pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) ->
     )
     .expect("Error subscribing to everyone's output messages");
 
-    // Thread Pool
-    let threadpool = ThreadPoolBuilder::new().create()?;
-
+    // Message loop
     while let Some(message) = mq_rx.next().await {
         let start_timestamp = Utc::now();
         let mut tx = tx.clone();
@@ -158,7 +157,8 @@ pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) ->
         let backend = backend.clone();
         let route = route.clone();
         let agent_id = agent_id.clone();
-        threadpool.spawn(async move {
+
+        task::spawn(async move {
             match message {
                 svc_agent::mqtt::Notification::Publish(message) => {
                     let topic: &str = &message.topic_name;
@@ -227,8 +227,7 @@ pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) ->
                 }
                 _ => error!("An unsupported type of message = '{:?}'", message),
             }
-
-        }).unwrap();
+        });
     }
 
     Ok(())
