@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.4 (May 7, 2020)
+
+### Changes
+- Send rtc_stream.update event on publisher detach ([ac2dd1a](https://github.com/netology-group/conference/commit/ac2dd1ad2213914a4e51b52086ef16af49b6ef57))
+- Switch to async-std runtime ([4b63b4b](https://github.com/netology-group/conference/commit/4b63b4b3aee42b31ff023e913bb8cd14c83998e4))
+
+
 ## v0.3.3 (April 21, 2020)
 
 ### Changes
@@ -7,6 +14,7 @@
 - Updated svc-authz to v0.10 ([2e4cb13](https://github.com/netology-group/conference/commit/2e4cb13c42021159bb3f822dcb292f1ffe9d608e))
 - Changed topic of room update notification ([cfa2bc7](https://github.com/netology-group/conference/commit/cfa2bc7e74f2a9f4a844c694c8f01571b242736d))
 - Updated svc-agent to v0.12 ([6680242](https://github.com/netology-group/conference/commit/668024254cc5fc76eeea48e28d343bc5f1d1397f))
+
 
 ## v0.3.2 (March 18, 2020)
 
