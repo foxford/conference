@@ -2,16 +2,21 @@ use std::sync::Arc;
 use std::thread;
 
 use async_std::task;
+use chrono::Utc;
 use futures::StreamExt;
 use log::{error, info};
+use serde_json::json;
 use svc_agent::{
-    mqtt::{AgentBuilder, ConnectionMode, Notification, QoS, SubscriptionTopic},
-    AgentId, Authenticable, SharedGroup, Subscription,
+    mqtt::{
+        Agent, AgentBuilder, ConnectionMode, IntoPublishableDump, Notification, OutgoingRequest,
+        OutgoingRequestProperties, QoS, ShortTermTimingProperties, SubscriptionTopic,
+    },
+    AccountId, AgentId, Authenticable, SharedGroup, Subscription,
 };
 use svc_authn::token::jws_compact;
 use svc_authz::cache::Cache as AuthzCache;
 
-use crate::config;
+use crate::config::{self, KruonisConfig};
 use crate::db::ConnectionPool;
 use context::{AppContext, JanusTopics};
 use message_handler::MessageHandler;
@@ -107,6 +112,21 @@ pub(crate) async fn run(
         .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
         .map_err(|err| format!("Error subscribing to backend responses topic: {}", err))?;
 
+    agent
+        .subscribe(
+            &Subscription::unicast_requests(),
+            QoS::AtMostOnce,
+            Some(&group),
+        )
+        .map_err(|err| format!("Error subscribing to unicast requests: {}", err))?;
+
+    if let KruonisConfig {
+        id: Some(ref kruonis_id),
+    } = config.kruonis
+    {
+        subscribe_to_kruonis(kruonis_id, &mut agent)?;
+    }
+
     let janus_responses_topic = subscription
         .subscription_topic(&agent_id, API_VERSION)
         .map_err(|err| format!("Error building janus responses subscription topic: {}", err))?;
@@ -139,6 +159,31 @@ pub(crate) async fn run(
         });
     }
 
+    Ok(())
+}
+
+fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<(), String> {
+    let timing = ShortTermTimingProperties::new(Utc::now());
+    let topic = Subscription::unicast_requests_from(kruonis_id)
+        .subscription_topic(agent.id(), API_VERSION)
+        .map_err(|err| format!("Failed to build subscription topic: {:?}", err))?;
+    let props = OutgoingRequestProperties::new("kruonis.subscribe", &topic, "", timing);
+    let event = OutgoingRequest::multicast(json!({}), props, kruonis_id);
+    let message = Box::new(event) as Box<dyn IntoPublishableDump + Send>;
+
+    let dump = message
+        .into_dump(agent.address())
+        .map_err(|err| format!("Failed to dump message: {}", err))?;
+
+    info!(
+        "Outgoing message = '{}' sending to the topic = '{}'",
+        dump.payload(),
+        dump.topic(),
+    );
+
+    agent
+        .publish_dump(dump)
+        .map_err(|err| format!("Failed to publish message: {}", err))?;
     Ok(())
 }
 
