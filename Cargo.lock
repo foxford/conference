@@ -259,7 +259,7 @@ dependencies = [
 
 [[package]]
 name = "conference"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "async-std 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "async-trait 0.1.30 (registry+https://github.com/rust-lang/crates.io-index)",

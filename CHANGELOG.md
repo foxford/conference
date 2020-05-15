@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.3.6 (May 15, 2020)
+
+### Features
+- DB connection metrics ([32a9eb0](https://github.com/netology-group/conference/commit/32a9eb0c1aaab49cedaf85d368231747b9a89622))
+
+### Changes
+- Refactor message handling ([a2b6a33](https://github.com/netology-group/conference/commit/a2b6a33a054c282d28901814c0f34d5bd5aae70f))
+
+
+## v0.3.5 (May 12, 2020)
+
+### Changes
+- Update svc-authz ([314fd9b]((https://github.com/netology-group/conference/commit/314fd9b4a5d655baab8eb9389313e8481bda54faq))
+- Switch to Debian buster ([464d442]((https://github.com/netology-group/conference/commit/464d442d3eb57effb5927782b8011eb988f6f3a6))
+
+
 ## v0.3.4 (May 7, 2020)
 
 ### Changes
