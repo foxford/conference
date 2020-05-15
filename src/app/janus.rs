@@ -644,10 +644,7 @@ async fn handle_response_impl<C: Context>(
                     Ok(Box::new(stream::once(boxed_resp)))
                 }
                 // An unsupported incoming Success message has been received
-                _ => {
-                    let err = format!("received an unexpected Success message: {:?}", inresp);
-                    Err(err).status(ResponseStatus::UNPROCESSABLE_ENTITY)
-                }
+                _ => Ok(Box::new(stream::empty())),
             }
         }
         IncomingResponse::Ack(ref inresp) => {
@@ -657,14 +654,7 @@ async fn handle_response_impl<C: Context>(
 
             match txn {
                 // Conference Stream is being created
-                Transaction::CreateStream(_tn) => {
-                    let err = format!(
-                        "received an unexpected Ack message (stream.create): {:?}",
-                        inresp,
-                    );
-
-                    Err(err).status(ResponseStatus::UNPROCESSABLE_ENTITY)
-                }
+                Transaction::CreateStream(_tn) => Ok(Box::new(stream::empty())),
                 // Trickle message has been received by Janus Gateway
                 Transaction::Trickle(tn) => {
                     let resp = endpoint::rtc_signal::CreateResponse::unicast(
@@ -681,10 +671,7 @@ async fn handle_response_impl<C: Context>(
                     Ok(Box::new(stream::once(boxed_resp)))
                 }
                 // An unsupported incoming Ack message has been received
-                _ => {
-                    let err = format!("received an unexpected Ack message: {:?}", inresp);
-                    Err(err).status(ResponseStatus::UNPROCESSABLE_ENTITY)
-                }
+                _ => Ok(Box::new(stream::empty())),
             }
         }
         IncomingResponse::Event(ref inresp) => {
@@ -990,10 +977,7 @@ async fn handle_response_impl<C: Context>(
                         })
                 }
                 // An unsupported incoming Event message has been received
-                _ => {
-                    let err = format!("received an unexpected Event message: {:?}", inresp);
-                    Err(err).status(ResponseStatus::BAD_REQUEST)
-                }
+                _ => Ok(Box::new(stream::empty())),
             }
         }
         IncomingResponse::Error(ErrorResponse::Session(ref inresp)) => {
