@@ -34,24 +34,8 @@ pub(crate) struct Object {
 
 #[cfg(test)]
 impl Object {
-    pub(crate) fn id(&self) -> Uuid {
-        self.id
-    }
-
-    pub(crate) fn agent_id(&self) -> &AgentId {
-        &self.agent_id
-    }
-
-    pub(crate) fn room_id(&self) -> Uuid {
-        self.room_id
-    }
-
-    pub(crate) fn created_at(&self) -> &DateTime<Utc> {
-        &self.created_at
-    }
-
-    pub(crate) fn status(&self) -> &Status {
-        &self.status
+    pub(crate) fn status(&self) -> Status {
+        self.status
     }
 }
 
@@ -97,6 +81,20 @@ impl<'a> ListQuery<'a> {
         }
     }
 
+    pub(crate) fn offset(self, offset: i64) -> Self {
+        Self {
+            offset: Some(offset),
+            ..self
+        }
+    }
+
+    pub(crate) fn limit(self, limit: i64) -> Self {
+        Self {
+            limit: Some(limit),
+            ..self
+        }
+    }
+
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
 
@@ -123,18 +121,6 @@ impl<'a> ListQuery<'a> {
         }
 
         q.order_by(agent::created_at.desc()).get_results(conn)
-    }
-}
-
-impl<'a> From<(Option<Uuid>, Option<i64>, Option<i64>, Option<Status>)> for ListQuery<'a> {
-    fn from(value: (Option<Uuid>, Option<i64>, Option<i64>, Option<Status>)) -> Self {
-        Self {
-            agent_id: None,
-            room_id: value.0,
-            offset: value.1,
-            limit: value.2,
-            status: value.3,
-        }
     }
 }
 

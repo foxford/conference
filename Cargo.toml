@@ -5,26 +5,28 @@ authors = ["Andrei Nesterov <ae.nesterov@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-async-std = {version = "1", features = ["attributes"]}
-log = "0.4"
-env_logger = "0.6"
+async-std = { version = "1", features = ["attributes"] }
+async-trait = "0.1"
+base64 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }
 config = "0.9"
+diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
+diesel-derive-enum = { version = "0.4", features = ["postgres"] }
+env_logger = "0.6"
 failure = "0.1"
+futures = "0.3"
+futures-channel = "0.3"
+futures-util = "0.3"
+http = "0.1"
+log = "0.4"
+openssl = "*"
+rand = "0.7"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-base64 = "0.10"
-webrtc-sdp = "0.1"
-http = "0.1"
-uuid = { version = "0.6", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
-openssl = "*"
-diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
-diesel-derive-enum = { version = "0.4", features = ["postgres"] }
-futures = { version = "0.3", features = ["thread-pool"] }
-futures-channel = "0.3"
-rand = "0.7"
 svc-agent = { version = "0.12", features = ["diesel"] }
-svc-authz = "0.10"
 svc-authn = { version = "0.5", features = ["jose", "diesel"] }
+svc-authz = "0.10"
 svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz", "sentry-extension"] }
+uuid = { version = "0.6", features = ["v4", "serde"] }
+webrtc-sdp = "0.1"

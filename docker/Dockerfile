@@ -1,7 +1,7 @@
 ## -----------------------------------------------------------------------------
 ## Build
 ## -----------------------------------------------------------------------------
-FROM rustlang/rust:nightly-buster-slim as build-stage
+FROM rust:slim-buster as build-stage
 
 RUN apt update && apt install -y --no-install-recommends \
   pkg-config \

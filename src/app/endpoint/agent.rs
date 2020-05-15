@@ -1,223 +1,242 @@
+use async_std::stream;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_derive::Deserialize;
-use svc_agent::mqtt::{IncomingRequest, ResponseStatus, ShortTermTimingProperties};
-use svc_error::Error as SvcError;
+use svc_agent::mqtt::{IncomingRequestProperties, ResponseStatus};
 use uuid::Uuid;
 
-use crate::app::{endpoint, API_VERSION};
-use crate::db::{agent, room, ConnectionPool};
+use crate::app::context::Context;
+use crate::app::endpoint::prelude::*;
+use crate::db;
 
-////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 
 const MAX_LIMIT: i64 = 25;
 
-////////////////////////////////////////////////////////////////////////////////
-
-pub(crate) type ListRequest = IncomingRequest<ListRequestData>;
-
 #[derive(Debug, Deserialize)]
-pub(crate) struct ListRequestData {
+pub(crate) struct ListRequest {
     room_id: Uuid,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
-////////////////////////////////////////////////////////////////////////////////
+pub(crate) struct ListHandler;
 
-pub(crate) struct State {
-    authz: svc_authz::ClientMap,
-    db: ConnectionPool,
-}
+#[async_trait]
+impl RequestHandler for ListHandler {
+    type Payload = ListRequest;
+    const ERROR_TITLE: &'static str = "Failed to list agents";
 
-impl State {
-    pub(crate) fn new(authz: svc_authz::ClientMap, db: ConnectionPool) -> Self {
-        Self { authz, db }
-    }
-
-    pub(crate) async fn list(
-        &self,
-        inreq: ListRequest,
+    async fn handle<C: Context>(
+        context: &C,
+        payload: Self::Payload,
+        reqp: &IncomingRequestProperties,
         start_timestamp: DateTime<Utc>,
-    ) -> endpoint::Result {
-        let room_id = inreq.payload().room_id;
+    ) -> Result {
+        let conn = context.db().get()?;
 
-        // Authorization: room's owner has to allow the action
-        let authz_time = {
-            let conn = self.db.get()?;
-            let room = room::FindQuery::new()
-                .time(room::now())
-                .id(room_id)
-                .execute(&conn)?
-                .ok_or_else(|| {
-                    SvcError::builder()
-                        .status(ResponseStatus::NOT_FOUND)
-                        .detail(&format!("the room = '{}' is not found", &room_id))
-                        .build()
-                })?;
-
-            let room_id = room.id().to_string();
-
-            self.authz
-                .authorize(
-                    room.audience(),
-                    inreq.properties(),
-                    vec!["rooms", &room_id, "agents"],
-                    "list",
-                )
-                .await
-                .map_err(|err| SvcError::from(err))?
-        };
-
-        let objects = {
-            let conn = self.db.get()?;
-
-            agent::ListQuery::from((
-                Some(room_id),
-                inreq.payload().offset,
-                Some(std::cmp::min(
-                    inreq.payload().limit.unwrap_or_else(|| MAX_LIMIT),
-                    MAX_LIMIT,
-                )),
-                Some(agent::Status::Ready),
-            ))
+        // Check whether the room exists and open.
+        let room = db::room::FindQuery::new()
+            .id(payload.room_id)
+            .time(db::room::now())
             .execute(&conn)?
-        };
+            .ok_or_else(|| format!("the room = '{}' is not found or closed", payload.room_id))
+            .status(ResponseStatus::NOT_FOUND)?;
 
-        let mut timing = ShortTermTimingProperties::until_now(start_timestamp);
-        timing.set_authorization_time(authz_time);
+        // Authorize agents listing in the room.
+        let room_id = room.id().to_string();
+        let object = vec!["rooms", &room_id, "agents"];
 
-        inreq
-            .to_response(objects, ResponseStatus::OK, timing, API_VERSION)
-            .into()
+        let authz_time = context
+            .authz()
+            .authorize(room.audience(), reqp, object, "list")
+            .await?;
+
+        // Get agents list in the room.
+        let agents = db::agent::ListQuery::new()
+            .room_id(payload.room_id)
+            .status(db::agent::Status::Ready)
+            .offset(payload.offset.unwrap_or_else(|| 0))
+            .limit(std::cmp::min(
+                payload.limit.unwrap_or_else(|| MAX_LIMIT),
+                MAX_LIMIT,
+            ))
+            .execute(&conn)?;
+
+        // Respond with agents list.
+        Ok(Box::new(stream::once(shared::build_response(
+            ResponseStatus::OK,
+            agents,
+            reqp,
+            start_timestamp,
+            Some(authz_time),
+        ))))
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
-mod test {
-    use std::ops::Try;
+mod tests {
+    mod list {
+        use serde_derive::Deserialize;
+        use svc_agent::AgentId;
+        use uuid::Uuid;
 
-    use failure::format_err;
-    use serde_json::json;
-    use svc_agent::{mqtt::ResponseStatus, AgentId};
+        use crate::test_helpers::prelude::*;
 
-    use crate::test_helpers::{
-        agent::TestAgent,
-        authz::{no_authz, TestAuthz},
-        db::TestDb,
-        factory, Message, AUDIENCE,
-    };
+        use super::super::*;
 
-    use super::*;
+        ///////////////////////////////////////////////////////////////////////////
 
-    #[derive(Debug, PartialEq, Deserialize)]
-    struct AgentResponse {
-        id: Uuid,
-        agent_id: AgentId,
-        room_id: Uuid,
-        created_at: i64,
-    }
+        #[derive(Deserialize)]
+        struct Agent {
+            agent_id: AgentId,
+            room_id: Uuid,
+        }
 
-    ///////////////////////////////////////////////////////////////////////////
+        #[test]
+        fn list_agents() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-    #[test]
-    fn list_agents() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-            let mut authz = TestAuthz::new(AUDIENCE);
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
 
-            // Insert online agent.
-            let (room, online_agent) = db
-                .connection_pool()
-                .get()
-                .map_err(|err| format_err!("Failed to get DB connection: {}", err))
-                .and_then(|conn| {
-                    let room = factory::insert_room(&conn, AUDIENCE);
+                    // Create room and put the agent online.
+                    let room = shared_helpers::insert_room(&conn);
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                    room
+                };
 
-                    let agent = factory::Agent::new()
-                        .audience(AUDIENCE)
-                        .room_id(room.id())
-                        .insert(&conn)?;
+                // Allow agent to list agents in the room.
+                let mut authz = TestAuthz::new();
+                let room_id = room.id().to_string();
 
-                    let _other_agent = factory::Agent::new().audience(AUDIENCE).insert(&conn)?;
+                authz.allow(
+                    agent.account_id(),
+                    vec!["rooms", &room_id, "agents"],
+                    "list",
+                );
 
-                    Ok((room, agent))
-                })
-                .expect("Failed to insert online agent");
+                // Make agent.list request.
+                let context = TestContext::new(db, authz);
 
-            // Allow room agents listing for the agent.
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id, "agents"];
-            authz.allow(agent.account_id(), object, "list");
+                let payload = ListRequest {
+                    room_id: room.id(),
+                    offset: None,
+                    limit: None,
+                };
 
-            // Make agent.list request.
-            let state = State::new(authz.into(), db.connection_pool().clone());
-            let payload = json!({"room_id": online_agent.room_id()});
-            let request: ListRequest = agent.build_request("agent.list", &payload).unwrap();
-            let mut result = state.list(request, Utc::now()).await.into_result().unwrap();
+                let messages = handle_request::<ListHandler>(&context, &agent, payload)
+                    .await
+                    .expect("Agents listing failed");
 
-            // Assert response.
-            let resp = Message::<Vec<AgentResponse>>::from_publishable(result.remove(0))
-                .expect("Failed to parse message");
+                // Assert response.
+                let (agents, respp) = find_response::<Vec<Agent>>(messages.as_slice());
+                assert_eq!(respp.status(), ResponseStatus::OK);
+                assert_eq!(agents.len(), 1);
+                assert_eq!(&agents[0].agent_id, agent.agent_id());
+                assert_eq!(agents[0].room_id, room.id());
+            });
+        }
 
-            assert_eq!(resp.payload().len(), 1);
+        #[test]
+        fn list_agents_not_authorized() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let db = TestDb::new();
 
-            assert_eq!(
-                *resp.payload().first().unwrap(),
-                AgentResponse {
-                    id: online_agent.id(),
-                    agent_id: online_agent.agent_id().to_owned(),
-                    room_id: online_agent.room_id(),
-                    created_at: online_agent.created_at().timestamp(),
-                }
-            );
-        });
-    }
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
 
-    #[test]
-    fn list_agents_in_missing_room() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
+                    shared_helpers::insert_room(&conn)
+                };
 
-            // Make agent.list request.
-            let state = State::new(no_authz(AUDIENCE), db.connection_pool().clone());
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let payload = json!({ "room_id": Uuid::new_v4() });
-            let request: ListRequest = agent.build_request("agent.list", &payload).unwrap();
-            let result = state.list(request, Utc::now()).await.into_result();
+                let context = TestContext::new(db, TestAuthz::new());
 
-            // Assert 404 error response.
-            match result {
-                Ok(_) => panic!("Expected agent.list to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND),
-            }
-        });
-    }
+                let payload = ListRequest {
+                    room_id: room.id(),
+                    offset: None,
+                    limit: None,
+                };
 
-    #[test]
-    fn list_agent_unauthorized() {
-        futures::executor::block_on(async {
-            let db = TestDb::new();
-            let authz = TestAuthz::new(AUDIENCE);
+                let err = handle_request::<ListHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on agents listing");
 
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| factory::insert_room(&conn, AUDIENCE))
-                .unwrap();
+                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+            });
+        }
 
-            // Make agent.list request.
-            let state = State::new(authz.into(), db.connection_pool().clone());
-            let agent = TestAgent::new("web", "user123", AUDIENCE);
-            let payload = json!({"room_id": room.id()});
-            let request: ListRequest = agent.build_request("agent.list", &payload).unwrap();
-            let result = state.list(request, Utc::now()).await.into_result();
+        #[test]
+        fn list_agents_closed_room() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let db = TestDb::new();
 
-            // Assert 403 error response.
-            match result {
-                Ok(_) => panic!("Expected agent.list to fail"),
-                Err(err) => assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN),
-            }
-        });
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    // Create closed room.
+                    shared_helpers::insert_closed_room(&conn)
+                };
+
+                // Allow agent to list agents in the room.
+                let mut authz = TestAuthz::new();
+                let room_id = room.id().to_string();
+
+                authz.allow(
+                    agent.account_id(),
+                    vec!["rooms", &room_id, "agents"],
+                    "list",
+                );
+
+                // Make agent.list request.
+                let context = TestContext::new(db, authz);
+
+                let payload = ListRequest {
+                    room_id: room.id(),
+                    offset: None,
+                    limit: None,
+                };
+
+                let err = handle_request::<ListHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on agents listing");
+
+                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            });
+        }
+
+        #[test]
+        fn list_agents_missing_room() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let context = TestContext::new(TestDb::new(), TestAuthz::new());
+
+                let payload = ListRequest {
+                    room_id: Uuid::new_v4(),
+                    offset: None,
+                    limit: None,
+                };
+
+                let err = handle_request::<ListHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on agents listing");
+
+                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            });
+        }
     }
 }

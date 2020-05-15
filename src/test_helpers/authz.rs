@@ -1,20 +1,29 @@
 use svc_agent::AccountId;
 use svc_authz::{
     Authenticable, ClientMap, Config, ConfigMap, LocalWhitelistConfig, LocalWhitelistRecord,
-    NoneConfig,
 };
 
+use crate::test_helpers::USR_AUDIENCE;
+
+///////////////////////////////////////////////////////////////////////////////
+
+#[derive(Clone, Debug)]
 pub(crate) struct TestAuthz {
-    audience: String,
     records: Vec<LocalWhitelistRecord>,
+    audience: String,
 }
 
 impl TestAuthz {
-    pub(crate) fn new(audience: &str) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            audience: audience.to_string(),
             records: vec![],
+            audience: USR_AUDIENCE.to_owned(),
         }
+    }
+
+    pub(crate) fn set_audience(&mut self, audience: &str) -> &mut Self {
+        self.audience = audience.to_owned();
+        self
     }
 
     pub(crate) fn allow<A: Authenticable>(&mut self, subject: &A, object: Vec<&str>, action: &str) {
@@ -33,16 +42,4 @@ impl Into<ClientMap> for TestAuthz {
         let account_id = AccountId::new("conference", &self.audience);
         ClientMap::new(&account_id, None, config_map).expect("Failed to build authz")
     }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-pub(crate) fn no_authz(audience: &str) -> ClientMap {
-    let authz_none_config = svc_authz::Config::None(NoneConfig {});
-
-    let mut authz_config_map = ConfigMap::new();
-    authz_config_map.insert(audience.to_owned(), authz_none_config);
-
-    let account_id = AccountId::new("conference", audience);
-    svc_authz::ClientMap::new(&account_id, None, authz_config_map).expect("Failed to build authz")
 }

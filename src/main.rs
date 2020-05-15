@@ -1,6 +1,3 @@
-#![feature(try_trait)]
-
-extern crate openssl;
 #[macro_use]
 extern crate diesel;
 #[macro_use]
@@ -73,6 +70,7 @@ async fn main() -> std::io::Result<()> {
 
 mod app;
 mod backend;
+mod config;
 mod db;
 #[allow(unused_imports)]
 mod schema;

@@ -2,7 +2,7 @@ use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use std::ops::Bound;
 use svc_agent::AgentId;
 use uuid::Uuid;
@@ -38,7 +38,7 @@ const ALL_COLUMNS: AllColumns = (
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Serialize, Identifiable, Queryable, QueryableByName, Associations)]
+#[derive(Debug, Deserialize, Serialize, Identifiable, Queryable, QueryableByName, Associations)]
 #[table_name = "janus_rtc_stream"]
 pub(crate) struct Object {
     id: Uuid,
@@ -55,6 +55,11 @@ pub(crate) struct Object {
 }
 
 impl Object {
+    #[cfg(test)]
+    pub(crate) fn id(&self) -> Uuid {
+        self.id
+    }
+
     #[cfg(test)]
     pub(crate) fn handle_id(&self) -> i64 {
         self.handle_id
@@ -164,9 +169,37 @@ impl ListQuery {
         }
     }
 
+    pub(crate) fn rtc_id(self, rtc_id: Uuid) -> Self {
+        Self {
+            rtc_id: Some(rtc_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn time(self, time: Time) -> Self {
+        Self {
+            time: Some(time),
+            ..self
+        }
+    }
+
     pub(crate) fn active(self, active: bool) -> Self {
         Self {
             active: Some(active),
+            ..self
+        }
+    }
+
+    pub(crate) fn offset(self, offset: i64) -> Self {
+        Self {
+            offset: Some(offset),
+            ..self
+        }
+    }
+
+    pub(crate) fn limit(self, limit: i64) -> Self {
+        Self {
+            limit: Some(limit),
             ..self
         }
     }
@@ -205,37 +238,6 @@ impl ListQuery {
 
         q.order_by(janus_rtc_stream::created_at.desc())
             .get_results(conn)
-    }
-}
-
-impl
-    From<(
-        Option<Uuid>,
-        Option<Uuid>,
-        Option<Time>,
-        Option<bool>,
-        Option<i64>,
-        Option<i64>,
-    )> for ListQuery
-{
-    fn from(
-        value: (
-            Option<Uuid>,
-            Option<Uuid>,
-            Option<Time>,
-            Option<bool>,
-            Option<i64>,
-            Option<i64>,
-        ),
-    ) -> Self {
-        Self {
-            room_id: value.0,
-            rtc_id: value.1,
-            time: value.2,
-            active: value.3,
-            offset: value.4,
-            limit: value.5,
-        }
     }
 }
 

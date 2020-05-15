@@ -1,222 +1,176 @@
-use core::future::Future;
-use std::ops::Try;
+use std::result::Result as StdResult;
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use failure::Error;
-use log::warn;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
 use svc_agent::mqtt::{
-    compat, IncomingEventProperties, IncomingMessage, IncomingRequestProperties,
-    IntoPublishableDump, OutgoingEvent, OutgoingRequest, OutgoingResponse, ResponseStatus,
-    ShortTermTimingProperties,
+    compat::IncomingEnvelope, IncomingEventProperties, IncomingRequestProperties,
+    IncomingResponseProperties,
 };
-use svc_error::{extension::sentry, Error as SvcError, ProblemDetails};
+use svc_error::Error as SvcError;
 
-use crate::app::API_VERSION;
+use crate::app::context::Context;
+use crate::app::janus;
+pub(self) use crate::app::message_handler::MessageStream;
+use crate::app::message_handler::{
+    EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler,
+};
 
-////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct Result {
-    messages: Vec<Box<dyn IntoPublishableDump>>,
-    error: Option<SvcError>,
+pub(crate) type Result = StdResult<MessageStream, SvcError>;
+
+#[async_trait]
+pub(crate) trait RequestHandler {
+    type Payload: Send + DeserializeOwned;
+    const ERROR_TITLE: &'static str;
+
+    async fn handle<C: Context>(
+        context: &C,
+        payload: Self::Payload,
+        reqp: &IncomingRequestProperties,
+        start_timestamp: DateTime<Utc>,
+    ) -> Result;
 }
 
-impl std::ops::Try for Result {
-    type Ok = Vec<Box<dyn IntoPublishableDump>>;
-    type Error = SvcError;
-
-    fn into_result(self) -> std::result::Result<Self::Ok, Self::Error> {
-        match self.error {
-            None => Ok(self.messages),
-            Some(error) => Err(error),
-        }
-    }
-
-    fn from_error(error: Self::Error) -> Self {
-        Self {
-            messages: vec![],
-            error: Some(error),
-        }
-    }
-
-    fn from_ok(messages: Self::Ok) -> Self {
-        Self {
-            messages,
-            error: None,
-        }
-    }
-}
-
-impl<T: Serialize + 'static> From<OutgoingEvent<T>> for Result {
-    fn from(event: OutgoingEvent<T>) -> Self {
-        Self {
-            messages: vec![Box::new(event)],
-            error: None,
-        }
-    }
-}
-
-impl<T: Serialize + 'static> From<OutgoingRequest<T>> for Result {
-    fn from(request: OutgoingRequest<T>) -> Self {
-        Self {
-            messages: vec![Box::new(request)],
-            error: None,
+macro_rules! request_routes {
+    ($($m: pat => $h: ty),*) => {
+        pub(crate) async fn route_request<C: Context>(
+            context: &C,
+            envelope: IncomingEnvelope,
+            reqp: &IncomingRequestProperties,
+            _topic: &str,
+            start_timestamp: DateTime<Utc>,
+        ) -> Option<MessageStream> {
+            match reqp.method() {
+                $(
+                    $m => Some(
+                        <$h>::handle_envelope::<C>(context, envelope, reqp, start_timestamp).await
+                    ),
+                )*
+                _ => None,
+            }
         }
     }
 }
 
-impl<T: Serialize + 'static> From<OutgoingResponse<T>> for Result {
-    fn from(response: OutgoingResponse<T>) -> Self {
-        Self {
-            messages: vec![Box::new(response)],
-            error: None,
-        }
-    }
+// Request routes configuration: method => RequestHandler
+request_routes!(
+    "agent.list" => agent::ListHandler,
+    "message.broadcast" => message::BroadcastHandler,
+    "message.unicast" => message::UnicastHandler,
+    "room.create" => room::CreateHandler,
+    "room.delete" => room::DeleteHandler,
+    "room.enter" => room::EnterHandler,
+    "room.leave" => room::LeaveHandler,
+    "room.read" => room::ReadHandler,
+    "room.update" => room::UpdateHandler,
+    "rtc.connect" => rtc::ConnectHandler,
+    "rtc.create" => rtc::CreateHandler,
+    "rtc.list" => rtc::ListHandler,
+    "rtc.read" => rtc::ReadHandler,
+    "rtc_signal.create" => rtc_signal::CreateHandler,
+    "rtc_stream.list" => rtc_stream::ListHandler,
+    "system.vacuum" => system::VacuumHandler
+);
+
+///////////////////////////////////////////////////////////////////////////////
+
+#[async_trait]
+pub(crate) trait ResponseHandler {
+    type Payload: Send + DeserializeOwned;
+
+    async fn handle<C: Context>(
+        context: &C,
+        payload: Self::Payload,
+        respp: &IncomingResponseProperties,
+        start_timestamp: DateTime<Utc>,
+    ) -> Result;
 }
 
-impl From<Vec<Box<dyn IntoPublishableDump>>> for Result {
-    fn from(messages: Vec<Box<dyn IntoPublishableDump>>) -> Self {
-        Self {
-            messages,
-            error: None,
-        }
-    }
-}
-
-impl From<SvcError> for Result {
-    fn from(error: SvcError) -> Self {
-        Self {
-            messages: vec![],
-            error: Some(error),
-        }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub(crate) async fn handle_request<H, S, P, R>(
-    kind: &str,
-    title: &str,
-    props: &IncomingRequestProperties,
-    handler: H,
-    state: S,
-    envelope: compat::IncomingEnvelope,
+pub(crate) async fn route_response<C: Context>(
+    context: &C,
+    envelope: IncomingEnvelope,
+    respp: &IncomingResponseProperties,
+    topic: &str,
     start_timestamp: DateTime<Utc>,
-) -> std::result::Result<Vec<Box<dyn IntoPublishableDump>>, Error>
-where
-    H: Fn(S, IncomingMessage<P, IncomingRequestProperties>, DateTime<Utc>) -> R,
-    P: DeserializeOwned,
-    R: Future<Output = Result>,
-{
-    match compat::into_request::<P>(envelope) {
-        Ok(request) => handler(state, request, start_timestamp)
-            .await
-            .into_result()
-            .or_else(|err| handle_error(kind, title, props, err, start_timestamp)),
-        Err(err) => {
-            let status = ResponseStatus::BAD_REQUEST;
+) -> Option<MessageStream> {
+    if topic == context.janus_topics().responses_topic() {
+        Some(janus::handle_response::<C>(context, envelope, respp, start_timestamp).await)
+    } else {
+        Some(
+            message::CallbackHandler::handle_envelope::<C>(
+                context,
+                envelope,
+                respp,
+                start_timestamp,
+            )
+            .await,
+        )
+    }
+}
 
-            let err = svc_error::Error::builder()
-                .kind(kind, title)
-                .status(status)
-                .detail(&err.to_string())
-                .build();
+///////////////////////////////////////////////////////////////////////////////
 
-            let timing = ShortTermTimingProperties::until_now(start_timestamp);
+#[async_trait]
+pub(crate) trait EventHandler {
+    type Payload: Send + DeserializeOwned;
 
-            let resp = OutgoingResponse::unicast(
-                err,
-                props.to_response(status, timing),
-                props,
-                API_VERSION,
-            );
+    async fn handle<C: Context>(
+        context: &C,
+        payload: Self::Payload,
+        evp: &IncomingEventProperties,
+        start_timestamp: DateTime<Utc>,
+    ) -> Result;
+}
 
-            Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
+macro_rules! event_routes {
+    ($($l: pat => $h: ty),*) => {
+        #[allow(unused_variables)]
+        pub(crate) async fn route_event<C: Context>(
+            context: &C,
+            envelope: IncomingEnvelope,
+            evp: &IncomingEventProperties,
+            topic: &str,
+            start_timestamp: DateTime<Utc>,
+        ) -> Option<MessageStream> {
+            if topic == context.janus_topics().events_topic() {
+                Some(janus::handle_event::<C>(context, envelope, evp, start_timestamp).await)
+            } else if topic == context.janus_topics().status_events_topic() {
+                Some(janus::handle_status_event::<C>(context, envelope, evp, start_timestamp).await)
+            } else {
+                match evp.label() {
+                    $(
+                        Some($l) => Some(
+                            <$h>::handle_envelope::<C>(context, envelope, evp, start_timestamp).await
+                        ),
+                    )*
+                    _ => None,
+                }
+            }
         }
     }
 }
 
-pub(crate) fn handle_error(
-    kind: &str,
-    title: &str,
-    props: &IncomingRequestProperties,
-    mut err: impl ProblemDetails + Send + Clone + 'static,
-    start_timestamp: DateTime<Utc>,
-) -> std::result::Result<Vec<Box<dyn IntoPublishableDump>>, Error> {
-    err.set_kind(kind, title);
-    let status = err.status_code();
+// Event routes configuration: label => EventHandler
+event_routes!(
+    "subscription.delete" => subscription::DeleteHandler,
+    "subscription.create" => subscription::CreateHandler
+);
 
-    if status == ResponseStatus::UNPROCESSABLE_ENTITY
-        || status == ResponseStatus::FAILED_DEPENDENCY
-        || status >= ResponseStatus::INTERNAL_SERVER_ERROR
-    {
-        sentry::send(err.clone())
-            .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
-    }
+///////////////////////////////////////////////////////////////////////////////
 
-    let timing = ShortTermTimingProperties::until_now(start_timestamp);
-
-    let resp =
-        OutgoingResponse::unicast(err, props.to_response(status, timing), props, API_VERSION);
-
-    Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
-}
-
-pub(crate) fn handle_unknown_method(
-    method: &str,
-    props: &IncomingRequestProperties,
-    start_timestamp: DateTime<Utc>,
-) -> std::result::Result<Vec<Box<dyn IntoPublishableDump>>, Error> {
-    let status = ResponseStatus::BAD_REQUEST;
-
-    let err = svc_error::Error::builder()
-        .kind("general", "General API error")
-        .status(status)
-        .detail(&format!("invalid request method = '{}'", method))
-        .build();
-
-    let timing = ShortTermTimingProperties::until_now(start_timestamp);
-    let resp =
-        OutgoingResponse::unicast(err, props.to_response(status, timing), props, API_VERSION);
-    Ok(vec![Box::new(resp) as Box<dyn IntoPublishableDump>])
-}
-
-pub(crate) async fn handle_event<H, S, P, R>(
-    kind: &str,
-    title: &str,
-    handler: H,
-    state: S,
-    envelope: compat::IncomingEnvelope,
-    start_timestamp: DateTime<Utc>,
-) -> std::result::Result<Vec<Box<dyn IntoPublishableDump>>, Error>
-where
-    H: Fn(S, IncomingMessage<P, IncomingEventProperties>, DateTime<Utc>) -> R,
-    P: DeserializeOwned,
-    R: Future<Output = Result>,
-{
-    match compat::into_event::<P>(envelope) {
-        Ok(event) => handler(state, event, start_timestamp)
-            .await
-            .into_result()
-            .or_else(|mut err| {
-                err.set_kind(kind, title);
-
-                sentry::send(err)
-                    .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
-
-                Ok(vec![])
-            }),
-        Err(err) => Err(err.into()),
-    }
-}
-
-pub(crate) mod shared;
-
-pub(crate) mod agent;
-pub(crate) mod message;
-pub(crate) mod room;
+mod agent;
+mod message;
+mod room;
 pub(crate) mod rtc;
 pub(crate) mod rtc_signal;
 pub(crate) mod rtc_stream;
-pub(crate) mod subscription;
+pub(self) mod shared;
+mod subscription;
 pub(crate) mod system;
+
+pub(self) mod prelude {
+    pub(super) use super::{shared, EventHandler, RequestHandler, ResponseHandler, Result};
+    pub(super) use crate::app::message_handler::SvcErrorSugar;
+}
