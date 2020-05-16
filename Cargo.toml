@@ -5,7 +5,7 @@ authors = ["Andrei Nesterov <ae.nesterov@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-async-std = { version = "1", features = ["attributes"] }
+async-std = { version = "= 1.6.0-beta.1", features = ["attributes"] }
 async-trait = "0.1"
 base64 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
