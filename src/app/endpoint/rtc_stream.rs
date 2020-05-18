@@ -43,33 +43,33 @@ impl RequestHandler for ListHandler {
         reqp: &IncomingRequestProperties,
         start_timestamp: DateTime<Utc>,
     ) -> Result {
-        let conn = context.db().get()?;
+        let room = {
+            let conn = context.db().get()?;
 
-        let authz_time = {
-            let room = db::room::FindQuery::new()
+            db::room::FindQuery::new()
                 .time(db::room::now())
                 .id(payload.room_id)
                 .execute(&conn)?
                 .ok_or_else(|| format!("the room = '{}' is not found", payload.room_id))
-                .status(ResponseStatus::NOT_FOUND)?;
-
-            if room.backend() != db::room::RoomBackend::Janus {
-                let err = format!(
-                    "'rtc_stream.list' is not implemented for the backend = '{}'",
-                    room.backend()
-                );
-
-                return Err(err).status(ResponseStatus::NOT_IMPLEMENTED)?;
-            }
-
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs"];
-
-            context
-                .authz()
-                .authorize(room.audience(), reqp, object, "list")
-                .await?
+                .status(ResponseStatus::NOT_FOUND)?
         };
+
+        if room.backend() != db::room::RoomBackend::Janus {
+            let err = format!(
+                "'rtc_stream.list' is not implemented for the backend = '{}'",
+                room.backend()
+            );
+
+            return Err(err).status(ResponseStatus::NOT_IMPLEMENTED)?;
+        }
+
+        let room_id = room.id().to_string();
+        let object = vec!["rooms", &room_id, "rtcs"];
+
+        let authz_time = context
+            .authz()
+            .authorize(room.audience(), reqp, object, "list")
+            .await?;
 
         let mut query = db::janus_rtc_stream::ListQuery::new().room_id(payload.room_id);
 
@@ -87,7 +87,10 @@ impl RequestHandler for ListHandler {
 
         query = query.limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT));
 
-        let rtc_streams = query.execute(&conn)?;
+        let rtc_streams = {
+            let conn = context.db().get()?;
+            query.execute(&conn)?
+        };
 
         Ok(Box::new(stream::once(shared::build_response(
             ResponseStatus::OK,

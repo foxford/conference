@@ -119,13 +119,15 @@ impl RequestHandler for ReadHandler {
         reqp: &IncomingRequestProperties,
         start_timestamp: DateTime<Utc>,
     ) -> Result {
-        let conn = context.db().get()?;
+        let room = {
+            let conn = context.db().get()?;
 
-        let room = db::room::FindQuery::new()
-            .id(payload.id)
-            .execute(&conn)?
-            .ok_or_else(|| format!("Room not found, id = '{}'", payload.id))
-            .status(ResponseStatus::NOT_FOUND)?;
+            db::room::FindQuery::new()
+                .id(payload.id)
+                .execute(&conn)?
+                .ok_or_else(|| format!("Room not found, id = '{}'", payload.id))
+                .status(ResponseStatus::NOT_FOUND)?
+        };
 
         // Authorize room reading on the tenant.
         let room_id = room.id().to_string();
@@ -162,14 +164,16 @@ impl RequestHandler for UpdateHandler {
         reqp: &IncomingRequestProperties,
         start_timestamp: DateTime<Utc>,
     ) -> Result {
-        let conn = context.db().get()?;
+        let room = {
+            let conn = context.db().get()?;
 
-        let room = db::room::FindQuery::new()
-            .time(db::room::since_now())
-            .id(payload.id())
-            .execute(&conn)?
-            .ok_or_else(|| format!("Room not found, id = '{}' or closed", payload.id()))
-            .status(ResponseStatus::NOT_FOUND)?;
+            db::room::FindQuery::new()
+                .time(db::room::since_now())
+                .id(payload.id())
+                .execute(&conn)?
+                .ok_or_else(|| format!("Room not found, id = '{}' or closed", payload.id()))
+                .status(ResponseStatus::NOT_FOUND)?
+        };
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
@@ -181,7 +185,10 @@ impl RequestHandler for UpdateHandler {
             .await?;
 
         // Update room.
-        let room = payload.execute(&conn)?;
+        let room = {
+            let conn = context.db().get()?;
+            payload.execute(&conn)?
+        };
 
         // Respond and broadcast to the audience topic.
         let response = shared::build_response(
@@ -220,14 +227,16 @@ impl RequestHandler for DeleteHandler {
         reqp: &IncomingRequestProperties,
         start_timestamp: DateTime<Utc>,
     ) -> Result {
-        let conn = context.db().get()?;
+        let room = {
+            let conn = context.db().get()?;
 
-        let room = db::room::FindQuery::new()
-            .time(db::room::since_now())
-            .id(payload.id)
-            .execute(&conn)?
-            .ok_or_else(|| format!("Room not found, id = '{}' or closed", payload.id))
-            .status(ResponseStatus::NOT_FOUND)?;
+            db::room::FindQuery::new()
+                .time(db::room::since_now())
+                .id(payload.id)
+                .execute(&conn)?
+                .ok_or_else(|| format!("Room not found, id = '{}' or closed", payload.id))
+                .status(ResponseStatus::NOT_FOUND)?
+        };
 
         // Authorize room deletion on the tenant.
         let room_id = room.id().to_string();
@@ -239,7 +248,10 @@ impl RequestHandler for DeleteHandler {
             .await?;
 
         // Delete room.
-        db::room::DeleteQuery::new(room.id()).execute(&conn)?;
+        {
+            let conn = context.db().get()?;
+            db::room::DeleteQuery::new(room.id()).execute(&conn)?;
+        }
 
         // Respond and broadcast to the audience topic.
         let response = shared::build_response(
@@ -278,14 +290,16 @@ impl RequestHandler for EnterHandler {
         reqp: &IncomingRequestProperties,
         start_timestamp: DateTime<Utc>,
     ) -> Result {
-        let conn = context.db().get()?;
+        let room = {
+            let conn = context.db().get()?;
 
-        let room = db::room::FindQuery::new()
-            .id(payload.id)
-            .time(db::room::now())
-            .execute(&conn)?
-            .ok_or_else(|| format!("Room not found or closed, id = '{}'", payload.id))
-            .status(ResponseStatus::NOT_FOUND)?;
+            db::room::FindQuery::new()
+                .id(payload.id)
+                .time(db::room::now())
+                .execute(&conn)?
+                .ok_or_else(|| format!("Room not found or closed, id = '{}'", payload.id))
+                .status(ResponseStatus::NOT_FOUND)?
+        };
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();
@@ -297,7 +311,10 @@ impl RequestHandler for EnterHandler {
             .await?;
 
         // Register agent in `in_progress` state.
-        db::agent::InsertQuery::new(reqp.as_agent_id(), room.id()).execute(&conn)?;
+        {
+            let conn = context.db().get()?;
+            db::agent::InsertQuery::new(reqp.as_agent_id(), room.id()).execute(&conn)?;
+        }
 
         // Send dynamic subscription creation request to the broker.
         let payload = SubscriptionRequest::new(reqp.as_agent_id().to_owned(), object);
@@ -343,22 +360,26 @@ impl RequestHandler for LeaveHandler {
         reqp: &IncomingRequestProperties,
         start_timestamp: DateTime<Utc>,
     ) -> Result {
-        let conn = context.db().get()?;
+        let (room, presence) = {
+            let conn = context.db().get()?;
 
-        let room = db::room::FindQuery::new()
-            .id(payload.id)
-            .execute(&conn)?
-            .ok_or_else(|| format!("Room not found, id = '{}'", payload.id))
-            .status(ResponseStatus::NOT_FOUND)?;
+            let room = db::room::FindQuery::new()
+                .id(payload.id)
+                .execute(&conn)?
+                .ok_or_else(|| format!("Room not found, id = '{}'", payload.id))
+                .status(ResponseStatus::NOT_FOUND)?;
 
-        // Check room presence.
-        let results = db::agent::ListQuery::new()
-            .room_id(room.id())
-            .agent_id(reqp.as_agent_id())
-            .status(db::agent::Status::Ready)
-            .execute(&conn)?;
+            // Check room presence.
+            let presence = db::agent::ListQuery::new()
+                .room_id(room.id())
+                .agent_id(reqp.as_agent_id())
+                .status(db::agent::Status::Ready)
+                .execute(&conn)?;
 
-        if results.is_empty() {
+            (room, presence)
+        };
+
+        if presence.is_empty() {
             return Err(format!(
                 "agent = '{}' is not online in the room = '{}'",
                 reqp.as_agent_id(),

@@ -74,9 +74,8 @@ impl RequestHandler for UnicastHandler {
             API_VERSION,
         );
 
-        Ok(Box::new(stream::once(
-            Box::new(req) as Box<dyn IntoPublishableDump + Send>
-        )))
+        let boxed_req = Box::new(req) as Box<dyn IntoPublishableDump + Send>;
+        Ok(Box::new(stream::once(boxed_req)))
     }
 }
 

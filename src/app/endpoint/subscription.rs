@@ -74,19 +74,22 @@ impl EventHandler for CreateHandler {
 
         // Find room.
         let room_id = payload.try_room_id()?;
-        let conn = context.db().get()?;
 
-        db::room::FindQuery::new()
-            .id(room_id)
-            .time(db::room::now())
-            .execute(&conn)?
-            .ok_or_else(|| format!("the room = '{}' is not found or closed", room_id))
-            .status(ResponseStatus::NOT_FOUND)?;
+        {
+            let conn = context.db().get()?;
 
-        // Update agent state to `ready`.
-        db::agent::UpdateQuery::new(&payload.subject, room_id)
-            .status(db::agent::Status::Ready)
-            .execute(&conn)?;
+            db::room::FindQuery::new()
+                .id(room_id)
+                .time(db::room::now())
+                .execute(&conn)?
+                .ok_or_else(|| format!("the room = '{}' is not found or closed", room_id))
+                .status(ResponseStatus::NOT_FOUND)?;
+
+            // Update agent state to `ready`.
+            db::agent::UpdateQuery::new(&payload.subject, room_id)
+                .status(db::agent::Status::Ready)
+                .execute(&conn)?;
+        }
 
         // Send broadcast notification that the agent has entered the room.
         let outgoing_event_payload = RoomEnterLeaveEvent {

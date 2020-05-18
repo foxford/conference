@@ -48,14 +48,16 @@ impl RequestHandler for CreateHandler {
         reqp: &IncomingRequestProperties,
         start_timestamp: DateTime<Utc>,
     ) -> Result {
-        let conn = context.db().get()?;
+        let room = {
+            let conn = context.db().get()?;
 
-        let room = db::room::FindQuery::new()
-            .time(db::room::now())
-            .id(payload.room_id)
-            .execute(&conn)?
-            .ok_or_else(|| format!("the room = '{}' is not found", payload.room_id))
-            .status(ResponseStatus::NOT_FOUND)?;
+            db::room::FindQuery::new()
+                .time(db::room::now())
+                .id(payload.room_id)
+                .execute(&conn)?
+                .ok_or_else(|| format!("the room = '{}' is not found", payload.room_id))
+                .status(ResponseStatus::NOT_FOUND)?
+        };
 
         // Authorize room creation.
         let room_id = room.id().to_string();
@@ -67,7 +69,10 @@ impl RequestHandler for CreateHandler {
             .await?;
 
         // Create an rtc.
-        let rtc = db::rtc::InsertQuery::new(room.id()).execute(&conn)?;
+        let rtc = {
+            let conn = context.db().get()?;
+            db::rtc::InsertQuery::new(room.id()).execute(&conn)?
+        };
 
         // Respond and broadcast to the room topic.
         let response = shared::build_response(
@@ -110,33 +115,37 @@ impl RequestHandler for ReadHandler {
         reqp: &IncomingRequestProperties,
         start_timestamp: DateTime<Utc>,
     ) -> Result {
-        let conn = context.db().get()?;
+        let room = {
+            let conn = context.db().get()?;
 
-        // Authorize rtc reading.
-        let authz_time = {
-            let room = db::room::FindQuery::new()
+            db::room::FindQuery::new()
                 .time(db::room::now())
                 .rtc_id(payload.id)
                 .execute(&conn)?
                 .ok_or_else(|| format!("a room for the rtc = '{}' is not found", payload.id))
-                .status(ResponseStatus::NOT_FOUND)?;
-
-            let rtc_id = payload.id.to_string();
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-
-            context
-                .authz()
-                .authorize(room.audience(), reqp, object, "read")
-                .await?
+                .status(ResponseStatus::NOT_FOUND)?
         };
 
+        // Authorize rtc reading.
+        let rtc_id = payload.id.to_string();
+        let room_id = room.id().to_string();
+        let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+
+        let authz_time = context
+            .authz()
+            .authorize(room.audience(), reqp, object, "read")
+            .await?;
+
         // Return rtc.
-        let rtc = db::rtc::FindQuery::new()
-            .id(payload.id)
-            .execute(&conn)?
-            .ok_or_else(|| format!("RTC not found, id = '{}'", payload.id))
-            .status(ResponseStatus::NOT_FOUND)?;
+        let rtc = {
+            let conn = context.db().get()?;
+
+            db::rtc::FindQuery::new()
+                .id(payload.id)
+                .execute(&conn)?
+                .ok_or_else(|| format!("RTC not found, id = '{}'", payload.id))
+                .status(ResponseStatus::NOT_FOUND)?
+        };
 
         Ok(Box::new(stream::once(shared::build_response(
             ResponseStatus::OK,
@@ -172,25 +181,25 @@ impl RequestHandler for ListHandler {
         reqp: &IncomingRequestProperties,
         start_timestamp: DateTime<Utc>,
     ) -> Result {
-        let conn = context.db().get()?;
+        let room = {
+            let conn = context.db().get()?;
 
-        // Authorize rtc listing.
-        let authz_time = {
-            let room = db::room::FindQuery::new()
+            db::room::FindQuery::new()
                 .time(db::room::now())
                 .id(payload.room_id)
                 .execute(&conn)?
                 .ok_or_else(|| format!("the room = '{}' is not found", payload.room_id))
-                .status(ResponseStatus::NOT_FOUND)?;
-
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs"];
-
-            context
-                .authz()
-                .authorize(room.audience(), reqp, object, "list")
-                .await?
+                .status(ResponseStatus::NOT_FOUND)?
         };
+
+        // Authorize rtc listing.
+        let room_id = room.id().to_string();
+        let object = vec!["rooms", &room_id, "rtcs"];
+
+        let authz_time = context
+            .authz()
+            .authorize(room.audience(), reqp, object, "list")
+            .await?;
 
         // Return rtc list.
         let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
@@ -202,7 +211,10 @@ impl RequestHandler for ListHandler {
         let limit = std::cmp::min(payload.limit.unwrap_or_else(|| MAX_LIMIT), MAX_LIMIT);
         query = query.limit(limit);
 
-        let rtcs = query.execute(&conn)?;
+        let rtcs = {
+            let conn = context.db().get()?;
+            query.execute(&conn)?
+        };
 
         Ok(Box::new(stream::once(shared::build_response(
             ResponseStatus::OK,
@@ -234,36 +246,38 @@ impl RequestHandler for ConnectHandler {
         reqp: &IncomingRequestProperties,
         start_timestamp: DateTime<Utc>,
     ) -> Result {
-        let conn = context.db().get()?;
+        let room = {
+            let conn = context.db().get()?;
 
-        // Authorize connecting to the rtc.
-        let authz_time = {
-            let room = db::room::FindQuery::new()
+            db::room::FindQuery::new()
                 .time(db::room::now())
                 .rtc_id(payload.id)
                 .execute(&conn)?
                 .ok_or_else(|| format!("a room for the rtc = '{}' is not found", payload.id))
-                .status(ResponseStatus::NOT_FOUND)?;
-
-            if room.backend() != db::room::RoomBackend::Janus {
-                return Err(format!(
-                    "'rtc.connect' is not implemented for the backend = '{}'.",
-                    room.backend(),
-                ))
-                .status(ResponseStatus::NOT_IMPLEMENTED);
-            }
-
-            let rtc_id = payload.id.to_string();
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-
-            context
-                .authz()
-                .authorize(room.audience(), reqp, object, "read")
-                .await?
+                .status(ResponseStatus::NOT_FOUND)?
         };
 
+        // Authorize connecting to the rtc.
+        if room.backend() != db::room::RoomBackend::Janus {
+            return Err(format!(
+                "'rtc.connect' is not implemented for the backend = '{}'.",
+                room.backend(),
+            ))
+            .status(ResponseStatus::NOT_IMPLEMENTED);
+        }
+
+        let rtc_id = payload.id.to_string();
+        let room_id = room.id().to_string();
+        let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+
+        let authz_time = context
+            .authz()
+            .authorize(room.audience(), reqp, object, "read")
+            .await?;
+
         let backend = {
+            let conn = context.db().get()?;
+
             // If there is an active stream choose its backend since Janus doesn't support
             // clustering so all agents within one rtc must be sent to the same node. If there's no
             // active stream it means we're connecting as publisher and going to create it.
