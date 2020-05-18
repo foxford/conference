@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.7 (May 18, 2020)
+
+### Changes
+- Switch runtime to smol ([54d5a9f](https://github.com/netology-group/conference/commit/54d5a9f01d7b837a89fba504ec3d294fe17b22b8))
+- Optimize DB connection usage ([2bf9225](https://github.com/netology-group/conference/commit/2bf9225d2adad2492e723ee9c331095501c2b5de))
+
+
 ## v0.3.6 (May 15, 2020)
 
 ### Features
