@@ -4,7 +4,7 @@ use std::thread;
 use async_std::task;
 use chrono::Utc;
 use futures::StreamExt;
-use log::{error, info};
+use log::{error, info, warn};
 use serde_json::json;
 use svc_agent::{
     mqtt::{
@@ -15,8 +15,10 @@ use svc_agent::{
 };
 use svc_authn::token::jws_compact;
 use svc_authz::cache::Cache as AuthzCache;
+use svc_error::{extension::sentry, Error as SvcError};
 
-use crate::config::{self, KruonisConfig};
+use crate::app::context::Context;
+use crate::config::{self, Config, KruonisConfig};
 use crate::db::ConnectionPool;
 use context::{AppContext, JanusTopics};
 use message_handler::MessageHandler;
@@ -72,76 +74,14 @@ pub(crate) async fn run(
         svc_error::extension::sentry::init(sentry_config);
     }
 
-    // Subscribe to multicast requests
-    let group = SharedGroup::new("loadbalancer", agent_id.as_account_id().clone());
-
-    agent
-        .subscribe(
-            &Subscription::multicast_requests(Some(API_VERSION)),
-            QoS::AtMostOnce,
-            Some(&group),
-        )
-        .map_err(|err| format!("Error subscribing to multicast requests: {}", err))?;
-
-    // Subscribe to Janus status
-    let subscription = Subscription::broadcast_events(&config.backend_id, API_VERSION, "status");
-
-    agent
-        .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
-        .map_err(|err| format!("Error subscribing to backend events topic: {}", err))?;
-
-    let janus_status_events_topic = subscription
-        .subscription_topic(&agent_id, API_VERSION)
-        .map_err(|err| format!("Error building janus events subscription topic: {}", err))?;
-
-    // Subscribe to Janus events
-    let subscription = Subscription::broadcast_events(&config.backend_id, API_VERSION, "events");
-
-    agent
-        .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
-        .map_err(|err| format!("Error subscribing to backend events topic: {}", err))?;
-
-    let janus_events_topic = subscription
-        .subscription_topic(&agent_id, API_VERSION)
-        .map_err(|err| format!("Error building janus events subscription topic: {}", err))?;
-
-    // Subscribe to Janus responses
-    let subscription = Subscription::unicast_responses_from(&config.backend_id);
-
-    agent
-        .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
-        .map_err(|err| format!("Error subscribing to backend responses topic: {}", err))?;
-
-    agent
-        .subscribe(
-            &Subscription::unicast_requests(),
-            QoS::AtMostOnce,
-            Some(&group),
-        )
-        .map_err(|err| format!("Error subscribing to unicast requests: {}", err))?;
-
-    if let KruonisConfig {
-        id: Some(ref kruonis_id),
-    } = config.kruonis
-    {
-        subscribe_to_kruonis(kruonis_id, &mut agent)?;
-    }
-
-    let janus_responses_topic = subscription
-        .subscription_topic(&agent_id, API_VERSION)
-        .map_err(|err| format!("Error building janus responses subscription topic: {}", err))?;
+    // Subscribe to topics
+    let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
 
     // Context
-    let janus_topics = JanusTopics::new(
-        &janus_status_events_topic,
-        &janus_events_topic,
-        &janus_responses_topic,
-    );
-
-    let context = AppContext::new(config, authz, db.clone(), janus_topics);
+    let context = AppContext::new(config.clone(), authz, db.clone(), janus_topics);
 
     // Message handler
-    let message_handler = Arc::new(MessageHandler::new(agent, context));
+    let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
 
     // Message loop
     while let Some(message) = mq_rx.next().await {
@@ -154,6 +94,18 @@ pub(crate) async fn run(
                         .handle(&message.payload, &message.topic_name)
                         .await
                 }
+                svc_agent::mqtt::Notification::Disconnection => {
+                    error!("Disconnected from broker");
+                }
+                svc_agent::mqtt::Notification::Reconnection => {
+                    error!("Reconnected to broker");
+
+                    resubscribe(
+                        &mut message_handler.agent().to_owned(),
+                        message_handler.context().agent_id(),
+                        message_handler.context().config(),
+                    );
+                }
                 _ => error!("Unsupported notification type = '{:?}'", message),
             }
         });
@@ -162,11 +114,87 @@ pub(crate) async fn run(
     Ok(())
 }
 
+fn subscribe(
+    agent: &mut Agent,
+    agent_id: &AgentId,
+    config: &Config,
+) -> Result<JanusTopics, String> {
+    let group = SharedGroup::new("loadbalancer", agent_id.as_account_id().clone());
+
+    // Multicast requests
+    agent
+        .subscribe(
+            &Subscription::multicast_requests(Some(API_VERSION)),
+            QoS::AtMostOnce,
+            Some(&group),
+        )
+        .map_err(|err| format!("Error subscribing to multicast requests: {}", err))?;
+
+    // Unicast requests
+    agent
+        .subscribe(
+            &Subscription::unicast_requests(),
+            QoS::AtMostOnce,
+            Some(&group),
+        )
+        .map_err(|err| format!("Error subscribing to unicast requests: {}", err))?;
+
+    // Janus status events
+    let subscription = Subscription::broadcast_events(&config.backend_id, API_VERSION, "status");
+
+    agent
+        .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
+        .map_err(|err| format!("Error subscribing to backend events topic: {}", err))?;
+
+    let janus_status_events_topic = subscription
+        .subscription_topic(agent_id, API_VERSION)
+        .map_err(|err| format!("Error building janus events subscription topic: {}", err))?;
+
+    // Janus events
+    let subscription = Subscription::broadcast_events(&config.backend_id, API_VERSION, "events");
+
+    agent
+        .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
+        .map_err(|err| format!("Error subscribing to backend events topic: {}", err))?;
+
+    let janus_events_topic = subscription
+        .subscription_topic(agent_id, API_VERSION)
+        .map_err(|err| format!("Error building janus events subscription topic: {}", err))?;
+
+    // Janus responses
+    let subscription = Subscription::unicast_responses_from(&config.backend_id);
+
+    agent
+        .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
+        .map_err(|err| format!("Error subscribing to backend responses topic: {}", err))?;
+
+    let janus_responses_topic = subscription
+        .subscription_topic(agent_id, API_VERSION)
+        .map_err(|err| format!("Error building janus responses subscription topic: {}", err))?;
+
+    // Kruonis
+    if let KruonisConfig {
+        id: Some(ref kruonis_id),
+    } = config.kruonis
+    {
+        subscribe_to_kruonis(kruonis_id, agent)?;
+    }
+
+    // Return Janus subscription topics
+    Ok(JanusTopics::new(
+        &janus_status_events_topic,
+        &janus_events_topic,
+        &janus_responses_topic,
+    ))
+}
+
 fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<(), String> {
     let timing = ShortTermTimingProperties::new(Utc::now());
+
     let topic = Subscription::unicast_requests_from(kruonis_id)
         .subscription_topic(agent.id(), API_VERSION)
         .map_err(|err| format!("Failed to build subscription topic: {:?}", err))?;
+
     let props = OutgoingRequestProperties::new("kruonis.subscribe", &topic, "", timing);
     let event = OutgoingRequest::multicast(json!({}), props, kruonis_id);
     let message = Box::new(event) as Box<dyn IntoPublishableDump + Send>;
@@ -184,7 +212,23 @@ fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<(),
     agent
         .publish_dump(dump)
         .map_err(|err| format!("Failed to publish message: {}", err))?;
+
     Ok(())
+}
+
+fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
+    if let Err(err) = subscribe(agent, agent_id, config) {
+        let err = format!("Failed to resubscribe after reconnection: {}", err);
+        error!("{}", err);
+
+        let svc_error = SvcError::builder()
+            .kind("resubscription_error", "Resubscription error")
+            .detail(&err)
+            .build();
+
+        sentry::send(svc_error)
+            .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+    }
 }
 
 pub(crate) mod context;
