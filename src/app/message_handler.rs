@@ -27,6 +27,14 @@ impl<C: Context + Sync> MessageHandler<C> {
         Self { agent, context }
     }
 
+    pub(crate) fn agent(&self) -> &Agent {
+        &self.agent
+    }
+
+    pub(crate) fn context(&self) -> &C {
+        &self.context
+    }
+
     pub(crate) async fn handle(&self, message_bytes: &[u8], topic: &str) {
         info!(
             "Incoming message = '{}'",
