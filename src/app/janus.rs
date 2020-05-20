@@ -1,8 +1,8 @@
 use std::str::FromStr;
 
+use anyhow::{Context as AnyhowContext, Result};
 use async_std::stream;
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
-use failure::{format_err, Error};
 use log::{error, info, warn};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -62,7 +62,7 @@ pub(crate) fn create_session_request<M>(
     evp: &IncomingEventProperties,
     me: &M,
     start_timestamp: DateTime<Utc>,
-) -> Result<OutgoingRequest<CreateSessionRequest>, Error>
+) -> Result<OutgoingRequest<CreateSessionRequest>>
 where
     M: Addressable,
 {
@@ -104,7 +104,7 @@ pub(crate) fn create_handle_request<M>(
     session_id: i64,
     me: &M,
     start_timestamp: DateTime<Utc>,
-) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
+) -> Result<OutgoingRequest<CreateHandleRequest>>
 where
     M: Addressable,
 {
@@ -169,7 +169,7 @@ pub(crate) fn create_rtc_handle_request<A, M>(
     me: &M,
     start_timestamp: DateTime<Utc>,
     authz_time: Duration,
-) -> Result<OutgoingRequest<CreateHandleRequest>, Error>
+) -> Result<OutgoingRequest<CreateHandleRequest>>
 where
     A: Addressable,
     M: Addressable,
@@ -246,7 +246,7 @@ pub(crate) fn create_stream_request<A, M>(
     me: &M,
     start_timestamp: DateTime<Utc>,
     authz_time: Duration,
-) -> Result<OutgoingRequest<MessageRequest>, Error>
+) -> Result<OutgoingRequest<MessageRequest>>
 where
     A: Addressable,
     M: Addressable,
@@ -321,7 +321,7 @@ pub(crate) fn read_stream_request<A, M>(
     me: &M,
     start_timestamp: DateTime<Utc>,
     authz_time: Duration,
-) -> Result<OutgoingRequest<MessageRequest>, Error>
+) -> Result<OutgoingRequest<MessageRequest>>
 where
     A: Addressable,
     M: Addressable,
@@ -400,7 +400,7 @@ pub(crate) fn upload_stream_request<A, M>(
     to: &A,
     me: &M,
     start_timestamp: DateTime<Utc>,
-) -> Result<OutgoingRequest<MessageRequest>, Error>
+) -> Result<OutgoingRequest<MessageRequest>>
 where
     A: Addressable,
     M: Addressable,
@@ -454,7 +454,7 @@ pub(crate) fn trickle_request<A, M>(
     me: &M,
     start_timestamp: DateTime<Utc>,
     authz_time: Duration,
-) -> Result<OutgoingRequest<TrickleRequest>, Error>
+) -> Result<OutgoingRequest<TrickleRequest>>
 where
     A: Addressable,
     M: Addressable,
@@ -515,7 +515,7 @@ pub(crate) fn agent_leave_request<T, M>(
     to: &T,
     me: &M,
     tracking: &TrackingProperties,
-) -> Result<OutgoingRequest<MessageRequest>, Error>
+) -> Result<OutgoingRequest<MessageRequest>>
 where
     T: Addressable,
     M: Addressable,
@@ -548,14 +548,14 @@ where
     ))
 }
 
-fn response_topic<T, M>(to: &T, me: &M) -> Result<String, Error>
+fn response_topic<T, M>(to: &T, me: &M) -> Result<String>
 where
     T: Addressable,
     M: Addressable,
 {
     Subscription::unicast_responses_from(to)
         .subscription_topic(me, JANUS_API_VERSION)
-        .map_err(|err| format_err!("Failed to build subscription topic: {}", err))
+        .context("Failed to build subscription topic")
 }
 
 ////////////////////////////////////////////////////////////////////////////////

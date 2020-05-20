@@ -1,7 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use failure::{format_err, Error};
+use anyhow::{format_err, Error};
 use svc_agent::AgentId;
 use uuid::Uuid;
 
