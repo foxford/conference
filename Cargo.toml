@@ -5,6 +5,7 @@ authors = ["Andrei Nesterov <ae.nesterov@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+anyhow = "1.0"
 async-std = { version = "= 1.6.0-beta.1", features = ["attributes"] }
 async-trait = "0.1"
 base64 = "0.10"
@@ -13,7 +14,6 @@ config = "0.9"
 diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
 diesel-derive-enum = { version = "0.4", features = ["postgres"] }
 env_logger = "0.6"
-failure = "0.1"
 futures = "0.3"
 futures-channel = "0.3"
 futures-util = "0.3"

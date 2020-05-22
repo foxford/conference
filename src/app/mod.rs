@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::thread;
 
+use anyhow::{Context as AnyhowContext, Result};
 use async_std::task;
 use chrono::Utc;
 use futures::StreamExt;
@@ -27,10 +28,7 @@ pub(crate) const API_VERSION: &str = "v1";
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) async fn run(
-    db: &ConnectionPool,
-    authz_cache: Option<AuthzCache>,
-) -> Result<(), String> {
+pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     // Config
     let config = config::load().expect("Failed to load config");
     info!("App config: {:?}", config);
@@ -44,7 +42,7 @@ pub(crate) async fn run(
         .subject(&agent_id)
         .key(config.id_token.algorithm, config.id_token.key.as_slice())
         .build()
-        .map_err(|err| format!("Error creating an id token: {}", err))?;
+        .context("Error creating an id token")?;
 
     let mut agent_config = config.mqtt.clone();
     agent_config.set_password(&token);
@@ -52,7 +50,7 @@ pub(crate) async fn run(
     let (mut agent, rx) = AgentBuilder::new(agent_id.clone(), API_VERSION)
         .connection_mode(ConnectionMode::Service)
         .start(&agent_config)
-        .map_err(|err| format!("Failed to create an agent: {}", err))?;
+        .context("Failed to create an agent")?;
 
     // Event loop for incoming messages of MQTT Agent
     let (mq_tx, mut mq_rx) = futures_channel::mpsc::unbounded::<Notification>();
@@ -67,7 +65,7 @@ pub(crate) async fn run(
 
     // Authz
     let authz = svc_authz::ClientMap::new(&config.id, authz_cache, config.authz.clone())
-        .map_err(|err| format!("Error converting authz config to clients: {}", err))?;
+        .context("Error converting authz config to clients")?;
 
     // Sentry
     if let Some(sentry_config) = config.sentry.as_ref() {
@@ -114,11 +112,7 @@ pub(crate) async fn run(
     Ok(())
 }
 
-fn subscribe(
-    agent: &mut Agent,
-    agent_id: &AgentId,
-    config: &Config,
-) -> Result<JanusTopics, String> {
+fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<JanusTopics> {
     let group = SharedGroup::new("loadbalancer", agent_id.as_account_id().clone());
 
     // Multicast requests
@@ -128,7 +122,7 @@ fn subscribe(
             QoS::AtMostOnce,
             Some(&group),
         )
-        .map_err(|err| format!("Error subscribing to multicast requests: {}", err))?;
+        .context("Error subscribing to multicast requests")?;
 
     // Unicast requests
     agent
@@ -137,40 +131,40 @@ fn subscribe(
             QoS::AtMostOnce,
             Some(&group),
         )
-        .map_err(|err| format!("Error subscribing to unicast requests: {}", err))?;
+        .context("Error subscribing to unicast requests")?;
 
     // Janus status events
     let subscription = Subscription::broadcast_events(&config.backend_id, API_VERSION, "status");
 
     agent
         .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
-        .map_err(|err| format!("Error subscribing to backend events topic: {}", err))?;
+        .context("Error subscribing to backend events topic")?;
 
     let janus_status_events_topic = subscription
         .subscription_topic(agent_id, API_VERSION)
-        .map_err(|err| format!("Error building janus events subscription topic: {}", err))?;
+        .context("Error building janus events subscription topic")?;
 
     // Janus events
     let subscription = Subscription::broadcast_events(&config.backend_id, API_VERSION, "events");
 
     agent
         .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
-        .map_err(|err| format!("Error subscribing to backend events topic: {}", err))?;
+        .context("Error subscribing to backend events topic")?;
 
     let janus_events_topic = subscription
         .subscription_topic(agent_id, API_VERSION)
-        .map_err(|err| format!("Error building janus events subscription topic: {}", err))?;
+        .context("Error building janus events subscription topic")?;
 
     // Janus responses
     let subscription = Subscription::unicast_responses_from(&config.backend_id);
 
     agent
         .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
-        .map_err(|err| format!("Error subscribing to backend responses topic: {}", err))?;
+        .context("Error subscribing to backend responses topic")?;
 
     let janus_responses_topic = subscription
         .subscription_topic(agent_id, API_VERSION)
-        .map_err(|err| format!("Error building janus responses subscription topic: {}", err))?;
+        .context("Error building janus responses subscription topic")?;
 
     // Kruonis
     if let KruonisConfig {
@@ -188,12 +182,12 @@ fn subscribe(
     ))
 }
 
-fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<(), String> {
+fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()> {
     let timing = ShortTermTimingProperties::new(Utc::now());
 
     let topic = Subscription::unicast_requests_from(kruonis_id)
         .subscription_topic(agent.id(), API_VERSION)
-        .map_err(|err| format!("Failed to build subscription topic: {:?}", err))?;
+        .context("Failed to build subscription topic")?;
 
     let props = OutgoingRequestProperties::new("kruonis.subscribe", &topic, "", timing);
     let event = OutgoingRequest::multicast(json!({}), props, kruonis_id);
@@ -201,7 +195,7 @@ fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<(),
 
     let dump = message
         .into_dump(agent.address())
-        .map_err(|err| format!("Failed to dump message: {}", err))?;
+        .context("Failed to dump message")?;
 
     info!(
         "Outgoing message = '{}' sending to the topic = '{}'",
@@ -211,7 +205,7 @@ fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<(),
 
     agent
         .publish_dump(dump)
-        .map_err(|err| format!("Failed to publish message: {}", err))?;
+        .context("Failed to publish message")?;
 
     Ok(())
 }

@@ -1,9 +1,9 @@
 use std::result::Result as StdResult;
 
+use anyhow::format_err;
 use async_std::stream;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use failure::{err_msg, format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::mqtt::{
@@ -201,7 +201,7 @@ enum SdpType {
     IceCandidate,
 }
 
-fn parse_sdp_type(jsep: &JsonValue) -> StdResult<SdpType, Error> {
+fn parse_sdp_type(jsep: &JsonValue) -> anyhow::Result<SdpType> {
     // '{"type": "offer", "sdp": _}' or '{"type": "answer", "sdp": _}'
     let sdp_type = jsep.get("type");
     // '{"sdpMid": _, "sdpMLineIndex": _, "candidate": _}' or '{"completed": true}' or 'null'
@@ -226,14 +226,16 @@ fn parse_sdp_type(jsep: &JsonValue) -> StdResult<SdpType, Error> {
     }
 }
 
-fn is_sdp_recvonly(jsep: &JsonValue) -> StdResult<bool, Error> {
+fn is_sdp_recvonly(jsep: &JsonValue) -> anyhow::Result<bool> {
     use webrtc_sdp::{attribute_type::SdpAttributeType, parse_sdp};
 
-    let sdp = jsep.get("sdp").ok_or_else(|| err_msg("missing sdp"))?;
+    let sdp = jsep.get("sdp").ok_or_else(|| format_err!("missing sdp"))?;
+
     let sdp = sdp
         .as_str()
         .ok_or_else(|| format_err!("invalid sdp = '{}'", sdp))?;
-    let sdp = parse_sdp(sdp, false).map_err(|_| err_msg("invalid sdp"))?;
+
+    let sdp = parse_sdp(sdp, false).map_err(|_| format_err!("invalid sdp"))?;
 
     // Returning true if all media section contains 'recvonly' attribute
     Ok(sdp.media.iter().all(|item| {

@@ -1,7 +1,7 @@
-use failure::Error;
+use anyhow::Result;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
-pub(crate) fn to_base64<T>(val: &T) -> Result<String, Error>
+pub(crate) fn to_base64<T>(val: &T) -> Result<String>
 where
     T: serde::Serialize,
 {
@@ -10,7 +10,7 @@ where
     Ok(b)
 }
 
-pub(crate) fn from_base64<T>(val: &str) -> Result<T, Error>
+pub(crate) fn from_base64<T>(val: &str) -> Result<T>
 where
     T: serde::de::DeserializeOwned,
 {

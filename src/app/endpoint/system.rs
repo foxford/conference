@@ -1,10 +1,8 @@
 use std::ops::Bound;
-use std::result::Result as StdResult;
 
 use async_std::stream;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use failure::Error;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
     IncomingRequestProperties, IntoPublishableDump, OutgoingEvent, OutgoingEventProperties,
@@ -124,7 +122,7 @@ pub(crate) fn upload_event<I>(
     rtcs_and_recordings: I,
     start_timestamp: DateTime<Utc>,
     tracking: &TrackingProperties,
-) -> StdResult<RoomUploadEvent, Error>
+) -> anyhow::Result<RoomUploadEvent>
 where
     I: Iterator<Item = (db::rtc::Object, db::recording::Object)>,
 {
