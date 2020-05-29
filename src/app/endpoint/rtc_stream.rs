@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_derive::Deserialize;
 use svc_agent::mqtt::{
-    IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, ResponseStatus,
-    ShortTermTimingProperties, TrackingProperties,
+    IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
+    ResponseStatus, ShortTermTimingProperties, TrackingProperties,
 };
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -104,7 +104,7 @@ impl RequestHandler for ListHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type ObjectUpdateEvent = OutgoingEvent<db::janus_rtc_stream::Object>;
+pub(crate) type ObjectUpdateEvent = OutgoingMessage<db::janus_rtc_stream::Object>;
 
 pub(crate) fn update_event(
     room_id: Uuid,

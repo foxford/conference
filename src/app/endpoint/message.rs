@@ -7,7 +7,7 @@ use diesel::pg::PgConnection;
 use serde_derive::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use svc_agent::mqtt::{
-    IncomingRequestProperties, IncomingResponseProperties, IntoPublishableDump, OutgoingRequest,
+    IncomingRequestProperties, IncomingResponseProperties, IntoPublishableMessage, OutgoingRequest,
     OutgoingResponse, OutgoingResponseProperties, ResponseStatus, ShortTermTimingProperties,
     SubscriptionTopic,
 };
@@ -74,7 +74,7 @@ impl RequestHandler for UnicastHandler {
             API_VERSION,
         );
 
-        let boxed_req = Box::new(req) as Box<dyn IntoPublishableDump + Send>;
+        let boxed_req = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_req)))
     }
 }
@@ -157,7 +157,7 @@ impl ResponseHandler for CallbackHandler {
         );
 
         let resp = OutgoingResponse::unicast(payload.to_owned(), props, &reqp, API_VERSION);
-        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableDump + Send>;
+        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_resp)))
     }
 }

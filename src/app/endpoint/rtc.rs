@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableDump, OutgoingResponse, ResponseStatus,
+    IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
 };
 use uuid::Uuid;
 
@@ -312,7 +312,7 @@ impl RequestHandler for ConnectHandler {
 
         match janus_request_result {
             Ok(req) => {
-                let boxed_request = Box::new(req) as Box<dyn IntoPublishableDump + Send>;
+                let boxed_request = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
                 Ok(Box::new(stream::once(boxed_request)))
             }
             Err(err) => Err(format!("error creating a backend request: {}", err))

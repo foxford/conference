@@ -5,17 +5,18 @@ use async_std::prelude::*;
 use async_std::stream::{self, Stream};
 use chrono::{DateTime, Utc};
 use futures_util::pin_mut;
-use log::{error, info, warn};
+use log::{error, warn};
 use svc_agent::mqtt::{
-    compat, Agent, IncomingEventProperties, IncomingRequestProperties, IncomingResponseProperties,
-    IntoPublishableDump, OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
+    Agent, IncomingEvent, IncomingMessage, IncomingRequest, IncomingRequestProperties,
+    IncomingResponse, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
+    ShortTermTimingProperties,
 };
 use svc_error::{extension::sentry, Error as SvcError};
 
 use crate::app::{context::Context, endpoint, API_VERSION};
 
 pub(crate) type MessageStream =
-    Box<dyn Stream<Item = Box<dyn IntoPublishableDump + Send>> + Send + Unpin>;
+    Box<dyn Stream<Item = Box<dyn IntoPublishableMessage + Send>> + Send + Unpin>;
 
 pub(crate) struct MessageHandler<C: Context> {
     agent: Agent,
@@ -35,73 +36,68 @@ impl<C: Context + Sync> MessageHandler<C> {
         &self.context
     }
 
-    pub(crate) async fn handle(&self, message_bytes: &[u8], topic: &str) {
-        info!(
-            "Incoming message = '{}'",
-            String::from_utf8_lossy(message_bytes)
-        );
-
-        if let Err(err) = self.handle_message(message_bytes, topic).await {
-            error!(
-                "Error processing a message = '{}': {}",
-                String::from_utf8_lossy(message_bytes),
-                err,
-            );
-
-            let svc_error = SvcError::builder()
-                .status(ResponseStatus::UNPROCESSABLE_ENTITY)
-                .kind("message_handler", "Message handling error")
-                .detail(&err.to_string())
-                .build();
-
-            sentry::send(svc_error)
-                .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+    pub(crate) async fn handle(
+        &self,
+        message: &Result<IncomingMessage<String>, String>,
+        topic: &str,
+    ) {
+        match message {
+            Ok(ref msg) => {
+                if let Err(err) = self.handle_message(msg, topic).await {
+                    self.report_error(message, &err.to_string()).await;
+                }
+            }
+            Err(e) => {
+                self.report_error(message, e).await;
+            }
         }
     }
 
-    async fn handle_message(&self, message_bytes: &[u8], topic: &str) -> Result<(), SvcError> {
+    async fn report_error(&self, message: &Result<IncomingMessage<String>, String>, err: &str) {
+        error!("Error processing a message = '{:?}': {}", message, err);
+
+        let svc_error = SvcError::builder()
+            .status(ResponseStatus::UNPROCESSABLE_ENTITY)
+            .kind("message_handler", "Message handling error")
+            .detail(&err.to_string())
+            .build();
+
+        sentry::send(svc_error)
+            .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+    }
+
+    async fn handle_message(
+        &self,
+        message: &IncomingMessage<String>,
+        topic: &str,
+    ) -> Result<(), SvcError> {
         let start_timestamp = Utc::now();
 
-        let envelope = serde_json::from_slice::<compat::IncomingEnvelope>(message_bytes)
-            .map_err(|err| format!("Failed to parse incoming envelope: {}", err))
-            .status(ResponseStatus::BAD_REQUEST)?;
-
-        match envelope.properties() {
-            compat::IncomingEnvelopeProperties::Request(ref reqp) => {
-                let reqp = reqp.to_owned();
-                self.handle_request(envelope, reqp, topic, start_timestamp)
-                    .await
+        match message {
+            IncomingMessage::Request(req) => self.handle_request(req, topic, start_timestamp).await,
+            IncomingMessage::Response(resp) => {
+                self.handle_response(resp, topic, start_timestamp).await
             }
-            compat::IncomingEnvelopeProperties::Response(ref respp) => {
-                let respp = respp.to_owned();
-                self.handle_response(envelope, respp, topic, start_timestamp)
-                    .await
-            }
-            compat::IncomingEnvelopeProperties::Event(ref evp) => {
-                let evp = evp.to_owned();
-                self.handle_event(envelope, evp, topic, start_timestamp)
-                    .await
-            }
+            IncomingMessage::Event(event) => self.handle_event(event, topic, start_timestamp).await,
         }
     }
 
     async fn handle_request(
         &self,
-        envelope: compat::IncomingEnvelope,
-        reqp: IncomingRequestProperties,
+        req: &IncomingRequest<String>,
         topic: &str,
         start_timestamp: DateTime<Utc>,
     ) -> Result<(), SvcError> {
         let outgoing_message_stream =
-            endpoint::route_request(&self.context, envelope, &reqp, topic, start_timestamp)
+            endpoint::route_request(&self.context, req, topic, start_timestamp)
                 .await
                 .unwrap_or_else(|| {
                     error_response(
                         ResponseStatus::METHOD_NOT_ALLOWED,
                         "about:blank",
                         "Unknown method",
-                        &format!("Unknown method '{}'", reqp.method()),
-                        &reqp,
+                        &format!("Unknown method '{}'", req.properties().method()),
+                        req.properties(),
                         start_timestamp,
                     )
                 });
@@ -112,13 +108,12 @@ impl<C: Context + Sync> MessageHandler<C> {
 
     async fn handle_response(
         &self,
-        envelope: compat::IncomingEnvelope,
-        respp: IncomingResponseProperties,
+        envelope: &IncomingResponse<String>,
         topic: &str,
         start_timestamp: DateTime<Utc>,
     ) -> Result<(), SvcError> {
         let outgoing_message_stream =
-            endpoint::route_response(&self.context, envelope, &respp, topic, start_timestamp)
+            endpoint::route_response(&self.context, envelope, topic, start_timestamp)
                 .await
                 .unwrap_or_else(|| {
                     warn!("Unhandled response");
@@ -131,16 +126,15 @@ impl<C: Context + Sync> MessageHandler<C> {
 
     async fn handle_event(
         &self,
-        envelope: compat::IncomingEnvelope,
-        evp: IncomingEventProperties,
+        event: &IncomingEvent<String>,
         topic: &str,
         start_timestamp: DateTime<Utc>,
     ) -> Result<(), SvcError> {
         let outgoing_message_stream =
-            endpoint::route_event(&self.context, envelope, &evp, topic, start_timestamp)
+            endpoint::route_event(&self.context, event, topic, start_timestamp)
                 .await
                 .unwrap_or_else(|| {
-                    let label = evp.label().unwrap_or("none");
+                    let label = event.properties().label().unwrap_or("none");
                     warn!("Unexpected event with label = '{}'", label);
                     Box::new(stream::empty())
                 });
@@ -181,27 +175,16 @@ fn error_response(
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let props = reqp.to_response(status, timing);
     let resp = OutgoingResponse::unicast(err, props, reqp, API_VERSION);
-    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableDump + Send>;
+    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
     Box::new(stream::once(boxed_resp))
 }
 
 pub(crate) fn publish_message(
     agent: &mut Agent,
-    message: Box<dyn IntoPublishableDump>,
+    message: Box<dyn IntoPublishableMessage>,
 ) -> Result<(), SvcError> {
-    let dump = message
-        .into_dump(agent.address())
-        .map_err(|err| format!("Failed to dump message: {}", err))
-        .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
-
-    info!(
-        "Outgoing message = '{}' sending to the topic = '{}'",
-        dump.payload(),
-        dump.topic(),
-    );
-
     agent
-        .publish_dump(dump)
+        .publish_publishable(message)
         .map_err(|err| format!("Failed to publish message: {}", err))
         .status(ResponseStatus::UNPROCESSABLE_ENTITY)
 }
@@ -216,8 +199,7 @@ pub(crate) fn publish_message(
 pub(crate) trait RequestEnvelopeHandler<'async_trait> {
     fn handle_envelope<C: Context>(
         context: &'async_trait C,
-        envelope: compat::IncomingEnvelope,
-        reqp: &'async_trait IncomingRequestProperties,
+        req: &'async_trait IncomingRequest<String>,
         start_timestamp: DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>>;
 }
@@ -230,8 +212,7 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
 {
     fn handle_envelope<C: Context>(
         context: &'async_trait C,
-        envelope: compat::IncomingEnvelope,
-        reqp: &'async_trait IncomingRequestProperties,
+        req: &'async_trait IncomingRequest<String>,
         start_timestamp: DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>>
     where
@@ -240,12 +221,13 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
         // The actual implementation.
         async fn handle_envelope<H: endpoint::RequestHandler, C: Context>(
             context: &C,
-            envelope: compat::IncomingEnvelope,
-            reqp: &IncomingRequestProperties,
+            req: &IncomingRequest<String>,
             start_timestamp: DateTime<Utc>,
         ) -> MessageStream {
             // Parse the envelope with the payload type specified in the handler.
-            match envelope.payload::<H::Payload>() {
+            let payload = IncomingRequest::convert_payload::<H::Payload>(req);
+            let reqp = req.properties();
+            match payload {
                 // Call handler.
                 Ok(payload) => H::handle(context, payload, reqp, start_timestamp)
                     .await
@@ -277,20 +259,14 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
             }
         }
 
-        Box::pin(handle_envelope::<H, C>(
-            context,
-            envelope,
-            reqp,
-            start_timestamp,
-        ))
+        Box::pin(handle_envelope::<H, C>(context, req, start_timestamp))
     }
 }
 
 pub(crate) trait ResponseEnvelopeHandler<'async_trait> {
     fn handle_envelope<C: Context>(
         context: &'async_trait C,
-        envelope: compat::IncomingEnvelope,
-        respp: &'async_trait IncomingResponseProperties,
+        resp: &'async_trait IncomingResponse<String>,
         start_timestamp: DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>>;
 }
@@ -301,21 +277,21 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
 {
     fn handle_envelope<C: Context>(
         context: &'async_trait C,
-        envelope: compat::IncomingEnvelope,
-        respp: &'async_trait IncomingResponseProperties,
+        resp: &'async_trait IncomingResponse<String>,
         start_timestamp: DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>> {
         // The actual implementation.
         async fn handle_envelope<H: endpoint::ResponseHandler, C: Context>(
             context: &C,
-            envelope: compat::IncomingEnvelope,
-            respp: &IncomingResponseProperties,
+            resp: &IncomingResponse<String>,
             start_timestamp: DateTime<Utc>,
         ) -> MessageStream {
             // Parse response envelope with the payload from the handler.
-            match envelope.payload::<H::Payload>() {
+            let payload = IncomingResponse::convert_payload::<H::Payload>(resp);
+            let resp = resp.properties();
+            match payload {
                 // Call handler.
-                Ok(payload) => H::handle(context, payload, respp, start_timestamp)
+                Ok(payload) => H::handle(context, payload, resp, start_timestamp)
                     .await
                     .unwrap_or_else(|mut svc_error| {
                         // Handler returned an error.
@@ -335,20 +311,14 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
             }
         }
 
-        Box::pin(handle_envelope::<H, C>(
-            context,
-            envelope,
-            respp,
-            start_timestamp,
-        ))
+        Box::pin(handle_envelope::<H, C>(context, resp, start_timestamp))
     }
 }
 
 pub(crate) trait EventEnvelopeHandler<'async_trait> {
     fn handle_envelope<C: Context>(
         context: &'async_trait C,
-        envelope: compat::IncomingEnvelope,
-        evp: &'async_trait IncomingEventProperties,
+        event: &'async_trait IncomingEvent<String>,
         start_timestamp: DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>>;
 }
@@ -359,19 +329,19 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
 {
     fn handle_envelope<C: Context>(
         context: &'async_trait C,
-        envelope: compat::IncomingEnvelope,
-        evp: &'async_trait IncomingEventProperties,
+        event: &'async_trait IncomingEvent<String>,
         start_timestamp: DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>> {
         // The actual implementation.
         async fn handle_envelope<H: endpoint::EventHandler, C: Context>(
             context: &C,
-            envelope: compat::IncomingEnvelope,
-            evp: &IncomingEventProperties,
+            event: &IncomingEvent<String>,
             start_timestamp: DateTime<Utc>,
         ) -> MessageStream {
+            let payload = IncomingEvent::convert_payload::<H::Payload>(event);
+            let evp = event.properties();
             // Parse event envelope with the payload from the handler.
-            match envelope.payload::<H::Payload>() {
+            match payload {
                 // Call handler.
                 Ok(payload) => H::handle(context, payload, evp, start_timestamp)
                     .await
@@ -404,12 +374,7 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
             }
         }
 
-        Box::pin(handle_envelope::<H, C>(
-            context,
-            envelope,
-            evp,
-            start_timestamp,
-        ))
+        Box::pin(handle_envelope::<H, C>(context, event, start_timestamp))
     }
 }
 

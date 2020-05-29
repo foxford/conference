@@ -7,7 +7,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableDump, OutgoingResponse, ResponseStatus,
+    IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
 };
 use svc_agent::Addressable;
 use svc_error::Error as SvcError;
@@ -85,7 +85,7 @@ impl RequestHandler for CreateHandler {
                         start_timestamp,
                         authz_time,
                     )
-                    .map(|req| Box::new(req) as Box<dyn IntoPublishableDump + Send>)
+                    .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
                     .map_err(|err| format!("error creating a backend request: {}", err))
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
                 } else {
@@ -124,7 +124,7 @@ impl RequestHandler for CreateHandler {
                         start_timestamp,
                         authz_time,
                     )
-                    .map(|req| Box::new(req) as Box<dyn IntoPublishableDump + Send>)
+                    .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
                     .map_err(|err| format!("error creating a backend request: {}", err))
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
                 }
@@ -145,7 +145,7 @@ impl RequestHandler for CreateHandler {
                     start_timestamp,
                     authz_time,
                 )
-                .map(|req| Box::new(req) as Box<dyn IntoPublishableDump + Send>)
+                .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
                 .map_err(|err| format!("error creating a backend request: {}", err))
                 .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
             }

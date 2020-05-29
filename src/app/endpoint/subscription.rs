@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{
-        IncomingEventProperties, IntoPublishableDump, OutgoingEvent, ResponseStatus,
+        IncomingEventProperties, IntoPublishableMessage, OutgoingEvent, ResponseStatus,
         ShortTermTimingProperties,
     },
     AgentId, Authenticable,
@@ -101,7 +101,7 @@ impl EventHandler for CreateHandler {
         let props = evp.to_event("room.enter", short_term_timing);
         let to_uri = format!("rooms/{}/events", room_id);
         let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
-        let boxed_event = Box::new(outgoing_event) as Box<dyn IntoPublishableDump + Send>;
+        let boxed_event = Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_event)))
     }
 }
@@ -145,7 +145,7 @@ impl EventHandler for DeleteHandler {
             let props = evp.to_event("room.leave", short_term_timing);
             let to_uri = format!("rooms/{}/events", room_id);
             let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
-            let boxed_event = Box::new(outgoing_event) as Box<dyn IntoPublishableDump + Send>;
+            let boxed_event = Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send>;
             let mut messages = vec![boxed_event];
 
             // `agent.leave` requests to Janus instances that host active streams in this room.

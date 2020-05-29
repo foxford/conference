@@ -9,7 +9,7 @@ use log::{error, info, warn};
 use serde_json::json;
 use svc_agent::{
     mqtt::{
-        Agent, AgentBuilder, ConnectionMode, IntoPublishableDump, Notification, OutgoingRequest,
+        Agent, AgentBuilder, AgentNotification, ConnectionMode, OutgoingRequest,
         OutgoingRequestProperties, QoS, ShortTermTimingProperties, SubscriptionTopic,
     },
     AccountId, AgentId, Authenticable, SharedGroup, Subscription,
@@ -53,7 +53,7 @@ pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) ->
         .context("Failed to create an agent")?;
 
     // Event loop for incoming messages of MQTT Agent
-    let (mq_tx, mut mq_rx) = futures_channel::mpsc::unbounded::<Notification>();
+    let (mq_tx, mut mq_rx) = futures_channel::mpsc::unbounded::<AgentNotification>();
 
     thread::spawn(move || {
         for message in rx {
@@ -87,15 +87,13 @@ pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) ->
 
         task::spawn(async move {
             match message {
-                svc_agent::mqtt::Notification::Publish(message) => {
-                    message_handler
-                        .handle(&message.payload, &message.topic_name)
-                        .await
+                AgentNotification::Message(message, metadata) => {
+                    message_handler.handle(&message, &metadata.topic).await
                 }
-                svc_agent::mqtt::Notification::Disconnection => {
+                AgentNotification::Disconnection => {
                     error!("Disconnected from broker");
                 }
-                svc_agent::mqtt::Notification::Reconnection => {
+                AgentNotification::Reconnection => {
                     error!("Reconnected to broker");
 
                     resubscribe(
@@ -191,21 +189,8 @@ fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()>
 
     let props = OutgoingRequestProperties::new("kruonis.subscribe", &topic, "", timing);
     let event = OutgoingRequest::multicast(json!({}), props, kruonis_id);
-    let message = Box::new(event) as Box<dyn IntoPublishableDump + Send>;
 
-    let dump = message
-        .into_dump(agent.address())
-        .context("Failed to dump message")?;
-
-    info!(
-        "Outgoing message = '{}' sending to the topic = '{}'",
-        dump.payload(),
-        dump.topic(),
-    );
-
-    agent
-        .publish_dump(dump)
-        .context("Failed to publish message")?;
+    agent.publish(event).context("Failed to publish message")?;
 
     Ok(())
 }

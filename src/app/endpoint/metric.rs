@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
-    IncomingEventProperties, IntoPublishableDump, OutgoingEvent, ShortTermTimingProperties,
+    IncomingEventProperties, IntoPublishableMessage, OutgoingEvent, ShortTermTimingProperties,
 };
 
 use crate::app::context::Context;
@@ -54,7 +54,8 @@ impl EventHandler for PullHandler {
                 let props = evp.to_event("metric.create", short_term_timing);
                 let outgoing_event =
                     OutgoingEvent::multicast(outgoing_event_payload, props, account_id);
-                let boxed_event = Box::new(outgoing_event) as Box<dyn IntoPublishableDump + Send>;
+                let boxed_event =
+                    Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send>;
                 Ok(Box::new(stream::once(boxed_event)))
             }
 
