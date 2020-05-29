@@ -8,10 +8,10 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::ops::Bound;
 use svc_agent::mqtt::{
-    compat::{into_event, into_response, IncomingEnvelope},
-    IncomingEventProperties, IncomingRequestProperties, IncomingResponseProperties,
-    IntoPublishableDump, OutgoingRequest, OutgoingRequestProperties, OutgoingResponse,
-    ResponseStatus, ShortTermTimingProperties, SubscriptionTopic, TrackingProperties,
+    IncomingEvent as MQTTIncomingEvent, IncomingEventProperties, IncomingRequestProperties,
+    IncomingResponse as MQTTIncomingResponse, IncomingResponseProperties, IntoPublishableMessage,
+    OutgoingMessage, OutgoingRequest, OutgoingRequestProperties, OutgoingResponse, ResponseStatus,
+    ShortTermTimingProperties, SubscriptionTopic, TrackingProperties,
 };
 use svc_agent::{Addressable, AgentId, Subscription};
 use svc_error::{extension::sentry, Error as SvcError};
@@ -62,7 +62,7 @@ pub(crate) fn create_session_request<M>(
     evp: &IncomingEventProperties,
     me: &M,
     start_timestamp: DateTime<Utc>,
-) -> Result<OutgoingRequest<CreateSessionRequest>>
+) -> Result<OutgoingMessage<CreateSessionRequest>>
 where
     M: Addressable,
 {
@@ -104,7 +104,7 @@ pub(crate) fn create_handle_request<M>(
     session_id: i64,
     me: &M,
     start_timestamp: DateTime<Utc>,
-) -> Result<OutgoingRequest<CreateHandleRequest>>
+) -> Result<OutgoingMessage<CreateHandleRequest>>
 where
     M: Addressable,
 {
@@ -169,7 +169,7 @@ pub(crate) fn create_rtc_handle_request<A, M>(
     me: &M,
     start_timestamp: DateTime<Utc>,
     authz_time: Duration,
-) -> Result<OutgoingRequest<CreateHandleRequest>>
+) -> Result<OutgoingMessage<CreateHandleRequest>>
 where
     A: Addressable,
     M: Addressable,
@@ -246,7 +246,7 @@ pub(crate) fn create_stream_request<A, M>(
     me: &M,
     start_timestamp: DateTime<Utc>,
     authz_time: Duration,
-) -> Result<OutgoingRequest<MessageRequest>>
+) -> Result<OutgoingMessage<MessageRequest>>
 where
     A: Addressable,
     M: Addressable,
@@ -321,7 +321,7 @@ pub(crate) fn read_stream_request<A, M>(
     me: &M,
     start_timestamp: DateTime<Utc>,
     authz_time: Duration,
-) -> Result<OutgoingRequest<MessageRequest>>
+) -> Result<OutgoingMessage<MessageRequest>>
 where
     A: Addressable,
     M: Addressable,
@@ -400,7 +400,7 @@ pub(crate) fn upload_stream_request<A, M>(
     to: &A,
     me: &M,
     start_timestamp: DateTime<Utc>,
-) -> Result<OutgoingRequest<MessageRequest>>
+) -> Result<OutgoingMessage<MessageRequest>>
 where
     A: Addressable,
     M: Addressable,
@@ -454,7 +454,7 @@ pub(crate) fn trickle_request<A, M>(
     me: &M,
     start_timestamp: DateTime<Utc>,
     authz_time: Duration,
-) -> Result<OutgoingRequest<TrickleRequest>>
+) -> Result<OutgoingMessage<TrickleRequest>>
 where
     A: Addressable,
     M: Addressable,
@@ -515,7 +515,7 @@ pub(crate) fn agent_leave_request<T, M>(
     to: &T,
     me: &M,
     tracking: &TrackingProperties,
-) -> Result<OutgoingRequest<MessageRequest>>
+) -> Result<OutgoingMessage<MessageRequest>>
 where
     T: Addressable,
     M: Addressable,
@@ -562,11 +562,10 @@ where
 
 pub(crate) async fn handle_response<C: Context>(
     context: &C,
-    envelope: IncomingEnvelope,
-    respp: &IncomingResponseProperties,
+    resp: &MQTTIncomingResponse<String>,
     start_timestamp: DateTime<Utc>,
 ) -> MessageStream {
-    handle_response_impl(context, envelope, respp, start_timestamp)
+    handle_response_impl(context, resp, start_timestamp)
         .await
         .unwrap_or_else(|err| {
             error!("Failed to handle a response from janus: {}", err);
@@ -577,15 +576,16 @@ pub(crate) async fn handle_response<C: Context>(
 
 async fn handle_response_impl<C: Context>(
     context: &C,
-    envelope: IncomingEnvelope,
-    respp: &IncomingResponseProperties,
+    resp: &MQTTIncomingResponse<String>,
     start_timestamp: DateTime<Utc>,
 ) -> Result<MessageStream, SvcError> {
-    let message = into_response::<IncomingResponse>(envelope)
+    let payload = MQTTIncomingResponse::convert_payload::<IncomingResponse>(&resp)
         .map_err(|err| format!("failed to parse response: {}", err))
         .status(ResponseStatus::BAD_REQUEST)?;
 
-    match message.payload() {
+    let respp = resp.properties();
+
+    match payload {
         IncomingResponse::Success(ref inresp) => {
             let txn = from_base64::<Transaction>(&inresp.transaction())
                 .map_err(|err| format!("failed to parse transaction: {}", err))
@@ -604,7 +604,7 @@ async fn handle_response_impl<C: Context>(
                     .map_err(|err| err.to_string())
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
-                    let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableDump + Send>;
+                    let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>;
                     Ok(Box::new(stream::once(boxed_backreq)))
                 }
                 // Handle has been created
@@ -640,7 +640,7 @@ async fn handle_response_impl<C: Context>(
                         JANUS_API_VERSION,
                     );
 
-                    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableDump + Send>;
+                    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
                     Ok(Box::new(stream::once(boxed_resp)))
                 }
                 // An unsupported incoming Success message has been received
@@ -667,7 +667,7 @@ async fn handle_response_impl<C: Context>(
                         JANUS_API_VERSION,
                     );
 
-                    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableDump + Send>;
+                    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
                     Ok(Box::new(stream::once(boxed_resp)))
                 }
                 // An unsupported incoming Ack message has been received
@@ -726,7 +726,7 @@ async fn handle_response_impl<C: Context>(
                             JANUS_API_VERSION,
                         );
 
-                        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableDump + Send>;
+                        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
                         Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
                     })
                     .or_else(|err| {
@@ -783,7 +783,7 @@ async fn handle_response_impl<C: Context>(
                             JANUS_API_VERSION,
                         );
 
-                        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableDump + Send>;
+                        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
                         Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
                     })
                     .or_else(|err| {
@@ -961,7 +961,7 @@ async fn handle_response_impl<C: Context>(
                                     .map_err(|e| format!("error creating a system event, {}", e))
                                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
-                                    let event_box = Box::new(event) as Box<dyn IntoPublishableDump + Send>;
+                                    let event_box = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
                                     Ok(Box::new(stream::once(event_box)) as MessageStream)
                                 }
                                 None => {
@@ -1016,22 +1016,21 @@ fn handle_response_error(
 
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let resp = OutgoingResponse::unicast(err, reqp.to_response(status, timing), reqp, API_VERSION);
-    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableDump + Send>;
+    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
     Box::new(stream::once(boxed_resp))
 }
 
 pub(crate) async fn handle_event<C: Context>(
     context: &C,
-    envelope: IncomingEnvelope,
-    evp: &IncomingEventProperties,
+    event: &MQTTIncomingEvent<String>,
     start_timestamp: DateTime<Utc>,
 ) -> MessageStream {
-    handle_event_impl(context, envelope, evp, start_timestamp)
+    handle_event_impl(context, event, start_timestamp)
         .await
         .unwrap_or_else(|err| {
             error!(
                 "Failed to handle an event from janus, label = '{}': {}",
-                evp.label().unwrap_or("none"),
+                event.properties().label().unwrap_or("none"),
                 err,
             );
 
@@ -1042,13 +1041,15 @@ pub(crate) async fn handle_event<C: Context>(
 
 async fn handle_event_impl<C: Context>(
     context: &C,
-    envelope: IncomingEnvelope,
-    evp: &IncomingEventProperties,
+    event: &MQTTIncomingEvent<String>,
     start_timestamp: DateTime<Utc>,
 ) -> Result<MessageStream, SvcError> {
-    let message = into_event::<IncomingEvent>(envelope)?;
+    let payload = MQTTIncomingEvent::convert_payload::<IncomingEvent>(&event)
+        .map_err(|err| format!("failed to parse event: {}", err))
+        .status(ResponseStatus::BAD_REQUEST)?;
 
-    match message.payload() {
+    let evp = event.properties();
+    match payload {
         IncomingEvent::WebRtcUp(ref inev) => {
             let rtc_stream_id = Uuid::from_str(inev.opaque_id())
                 .map_err(|err| format!("Failed to parse opaque id as uuid: {}", err))
@@ -1077,7 +1078,7 @@ async fn handle_event_impl<C: Context>(
                 )?;
 
                 Ok(Box::new(stream::once(
-                    Box::new(event) as Box<dyn IntoPublishableDump + Send>
+                    Box::new(event) as Box<dyn IntoPublishableMessage + Send>
                 )))
             } else {
                 Ok(Box::new(stream::empty()))
@@ -1113,7 +1114,7 @@ async fn handle_event_impl<C: Context>(
                         evp.tracking(),
                     )?;
 
-                    let boxed_event = Box::new(event) as Box<dyn IntoPublishableDump + Send>;
+                    let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
                     return Ok(Box::new(stream::once(boxed_event)));
                 }
             }
@@ -1132,16 +1133,15 @@ async fn handle_event_impl<C: Context>(
 
 pub(crate) async fn handle_status_event<C: Context>(
     context: &C,
-    envelope: IncomingEnvelope,
-    evp: &IncomingEventProperties,
+    event: &MQTTIncomingEvent<String>,
     start_timestamp: DateTime<Utc>,
 ) -> MessageStream {
-    handle_status_event_impl(context, envelope, evp, start_timestamp)
+    handle_status_event_impl(context, event, start_timestamp)
         .await
         .unwrap_or_else(|err| {
             error!(
                 "Failed to handle a status event from janus, label = '{}': {}",
-                evp.label().unwrap_or("none"),
+                event.properties().label().unwrap_or("none"),
                 err,
             );
 
@@ -1152,18 +1152,21 @@ pub(crate) async fn handle_status_event<C: Context>(
 
 async fn handle_status_event_impl<C: Context>(
     context: &C,
-    envelope: IncomingEnvelope,
-    evp: &IncomingEventProperties,
+    event: &MQTTIncomingEvent<String>,
     start_timestamp: DateTime<Utc>,
 ) -> Result<MessageStream, SvcError> {
-    let inev = into_event::<StatusEvent>(envelope)?;
+    let evp = event.properties();
 
-    if inev.payload().online() {
+    let payload = MQTTIncomingEvent::convert_payload::<StatusEvent>(&event)
+        .map_err(|err| format!("failed to parse event: {}", err))
+        .status(ResponseStatus::BAD_REQUEST)?;
+
+    if payload.online() {
         let event = create_session_request(evp, context.agent_id(), start_timestamp)
             .map_err(|err| err.to_string())
             .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
-        let boxed_event = Box::new(event) as Box<dyn IntoPublishableDump + Send>;
+        let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_event)))
     } else {
         let conn = context.db().get()?;

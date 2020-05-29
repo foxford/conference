@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use std::ops::Bound;
 use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableDump, OutgoingRequest, ResponseStatus,
+    IncomingRequestProperties, IntoPublishableMessage, OutgoingRequest, ResponseStatus,
     ShortTermTimingProperties,
 };
 use svc_agent::{Addressable, AgentId};
@@ -339,7 +339,7 @@ impl RequestHandler for EnterHandler {
         //        Then we won't need the local state on the broker at all and will be able
         //        to send a multicast request to the broker.
         let outgoing_request = OutgoingRequest::unicast(payload, props, reqp, MQTT_GW_API_VERSION);
-        let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableDump + Send>;
+        let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_request)))
     }
 }
@@ -413,7 +413,7 @@ impl RequestHandler for LeaveHandler {
         //        Then we won't need the local state on the broker at all and will be able
         //        to send a multicast request to the broker.
         let outgoing_request = OutgoingRequest::unicast(payload, props, reqp, MQTT_GW_API_VERSION);
-        let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableDump + Send>;
+        let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_request)))
     }
 }

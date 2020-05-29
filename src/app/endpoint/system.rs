@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableDump, OutgoingEvent, OutgoingEventProperties,
-    ResponseStatus, ShortTermTimingProperties, TrackingProperties,
+    IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
+    OutgoingMessage, ResponseStatus, ShortTermTimingProperties, TrackingProperties,
 };
 use svc_authn::Authenticable;
 use uuid::Uuid;
@@ -47,7 +47,7 @@ struct RtcUploadEventData {
     uri: Option<String>,
 }
 
-pub(crate) type RoomUploadEvent = OutgoingEvent<RoomUploadEventData>;
+pub(crate) type RoomUploadEvent = OutgoingMessage<RoomUploadEventData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -107,7 +107,7 @@ impl RequestHandler for VacuumHandler {
                 .map_err(|err| format!("error creating a backend request: {}", err))
                 .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
-                requests.push(Box::new(backreq) as Box<dyn IntoPublishableDump + Send>);
+                requests.push(Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>);
             }
         }
 
