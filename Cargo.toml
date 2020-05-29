@@ -24,7 +24,7 @@ rand = "0.7"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-svc-agent = { version = "0.13", features = ["diesel"] }
+svc-agent = { version = "0.13", features = ["diesel", "queue-counter"] }
 svc-authn = { version = "0.5", features = ["jose", "diesel"] }
 svc-authz = "0.10"
 svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz", "sentry-extension"] }
