@@ -1,5 +1,5 @@
 use serde_json::json;
-use svc_agent::AgentId;
+use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::ClientMap as Authz;
 
 use crate::app::context::{Context, JanusTopics};
@@ -81,5 +81,9 @@ impl Context for TestContext {
 
     fn janus_topics(&self) -> &JanusTopics {
         &self.janus_topics
+    }
+
+    fn queue_counter(&self) -> &Option<QueueCounterHandle> {
+        &None
     }
 }

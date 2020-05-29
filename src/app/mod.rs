@@ -76,7 +76,8 @@ pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) ->
     let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
 
     // Context
-    let context = AppContext::new(config.clone(), authz, db.clone(), janus_topics);
+    let context = AppContext::new(config.clone(), authz, db.clone(), janus_topics)
+        .add_queue_counter(agent.get_queue_counter());
 
     // Message handler
     let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
