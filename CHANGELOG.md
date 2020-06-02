@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.8 (June 3, 2020)
+
+### Features
+- Added resubscription on reconnect ([e6ab003](https://github.com/netology-group/conference/commit/e6ab0039d3541f7fc3ece6459fc2d30262a76ffd))
+- Added queue length metrics ([42979fb](https://github.com/netology-group/conference/commit/42979fba0321b365a74e120bbfe249f7b6a8f14a))
+
+### Changes
+- Switched to anyhow ([9f5bc75](https://github.com/netology-group/conference/commit/9f5bc756ff8f4506d1f67303fe4d3162b4669c95))
+- Updated svc-agent ([884d356](https://github.com/netology-group/conference/commit/884d356478fda3dc475205b8d615cece56b25842))
+
+
 ## v0.3.7 (May 18, 2020)
 
 ### Changes
