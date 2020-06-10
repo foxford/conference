@@ -378,7 +378,6 @@ pub(crate) struct SlowLinkEvent {
     sender: i64,
     opaque_id: String,
     uplink: bool,
-    nacks: i32,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
