@@ -45,6 +45,8 @@ pub(crate) enum Metric {
     OutgoingQueueEvents(MetricValue),
     #[serde(rename(serialize = "apps.conference.db_connections_total"))]
     DbConnections(MetricValue),
+    #[serde(rename(serialize = "apps.event.redis_connections_total"))]
+    RedisConnections(MetricValue),
 }
 
 pub(crate) struct PullHandler;
@@ -104,6 +106,14 @@ impl EventHandler for PullHandler {
                     value: context.db().state().connections as u64,
                     timestamp: now,
                 }));
+
+                if let Some(pool) = context.redis_pool() {
+                    let connections = pool.state().connections as u64;
+                    metrics.push(Metric::RedisConnections(MetricValue {
+                        value: connections,
+                        timestamp: now,
+                    }));
+                }
 
                 let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
                 let props = evp.to_event("metric.create", short_term_timing);

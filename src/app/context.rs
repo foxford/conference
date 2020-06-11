@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
+use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
 use crate::config::Config;
@@ -16,6 +17,7 @@ pub(crate) struct AppContext {
     agent_id: AgentId,
     janus_topics: JanusTopics,
     queue_counter: Option<QueueCounterHandle>,
+    redis_pool: Option<RedisConnectionPool>,
 }
 
 impl AppContext {
@@ -29,12 +31,20 @@ impl AppContext {
             agent_id,
             janus_topics,
             queue_counter: None,
+            redis_pool: None,
         }
     }
 
     pub(crate) fn add_queue_counter(self, qc: QueueCounterHandle) -> Self {
         Self {
             queue_counter: Some(qc),
+            ..self
+        }
+    }
+
+    pub(crate) fn add_redis_pool(self, pool: RedisConnectionPool) -> Self {
+        Self {
+            redis_pool: Some(pool),
             ..self
         }
     }
@@ -47,6 +57,7 @@ pub(crate) trait Context: Sync {
     fn agent_id(&self) -> &AgentId;
     fn janus_topics(&self) -> &JanusTopics;
     fn queue_counter(&self) -> &Option<QueueCounterHandle>;
+    fn redis_pool(&self) -> &Option<RedisConnectionPool>;
 }
 
 impl Context for AppContext {
@@ -72,6 +83,10 @@ impl Context for AppContext {
 
     fn queue_counter(&self) -> &Option<QueueCounterHandle> {
         &self.queue_counter
+    }
+
+    fn redis_pool(&self) -> &Option<RedisConnectionPool> {
+        &self.redis_pool
     }
 }
 

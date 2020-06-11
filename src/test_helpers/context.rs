@@ -1,5 +1,6 @@
 use serde_json::json;
 use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
+use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
 use crate::app::context::{Context, JanusTopics};
@@ -84,6 +85,10 @@ impl Context for TestContext {
     }
 
     fn queue_counter(&self) -> &Option<QueueCounterHandle> {
+        &None
+    }
+
+    fn redis_pool(&self) -> &Option<RedisConnectionPool> {
         &None
     }
 }
