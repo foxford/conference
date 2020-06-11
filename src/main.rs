@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
         crate::db::create_pool(&url, size, idle_size, timeout)
     };
 
-    let authz_cache = if let Some("1") = var("CACHE_ENABLED").ok().as_deref() {
+    let (redis_pool, authz_cache) = if let Some("1") = var("CACHE_ENABLED").ok().as_deref() {
         let url = var("CACHE_URL").expect("CACHE_URL must be specified");
 
         let size = var("CACHE_POOL_SIZE")
@@ -62,13 +62,14 @@ async fn main() -> Result<()> {
             })
             .unwrap_or_else(|_| 300);
 
-        let cache = Cache::new(create_pool(&url, size, timeout), expiration_time);
-        Some(cache)
+        let pool = create_pool(&url, size, timeout);
+        let cache = Cache::new(pool.clone(), expiration_time);
+        (Some(pool), Some(cache))
     } else {
-        None
+        (None, None)
     };
 
-    app::run(&db, authz_cache).await
+    app::run(&db, redis_pool, authz_cache).await
 }
 
 mod app;

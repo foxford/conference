@@ -17,7 +17,7 @@ use svc_agent::{
     AccountId, AgentId, Authenticable, SharedGroup, Subscription,
 };
 use svc_authn::token::jws_compact;
-use svc_authz::cache::Cache as AuthzCache;
+use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
 use svc_error::{extension::sentry, Error as SvcError};
 
 use crate::app::context::Context;
@@ -30,7 +30,11 @@ pub(crate) const API_VERSION: &str = "v1";
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) -> Result<()> {
+pub(crate) async fn run(
+    db: &ConnectionPool,
+    redis_pool: Option<RedisConnectionPool>,
+    authz_cache: Option<AuthzCache>,
+) -> Result<()> {
     // Config
     let config = config::load().expect("Failed to load config");
     info!("App config: {:?}", config);
@@ -83,6 +87,11 @@ pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) ->
     // Context
     let context = AppContext::new(config.clone(), authz, db.clone(), janus_topics)
         .add_queue_counter(agent.get_queue_counter());
+
+    let context = match redis_pool {
+        Some(pool) => context.add_redis_pool(pool),
+        None => context,
+    };
 
     // Message handler
     let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
