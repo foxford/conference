@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.9 (June 11, 2020)
+
+### Changes
+- Updated async-std to lower idle CPU utilization ([2b21bba](https://github.com/netology-group/conference/commit/2b21bbafce342f583fbce9fce20445693dfef799))
+- Notification loop thread now has a name ([a0fa253](https://github.com/netology-group/conference/commit/a0fa2532e408281f60587c72a2fd21799b237e9d))
+- Removed nacks field from slow link event ([a1a627d](https://github.com/netology-group/conference/commit/a1a627d47273e5d3fe52cfee7d628a92ff5639ee))
+
 ## v0.3.8 (June 3, 2020)
 
 ### Features
