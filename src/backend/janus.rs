@@ -344,6 +344,12 @@ pub(crate) struct HangUpEvent {
     reason: String,
 }
 
+impl HangUpEvent {
+    pub(crate) fn opaque_id(&self) -> &str {
+        &self.opaque_id
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // Audio or video bytes being received by plugin handle
@@ -387,12 +393,6 @@ pub(crate) struct DetachedEvent {
     session_id: i64,
     sender: i64,
     opaque_id: String,
-}
-
-impl DetachedEvent {
-    pub(crate) fn opaque_id(&self) -> &str {
-        &self.opaque_id
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
