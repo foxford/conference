@@ -1084,7 +1084,7 @@ async fn handle_event_impl<C: Context>(
                 Ok(Box::new(stream::empty()))
             }
         }
-        IncomingEvent::Detached(ref inev) => {
+        IncomingEvent::HangUp(ref inev) => {
             let rtc_stream_id = Uuid::from_str(inev.opaque_id())
                 .map_err(|err| format!("Failed to parse opaque id as uuid: {}", err))
                 .status(ResponseStatus::BAD_REQUEST)?;
@@ -1121,7 +1121,7 @@ async fn handle_event_impl<C: Context>(
 
             Ok(Box::new(stream::empty()))
         }
-        IncomingEvent::HangUp(_)
+        IncomingEvent::Detached(_)
         | IncomingEvent::Media(_)
         | IncomingEvent::Timeout(_)
         | IncomingEvent::SlowLink(_) => {
