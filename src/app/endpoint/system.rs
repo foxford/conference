@@ -165,7 +165,7 @@ fn bucket_name(room: &db::room::Object) -> String {
 }
 
 fn record_name(rtc: &db::rtc::Object) -> String {
-    format!("{}.source.mp4", rtc.id())
+    format!("{}.source.webm", rtc.id())
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -272,7 +272,7 @@ mod test {
                                 method: "stream.upload".to_string(),
                                 id: rtc.id(),
                                 bucket: format!("origin.webinar.{}", USR_AUDIENCE).to_string(),
-                                object: format!("{}.source.mp4", rtc.id()).to_string(),
+                                object: format!("{}.source.webm", rtc.id()).to_string(),
                             }
                         }
                     );
