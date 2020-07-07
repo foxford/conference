@@ -73,6 +73,7 @@ table! {
         audience -> Text,
         created_at -> Timestamptz,
         backend -> Room_backend,
+        subscribers_limit -> Nullable<Int4>,
     }
 }
 

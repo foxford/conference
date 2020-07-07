@@ -126,6 +126,27 @@ impl<'a> ListQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+pub(crate) struct CountQuery {
+    room_id: Uuid,
+}
+
+impl CountQuery {
+    pub(crate) fn new(room_id: Uuid) -> Self {
+        Self { room_id }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
+        use diesel::prelude::*;
+
+        agent::table
+            .filter(agent::room_id.eq(self.room_id))
+            .select(diesel::dsl::count(agent::id))
+            .get_result(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Insertable)]
 #[table_name = "agent"]
 pub(crate) struct InsertQuery<'a> {

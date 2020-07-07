@@ -14,6 +14,7 @@ pub(crate) struct Room {
     audience: Option<String>,
     time: Option<db::room::Time>,
     backend: db::room::RoomBackend,
+    subscribers_limit: Option<i32>,
 }
 
 impl Room {
@@ -22,6 +23,7 @@ impl Room {
             audience: None,
             time: None,
             backend: db::room::RoomBackend::None,
+            subscribers_limit: None,
         }
     }
 
@@ -43,13 +45,24 @@ impl Room {
         Self { backend, ..self }
     }
 
+    pub(crate) fn subscribers_limit(self, subscribers_limit: i32) -> Self {
+        Self {
+            subscribers_limit: Some(subscribers_limit),
+            ..self
+        }
+    }
+
     pub(crate) fn insert(self, conn: &PgConnection) -> db::room::Object {
         let audience = self.audience.expect("Audience not set");
         let time = self.time.expect("Time not set");
 
-        db::room::InsertQuery::new(time, &audience, self.backend)
-            .execute(conn)
-            .expect("Failed to insert room")
+        let mut q = db::room::InsertQuery::new(time, &audience, self.backend);
+
+        if let Some(subscribers_limit) = self.subscribers_limit {
+            q = q.subscribers_limit(subscribers_limit);
+        }
+
+        q.execute(conn).expect("Failed to insert room")
     }
 }
 
