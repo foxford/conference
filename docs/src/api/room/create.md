@@ -15,12 +15,12 @@ method           | String | _required_ | Always `room.create`.
 
 **Payload**
 
-Name     | Type       | Default    | Description
--------- | ---------- | ---------- | ------------------
-time     | [i64, i64) | _required_ | A [lt, rt) range of unix time (seconds) or null (unbounded).
-audience | String     | _required_ | The room audience.
-backend  | String     | none       | The room backend. Available values: janus, none.
-
+Name              | Type       | Default    | Description
+----------------- | ---------- | ---------- | ------------------
+time              | [i64, i64) | _required_ | A [lt, rt) range of unix time (seconds) or null (unbounded).
+audience          | String     | _required_ | The room audience.
+backend           | String     | none       | The room backend. Available values: janus, none.
+subscribers_limit | i32        | _optional_ | The maximum number of simultaneously entered subscribers allowed.
 
 
 ## Unicast response
