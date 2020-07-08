@@ -32,6 +32,7 @@ table! {
         handle_id -> Int8,
         session_id -> Int8,
         created_at -> Timestamptz,
+        subscribers_limit -> Nullable<Int4>,
     }
 }
 

@@ -309,10 +309,14 @@ impl RequestHandler for EnterHandler {
 
             // Check if not full house in the room.
             if let Some(subscribers_limit) = room.subscribers_limit() {
-                let agents_count = db::agent::CountQuery::new(room.id()).execute(&conn)?;
+                let agents_count = db::agent::RoomCountQuery::new(room.id()).execute(&conn)?;
 
                 if agents_count > subscribers_limit as i64 {
-                    let err = format!("Subscribers limit has been reached ({})", subscribers_limit);
+                    let err = format!(
+                        "Subscribers limit in the room has been reached ({})",
+                        subscribers_limit
+                    );
+
                     return Err(err).status(ResponseStatus::SERVICE_UNAVAILABLE)?;
                 }
             }

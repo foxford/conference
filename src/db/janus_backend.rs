@@ -14,6 +14,7 @@ pub(crate) struct Object {
     handle_id: i64,
     session_id: i64,
     created_at: DateTime<Utc>,
+    subscribers_limit: Option<i32>,
 }
 
 impl Object {
@@ -27,6 +28,10 @@ impl Object {
 
     pub(crate) fn session_id(&self) -> i64 {
         self.session_id
+    }
+
+    pub(crate) fn subscribers_limit(&self) -> Option<i32> {
+        self.subscribers_limit
     }
 }
 
@@ -109,6 +114,7 @@ pub(crate) struct UpsertQuery<'a> {
     id: &'a AgentId,
     handle_id: i64,
     session_id: i64,
+    subscribers_limit: Option<i32>,
 }
 
 impl<'a> UpsertQuery<'a> {
@@ -117,6 +123,14 @@ impl<'a> UpsertQuery<'a> {
             id,
             handle_id,
             session_id,
+            subscribers_limit: None,
+        }
+    }
+
+    pub(crate) fn subscribers_limit(self, subscribers_limit: i32) -> Self {
+        Self {
+            subscribers_limit: Some(subscribers_limit),
+            ..self
         }
     }
 
