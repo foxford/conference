@@ -32,6 +32,7 @@ table! {
         handle_id -> Int8,
         session_id -> Int8,
         created_at -> Timestamptz,
+        subscribers_limit -> Nullable<Int4>,
     }
 }
 
@@ -73,6 +74,7 @@ table! {
         audience -> Text,
         created_at -> Timestamptz,
         backend -> Room_backend,
+        subscribers_limit -> Nullable<Int4>,
     }
 }
 

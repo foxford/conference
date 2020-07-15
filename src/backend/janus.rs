@@ -402,10 +402,15 @@ pub(crate) struct DetachedEvent {
 #[derive(Debug, Deserialize)]
 pub(crate) struct StatusEvent {
     online: bool,
+    subscribers_limit: Option<i32>,
 }
 
 impl StatusEvent {
     pub(crate) fn online(&self) -> bool {
         self.online
+    }
+
+    pub(crate) fn subscribers_limit(&self) -> Option<i32> {
+        self.subscribers_limit
     }
 }

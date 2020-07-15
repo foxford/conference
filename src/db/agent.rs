@@ -6,7 +6,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use super::room::Object as Room;
-use crate::schema::agent;
+use crate::schema::{agent, janus_rtc_stream, room, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -121,6 +121,49 @@ impl<'a> ListQuery<'a> {
         }
 
         q.order_by(agent::created_at.desc()).get_results(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct RoomCountQuery {
+    room_id: Uuid,
+}
+
+impl RoomCountQuery {
+    pub(crate) fn new(room_id: Uuid) -> Self {
+        Self { room_id }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
+        use diesel::prelude::*;
+
+        agent::table
+            .filter(agent::room_id.eq(self.room_id))
+            .select(diesel::dsl::count(agent::id))
+            .get_result(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct JanusBackendCountQuery<'a> {
+    backend_id: &'a AgentId,
+}
+
+impl<'a> JanusBackendCountQuery<'a> {
+    pub(crate) fn new(backend_id: &'a AgentId) -> Self {
+        Self { backend_id }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
+        use diesel::prelude::*;
+
+        agent::table
+            .inner_join(room::table.inner_join(rtc::table.inner_join(janus_rtc_stream::table)))
+            .filter(janus_rtc_stream::backend_id.eq(self.backend_id))
+            .select(diesel::dsl::count(agent::id))
+            .get_result(conn)
     }
 }
 

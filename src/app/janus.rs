@@ -50,15 +50,29 @@ pub(crate) enum Transaction {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CreateSessionTransaction {}
+pub(crate) struct CreateSessionTransaction {
+    subscribers_limit: Option<i32>,
+}
 
 impl CreateSessionTransaction {
     pub(crate) fn new() -> Self {
-        Self {}
+        Self {
+            subscribers_limit: None,
+        }
+    }
+
+    pub(crate) fn subscribers_limit(&self) -> Option<i32> {
+        self.subscribers_limit
+    }
+
+    pub(crate) fn set_subscribers_limit(&mut self, subscribers_limit: i32) -> &mut Self {
+        self.subscribers_limit = Some(subscribers_limit);
+        self
     }
 }
 
 pub(crate) fn create_session_request<M>(
+    payload: &StatusEvent,
     evp: &IncomingEventProperties,
     me: &M,
     start_timestamp: DateTime<Utc>,
@@ -67,7 +81,13 @@ where
     M: Addressable,
 {
     let to = evp.as_agent_id();
-    let transaction = Transaction::CreateSession(CreateSessionTransaction::new());
+    let mut tn_data = CreateSessionTransaction::new();
+
+    if let Some(subscribers_limit) = payload.subscribers_limit() {
+        tn_data.set_subscribers_limit(subscribers_limit);
+    }
+
+    let transaction = Transaction::CreateSession(tn_data);
     let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
 
     let mut props = OutgoingRequestProperties::new(
@@ -91,17 +111,31 @@ where
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateHandleTransaction {
     session_id: i64,
+    subscribers_limit: Option<i32>,
 }
 
 impl CreateHandleTransaction {
     pub(crate) fn new(session_id: i64) -> Self {
-        Self { session_id }
+        Self {
+            session_id,
+            subscribers_limit: None,
+        }
+    }
+
+    pub(crate) fn subscribers_limit(&self) -> Option<i32> {
+        self.subscribers_limit
+    }
+
+    pub(crate) fn set_subscribers_limit(&mut self, subscribers_limit: i32) -> &mut Self {
+        self.subscribers_limit = Some(subscribers_limit);
+        self
     }
 }
 
 pub(crate) fn create_handle_request<M>(
     respp: &IncomingResponseProperties,
     session_id: i64,
+    subscribers_limit: Option<i32>,
     me: &M,
     start_timestamp: DateTime<Utc>,
 ) -> Result<OutgoingMessage<CreateHandleRequest>>
@@ -109,7 +143,13 @@ where
     M: Addressable,
 {
     let to = respp.as_agent_id();
-    let transaction = Transaction::CreateHandle(CreateHandleTransaction::new(session_id));
+    let mut tn_data = CreateHandleTransaction::new(session_id);
+
+    if let Some(subscribers_limit) = subscribers_limit {
+        tn_data.set_subscribers_limit(subscribers_limit);
+    }
+
+    let transaction = Transaction::CreateHandle(tn_data);
 
     let payload = CreateHandleRequest::new(
         &to_base64(&transaction)?,
@@ -126,6 +166,7 @@ where
     );
 
     props.set_tracking(respp.tracking().to_owned());
+
     Ok(OutgoingRequest::unicast(
         payload,
         props,
@@ -593,11 +634,12 @@ async fn handle_response_impl<C: Context>(
 
             match txn {
                 // Session has been created
-                Transaction::CreateSession(_tn) => {
+                Transaction::CreateSession(tn) => {
                     // Creating Handle
                     let backreq = create_handle_request(
                         respp,
                         inresp.data().id(),
+                        tn.subscribers_limit(),
                         context.agent_id(),
                         start_timestamp,
                     )
@@ -613,9 +655,14 @@ async fn handle_response_impl<C: Context>(
                     let handle_id = inresp.data().id();
                     let conn = context.db().get()?;
 
-                    janus_backend::UpsertQuery::new(backend_id, handle_id, tn.session_id)
-                        .execute(&conn)?;
+                    let mut q =
+                        janus_backend::UpsertQuery::new(backend_id, handle_id, tn.session_id);
 
+                    if let Some(subscribers_limit) = tn.subscribers_limit() {
+                        q = q.subscribers_limit(subscribers_limit);
+                    }
+
+                    q.execute(&conn)?;
                     Ok(Box::new(stream::empty()))
                 }
                 // Rtc Handle has been created
@@ -1162,7 +1209,7 @@ async fn handle_status_event_impl<C: Context>(
         .status(ResponseStatus::BAD_REQUEST)?;
 
     if payload.online() {
-        let event = create_session_request(evp, context.agent_id(), start_timestamp)
+        let event = create_session_request(&payload, evp, context.agent_id(), start_timestamp)
             .map_err(|err| err.to_string())
             .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 

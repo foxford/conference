@@ -42,6 +42,7 @@ pub(crate) struct CreateRequest {
     audience: String,
     #[serde(default = "CreateRequest::default_backend")]
     backend: db::room::RoomBackend,
+    subscribers_limit: Option<i32>,
 }
 
 impl CreateRequest {
@@ -71,10 +72,15 @@ impl RequestHandler for CreateHandler {
 
         // Create a room.
         let room = {
-            let conn = context.db().get()?;
+            let mut q =
+                db::room::InsertQuery::new(payload.time, &payload.audience, payload.backend);
 
-            db::room::InsertQuery::new(payload.time, &payload.audience, payload.backend)
-                .execute(&conn)?
+            if let Some(subscribers_limit) = payload.subscribers_limit {
+                q = q.subscribers_limit(subscribers_limit);
+            }
+
+            let conn = context.db().get()?;
+            q.execute(&conn)?
         };
 
         // Respond and broadcast to the audience topic.
@@ -293,12 +299,29 @@ impl RequestHandler for EnterHandler {
         let room = {
             let conn = context.db().get()?;
 
-            db::room::FindQuery::new()
+            // Find opened room.
+            let room = db::room::FindQuery::new()
                 .id(payload.id)
                 .time(db::room::now())
                 .execute(&conn)?
                 .ok_or_else(|| format!("Room not found or closed, id = '{}'", payload.id))
-                .status(ResponseStatus::NOT_FOUND)?
+                .status(ResponseStatus::NOT_FOUND)?;
+
+            // Check if not full house in the room.
+            if let Some(subscribers_limit) = room.subscribers_limit() {
+                let agents_count = db::agent::RoomCountQuery::new(room.id()).execute(&conn)?;
+
+                if agents_count > subscribers_limit as i64 {
+                    let err = format!(
+                        "Subscribers limit in the room has been reached ({})",
+                        subscribers_limit
+                    );
+
+                    return Err(err).status(ResponseStatus::SERVICE_UNAVAILABLE)?;
+                }
+            }
+
+            room
         };
 
         // Authorize subscribing to the room's events.
@@ -459,6 +482,7 @@ mod test {
                     time: time.clone(),
                     audience: USR_AUDIENCE.to_owned(),
                     backend: db::room::RoomBackend::Janus,
+                    subscribers_limit: Some(123),
                 };
 
                 let messages = handle_request::<CreateHandler>(&context, &agent, payload)
@@ -471,6 +495,7 @@ mod test {
                 assert_eq!(room.audience(), USR_AUDIENCE);
                 assert_eq!(room.time(), &time);
                 assert_eq!(room.backend(), db::room::RoomBackend::Janus);
+                assert_eq!(room.subscribers_limit(), Some(123));
 
                 // Assert notification.
                 let (room, evp, topic) = find_event::<Room>(messages.as_slice());
@@ -479,6 +504,7 @@ mod test {
                 assert_eq!(room.audience(), USR_AUDIENCE);
                 assert_eq!(room.time(), &time);
                 assert_eq!(room.backend(), db::room::RoomBackend::Janus);
+                assert_eq!(room.subscribers_limit(), Some(123));
             });
         }
 
@@ -493,6 +519,7 @@ mod test {
                     time: (Bound::Included(Utc::now()), Bound::Unbounded),
                     audience: USR_AUDIENCE.to_owned(),
                     backend: db::room::RoomBackend::Janus,
+                    subscribers_limit: None,
                 };
 
                 let err = handle_request::<CreateHandler>(&context, &agent, payload)
@@ -637,7 +664,9 @@ mod test {
                     Bound::Excluded(now + Duration::hours(3)),
                 );
 
-                let payload = UpdateRequest::new(room.id()).time(time);
+                let payload = UpdateRequest::new(room.id())
+                    .time(time)
+                    .subscribers_limit(Some(123));
 
                 let messages = handle_request::<UpdateHandler>(&context, &agent, payload)
                     .await
@@ -650,6 +679,7 @@ mod test {
                 assert_eq!(resp_room.audience(), room.audience());
                 assert_eq!(resp_room.time(), &time);
                 assert_eq!(resp_room.backend(), db::room::RoomBackend::Janus);
+                assert_eq!(resp_room.subscribers_limit(), Some(123));
             });
         }
 
@@ -790,6 +820,8 @@ mod test {
     }
 
     mod enter {
+        use chrono::SubsecRound;
+
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
@@ -843,6 +875,59 @@ mod test {
                 assert_eq!(reqp.method(), "subscription.create");
                 assert_eq!(payload.subject, agent.agent_id().to_owned());
                 assert_eq!(payload.object, vec!["rooms", &room_id, "events"]);
+            });
+        }
+
+        #[test]
+        fn enter_room_full_house() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+
+                // Create room and fill it up with agents.
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    let now = Utc::now().trunc_subsecs(0);
+
+                    let room = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((Bound::Included(now), Bound::Unbounded))
+                        .backend(db::room::RoomBackend::Janus)
+                        .subscribers_limit(1)
+                        .insert(&conn);
+
+                    let publisher = TestAgent::new("web", "publisher", USR_AUDIENCE);
+                    shared_helpers::insert_agent(&conn, publisher.agent_id(), room.id());
+
+                    let subscriber = TestAgent::new("web", "subscriber", USR_AUDIENCE);
+                    shared_helpers::insert_agent(&conn, subscriber.agent_id(), room.id());
+
+                    room
+                };
+
+                // Allow agent to subscribe to the rooms' events.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let mut authz = TestAuthz::new();
+                let room_id = room.id().to_string();
+
+                authz.allow(
+                    agent.account_id(),
+                    vec!["rooms", &room_id, "events"],
+                    "subscribe",
+                );
+
+                // Make room.enter request.
+                let context = TestContext::new(db, authz);
+                let payload = EnterRequest { id: room.id() };
+
+                let err = handle_request::<EnterHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on room entering");
+
+                assert_eq!(err.status_code(), ResponseStatus::SERVICE_UNAVAILABLE);
             });
         }
 

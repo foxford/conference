@@ -71,6 +71,32 @@ impl RequestHandler for CreateHandler {
                     .status(ResponseStatus::BAD_REQUEST)?;
 
                 if is_recvonly {
+                    // Check for full house on the server
+                    {
+                        let conn = context.db().get()?;
+                        let backend_id = payload.handle_id.backend_id();
+
+                        let backend = db::janus_backend::FindQuery::new()
+                            .id(backend_id.to_owned())
+                            .execute(&conn)?
+                            .ok_or_else(|| format!("backend not found id = '{}'", backend_id))
+                            .status(ResponseStatus::NOT_FOUND)?;
+
+                        if let Some(subscribers_limit) = backend.subscribers_limit() {
+                            let agents_count = db::agent::JanusBackendCountQuery::new(backend.id())
+                                .execute(&conn)?;
+
+                            if agents_count > subscribers_limit as i64 {
+                                let err = format!(
+                                    "Subscribers limit on the server has been reached ({})",
+                                    subscribers_limit
+                                );
+
+                                return Err(err).status(ResponseStatus::SERVICE_UNAVAILABLE)?;
+                            }
+                        }
+                    }
+
                     // Authorization
                     let authz_time = authorize(context, &payload, reqp, "read").await?;
 
@@ -255,6 +281,7 @@ fn is_sdp_recvonly(jsep: &JsonValue) -> anyhow::Result<bool> {
 mod test {
     mod create {
         use diesel::prelude::*;
+        use rand::Rng;
         use serde::Deserialize;
         use serde_json::json;
         use uuid::Uuid;
@@ -265,7 +292,7 @@ mod test {
 
         use super::super::*;
 
-        const SDP_OFFER: &str = r#"
+        const SENDRECV_SDP_OFFER: &str = r#"
         v=0
         o=- 20518 0 IN IP4 0.0.0.0
         s=-
@@ -300,6 +327,53 @@ mod test {
         a=mid:video
         a=msid:ma tb
         a=sendrecv
+        a=rtpmap:99 H264/90000
+        a=fmtp:99 profile-level-id=4d0028;packetization-mode=1
+        a=rtpmap:120 VP8/90000
+        a=rtcp-fb:99 nack
+        a=rtcp-fb:99 nack pli
+        a=rtcp-fb:99 ccm fir
+        a=rtcp-fb:120 nack
+        a=rtcp-fb:120 nack pli
+        a=rtcp-fb:120 ccm fir
+        a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
+        "#;
+
+        const RECVONLY_SDP_OFFER: &str = r#"
+        v=0
+        o=- 20518 0 IN IP4 0.0.0.0
+        s=-
+        t=0 0
+        a=group:BUNDLE audio video
+        a=group:LS audio video
+        a=ice-options:trickle
+        m=audio 54609 UDP/TLS/RTP/SAVPF 109 0 8
+        c=IN IP4 203.0.113.141
+        a=mid:audio
+        a=msid:ma ta
+        a=recvonly
+        a=rtpmap:109 opus/48000/2
+        a=rtpmap:0 PCMU/8000
+        a=rtpmap:8 PCMA/8000
+        a=maxptime:120
+        a=ice-ufrag:074c6550
+        a=ice-pwd:a28a397a4c3f31747d1ee3474af08a068
+        a=fingerprint:sha-256 19:E2:1C:3B:4B:9F:81:E6:B8:5C:F4:A5:A8:D8:73:04:BB:05:2F:70:9F:04:A9:0E:05:E9:26:33:E8:70:88:A2
+        a=setup:actpass
+        a=tls-id:1
+        a=rtcp-mux
+        a=rtcp-mux-only
+        a=rtcp-rsize
+        a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level
+        a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
+        a=candidate:0 1 UDP 2122194687 192.0.2.4 61665 typ host
+        a=candidate:1 1 UDP 1685987071 203.0.113.141 54609 typ srflx raddr 192.0.2.4 rport 61665
+        a=end-of-candidates
+        m=video 54609 UDP/TLS/RTP/SAVPF 99 120
+        c=IN IP4 203.0.113.141
+        a=mid:video
+        a=msid:ma tb
+        a=recvonly
         a=rtpmap:99 H264/90000
         a=fmtp:99 profile-level-id=4d0028;packetization-mode=1
         a=rtpmap:120 VP8/90000
@@ -373,7 +447,7 @@ mod test {
 
                 let payload = CreateRequest {
                     handle_id,
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER }),
+                    jsep: json!({ "type": "offer", "sdp": SENDRECV_SDP_OFFER }),
                     label: Some(String::from("whatever")),
                 };
 
@@ -399,7 +473,7 @@ mod test {
                 assert_eq!(payload.body.method, "stream.create");
                 assert_eq!(payload.body.id, rtc.id());
                 assert_eq!(payload.jsep.r#type, "offer");
-                assert_eq!(payload.jsep.sdp, SDP_OFFER);
+                assert_eq!(payload.jsep.sdp, SENDRECV_SDP_OFFER);
 
                 // Assert rtc stream presence in the DB.
                 let conn = context.db().get().unwrap();
@@ -413,6 +487,75 @@ mod test {
                 assert_eq!(rtc_stream.backend_id(), backend.id());
                 assert_eq!(rtc_stream.label(), "whatever");
                 assert_eq!(rtc_stream.sent_by(), agent.agent_id());
+            });
+        }
+
+        #[test]
+        fn create_rtc_signal_full_house() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
+
+                // Insert a janus backend and an rtc.
+                let (backend, rtc) = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| {
+                        let mut rng = rand::thread_rng();
+                        let agent = TestAgent::new("alpha", "janus-gateway", SVC_AUDIENCE);
+                        let agent_id = agent.agent_id().to_owned();
+
+                        let backend = factory::JanusBackend::new(agent_id, rng.gen(), rng.gen())
+                            .subscribers_limit(1)
+                            .insert(&conn);
+
+                        let rtc = shared_helpers::insert_rtc(&conn);
+
+                        factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .backend(&backend)
+                            .rtc(&rtc)
+                            .insert(&conn);
+
+                        let publisher = TestAgent::new("web", "publisher", USR_AUDIENCE);
+                        shared_helpers::insert_agent(&conn, publisher.agent_id(), rtc.room_id());
+
+                        let subscriber = TestAgent::new("web", "subscriber", USR_AUDIENCE);
+                        shared_helpers::insert_agent(&conn, subscriber.agent_id(), rtc.room_id());
+
+                        (backend, rtc)
+                    })
+                    .unwrap();
+
+                // Allow user to read the rtc.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let room_id = rtc.room_id().to_string();
+                let rtc_id = rtc.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                authz.allow(agent.account_id(), object, "read");
+
+                // Make rtc_signal.create request.
+                let context = TestContext::new(db, authz);
+                let rtc_stream_id = Uuid::new_v4();
+
+                let handle_id = HandleId::new(
+                    rtc_stream_id,
+                    rtc.id(),
+                    backend.handle_id(),
+                    backend.session_id(),
+                    backend.id().to_owned(),
+                );
+
+                let payload = CreateRequest {
+                    handle_id,
+                    jsep: json!({ "type": "offer", "sdp": RECVONLY_SDP_OFFER }),
+                    label: Some(String::from("whatever")),
+                };
+
+                let err = handle_request::<CreateHandler>(&context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on rtc creation");
+
+                assert_eq!(err.status_code(), ResponseStatus::SERVICE_UNAVAILABLE);
             });
         }
 
@@ -448,7 +591,7 @@ mod test {
 
                 let payload = CreateRequest {
                     handle_id,
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER }),
+                    jsep: json!({ "type": "offer", "sdp": SENDRECV_SDP_OFFER }),
                     label: Some(String::from("whatever")),
                 };
 
