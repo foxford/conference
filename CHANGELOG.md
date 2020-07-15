@@ -1,11 +1,26 @@
 # Changelog
 
+## v0.4.0 (July 15, 2020)
+
+### Features
+- Add room subscribers limit ([747678e](https://github.com/netology-group/conference/commit/747678edeaabed7376660a99c06aa233e4cc2fae))
+- Add backend subscribers limit ([d161159](https://github.com/netology-group/conference/commit/d161159d3e17a467bbd7eaa2480706a9673b97e2))
+
+### Changes
+- Update svc-agent & svc-authn ([454575f](https://github.com/netology-group/conference/commit/454575fbf18518c1d9951e58c3cdda9a27a8a021))
+- Change mp4 to webm ([04a56ab](https://github.com/netology-group/conference/commit/04a56abb4d5ad6d266f65b4436d3c3984a0c21db))
+
+### Fixes
+- Fix rtc_stream.update event on stream stop ([7e68204](https://github.com/netology-group/conference/commit/7e6820438bf6246d89c5ed6fea567ff8912e2b28))
+
+
 ## v0.3.9 (June 11, 2020)
 
 ### Changes
 - Updated async-std to lower idle CPU utilization ([2b21bba](https://github.com/netology-group/conference/commit/2b21bbafce342f583fbce9fce20445693dfef799))
 - Notification loop thread now has a name ([a0fa253](https://github.com/netology-group/conference/commit/a0fa2532e408281f60587c72a2fd21799b237e9d))
 - Removed nacks field from slow link event ([a1a627d](https://github.com/netology-group/conference/commit/a1a627d47273e5d3fe52cfee7d628a92ff5639ee))
+
 
 ## v0.3.8 (June 3, 2020)
 
