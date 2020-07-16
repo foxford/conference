@@ -1,23 +1,19 @@
-apiVersion: skaffold/v1beta11
+apiVersion: skaffold/v2beta4
 kind: Config
 build:
   artifacts:
-    - image: netologygroup/conference-migration
-      docker:
-        dockerfile: docker/migration.dockerfile
-    - image: netologygroup/conference
-      docker:
-        dockerfile: docker/Dockerfile
+  - image: netologygroup/conference-migration
+    docker:
+      dockerfile: docker/migration.dockerfile
+  - image: netologygroup/conference
+    docker:
+      dockerfile: docker/Dockerfile
   tagPolicy:
-    envTemplate:
-      template: '{{.IMAGE_NAME}}:{{.IMAGE_TAG}}'
+    gitCommit: {}
   local:
     push: true
     useDockerCLI: true
 deploy:
-  kubectl:
-    manifests:
-      - deploy/k8s/conference.yaml
-      - deploy/k8s/conference-config.yaml
-      - deploy/k8s/conference-environment.yaml
-      - deploy/k8s/conference-headless.yaml
+  kustomize:
+    paths:
+    - deploy/k8s/overlays/ns
