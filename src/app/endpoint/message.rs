@@ -154,6 +154,7 @@ impl ResponseHandler for CallbackHandler {
             long_term_timing,
             short_term_timing,
             respp.tracking().clone(),
+            respp.local_tracking_label().clone(),
         );
 
         let resp = OutgoingResponse::unicast(payload.to_owned(), props, &reqp, API_VERSION);

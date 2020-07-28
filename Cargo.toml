@@ -31,6 +31,3 @@ svc-authz = "0.10"
 svc-error = { version = "0.1", features = ["diesel", "r2d2", "svc-agent", "svc-authn", "svc-authz", "sentry-extension"] }
 uuid = { version = "0.6", features = ["v4", "serde"] }
 webrtc-sdp = "0.1"
-
-[patch.crates-io]
-svc-agent = {git = "https://github.com/netology-group/svc-agent-rs", tag = "v0.14.1"}
