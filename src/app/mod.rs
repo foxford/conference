@@ -1,5 +1,7 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 use anyhow::{Context as AnyhowContext, Result};
 use async_std::task;
@@ -86,17 +88,22 @@ pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) ->
     let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
 
     // Message loop
-    while let Some(message) = mq_rx.next().await {
-        let message_handler = message_handler.clone();
+    let term_check_period = Duration::from_secs(1);
+    let term = Arc::new(AtomicBool::new(false));
+    signal_hook::flag::register(signal_hook::SIGTERM, Arc::clone(&term))?;
+    signal_hook::flag::register(signal_hook::SIGINT, Arc::clone(&term))?;
 
-        task::spawn(async move {
-            match message {
+    while !term.load(Ordering::Relaxed) {
+        let fut = async_std::future::timeout(term_check_period, mq_rx.next());
+
+        if let Ok(Some(message)) = fut.await {
+            let message_handler = message_handler.clone();
+
+            task::spawn_blocking(move || match message {
                 AgentNotification::Message(message, metadata) => {
-                    message_handler.handle(&message, &metadata.topic).await
+                    async_std::task::block_on(message_handler.handle(&message, &metadata.topic));
                 }
-                AgentNotification::Disconnection => {
-                    error!("Disconnected from broker");
-                }
+                AgentNotification::Disconnection => error!("Disconnected from broker"),
                 AgentNotification::Reconnection => {
                     error!("Reconnected to broker");
 
@@ -106,9 +113,17 @@ pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) ->
                         message_handler.context().config(),
                     );
                 }
-                _ => error!("Unsupported notification type = '{:?}'", message),
-            }
-        });
+                AgentNotification::Puback(_) => (),
+                AgentNotification::Pubrec(_) => (),
+                AgentNotification::Pubcomp(_) => (),
+                AgentNotification::Suback(_) => (),
+                AgentNotification::Unsuback(_) => (),
+                AgentNotification::Abort(err) => {
+                    error!("MQTT client aborted: {}", err);
+                    return;
+                }
+            });
+        }
     }
 
     Ok(())
