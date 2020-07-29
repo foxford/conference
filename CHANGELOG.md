@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.1 (July 30, 2020)
+
+### Changes
+- Added unix signals handlers ([61a020b](https://github.com/netology-group/event/commit/61a020bd38a46487a7f7b6e00c7276e7c8717fe6))
+- Svc agent update ([b5ff057](https://github.com/netology-group/event/commit/b5ff057344920729fb18fbb90f10eee1c9112888))
+
 ## v0.4.0 (July 15, 2020)
 
 ### Features
