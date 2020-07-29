@@ -32,7 +32,7 @@ jobs:
   include:
     - stage: check
       name: Format
-      rust: nightly-2019-11-05
+      rust: stable
 
       before_install:
         - rustup component add rustfmt
@@ -41,7 +41,7 @@ jobs:
 
     - stage: check
       name: Lint
-      rust: nightly-2019-11-05
+      rust: stable
 
       before_install:
         - rustup component add clippy
@@ -50,7 +50,7 @@ jobs:
 
     - stage: check
       name: Tests
-      rust: nightly-2019-11-05
+      rust: stable
 
       env:
         - RUST_BACKTRACE=1
