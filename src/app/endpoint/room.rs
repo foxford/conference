@@ -42,7 +42,7 @@ pub(crate) struct CreateRequest {
     audience: String,
     #[serde(default = "CreateRequest::default_backend")]
     backend: db::room::RoomBackend,
-    subscribers_limit: Option<i32>,
+    reserve: Option<i32>,
 }
 
 impl CreateRequest {
@@ -75,8 +75,8 @@ impl RequestHandler for CreateHandler {
             let mut q =
                 db::room::InsertQuery::new(payload.time, &payload.audience, payload.backend);
 
-            if let Some(subscribers_limit) = payload.subscribers_limit {
-                q = q.subscribers_limit(subscribers_limit);
+            if let Some(reserve) = payload.reserve {
+                q = q.reserve(reserve);
             }
 
             let conn = context.db().get()?;
@@ -308,13 +308,13 @@ impl RequestHandler for EnterHandler {
                 .status(ResponseStatus::NOT_FOUND)?;
 
             // Check if not full house in the room.
-            if let Some(subscribers_limit) = room.subscribers_limit() {
+            if let Some(reserve) = room.reserve() {
                 let agents_count = db::agent::RoomCountQuery::new(room.id()).execute(&conn)?;
 
-                if agents_count > subscribers_limit as i64 {
+                if agents_count > reserve as i64 {
                     let err = format!(
                         "Subscribers limit in the room has been reached ({})",
-                        subscribers_limit
+                        reserve
                     );
 
                     return Err(err).status(ResponseStatus::SERVICE_UNAVAILABLE)?;
@@ -482,7 +482,7 @@ mod test {
                     time: time.clone(),
                     audience: USR_AUDIENCE.to_owned(),
                     backend: db::room::RoomBackend::Janus,
-                    subscribers_limit: Some(123),
+                    reserve: Some(123),
                 };
 
                 let messages = handle_request::<CreateHandler>(&context, &agent, payload)
@@ -495,7 +495,7 @@ mod test {
                 assert_eq!(room.audience(), USR_AUDIENCE);
                 assert_eq!(room.time(), &time);
                 assert_eq!(room.backend(), db::room::RoomBackend::Janus);
-                assert_eq!(room.subscribers_limit(), Some(123));
+                assert_eq!(room.reserve(), Some(123));
 
                 // Assert notification.
                 let (room, evp, topic) = find_event::<Room>(messages.as_slice());
@@ -504,7 +504,7 @@ mod test {
                 assert_eq!(room.audience(), USR_AUDIENCE);
                 assert_eq!(room.time(), &time);
                 assert_eq!(room.backend(), db::room::RoomBackend::Janus);
-                assert_eq!(room.subscribers_limit(), Some(123));
+                assert_eq!(room.reserve(), Some(123));
             });
         }
 
@@ -519,7 +519,7 @@ mod test {
                     time: (Bound::Included(Utc::now()), Bound::Unbounded),
                     audience: USR_AUDIENCE.to_owned(),
                     backend: db::room::RoomBackend::Janus,
-                    subscribers_limit: None,
+                    reserve: None,
                 };
 
                 let err = handle_request::<CreateHandler>(&context, &agent, payload)
@@ -666,7 +666,7 @@ mod test {
 
                 let payload = UpdateRequest::new(room.id())
                     .time(time)
-                    .subscribers_limit(Some(123));
+                    .reserve(Some(123));
 
                 let messages = handle_request::<UpdateHandler>(&context, &agent, payload)
                     .await
@@ -679,7 +679,7 @@ mod test {
                 assert_eq!(resp_room.audience(), room.audience());
                 assert_eq!(resp_room.time(), &time);
                 assert_eq!(resp_room.backend(), db::room::RoomBackend::Janus);
-                assert_eq!(resp_room.subscribers_limit(), Some(123));
+                assert_eq!(resp_room.reserve(), Some(123));
             });
         }
 
@@ -896,7 +896,7 @@ mod test {
                         .audience(USR_AUDIENCE)
                         .time((Bound::Included(now), Bound::Unbounded))
                         .backend(db::room::RoomBackend::Janus)
-                        .subscribers_limit(1)
+                        .reserve(1)
                         .insert(&conn);
 
                     let publisher = TestAgent::new("web", "publisher", USR_AUDIENCE);
