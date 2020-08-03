@@ -126,27 +126,6 @@ impl<'a> ListQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct RoomCountQuery {
-    room_id: Uuid,
-}
-
-impl RoomCountQuery {
-    pub(crate) fn new(room_id: Uuid) -> Self {
-        Self { room_id }
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
-        use diesel::prelude::*;
-
-        agent::table
-            .filter(agent::room_id.eq(self.room_id))
-            .select(diesel::dsl::count(agent::id))
-            .get_result(conn)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 pub(crate) struct JanusBackendCountQuery<'a> {
     backend_id: &'a AgentId,
 }

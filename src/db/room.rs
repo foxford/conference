@@ -107,6 +107,7 @@ impl Object {
         self.backend
     }
 
+    #[cfg(test)]
     pub(crate) fn reserve(&self) -> Option<i32> {
         self.reserve
     }
