@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use svc_agent::AgentId;
+use uuid::Uuid;
 
 use crate::schema::janus_backend;
 
@@ -28,10 +29,6 @@ impl Object {
 
     pub(crate) fn session_id(&self) -> i64 {
         self.session_id
-    }
-
-    pub(crate) fn subscribers_limit(&self) -> Option<i32> {
-        self.subscribers_limit
     }
 }
 
@@ -167,24 +164,54 @@ impl<'a> DeleteQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+// Returns the least loaded backend capable to host the room with its reserve considering:
+// - actual number of online agents;
+// - optional backend subscribers limit;
+// - optional reserved capacity.
 const LEAST_LOADED_SQL: &str = r#"
-    select jb.*
-    from janus_backend as jb
-    left join (
-        select *
-        from janus_rtc_stream
-        where lower(time) is not null
-        and   upper(time) is null
-    ) as jrs
-    on jrs.backend_id = jb.id
-    group by jb.id
-    order by count(jrs.id)
+    WITH
+        room_load AS (
+            SELECT
+                r.id AS room_id,
+                GREATEST(COALESCE(r.reserve, 0), COUNT(a.id)) AS taken
+            FROM room AS r
+            LEFT JOIN agent AS a
+            ON a.room_id = r.id
+            GROUP BY r.id
+        ),
+        janus_backend_load AS (
+            SELECT
+                jrs.backend_id,
+                SUM(taken) AS taken
+            FROM room_load as rl
+            LEFT JOIN rtc
+            ON rtc.room_id = rl.room_id
+            LEFT JOIN janus_rtc_stream AS jrs
+            ON jrs.rtc_id = rtc.id
+            GROUP BY jrs.backend_id
+        )
+    SELECT jb.*
+    FROM janus_backend AS jb
+    LEFT JOIN janus_rtc_stream AS jrs
+    ON jrs.backend_id = jb.id
+    LEFT JOIN rtc
+    ON rtc.id = jrs.rtc_id
+    LEFT JOIN janus_backend_load AS jbl
+    ON jbl.backend_id = jb.id
+    LEFT JOIN room AS r2
+    ON 1 = 1
+    WHERE r2.id = $1
+    AND   COALESCE(jb.subscribers_limit, 2147483647) - COALESCE(jbl.taken, 0) > COALESCE(r2.reserve, 0)
+    ORDER BY COALESCE(jb.subscribers_limit, 2147483647) - COALESCE(jbl.taken, 0) DESC
+    LIMIT 1
 "#;
 
-pub(crate) fn least_loaded(conn: &PgConnection) -> Result<Option<Object>, Error> {
+pub(crate) fn least_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
     use diesel::prelude::*;
+    use diesel::sql_types::Uuid;
 
     diesel::sql_query(LEAST_LOADED_SQL)
+        .bind::<Uuid, _>(room_id)
         .get_result(conn)
         .optional()
 }

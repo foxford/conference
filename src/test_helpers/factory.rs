@@ -14,6 +14,7 @@ pub(crate) struct Room {
     audience: Option<String>,
     time: Option<db::room::Time>,
     backend: db::room::RoomBackend,
+    reserve: Option<i32>,
 }
 
 impl Room {
@@ -22,6 +23,7 @@ impl Room {
             audience: None,
             time: None,
             backend: db::room::RoomBackend::None,
+            reserve: None,
         }
     }
 
@@ -39,6 +41,13 @@ impl Room {
         }
     }
 
+    pub(crate) fn reserve(self, reserve: i32) -> Self {
+        Self {
+            reserve: Some(reserve),
+            ..self
+        }
+    }
+
     pub(crate) fn backend(self, backend: db::room::RoomBackend) -> Self {
         Self { backend, ..self }
     }
@@ -47,9 +56,13 @@ impl Room {
         let audience = self.audience.expect("Audience not set");
         let time = self.time.expect("Time not set");
 
-        db::room::InsertQuery::new(time, &audience, self.backend)
-            .execute(conn)
-            .expect("Failed to insert room")
+        let mut q = db::room::InsertQuery::new(time, &audience, self.backend);
+
+        if let Some(reserve) = self.reserve {
+            q = q.reserve(reserve);
+        }
+
+        q.execute(conn).expect("Failed to insert room")
     }
 }
 
