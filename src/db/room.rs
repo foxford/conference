@@ -43,7 +43,7 @@ type AllColumns = (
     room::audience,
     room::created_at,
     room::backend,
-    room::subscribers_limit,
+    room::reserve,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -52,7 +52,7 @@ const ALL_COLUMNS: AllColumns = (
     room::audience,
     room::created_at,
     room::backend,
-    room::subscribers_limit,
+    room::reserve,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -86,7 +86,7 @@ pub(crate) struct Object {
     created_at: DateTime<Utc>,
     backend: RoomBackend,
     #[serde(skip_serializing_if = "Option::is_none")]
-    subscribers_limit: Option<i32>,
+    reserve: Option<i32>,
 }
 
 impl Object {
@@ -107,8 +107,9 @@ impl Object {
         self.backend
     }
 
-    pub(crate) fn subscribers_limit(&self) -> Option<i32> {
-        self.subscribers_limit
+    #[cfg(test)]
+    pub(crate) fn reserve(&self) -> Option<i32> {
+        self.reserve
     }
 }
 
@@ -206,7 +207,7 @@ pub(crate) struct InsertQuery<'a> {
     time: Time,
     audience: &'a str,
     backend: RoomBackend,
-    subscribers_limit: Option<i32>,
+    reserve: Option<i32>,
 }
 
 impl<'a> InsertQuery<'a> {
@@ -215,13 +216,13 @@ impl<'a> InsertQuery<'a> {
             time,
             audience,
             backend,
-            subscribers_limit: None,
+            reserve: None,
         }
     }
 
-    pub(crate) fn subscribers_limit(self, value: i32) -> Self {
+    pub(crate) fn reserve(self, value: i32) -> Self {
         Self {
-            subscribers_limit: Some(value),
+            reserve: Some(value),
             ..self
         }
     }
@@ -263,7 +264,7 @@ pub(crate) struct UpdateQuery {
     time: Option<Time>,
     audience: Option<String>,
     backend: Option<RoomBackend>,
-    subscribers_limit: Option<Option<i32>>,
+    reserve: Option<Option<i32>>,
 }
 
 impl UpdateQuery {
@@ -274,7 +275,7 @@ impl UpdateQuery {
             time: None,
             audience: None,
             backend: None,
-            subscribers_limit: None,
+            reserve: None,
         }
     }
 
@@ -291,9 +292,9 @@ impl UpdateQuery {
     }
 
     #[cfg(test)]
-    pub(crate) fn subscribers_limit(self, value: Option<i32>) -> Self {
+    pub(crate) fn reserve(self, value: Option<i32>) -> Self {
         Self {
-            subscribers_limit: Some(value),
+            reserve: Some(value),
             ..self
         }
     }
