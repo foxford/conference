@@ -3,6 +3,10 @@ use serde_json::Value as JsonValue;
 
 pub(crate) const JANUS_API_VERSION: &str = "v1";
 
+pub(crate) trait OpaqueId {
+    fn opaque_id(&self) -> &str;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // Creating a session
@@ -326,8 +330,8 @@ pub(crate) struct WebRtcUpEvent {
     opaque_id: String,
 }
 
-impl WebRtcUpEvent {
-    pub(crate) fn opaque_id(&self) -> &str {
+impl OpaqueId for WebRtcUpEvent {
+    fn opaque_id(&self) -> &str {
         &self.opaque_id
     }
 }
@@ -344,8 +348,8 @@ pub(crate) struct HangUpEvent {
     reason: String,
 }
 
-impl HangUpEvent {
-    pub(crate) fn opaque_id(&self) -> &str {
+impl OpaqueId for HangUpEvent {
+    fn opaque_id(&self) -> &str {
         &self.opaque_id
     }
 }
@@ -393,6 +397,12 @@ pub(crate) struct DetachedEvent {
     session_id: i64,
     sender: i64,
     opaque_id: String,
+}
+
+impl OpaqueId for DetachedEvent {
+    fn opaque_id(&self) -> &str {
+        &self.opaque_id
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
