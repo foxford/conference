@@ -85,10 +85,7 @@ impl FindQuery {
     }
 
     pub(crate) fn id(self, id: AgentId) -> Self {
-        Self {
-            id: Some(id),
-            ..self
-        }
+        Self { id: Some(id) }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {

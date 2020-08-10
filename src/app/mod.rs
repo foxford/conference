@@ -61,7 +61,7 @@ pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) ->
         .name("conference-notifications-loop".to_owned())
         .spawn(move || {
             for message in rx {
-                if let Err(_) = mq_tx.unbounded_send(message) {
+                if mq_tx.unbounded_send(message).is_err() {
                     error!("Error sending message to the internal channel");
                 }
             }
@@ -118,10 +118,7 @@ pub(crate) async fn run(db: &ConnectionPool, authz_cache: Option<AuthzCache>) ->
                 AgentNotification::Pubcomp(_) => (),
                 AgentNotification::Suback(_) => (),
                 AgentNotification::Unsuback(_) => (),
-                AgentNotification::Abort(err) => {
-                    error!("MQTT client aborted: {}", err);
-                    return;
-                }
+                AgentNotification::Abort(err) => error!("MQTT client aborted: {}", err),
             });
         }
     }

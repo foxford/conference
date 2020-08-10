@@ -1,4 +1,3 @@
-use config;
 use serde_derive::Deserialize;
 use svc_agent::{mqtt::AgentConfig, AccountId};
 use svc_authn::jose::Algorithm;

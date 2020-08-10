@@ -3,9 +3,11 @@ use std::ops::Bound;
 use chrono::{DateTime, Utc};
 use serde::ser;
 
+pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
+
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn milliseconds_bound_tuples_option<S>(
+pub(crate) fn milliseconds_bound_tuples_option<S>(
     value: &Option<Vec<(Bound<i64>, Bound<i64>)>>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
@@ -74,7 +76,7 @@ pub(crate) mod ts_seconds_option {
     }
 
     #[cfg(test)]
-    pub fn deserialize<'de, D>(d: D) -> Result<Option<DateTime<Utc>>, D::Error>
+    pub(crate) fn deserialize<'de, D>(d: D) -> Result<Option<DateTime<Utc>>, D::Error>
     where
         D: de::Deserializer<'de>,
     {
@@ -110,15 +112,13 @@ pub(crate) mod ts_seconds_option {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) mod ts_seconds_bound_tuple {
+    use super::Time;
     use chrono::{DateTime, NaiveDateTime, Utc};
     use serde::{de, ser};
     use std::fmt;
     use std::ops::Bound;
 
-    pub(crate) fn serialize<S>(
-        value: &(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
+    pub(crate) fn serialize<S>(value: &Time, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ser::Serializer,
     {
@@ -162,9 +162,7 @@ pub(crate) mod ts_seconds_bound_tuple {
         tup.end()
     }
 
-    pub fn deserialize<'de, D>(
-        d: D,
-    ) -> Result<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>), D::Error>
+    pub(crate) fn deserialize<'de, D>(d: D) -> Result<Time, D::Error>
     where
         D: de::Deserializer<'de>,
     {
@@ -174,7 +172,7 @@ pub(crate) mod ts_seconds_bound_tuple {
     struct TupleSecondsTimestampVisitor;
 
     impl<'de> de::Visitor<'de> for TupleSecondsTimestampVisitor {
-        type Value = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
+        type Value = Time;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
             formatter.write_str("a [lt, rt) range of unix time (seconds) or null (unbounded)")
@@ -203,7 +201,7 @@ pub(crate) mod ts_seconds_bound_tuple {
                 None => return Err(de::Error::invalid_length(2, &self)),
             };
 
-            return Ok((lt, rt));
+            Ok((lt, rt))
         }
     }
 }
@@ -211,15 +209,11 @@ pub(crate) mod ts_seconds_bound_tuple {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) mod ts_seconds_option_bound_tuple {
-    use chrono::{DateTime, Utc};
+    use super::Time;
     use serde::{de, ser};
     use std::fmt;
-    use std::ops::Bound;
 
-    pub(crate) fn serialize<S>(
-        option: &Option<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
+    pub(crate) fn serialize<S>(option: &Option<Time>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ser::Serializer,
     {
@@ -229,9 +223,7 @@ pub(crate) mod ts_seconds_option_bound_tuple {
         }
     }
 
-    pub fn deserialize<'de, D>(
-        d: D,
-    ) -> Result<Option<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>, D::Error>
+    pub(crate) fn deserialize<'de, D>(d: D) -> Result<Option<Time>, D::Error>
     where
         D: de::Deserializer<'de>,
     {
@@ -241,7 +233,7 @@ pub(crate) mod ts_seconds_option_bound_tuple {
     pub struct TupleSecondsTimestampVisitor;
 
     impl<'de> de::Visitor<'de> for TupleSecondsTimestampVisitor {
-        type Value = Option<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>;
+        type Value = Option<Time>;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
             formatter
@@ -275,17 +267,19 @@ mod test {
     use serde_derive::{Deserialize, Serialize};
     use serde_json::json;
 
+    use super::Time;
+
     #[derive(Debug, Serialize, Deserialize)]
     struct TestData {
         #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
-        time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
+        time: Time,
     }
 
     #[derive(Debug, Deserialize)]
     struct TestOptionData {
         #[serde(default)]
         #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
-        time: Option<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>,
+        time: Option<Time>,
     }
 
     #[derive(Debug, Serialize)]

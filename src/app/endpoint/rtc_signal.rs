@@ -129,8 +129,9 @@ impl RequestHandler for CreateHandler {
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
                 }
             }
-            SdpType::Answer => Err(format!("sdp_type = 'answer' is not allowed"))
-                .status(ResponseStatus::BAD_REQUEST)?,
+            SdpType::Answer => {
+                Err("sdp_type = 'answer' is not allowed").status(ResponseStatus::BAD_REQUEST)?
+            }
             SdpType::IceCandidate => {
                 // Authorization
                 let authz_time = authorize(context, &payload, reqp, "read").await?;
