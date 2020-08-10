@@ -30,6 +30,10 @@ impl Object {
     pub(crate) fn session_id(&self) -> i64 {
         self.session_id
     }
+
+    pub(crate) fn subscribers_limit(&self) -> Option<i32> {
+        self.subscribers_limit
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
