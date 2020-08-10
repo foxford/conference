@@ -279,13 +279,16 @@ impl RequestHandler for ConnectHandler {
         let backend = {
             let conn = context.db().get()?;
 
-            // If there is an active stream choose its backend since Janus doesn't support
-            // clustering so all agents within one rtc must be sent to the same node. If there's no
-            // active stream it means we're connecting as publisher and going to create it.
-            // Then select the least loaded node: the one with the least active rtc streams count.
+            // There are 3 cases:
+            // 1. Connecting as publisher with no previous stream. Select the least loaded backend
+            //    that is capable to host the room's reservation.
+            // 2. Connecting as subscriber with existing stream. Choose the backend of the active
+            //    stream because Janus doesn't support clustering and it must be the same server
+            //    that the stream's publisher is connected to.
+            // 3. Reconnecting as publisher with previous stream. Select the backend of the previous
+            //    stream to avoid partitioning the record across multiple servers.
             let maybe_rtc_stream = db::janus_rtc_stream::FindQuery::new()
                 .rtc_id(payload.id)
-                .active(true)
                 .execute(&conn)?;
 
             match maybe_rtc_stream {
@@ -779,75 +782,6 @@ mod test {
                     .expect("RTC connect failed");
 
                 // Ensure we're balanced to the backend with the stream.
-                let (req, _reqp, topic) = find_request::<JanusAttachRequest>(messages.as_slice());
-
-                let expected_topic = format!(
-                    "agents/{}/api/{}/in/{}",
-                    backend.id(),
-                    janus::JANUS_API_VERSION,
-                    context.config().id,
-                );
-
-                assert_eq!(topic, expected_topic);
-                assert_eq!(req.session_id, backend.session_id());
-            });
-        }
-
-        #[test]
-        fn connect_to_rtc_migration_to_another_backend() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-
-                let (rtc, backend) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        // Insert rtcs and janus backends.
-                        let rtc1 = shared_helpers::insert_rtc(&conn);
-                        let rtc2 = shared_helpers::insert_rtc(&conn);
-                        let backend1 = shared_helpers::insert_janus_backend(&conn);
-                        let backend2 = shared_helpers::insert_janus_backend(&conn);
-
-                        // The first backend has a finished stream for the first rtc…
-                        let stream1 = factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .backend(&backend1)
-                            .rtc(&rtc1)
-                            .insert(&conn);
-
-                        crate::db::janus_rtc_stream::start(stream1.id(), &conn).unwrap();
-                        crate::db::janus_rtc_stream::stop_by_agent_id(stream1.sent_by(), &conn)
-                            .unwrap();
-
-                        // …and an active stream for the second rtc.
-                        let stream2 = factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .backend(&backend1)
-                            .rtc(&rtc2)
-                            .insert(&conn);
-
-                        crate::db::janus_rtc_stream::start(stream2.id(), &conn).unwrap();
-
-                        // A new stream for the first rtc should start on the second backend.
-                        (rtc1, backend2)
-                    })
-                    .unwrap();
-
-                // Allow user to read the rtc.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(agent.account_id(), object, "read");
-
-                // Make rtc.connect request.
-                let context = TestContext::new(db, authz);
-                let payload = ConnectRequest { id: rtc.id() };
-
-                let messages = handle_request::<ConnectHandler>(&context, &agent, payload)
-                    .await
-                    .expect("RTC connect failed");
-
-                // Ensure we're balanced to the least loaded backend.
                 let (req, _reqp, topic) = find_request::<JanusAttachRequest>(messages.as_slice());
 
                 let expected_topic = format!(
