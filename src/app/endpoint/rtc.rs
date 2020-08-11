@@ -291,7 +291,7 @@ impl RequestHandler for ConnectHandler {
                 .rtc_id(payload.id)
                 .execute(&conn)?;
 
-            match maybe_rtc_stream {
+            let backend = match maybe_rtc_stream {
                 Some(ref stream) => db::janus_backend::FindQuery::new()
                     .id(stream.backend_id().to_owned())
                     .execute(&conn)?
@@ -300,7 +300,22 @@ impl RequestHandler for ConnectHandler {
                 None => db::janus_backend::least_loaded(room.id(), &conn)?
                     .ok_or("no available backends")
                     .status(ResponseStatus::SERVICE_UNAVAILABLE)?,
+            };
+
+            // Check that the backend's subscribers limit is not reached.
+            if let Some(limit) = backend.subscribers_limit() {
+                let agents_count = db::agent::CountQuery::new()
+                    .room_id(room.id())
+                    .status(db::agent::Status::Ready)
+                    .execute(&conn)?;
+
+                if agents_count >= limit.into() {
+                    return Err("subscribers limit reached")
+                        .status(ResponseStatus::SERVICE_UNAVAILABLE);
+                }
             }
+
+            backend
         };
 
         // Send janus handle creation request.
