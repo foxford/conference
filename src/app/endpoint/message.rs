@@ -114,7 +114,7 @@ impl RequestHandler for BroadcastHandler {
         let notification = shared::build_notification(
             "message.broadcast",
             &format!("rooms/{}/events", room.id()),
-            payload.data.to_owned(),
+            payload.data,
             reqp,
             start_timestamp,
         );
@@ -157,7 +157,7 @@ impl ResponseHandler for CallbackHandler {
             respp.local_tracking_label().clone(),
         );
 
-        let resp = OutgoingResponse::unicast(payload.to_owned(), props, &reqp, API_VERSION);
+        let resp = OutgoingResponse::unicast(payload, props, &reqp, API_VERSION);
         let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_resp)))
     }
@@ -185,7 +185,7 @@ fn check_room_presence(
         .status(db::agent::Status::Ready)
         .execute(conn)?;
 
-    if results.len() == 0 {
+    if results.is_empty() {
         let err = format!(
             "agent = '{}' is not online in the room = '{}'",
             agent_id,

@@ -35,6 +35,7 @@ const STREAM_UPLOAD_METHOD: &str = "stream.upload";
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) enum Transaction {
     CreateSession(CreateSessionTransaction),
@@ -201,6 +202,7 @@ impl CreateRtcHandleTransaction {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn create_rtc_handle_request<A, M>(
     reqp: IncomingRequestProperties,
     rtc_stream_id: Uuid,
@@ -277,6 +279,7 @@ impl CreateStreamRequestBody {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn create_stream_request<A, M>(
     reqp: IncomingRequestProperties,
     session_id: i64,
@@ -352,6 +355,7 @@ impl ReadStreamRequestBody {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn read_stream_request<A, M>(
     reqp: IncomingRequestProperties,
     session_id: i64,
@@ -486,6 +490,7 @@ impl TrickleTransaction {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn trickle_request<A, M>(
     reqp: IncomingRequestProperties,
     session_id: i64,
@@ -1171,7 +1176,7 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
 
         // Publish the update event if only stream object has been changed
         // (if there weren't any actual media stream, the object won't contain its start time)
-        if let Some(_) = rtc_stream.time() {
+        if rtc_stream.time().is_some() {
             let event = endpoint::rtc_stream::update_event(
                 room.id(),
                 rtc_stream,
