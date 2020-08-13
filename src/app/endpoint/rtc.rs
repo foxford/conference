@@ -5,6 +5,7 @@ use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
     IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
 };
+use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::context::Context;
@@ -331,8 +332,13 @@ impl RequestHandler for ConnectHandler {
                         .execute(&conn)?;
 
                     if agents_count >= limit.into() {
-                        return Err("subscribers limit reached")
-                            .status(ResponseStatus::SERVICE_UNAVAILABLE);
+                        let err = SvcError::builder()
+                            .status(ResponseStatus::SERVICE_UNAVAILABLE)
+                            .kind("subscribers_limit_reached", "Subscribers limit reached")
+                            .detail("subscribers limit reached")
+                            .build();
+
+                        return Err(err);
                     }
                 }
             }
@@ -999,6 +1005,7 @@ mod test {
                     .expect_err("Unexpected success on rtc connecting");
 
                 assert_eq!(err.status_code(), ResponseStatus::SERVICE_UNAVAILABLE);
+                assert_eq!(err.kind(), "subscribers_limit_reached");
             });
         }
 
