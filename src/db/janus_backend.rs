@@ -15,7 +15,7 @@ pub(crate) struct Object {
     handle_id: i64,
     session_id: i64,
     created_at: DateTime<Utc>,
-    subscribers_limit: Option<i32>,
+    capacity: Option<i32>,
 }
 
 impl Object {
@@ -31,8 +31,8 @@ impl Object {
         self.session_id
     }
 
-    pub(crate) fn subscribers_limit(&self) -> Option<i32> {
-        self.subscribers_limit
+    pub(crate) fn capacity(&self) -> Option<i32> {
+        self.capacity
     }
 }
 
@@ -112,7 +112,7 @@ pub(crate) struct UpsertQuery<'a> {
     id: &'a AgentId,
     handle_id: i64,
     session_id: i64,
-    subscribers_limit: Option<i32>,
+    capacity: Option<i32>,
 }
 
 impl<'a> UpsertQuery<'a> {
@@ -121,13 +121,13 @@ impl<'a> UpsertQuery<'a> {
             id,
             handle_id,
             session_id,
-            subscribers_limit: None,
+            capacity: None,
         }
     }
 
-    pub(crate) fn subscribers_limit(self, subscribers_limit: i32) -> Self {
+    pub(crate) fn capacity(self, capacity: i32) -> Self {
         Self {
-            subscribers_limit: Some(subscribers_limit),
+            capacity: Some(capacity),
             ..self
         }
     }
@@ -202,8 +202,8 @@ const LEAST_LOADED_SQL: &str = r#"
     LEFT JOIN room AS r2
     ON 1 = 1
     WHERE r2.id = $1
-    AND   COALESCE(jb.subscribers_limit, 2147483647) - COALESCE(jbl.taken, 0) > COALESCE(r2.reserve, 0)
-    ORDER BY COALESCE(jb.subscribers_limit, 2147483647) - COALESCE(jbl.taken, 0) DESC
+    AND   COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.taken, 0) > COALESCE(r2.reserve, 0)
+    ORDER BY COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.taken, 0) DESC
     LIMIT 1
 "#;
 

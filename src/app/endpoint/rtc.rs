@@ -325,7 +325,7 @@ impl RequestHandler for ConnectHandler {
 
             // Check that the backend's capacity is not exceeded for readers.
             if payload.intent == ConnectIntent::Read {
-                if let Some(limit) = backend.subscribers_limit() {
+                if let Some(limit) = backend.capacity() {
                     // FIXME
                     let agents_count = db::agent::CountQuery::new()
                         .room_id(room.id())
@@ -886,7 +886,7 @@ mod test {
 
                         let backend1 =
                             factory::JanusBackend::new(backend1_id, rng.gen(), rng.gen())
-                                .subscribers_limit(20)
+                                .capacity(20)
                                 .insert(&conn);
 
                         // The second backend is too small but has no load.
@@ -896,7 +896,7 @@ mod test {
                         };
 
                         factory::JanusBackend::new(backend2_id, rng.gen(), rng.gen())
-                            .subscribers_limit(5)
+                            .capacity(5)
                             .insert(&conn);
 
                         // Insert stream.
@@ -969,7 +969,7 @@ mod test {
                         };
 
                         let backend = factory::JanusBackend::new(backend_id, rng.gen(), rng.gen())
-                            .subscribers_limit(1)
+                            .capacity(1)
                             .insert(&conn);
 
                         // Insert active stream.
@@ -1031,7 +1031,7 @@ mod test {
                         };
 
                         let backend = factory::JanusBackend::new(backend_id, rng.gen(), rng.gen())
-                            .subscribers_limit(1)
+                            .capacity(1)
                             .insert(&conn);
 
                         // Insert active stream.

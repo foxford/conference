@@ -52,22 +52,20 @@ pub(crate) enum Transaction {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateSessionTransaction {
-    subscribers_limit: Option<i32>,
+    capacity: Option<i32>,
 }
 
 impl CreateSessionTransaction {
     pub(crate) fn new() -> Self {
-        Self {
-            subscribers_limit: None,
-        }
+        Self { capacity: None }
     }
 
-    pub(crate) fn subscribers_limit(&self) -> Option<i32> {
-        self.subscribers_limit
+    pub(crate) fn capacity(&self) -> Option<i32> {
+        self.capacity
     }
 
-    pub(crate) fn set_subscribers_limit(&mut self, subscribers_limit: i32) -> &mut Self {
-        self.subscribers_limit = Some(subscribers_limit);
+    pub(crate) fn set_capacity(&mut self, capacity: i32) -> &mut Self {
+        self.capacity = Some(capacity);
         self
     }
 }
@@ -84,8 +82,8 @@ where
     let to = evp.as_agent_id();
     let mut tn_data = CreateSessionTransaction::new();
 
-    if let Some(subscribers_limit) = payload.subscribers_limit() {
-        tn_data.set_subscribers_limit(subscribers_limit);
+    if let Some(capacity) = payload.capacity() {
+        tn_data.set_capacity(capacity);
     }
 
     let transaction = Transaction::CreateSession(tn_data);
@@ -112,23 +110,23 @@ where
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateHandleTransaction {
     session_id: i64,
-    subscribers_limit: Option<i32>,
+    capacity: Option<i32>,
 }
 
 impl CreateHandleTransaction {
     pub(crate) fn new(session_id: i64) -> Self {
         Self {
             session_id,
-            subscribers_limit: None,
+            capacity: None,
         }
     }
 
-    pub(crate) fn subscribers_limit(&self) -> Option<i32> {
-        self.subscribers_limit
+    pub(crate) fn capacity(&self) -> Option<i32> {
+        self.capacity
     }
 
-    pub(crate) fn set_subscribers_limit(&mut self, subscribers_limit: i32) -> &mut Self {
-        self.subscribers_limit = Some(subscribers_limit);
+    pub(crate) fn set_capacity(&mut self, capacity: i32) -> &mut Self {
+        self.capacity = Some(capacity);
         self
     }
 }
@@ -136,7 +134,7 @@ impl CreateHandleTransaction {
 pub(crate) fn create_handle_request<M>(
     respp: &IncomingResponseProperties,
     session_id: i64,
-    subscribers_limit: Option<i32>,
+    capacity: Option<i32>,
     me: &M,
     start_timestamp: DateTime<Utc>,
 ) -> Result<OutgoingMessage<CreateHandleRequest>>
@@ -146,8 +144,8 @@ where
     let to = respp.as_agent_id();
     let mut tn_data = CreateHandleTransaction::new(session_id);
 
-    if let Some(subscribers_limit) = subscribers_limit {
-        tn_data.set_subscribers_limit(subscribers_limit);
+    if let Some(capacity) = capacity {
+        tn_data.set_capacity(capacity);
     }
 
     let transaction = Transaction::CreateHandle(tn_data);
@@ -644,7 +642,7 @@ async fn handle_response_impl<C: Context>(
                     let backreq = create_handle_request(
                         respp,
                         inresp.data().id(),
-                        tn.subscribers_limit(),
+                        tn.capacity(),
                         context.agent_id(),
                         start_timestamp,
                     )
@@ -663,8 +661,8 @@ async fn handle_response_impl<C: Context>(
                     let mut q =
                         janus_backend::UpsertQuery::new(backend_id, handle_id, tn.session_id);
 
-                    if let Some(subscribers_limit) = tn.subscribers_limit() {
-                        q = q.subscribers_limit(subscribers_limit);
+                    if let Some(capacity) = tn.capacity() {
+                        q = q.capacity(capacity);
                     }
 
                     q.execute(&conn)?;
