@@ -231,21 +231,21 @@ impl RequestHandler for ListHandler {
 
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum ConnectRole {
-    Publisher,
-    Subscriber,
+pub(crate) enum ConnectIntent {
+    Read,
+    Write,
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct ConnectRequest {
     id: Uuid,
-    #[serde(default = "ConnectRequest::default_role")]
-    role: ConnectRole,
+    #[serde(default = "ConnectRequest::default_intent")]
+    intent: ConnectIntent,
 }
 
 impl ConnectRequest {
-    fn default_role() -> ConnectRole {
-        ConnectRole::Subscriber
+    fn default_intent() -> ConnectIntent {
+        ConnectIntent::Read
     }
 }
 
@@ -286,9 +286,9 @@ impl RequestHandler for ConnectHandler {
         let room_id = room.id().to_string();
         let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
 
-        let action = match payload.role {
-            ConnectRole::Publisher => "update",
-            ConnectRole::Subscriber => "read",
+        let action = match payload.intent {
+            ConnectIntent::Read => "read",
+            ConnectIntent::Write => "update",
         };
 
         let authz_time = context
@@ -301,12 +301,12 @@ impl RequestHandler for ConnectHandler {
             let conn = context.db().get()?;
 
             // There are 3 cases:
-            // 1. Connecting as publisher with no previous stream. Select the least loaded backend
+            // 1. Connecting as writer with no previous stream. Select the least loaded backend
             //    that is capable to host the room's reservation.
-            // 2. Connecting as subscriber with existing stream. Choose the backend of the active
+            // 2. Connecting as reader with existing stream. Choose the backend of the active
             //    stream because Janus doesn't support clustering and it must be the same server
-            //    that the stream's publisher is connected to.
-            // 3. Reconnecting as publisher with previous stream. Select the backend of the previous
+            //    that the stream's writer is connected to.
+            // 3. Reconnecting as writer with previous stream. Select the backend of the previous
             //    stream to avoid partitioning the record across multiple servers.
             let maybe_rtc_stream = db::janus_rtc_stream::FindQuery::new()
                 .rtc_id(payload.id)
@@ -323,9 +323,10 @@ impl RequestHandler for ConnectHandler {
                     .status(ResponseStatus::SERVICE_UNAVAILABLE)?,
             };
 
-            // Check that the backend's subscribers limit is not reached.
-            if payload.role == ConnectRole::Subscriber {
+            // Check that the backend's capacity is not exceeded for readers.
+            if payload.intent == ConnectIntent::Read {
                 if let Some(limit) = backend.subscribers_limit() {
+                    // FIXME
                     let agents_count = db::agent::CountQuery::new()
                         .room_id(room.id())
                         .status(db::agent::Status::Ready)
@@ -334,8 +335,8 @@ impl RequestHandler for ConnectHandler {
                     if agents_count >= limit.into() {
                         let err = SvcError::builder()
                             .status(ResponseStatus::SERVICE_UNAVAILABLE)
-                            .kind("subscribers_limit_reached", "Subscribers limit reached")
-                            .detail("subscribers limit reached")
+                            .kind("capacity_exceeded", "Capacity exceeded")
+                            .detail("active agents number on the backend exceeded its capacity")
                             .build();
 
                         return Err(err);
@@ -744,7 +745,7 @@ mod test {
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
-                    role: ConnectRole::Subscriber,
+                    intent: ConnectIntent::Read,
                 };
 
                 let messages = handle_request::<ConnectHandler>(&context, &agent, payload)
@@ -825,7 +826,7 @@ mod test {
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
-                    role: ConnectRole::Subscriber,
+                    intent: ConnectIntent::Read,
                 };
 
                 let messages = handle_request::<ConnectHandler>(&context, &agent, payload)
@@ -925,7 +926,7 @@ mod test {
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
-                    role: ConnectRole::Subscriber,
+                    intent: ConnectIntent::Read,
                 };
 
                 let messages = handle_request::<ConnectHandler>(&context, &agent, payload)
@@ -997,7 +998,7 @@ mod test {
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
-                    role: ConnectRole::Subscriber,
+                    intent: ConnectIntent::Read,
                 };
 
                 let err = handle_request::<ConnectHandler>(&context, &agent, payload)
@@ -1005,12 +1006,12 @@ mod test {
                     .expect_err("Unexpected success on rtc connecting");
 
                 assert_eq!(err.status_code(), ResponseStatus::SERVICE_UNAVAILABLE);
-                assert_eq!(err.kind(), "subscribers_limit_reached");
+                assert_eq!(err.kind(), "capacity_exceeded");
             });
         }
 
         #[test]
-        fn connect_to_rtc_full_server_as_publisher() {
+        fn connect_to_rtc_full_server_as_writer() {
             async_std::task::block_on(async {
                 let mut rng = rand::thread_rng();
                 let db = TestDb::new();
@@ -1059,7 +1060,7 @@ mod test {
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
-                    role: ConnectRole::Publisher,
+                    intent: ConnectIntent::Write,
                 };
 
                 handle_request::<ConnectHandler>(&context, &agent, payload)
@@ -1087,7 +1088,7 @@ mod test {
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
-                    role: ConnectRole::Subscriber,
+                    intent: ConnectIntent::Read,
                 };
 
                 let err = handle_request::<ConnectHandler>(&context, &agent, payload)
@@ -1106,7 +1107,7 @@ mod test {
 
                 let payload = ConnectRequest {
                     id: Uuid::new_v4(),
-                    role: ConnectRole::Subscriber,
+                    intent: ConnectIntent::Read,
                 };
 
                 let err = handle_request::<ConnectHandler>(&context, &agent, payload)
