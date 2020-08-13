@@ -228,9 +228,24 @@ impl RequestHandler for ListHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ConnectRole {
+    Publisher,
+    Subscriber,
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct ConnectRequest {
     id: Uuid,
+    #[serde(default = "ConnectRequest::default_role")]
+    role: ConnectRole,
+}
+
+impl ConnectRequest {
+    fn default_role() -> ConnectRole {
+        ConnectRole::Subscriber
+    }
 }
 
 pub(crate) struct ConnectHandler;
@@ -270,9 +285,14 @@ impl RequestHandler for ConnectHandler {
         let room_id = room.id().to_string();
         let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
 
+        let action = match payload.role {
+            ConnectRole::Publisher => "update",
+            ConnectRole::Subscriber => "read",
+        };
+
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "read")
+            .authorize(room.audience(), reqp, object, action)
             .await?;
 
         // Choose backend to connect.
@@ -303,15 +323,17 @@ impl RequestHandler for ConnectHandler {
             };
 
             // Check that the backend's subscribers limit is not reached.
-            if let Some(limit) = backend.subscribers_limit() {
-                let agents_count = db::agent::CountQuery::new()
-                    .room_id(room.id())
-                    .status(db::agent::Status::Ready)
-                    .execute(&conn)?;
+            if payload.role == ConnectRole::Subscriber {
+                if let Some(limit) = backend.subscribers_limit() {
+                    let agents_count = db::agent::CountQuery::new()
+                        .room_id(room.id())
+                        .status(db::agent::Status::Ready)
+                        .execute(&conn)?;
 
-                if agents_count >= limit.into() {
-                    return Err("subscribers limit reached")
-                        .status(ResponseStatus::SERVICE_UNAVAILABLE);
+                    if agents_count >= limit.into() {
+                        return Err("subscribers limit reached")
+                            .status(ResponseStatus::SERVICE_UNAVAILABLE);
+                    }
                 }
             }
 
@@ -713,7 +735,11 @@ mod test {
 
                 // Make rtc.connect request.
                 let context = TestContext::new(db, authz);
-                let payload = ConnectRequest { id: rtc.id() };
+
+                let payload = ConnectRequest {
+                    id: rtc.id(),
+                    role: ConnectRole::Subscriber,
+                };
 
                 let messages = handle_request::<ConnectHandler>(&context, &agent, payload)
                     .await
@@ -790,7 +816,11 @@ mod test {
 
                 // Make rtc.connect request.
                 let context = TestContext::new(db, authz);
-                let payload = ConnectRequest { id: rtc.id() };
+
+                let payload = ConnectRequest {
+                    id: rtc.id(),
+                    role: ConnectRole::Subscriber,
+                };
 
                 let messages = handle_request::<ConnectHandler>(&context, &agent, payload)
                     .await
@@ -886,7 +916,11 @@ mod test {
 
                 // Make rtc.connect request.
                 let context = TestContext::new(db, authz);
-                let payload = ConnectRequest { id: rtc.id() };
+
+                let payload = ConnectRequest {
+                    id: rtc.id(),
+                    role: ConnectRole::Subscriber,
+                };
 
                 let messages = handle_request::<ConnectHandler>(&context, &agent, payload)
                     .await
@@ -954,13 +988,76 @@ mod test {
 
                 // Make rtc.connect request.
                 let context = TestContext::new(db, authz);
-                let payload = ConnectRequest { id: rtc.id() };
+
+                let payload = ConnectRequest {
+                    id: rtc.id(),
+                    role: ConnectRole::Subscriber,
+                };
 
                 let err = handle_request::<ConnectHandler>(&context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc connecting");
 
                 assert_eq!(err.status_code(), ResponseStatus::SERVICE_UNAVAILABLE);
+            });
+        }
+
+        #[test]
+        fn connect_to_rtc_full_server_as_publisher() {
+            async_std::task::block_on(async {
+                let mut rng = rand::thread_rng();
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
+
+                let rtc = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| {
+                        // Insert rtc.
+                        let rtc = shared_helpers::insert_rtc(&conn);
+
+                        // Insert backend.
+                        let backend_id = {
+                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                            agent.agent_id().to_owned()
+                        };
+
+                        let backend = factory::JanusBackend::new(backend_id, rng.gen(), rng.gen())
+                            .subscribers_limit(1)
+                            .insert(&conn);
+
+                        // Insert active stream.
+                        factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .backend(&backend)
+                            .rtc(&rtc)
+                            .insert(&conn);
+
+                        // Insert active agent.
+                        let agent = TestAgent::new("web", "user456", USR_AUDIENCE);
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), rtc.room_id());
+
+                        rtc
+                    })
+                    .unwrap();
+
+                // Allow user to read the rtc.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let room_id = rtc.room_id().to_string();
+                let rtc_id = rtc.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                authz.allow(agent.account_id(), object, "update");
+
+                // Make rtc.connect request.
+                let context = TestContext::new(db, authz);
+
+                let payload = ConnectRequest {
+                    id: rtc.id(),
+                    role: ConnectRole::Publisher,
+                };
+
+                handle_request::<ConnectHandler>(&context, &agent, payload)
+                    .await
+                    .expect("RTC connect failed");
             });
         }
 
@@ -980,7 +1077,11 @@ mod test {
                 };
 
                 let context = TestContext::new(db, TestAuthz::new());
-                let payload = ConnectRequest { id: rtc.id() };
+
+                let payload = ConnectRequest {
+                    id: rtc.id(),
+                    role: ConnectRole::Subscriber,
+                };
 
                 let err = handle_request::<ConnectHandler>(&context, &agent, payload)
                     .await
@@ -995,7 +1096,11 @@ mod test {
             async_std::task::block_on(async {
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 let context = TestContext::new(TestDb::new(), TestAuthz::new());
-                let payload = ConnectRequest { id: Uuid::new_v4() };
+
+                let payload = ConnectRequest {
+                    id: Uuid::new_v4(),
+                    role: ConnectRole::Subscriber,
+                };
 
                 let err = handle_request::<ConnectHandler>(&context, &agent, payload)
                     .await
