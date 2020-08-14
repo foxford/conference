@@ -326,11 +326,7 @@ impl RequestHandler for ConnectHandler {
             // Check that the backend's capacity is not exceeded for readers.
             if payload.intent == ConnectIntent::Read {
                 if let Some(limit) = backend.capacity() {
-                    // FIXME
-                    let agents_count = db::agent::CountQuery::new()
-                        .room_id(room.id())
-                        .status(db::agent::Status::Ready)
-                        .execute(&conn)?;
+                    let agents_count = db::janus_backend::agents_count(backend.id(), &conn)?;
 
                     if agents_count >= limit.into() {
                         let err = SvcError::builder()

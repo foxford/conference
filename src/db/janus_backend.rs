@@ -4,7 +4,8 @@ use diesel::result::Error;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::schema::janus_backend;
+use crate::db::agent::Status as AgentStatus;
+use crate::schema::{agent, janus_backend, janus_rtc_stream, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -215,4 +216,19 @@ pub(crate) fn least_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<
         .bind::<Uuid, _>(room_id)
         .get_result(conn)
         .optional()
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) fn agents_count(backend_id: &AgentId, conn: &PgConnection) -> Result<i64, Error> {
+    use diesel::dsl::count;
+    use diesel::prelude::*;
+
+    agent::table
+        .inner_join(rtc::table.on(rtc::room_id.eq(agent::room_id)))
+        .inner_join(janus_rtc_stream::table.on(janus_rtc_stream::rtc_id.eq(rtc::id)))
+        .filter(janus_rtc_stream::backend_id.eq(backend_id))
+        .filter(agent::status.eq(AgentStatus::Ready))
+        .select(count(agent::id))
+        .get_result(conn)
 }

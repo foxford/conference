@@ -126,53 +126,6 @@ impl<'a> ListQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct CountQuery {
-    room_id: Option<Uuid>,
-    status: Option<Status>,
-}
-
-impl CountQuery {
-    pub(crate) fn new() -> Self {
-        Self {
-            room_id: None,
-            status: None,
-        }
-    }
-
-    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
-        Self {
-            room_id: Some(room_id),
-            ..self
-        }
-    }
-
-    pub(crate) fn status(self, status: Status) -> Self {
-        Self {
-            status: Some(status),
-            ..self
-        }
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
-        use diesel::dsl::count;
-        use diesel::prelude::*;
-
-        let mut q = agent::table.into_boxed();
-
-        if let Some(room_id) = self.room_id {
-            q = q.filter(agent::room_id.eq(room_id));
-        }
-
-        if let Some(status) = self.status {
-            q = q.filter(agent::status.eq(status));
-        }
-
-        q.select(count(agent::agent_id)).first(conn)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Insertable)]
 #[table_name = "agent"]
 pub(crate) struct InsertQuery<'a> {
