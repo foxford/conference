@@ -23,9 +23,10 @@ method           | String | _required_ | Always `rtc.connect`.
 
 **Payload**
 
-Name       | Type   | Default    | Description
----------- | ------ | ---------- | ------------------
-id         | String | _required_ | A real-time connection identifier.
+Name   | Type   | Default    | Description
+------ | ------ | ---------- | ------------------
+id     | String | _required_ | A real-time connection identifier.
+intent | String | read       | `write` or `read`.
 
 
 

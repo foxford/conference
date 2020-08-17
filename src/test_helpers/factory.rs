@@ -148,7 +148,7 @@ pub(crate) struct JanusBackend {
     id: AgentId,
     handle_id: i64,
     session_id: i64,
-    subscribers_limit: Option<i32>,
+    capacity: Option<i32>,
 }
 
 impl JanusBackend {
@@ -157,13 +157,13 @@ impl JanusBackend {
             id,
             handle_id,
             session_id,
-            subscribers_limit: None,
+            capacity: None,
         }
     }
 
-    pub(crate) fn subscribers_limit(self, subscribers_limit: i32) -> Self {
+    pub(crate) fn capacity(self, capacity: i32) -> Self {
         Self {
-            subscribers_limit: Some(subscribers_limit),
+            capacity: Some(capacity),
             ..self
         }
     }
@@ -171,8 +171,8 @@ impl JanusBackend {
     pub(crate) fn insert(&self, conn: &PgConnection) -> db::janus_backend::Object {
         let mut q = db::janus_backend::UpsertQuery::new(&self.id, self.handle_id, self.session_id);
 
-        if let Some(subscribers_limit) = self.subscribers_limit {
-            q = q.subscribers_limit(subscribers_limit);
+        if let Some(capacity) = self.capacity {
+            q = q.capacity(capacity);
         }
 
         q.execute(conn).expect("Failed to insert janus_backend")

@@ -232,7 +232,9 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
                 Ok(payload) => H::handle(context, payload, reqp, start_timestamp)
                     .await
                     .unwrap_or_else(|mut svc_error| {
-                        svc_error.set_kind(reqp.method(), H::ERROR_TITLE);
+                        if svc_error.kind() == "about:blank" {
+                            svc_error.set_kind(reqp.method(), H::ERROR_TITLE);
+                        }
 
                         sentry::send(svc_error.clone())
                             .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
@@ -240,8 +242,8 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
                         // Handler returned an error => 422.
                         error_response(
                             svc_error.status_code(),
-                            reqp.method(),
-                            H::ERROR_TITLE,
+                            svc_error.kind(),
+                            svc_error.title(),
                             &svc_error.to_string(),
                             &reqp,
                             start_timestamp,
@@ -295,7 +297,10 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
                     .await
                     .unwrap_or_else(|mut svc_error| {
                         // Handler returned an error.
-                        svc_error.set_kind("response", "Failed to handle response");
+                        if svc_error.kind() == "about:blank" {
+                            svc_error.set_kind("response", "Failed to handle response");
+                        }
+
                         error!("Failed to handle response: {}", svc_error);
 
                         sentry::send(svc_error)
@@ -348,8 +353,10 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
                     .unwrap_or_else(|mut svc_error| {
                         // Handler returned an error.
                         if let Some(label) = evp.label() {
-                            let error_title = format!("Failed to handle event '{}'", label);
-                            svc_error.set_kind(label, &error_title);
+                            if svc_error.kind() == "about:blank" {
+                                let error_title = format!("Failed to handle event '{}'", label);
+                                svc_error.set_kind(label, &error_title);
+                            }
 
                             error!(
                                 "Failed to handle event with label = '{}': {}",

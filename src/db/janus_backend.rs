@@ -4,7 +4,8 @@ use diesel::result::Error;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::schema::janus_backend;
+use crate::db::agent::Status as AgentStatus;
+use crate::schema::{agent, janus_backend, janus_rtc_stream, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -15,7 +16,7 @@ pub(crate) struct Object {
     handle_id: i64,
     session_id: i64,
     created_at: DateTime<Utc>,
-    subscribers_limit: Option<i32>,
+    capacity: Option<i32>,
 }
 
 impl Object {
@@ -31,8 +32,8 @@ impl Object {
         self.session_id
     }
 
-    pub(crate) fn subscribers_limit(&self) -> Option<i32> {
-        self.subscribers_limit
+    pub(crate) fn capacity(&self) -> Option<i32> {
+        self.capacity
     }
 }
 
@@ -112,7 +113,7 @@ pub(crate) struct UpsertQuery<'a> {
     id: &'a AgentId,
     handle_id: i64,
     session_id: i64,
-    subscribers_limit: Option<i32>,
+    capacity: Option<i32>,
 }
 
 impl<'a> UpsertQuery<'a> {
@@ -121,13 +122,13 @@ impl<'a> UpsertQuery<'a> {
             id,
             handle_id,
             session_id,
-            subscribers_limit: None,
+            capacity: None,
         }
     }
 
-    pub(crate) fn subscribers_limit(self, subscribers_limit: i32) -> Self {
+    pub(crate) fn capacity(self, capacity: i32) -> Self {
         Self {
-            subscribers_limit: Some(subscribers_limit),
+            capacity: Some(capacity),
             ..self
         }
     }
@@ -202,8 +203,8 @@ const LEAST_LOADED_SQL: &str = r#"
     LEFT JOIN room AS r2
     ON 1 = 1
     WHERE r2.id = $1
-    AND   COALESCE(jb.subscribers_limit, 2147483647) - COALESCE(jbl.taken, 0) > COALESCE(r2.reserve, 0)
-    ORDER BY COALESCE(jb.subscribers_limit, 2147483647) - COALESCE(jbl.taken, 0) DESC
+    AND   COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.taken, 0) > COALESCE(r2.reserve, 0)
+    ORDER BY COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.taken, 0) DESC
     LIMIT 1
 "#;
 
@@ -215,4 +216,19 @@ pub(crate) fn least_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<
         .bind::<Uuid, _>(room_id)
         .get_result(conn)
         .optional()
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) fn agents_count(backend_id: &AgentId, conn: &PgConnection) -> Result<i64, Error> {
+    use diesel::dsl::count;
+    use diesel::prelude::*;
+
+    agent::table
+        .inner_join(rtc::table.on(rtc::room_id.eq(agent::room_id)))
+        .inner_join(janus_rtc_stream::table.on(janus_rtc_stream::rtc_id.eq(rtc::id)))
+        .filter(janus_rtc_stream::backend_id.eq(backend_id))
+        .filter(agent::status.eq(AgentStatus::Ready))
+        .select(count(agent::id))
+        .get_result(conn)
 }
