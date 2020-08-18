@@ -42,7 +42,7 @@ pub(crate) fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uui
     factory::Agent::new()
         .agent_id(agent_id)
         .room_id(room_id)
-        .status(AgentStatus::Ready)
+        .status(AgentStatus::Connected)
         .insert(conn)
 }
 

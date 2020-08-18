@@ -380,7 +380,6 @@ impl RequestHandler for LeaveHandler {
             let presence = db::agent::ListQuery::new()
                 .room_id(room.id())
                 .agent_id(reqp.as_agent_id())
-                .status(db::agent::Status::Ready)
                 .execute(&conn)?;
 
             (room, presence)

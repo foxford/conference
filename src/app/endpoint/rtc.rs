@@ -328,7 +328,7 @@ impl RequestHandler for ConnectHandler {
                 if let Some(capacity) = backend.capacity() {
                     let agents_count = db::janus_backend::agents_count(backend.id(), &conn)?;
 
-                    if agents_count > capacity.into() {
+                    if agents_count >= capacity.into() {
                         let err = SvcError::builder()
                             .status(ResponseStatus::SERVICE_UNAVAILABLE)
                             .kind("capacity_exceeded", "Capacity exceeded")
@@ -357,6 +357,12 @@ impl RequestHandler for ConnectHandler {
 
         match janus_request_result {
             Ok(req) => {
+                let conn = context.db().get()?;
+
+                db::agent::UpdateQuery::new(context.agent_id(), room.id())
+                    .status(db::agent::Status::Connected)
+                    .execute(&conn)?;
+
                 let boxed_request = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
                 Ok(Box::new(stream::once(boxed_request)))
             }
@@ -656,6 +662,7 @@ mod test {
         use svc_agent::{AccountId, AgentId};
 
         use crate::backend::janus;
+        use crate::db::agent::Status as AgentStatus;
         use crate::db::room::RoomBackend;
         use crate::test_helpers::prelude::*;
         use crate::util::from_base64;
@@ -978,7 +985,12 @@ mod test {
 
                         // Insert active agents.
                         shared_helpers::insert_agent(&conn, writer.agent_id(), rtc.room_id());
-                        shared_helpers::insert_agent(&conn, reader.agent_id(), rtc.room_id());
+
+                        factory::Agent::new()
+                            .agent_id(reader.agent_id())
+                            .room_id(rtc.room_id())
+                            .status(AgentStatus::Ready)
+                            .insert(&conn);
 
                         rtc
                     })
@@ -1040,7 +1052,12 @@ mod test {
                         // Insert active agents.
                         shared_helpers::insert_agent(&conn, writer.agent_id(), rtc.room_id());
                         shared_helpers::insert_agent(&conn, reader1.agent_id(), rtc.room_id());
-                        shared_helpers::insert_agent(&conn, reader2.agent_id(), rtc.room_id());
+
+                        factory::Agent::new()
+                            .agent_id(reader2.agent_id())
+                            .room_id(rtc.room_id())
+                            .status(AgentStatus::Ready)
+                            .insert(&conn);
 
                         rtc
                     })
@@ -1102,8 +1119,13 @@ mod test {
                             .insert(&conn);
 
                         // Insert active agents.
-                        shared_helpers::insert_agent(&conn, writer.agent_id(), rtc.room_id());
                         shared_helpers::insert_agent(&conn, reader.agent_id(), rtc.room_id());
+
+                        factory::Agent::new()
+                            .agent_id(writer.agent_id())
+                            .room_id(rtc.room_id())
+                            .status(AgentStatus::Ready)
+                            .insert(&conn);
 
                         rtc
                     })

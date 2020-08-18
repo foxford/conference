@@ -18,6 +18,7 @@ pub(crate) enum Status {
     #[serde(rename = "in_progress")]
     InProgress,
     Ready,
+    Connected,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
@@ -44,7 +45,6 @@ impl Object {
 pub(crate) struct ListQuery<'a> {
     agent_id: Option<&'a AgentId>,
     room_id: Option<Uuid>,
-    status: Option<Status>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
@@ -54,7 +54,6 @@ impl<'a> ListQuery<'a> {
         Self {
             agent_id: None,
             room_id: None,
-            status: None,
             offset: None,
             limit: None,
         }
@@ -70,13 +69,6 @@ impl<'a> ListQuery<'a> {
     pub(crate) fn room_id(self, room_id: Uuid) -> Self {
         Self {
             room_id: Some(room_id),
-            ..self
-        }
-    }
-
-    pub(crate) fn status(self, status: Status) -> Self {
-        Self {
-            status: Some(status),
             ..self
         }
     }
@@ -98,7 +90,9 @@ impl<'a> ListQuery<'a> {
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
 
-        let mut q = agent::table.into_boxed();
+        let mut q = agent::table
+            .into_boxed()
+            .filter(agent::status.eq_any(&[Status::Ready, Status::Connected]));
 
         if let Some(agent_id) = self.agent_id {
             q = q.filter(agent::agent_id.eq(agent_id));
@@ -106,10 +100,6 @@ impl<'a> ListQuery<'a> {
 
         if let Some(room_id) = self.room_id {
             q = q.filter(agent::room_id.eq(room_id));
-        }
-
-        if let Some(status) = self.status {
-            q = q.filter(agent::status.eq(status));
         }
 
         if let Some(offset) = self.offset {
