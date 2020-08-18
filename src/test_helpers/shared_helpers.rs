@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::db::agent::{Object as Agent, Status as AgentStatus};
 use crate::db::janus_backend::Object as JanusBackend;
+use crate::db::janus_rtc_stream::Object as JanusRtcStream;
 use crate::db::room::{Object as Room, RoomBackend};
 use crate::db::rtc::Object as Rtc;
 
@@ -48,11 +49,33 @@ pub(crate) fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uui
 
 pub(crate) fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {
     let mut rng = rand::thread_rng();
-    let agent = TestAgent::new("alpha", "janus-gateway", SVC_AUDIENCE);
+
+    let label_suffix: String = rng
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(5)
+        .collect();
+    let label = format!("janus-gateway-{}", label_suffix);
+
+    let agent = TestAgent::new("alpha", &label, SVC_AUDIENCE);
     factory::JanusBackend::new(agent.agent_id().to_owned(), rng.gen(), rng.gen()).insert(conn)
 }
 
 pub(crate) fn insert_rtc(conn: &PgConnection) -> Rtc {
     let room = insert_room(conn);
     factory::Rtc::new(room.id()).insert(conn)
+}
+
+pub(crate) fn insert_rtc_with_room(conn: &PgConnection, room: &Room) -> Rtc {
+    factory::Rtc::new(room.id()).insert(conn)
+}
+
+pub(crate) fn insert_janus_rtc_stream(
+    conn: &PgConnection,
+    backend: &JanusBackend,
+    rtc: &Rtc,
+) -> JanusRtcStream {
+    factory::JanusRtcStream::new(USR_AUDIENCE)
+        .backend(backend)
+        .rtc(rtc)
+        .insert(conn)
 }

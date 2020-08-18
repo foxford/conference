@@ -75,40 +75,32 @@ impl RequestHandler for VacuumHandler {
             .authorize(audience, reqp, vec!["system"], "update")
             .await?;
 
-        // TODO: Update 'finished_without_recordings' in order to return (backend,room,rtc)
-        let backends = {
+        let mut requests = Vec::new();
+
+        let rooms = {
             let conn = context.db().get()?;
-            db::janus_backend::ListQuery::new().execute(&conn)?
+            db::room::finished_without_recordings(&conn)?
         };
 
-        let mut requests = Vec::new();
-        for backend in backends {
-            // Retrieve all the finished rooms without recordings.
-            let rooms = {
-                let conn = context.db().get()?;
-                db::room::finished_without_recordings(&conn)?
-            };
+        for (room, rtc, backend) in rooms.into_iter() {
+            // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
+            let backreq = janus::upload_stream_request(
+                reqp,
+                backend.session_id(),
+                backend.handle_id(),
+                janus::UploadStreamRequestBody::new(
+                    rtc.id(),
+                    &bucket_name(&room),
+                    &record_name(&rtc),
+                ),
+                backend.id(),
+                context.agent_id(),
+                start_timestamp,
+            )
+            .map_err(|err| format!("error creating a backend request: {}", err))
+            .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
-            for (room, rtc) in rooms.into_iter() {
-                // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
-                let backreq = janus::upload_stream_request(
-                    reqp,
-                    backend.session_id(),
-                    backend.handle_id(),
-                    janus::UploadStreamRequestBody::new(
-                        rtc.id(),
-                        &bucket_name(&room),
-                        &record_name(&rtc),
-                    ),
-                    backend.id(),
-                    context.agent_id(),
-                    start_timestamp,
-                )
-                .map_err(|err| format!("error creating a backend request: {}", err))
-                .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
-
-                requests.push(Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>);
-            }
+            requests.push(Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>);
         }
 
         Ok(Box::new(stream::from_iter(requests)))

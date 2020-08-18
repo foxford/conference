@@ -186,16 +186,33 @@ impl FindQuery {
 // room3 | rtc4 | null           room3 | null | null
 pub(crate) fn finished_without_recordings(
     conn: &PgConnection,
-) -> Result<Vec<(self::Object, super::rtc::Object)>, Error> {
+) -> Result<
+    Vec<(
+        self::Object,
+        super::rtc::Object,
+        super::janus_backend::Object,
+    )>,
+    Error,
+> {
     use crate::schema;
     use diesel::{dsl::sql, prelude::*};
 
     schema::room::table
-        .inner_join(schema::rtc::table.left_join(schema::recording::table))
+        .inner_join(
+            schema::rtc::table
+                .left_join(schema::recording::table)
+                .left_join(
+                    schema::janus_rtc_stream::table.inner_join(schema::janus_backend::table),
+                ),
+        )
         .filter(room::backend.ne(RoomBackend::None))
         .filter(schema::recording::rtc_id.is_null())
         .filter(sql("upper(\"room\".\"time\") < now()"))
-        .select((self::ALL_COLUMNS, super::rtc::ALL_COLUMNS))
+        .select((
+            self::ALL_COLUMNS,
+            super::rtc::ALL_COLUMNS,
+            super::janus_backend::ALL_COLUMNS,
+        ))
         .load(conn)
 }
 
@@ -303,5 +320,44 @@ impl UpdateQuery {
         use diesel::prelude::*;
 
         diesel::update(self).set(self).get_result(conn)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    mod finished_without_recordings {
+        use super::super::*;
+        use crate::test_helpers::prelude::*;
+
+        #[test]
+        fn selects_appropriate_backend() {
+            let db = TestDb::new();
+            let pool = db.connection_pool();
+            let conn = pool.get().expect("Failed to get db connection");
+
+            let room1 = shared_helpers::insert_closed_room(&conn);
+            let room2 = shared_helpers::insert_closed_room(&conn);
+            let backend1 = shared_helpers::insert_janus_backend(&conn);
+            let backend2 = shared_helpers::insert_janus_backend(&conn);
+            let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+            let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+            shared_helpers::insert_janus_rtc_stream(&conn, &backend1, &rtc1);
+            shared_helpers::insert_janus_rtc_stream(&conn, &backend2, &rtc2);
+            let rooms = finished_without_recordings(&conn)
+                .expect("finished_without_recordings call failed");
+            assert_eq!(rooms.len(), 2);
+            // order of rooms is not specified so we check that its [(room1, _, backend1), (room2, _, backend2)] in any order
+            if rooms[0].0.id() == room1.id() {
+                assert_eq!(rooms[0].0.id(), room1.id());
+                assert_eq!(rooms[0].2.id(), backend1.id());
+                assert_eq!(rooms[1].0.id(), room2.id());
+                assert_eq!(rooms[1].2.id(), backend2.id());
+            } else {
+                assert_eq!(rooms[1].0.id(), room1.id());
+                assert_eq!(rooms[1].2.id(), backend1.id());
+                assert_eq!(rooms[0].0.id(), room2.id());
+                assert_eq!(rooms[0].2.id(), backend2.id());
+            }
+        }
     }
 }

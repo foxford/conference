@@ -7,6 +7,21 @@ use uuid::Uuid;
 use crate::db::agent::Status as AgentStatus;
 use crate::schema::{agent, janus_backend, janus_rtc_stream, rtc};
 
+type AllColumns = (
+    janus_backend::id,
+    janus_backend::handle_id,
+    janus_backend::session_id,
+    janus_backend::created_at,
+    janus_backend::capacity,
+);
+pub const ALL_COLUMNS: AllColumns = (
+    janus_backend::id,
+    janus_backend::handle_id,
+    janus_backend::session_id,
+    janus_backend::created_at,
+    janus_backend::capacity,
+);
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Identifiable, Queryable, QueryableByName, Associations)]
