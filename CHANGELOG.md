@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.5.0 (August 20, 2020)
+
+### Features
+- Add intent parameter to rtc.connect ([2fdc33d](https://github.com/netology-group/event/commit/2fdc33d62f01f5301dcc11278b4c927c10fb4238))
+
+### Changes
+- Reserve and limit overhaul ([11808eb](https://github.com/netology-group/event/commit/11808eb1aa9eaed00e24a7961feca3aef0d5b910))
+- Handle both hangup and detach events ([16d8537](https://github.com/netology-group/event/commit/16d8537516757d2c2f29529411cd1fdad205a180))
+- Revert publisher migration ([8c3e29b](https://github.com/netology-group/event/commit/8c3e29b4ee80088d827b9d753dd00d530c0aedfc))
+- Add CACHE_ENABLED envvar check ([be8b163](https://github.com/netology-group/event/commit/be8b163e980437c73d97dfa2e28cb2e6f8315748))
+- Subscribe to unicast requests without shared group ([4bbf30a](https://github.com/netology-group/event/commit/4bbf30aaf4b774a85974e06d959a6f3a4a9e9620))
+- Remove deprecated time field in room.upload ([6d3b0b7](https://github.com/netology-group/event/commit/6d3b0b7f009b3321276ed7d39c8f82d37d7aa1c2))
+
+### Fixes
+- Fix publisher migration to another backend ([843f4f6](https://github.com/netology-group/event/commit/843f4f697f839e0dc38e43f8fe605f3cf77e7d07))
+- Fix subscribers limit check ([18b334e](https://github.com/netology-group/event/commit/18b334e278f6a061c156447c00cf8bff15026a02))
+- Fix capacity edge case ([0bb614a](https://github.com/netology-group/event/commit/0bb614aa603809b1af7f7c42787e3157f8020295))
+- Fix vacuum with multiple backends ([e6a577a](https://github.com/netology-group/event/commit/e6a577a89f4bca944cdf53df8dd0f7844ed9342b))
+- Fix connected status toggle & agents count ([e971df1](https://github.com/netology-group/event/commit/e971df197d3168244b7f5db023c875bb6a505f14))
+
+
 ## v0.4.1 (July 30, 2020)
 
 ### Changes
