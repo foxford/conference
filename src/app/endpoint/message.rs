@@ -182,7 +182,6 @@ fn check_room_presence(
     let results = db::agent::ListQuery::new()
         .room_id(room.id())
         .agent_id(agent_id)
-        .status(db::agent::Status::Ready)
         .execute(conn)?;
 
     if results.is_empty() {

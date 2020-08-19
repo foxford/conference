@@ -179,6 +179,7 @@ const LEAST_LOADED_SQL: &str = r#"
             FROM room AS r
             LEFT JOIN agent AS a
             ON a.room_id = r.id
+            WHERE a.status = 'connected'
             GROUP BY r.id
         ),
         janus_backend_load AS (
@@ -228,7 +229,7 @@ pub(crate) fn agents_count(backend_id: &AgentId, conn: &PgConnection) -> Result<
         .inner_join(rtc::table.on(rtc::room_id.eq(agent::room_id)))
         .inner_join(janus_rtc_stream::table.on(janus_rtc_stream::rtc_id.eq(rtc::id)))
         .filter(janus_rtc_stream::backend_id.eq(backend_id))
-        .filter(agent::status.eq(AgentStatus::Ready))
+        .filter(agent::status.eq(AgentStatus::Connected))
         .select(count(agent::id))
         .get_result(conn)
 }

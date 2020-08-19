@@ -81,7 +81,7 @@ impl<'a> Agent<'a> {
             audience: None,
             agent_id: None,
             room_id: None,
-            status: db::agent::Status::Ready,
+            status: db::agent::Status::Connected,
         }
     }
 
