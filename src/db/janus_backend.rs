@@ -206,6 +206,7 @@ const LEAST_LOADED_SQL: &str = r#"
             ON rtc.room_id = rl.room_id
             LEFT JOIN janus_rtc_stream AS jrs
             ON jrs.rtc_id = rtc.id
+            WHERE UPPER(jrs.time) IS NULL
             GROUP BY jrs.backend_id
         )
     SELECT jb.*
@@ -219,6 +220,7 @@ const LEAST_LOADED_SQL: &str = r#"
     LEFT JOIN room AS r2
     ON 1 = 1
     WHERE r2.id = $1
+    AND   UPPER(jrs.time) IS NULL
     AND   COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.taken, 0) > COALESCE(r2.reserve, 0)
     ORDER BY COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.taken, 0) DESC
     LIMIT 1
@@ -237,13 +239,14 @@ pub(crate) fn least_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) fn agents_count(backend_id: &AgentId, conn: &PgConnection) -> Result<i64, Error> {
-    use diesel::dsl::count;
+    use diesel::dsl::{count, sql};
     use diesel::prelude::*;
 
     agent::table
         .inner_join(rtc::table.on(rtc::room_id.eq(agent::room_id)))
         .inner_join(janus_rtc_stream::table.on(janus_rtc_stream::rtc_id.eq(rtc::id)))
         .filter(janus_rtc_stream::backend_id.eq(backend_id))
+        .filter(sql("UPPER(\"janus_rtc_stream\".\"time\") IS NULL"))
         .filter(agent::status.eq(AgentStatus::Connected))
         .select(count(agent::id))
         .get_result(conn)
