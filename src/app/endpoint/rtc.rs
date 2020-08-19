@@ -2,8 +2,9 @@ use async_std::stream;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
+use svc_agent::{
+    mqtt::{IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus},
+    Addressable,
 };
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -359,7 +360,7 @@ impl RequestHandler for ConnectHandler {
             Ok(req) => {
                 let conn = context.db().get()?;
 
-                db::agent::UpdateQuery::new(context.agent_id(), room.id())
+                db::agent::UpdateQuery::new(reqp.as_agent_id(), room.id())
                     .status(db::agent::Status::Connected)
                     .execute(&conn)?;
 
