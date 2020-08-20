@@ -719,21 +719,39 @@ mod test {
                         let backend1 = shared_helpers::insert_janus_backend(&conn);
                         let backend2 = shared_helpers::insert_janus_backend(&conn);
 
-                        // The first backend has 1 active stream.
+                        // The first backend has 1 active stream with 1 agent.
+                        let rtc1 = shared_helpers::insert_rtc(&conn);
+
                         let stream1 = factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .rtc(&rtc1)
                             .backend(&backend1)
                             .insert(&conn);
 
                         crate::db::janus_rtc_stream::start(stream1.id(), &conn).unwrap();
 
-                        // The second backend has 1 stream that is not started
-                        // so it's free and should be selected by the balancer.
+                        let s1a1 = TestAgent::new("web", "s1a1", USR_AUDIENCE);
+                        shared_helpers::insert_agent(&conn, s1a1.agent_id(), rtc1.room_id());
+
+                        // The second backend has 1 stream with 2 agents but it's not started
+                        // so it doesn't make any load on the backend and should be selected
+                        // by the balancer.
+                        let rtc2 = shared_helpers::insert_rtc(&conn);
+
                         let _stream2 = factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .rtc(&rtc2)
                             .backend(&backend2)
                             .insert(&conn);
 
-                        let rtc = shared_helpers::insert_rtc(&conn);
-                        (rtc, backend2)
+                        let s2a1 = TestAgent::new("web", "s2a1", USR_AUDIENCE);
+                        shared_helpers::insert_agent(&conn, s2a1.agent_id(), rtc2.room_id());
+
+                        let s2a2 = TestAgent::new("web", "s2a2", USR_AUDIENCE);
+                        shared_helpers::insert_agent(&conn, s2a2.agent_id(), rtc2.room_id());
+
+                        // The new rtc for which we will balance the stream.
+                        let rtc3 = shared_helpers::insert_rtc(&conn);
+
+                        (rtc3, backend2)
                     })
                     .unwrap();
 
