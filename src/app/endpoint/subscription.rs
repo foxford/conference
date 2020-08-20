@@ -158,6 +158,21 @@ impl EventHandler for DeleteHandler {
                 .active(true)
                 .execute(&conn)?;
 
+            for stream in streams.iter() {
+                // If the agent is a publisher.
+                if stream.sent_by() == &payload.subject {
+                    // Stop the stream.
+                    db::janus_rtc_stream::stop(stream.id(), &conn)?;
+
+                    // Put stream readers into `ready` status since the stream has gone.
+                    db::agent::BulkStatusUpdateQuery::new(db::agent::Status::Ready)
+                        .room_id(room_id)
+                        .status(db::agent::Status::Connected)
+                        .execute(&conn)?;
+                }
+            }
+
+            // Send agent.leave requests to those backends where the agent is connected to.
             let mut backend_ids = streams
                 .iter()
                 .map(|stream| stream.backend_id())
@@ -189,9 +204,6 @@ impl EventHandler for DeleteHandler {
                 }
             }
 
-            // Stop Janus active rtc streams of this agent.
-            db::janus_rtc_stream::stop_by_agent_id(&payload.subject, &conn)?;
-
             Ok(Box::new(stream::from_iter(messages)))
         } else {
             let err = format!(
@@ -208,6 +220,8 @@ impl EventHandler for DeleteHandler {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Bound;
+
     use crate::db::agent::{ListQuery as AgentListQuery, Status as AgentStatus};
     use crate::test_helpers::prelude::*;
 
@@ -393,6 +407,87 @@ mod tests {
                 .expect("Failed to execute agent list query");
 
             assert_eq!(db_agents.len(), 0);
+        });
+    }
+
+    #[test]
+    fn delete_subscription_for_stream_writer() {
+        async_std::task::block_on(async {
+            let db = TestDb::new();
+            let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
+            let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
+
+            let (rtc, stream) = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                // Create room with rtc, backend and a started active stream.
+                let rtc = shared_helpers::insert_rtc(&conn);
+                let backend = shared_helpers::insert_janus_backend(&conn);
+
+                let stream = factory::JanusRtcStream::new(USR_AUDIENCE)
+                    .backend(&backend)
+                    .rtc(&rtc)
+                    .sent_by(writer.agent_id())
+                    .insert(&conn);
+
+                let started_stream = crate::db::janus_rtc_stream::start(stream.id(), &conn)
+                    .expect("Failed to start janus rtc stream")
+                    .expect("Janus rtc stream couldn't start");
+
+                // Put agents online.
+                shared_helpers::insert_agent(&conn, writer.agent_id(), rtc.room_id());
+                shared_helpers::insert_agent(&conn, reader.agent_id(), rtc.room_id());
+
+                (rtc, started_stream)
+            };
+
+            // Send subscription.delete event for the writer.
+            let context = TestContext::new(db.clone(), TestAuthz::new());
+            let room_id = rtc.room_id().to_string();
+
+            let payload = SubscriptionEvent {
+                subject: writer.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
+
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+
+            handle_event::<DeleteHandler>(&context, &broker, payload)
+                .await
+                .expect("Subscription deletion failed");
+
+            // Assert the stream is stopped.
+            let conn = db
+                .connection_pool()
+                .get()
+                .expect("Failed to get DB connection");
+
+            let db_stream = crate::db::janus_rtc_stream::FindQuery::new()
+                .id(stream.id())
+                .execute(&conn)
+                .expect("Failed to get janus rtc stream")
+                .expect("Janus rtc stream not found");
+
+            println!("{:?}", db_stream.time());
+
+            assert!(matches!(
+                db_stream.time(),
+                Some((Bound::Included(_), Bound::Excluded(_)))
+            ));
+
+            // Assert the reader is in `ready` status.
+            let db_agents = AgentListQuery::new()
+                .agent_id(reader.agent_id())
+                .room_id(rtc.room_id())
+                .execute(&conn)
+                .expect("Failed to execute agent list query");
+
+            let db_agent = db_agents.first().expect("Reader agent not found");
+            assert_eq!(db_agent.status(), AgentStatus::Ready);
         });
     }
 

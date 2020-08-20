@@ -55,7 +55,6 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    #[cfg(test)]
     pub(crate) fn id(&self) -> Uuid {
         self.id
     }
@@ -78,7 +77,6 @@ impl Object {
         self.label.as_ref()
     }
 
-    #[cfg(test)]
     pub(crate) fn sent_by(&self) -> &AgentId {
         &self.sent_by
     }
@@ -105,6 +103,14 @@ impl FindQuery {
         Self {
             id: None,
             rtc_id: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn id(self, id: Uuid) -> Self {
+        Self {
+            id: Some(id),
+            ..self
         }
     }
 
@@ -285,51 +291,39 @@ impl<'a> InsertQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn start(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
-    use diesel::prelude::*;
-    use diesel::sql_types::Uuid;
+const START_TIME_SQL: &str = "(TSTZRANGE(NOW(), NULL, '[)'))";
 
-    diesel::sql_query(
-        "\
-         update janus_rtc_stream \
-         set time = tstzrange(now(), null, '[)') \
-         where id = $1 \
-         returning *\
-         ",
-    )
-    .bind::<Uuid, _>(id)
-    .get_result(conn)
-    .optional()
+pub(crate) fn start(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    use diesel::dsl::sql;
+    use diesel::prelude::*;
+
+    diesel::update(janus_rtc_stream::table.filter(janus_rtc_stream::id.eq(id)))
+        .set(janus_rtc_stream::time.eq(sql(START_TIME_SQL)))
+        .get_result(conn)
+        .optional()
 }
+
+// Close the stream with current timestamp.
+// Fall back to start + 1 ms when closing instantly after starting because lower and upper
+// values of a range can't be equal in Postgres.
+const STOP_TIME_SQL: &str = r#"
+    (
+        CASE WHEN "time" IS NOT NULL THEN
+            TSTZRANGE(
+                LOWER("time"),
+                GREATEST(NOW(), LOWER("time") + '1 millisecond'::INTERVAL),
+                '[)'
+            )
+        END
+    )
+"#;
 
 pub(crate) fn stop(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    use diesel::dsl::sql;
     use diesel::prelude::*;
-    use diesel::sql_types::Uuid;
 
-    diesel::sql_query(
-        "\
-         update janus_rtc_stream \
-         set time = case when time is not null then tstzrange(lower(time), now(), '[)') end \
-         where id = $1 \
-         returning *\
-         ",
-    )
-    .bind::<Uuid, _>(id)
-    .get_result(conn)
-    .optional()
-}
-
-pub(crate) fn stop_by_agent_id(agent_id: &AgentId, conn: &PgConnection) -> Result<usize, Error> {
-    use diesel::prelude::*;
-    use svc_agent::sql::Agent_id;
-
-    diesel::sql_query(
-        "\
-         update janus_rtc_stream \
-         set time = case when time is not null then tstzrange(lower(time), now(), '[)') end \
-         where sent_by = $1 \
-         ",
-    )
-    .bind::<Agent_id, _>(agent_id)
-    .execute(conn)
+    diesel::update(janus_rtc_stream::table.filter(janus_rtc_stream::id.eq(id)))
+        .set(janus_rtc_stream::time.eq(sql(STOP_TIME_SQL)))
+        .get_result(conn)
+        .optional()
 }

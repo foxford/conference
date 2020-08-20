@@ -192,6 +192,55 @@ impl<'a> UpdateQuery<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug)]
+pub(crate) struct BulkStatusUpdateQuery {
+    room_id: Option<Uuid>,
+    status: Option<Status>,
+    new_status: Status,
+}
+
+impl BulkStatusUpdateQuery {
+    pub(crate) fn new(new_status: Status) -> Self {
+        Self {
+            room_id: None,
+            status: None,
+            new_status,
+        }
+    }
+
+    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
+        Self {
+            room_id: Some(room_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn status(self, status: Status) -> Self {
+        Self {
+            status: Some(status),
+            ..self
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+        use diesel::prelude::*;
+
+        let mut query = diesel::update(agent::table).into_boxed();
+
+        if let Some(room_id) = self.room_id {
+            query = query.filter(agent::room_id.eq(room_id));
+        }
+
+        if let Some(status) = self.status {
+            query = query.filter(agent::status.eq(status));
+        }
+
+        query.set(agent::status.eq(self.new_status)).execute(conn)
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 pub(crate) struct DeleteQuery<'a> {
     agent_id: Option<&'a AgentId>,
     room_id: Option<Uuid>,
