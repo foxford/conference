@@ -193,22 +193,45 @@ impl<'a> UpdateQuery<'a> {
 ///////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct DeleteQuery<'a> {
-    agent_id: &'a AgentId,
-    room_id: Uuid,
+    agent_id: Option<&'a AgentId>,
+    room_id: Option<Uuid>,
 }
 
 impl<'a> DeleteQuery<'a> {
-    pub(crate) fn new(agent_id: &'a AgentId, room_id: Uuid) -> Self {
-        Self { agent_id, room_id }
+    pub(crate) fn new() -> Self {
+        Self {
+            agent_id: None,
+            room_id: None,
+        }
+    }
+
+    pub(crate) fn agent_id(self, agent_id: &'a AgentId) -> Self {
+        Self {
+            agent_id: Some(agent_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
+        Self {
+            room_id: Some(room_id),
+            ..self
+        }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use diesel::prelude::*;
 
-        let query = agent::table
-            .filter(agent::agent_id.eq(self.agent_id))
-            .filter(agent::room_id.eq(self.room_id));
+        let mut query = diesel::delete(agent::table).into_boxed();
 
-        diesel::delete(query).execute(conn)
+        if let Some(agent_id) = self.agent_id {
+            query = query.filter(agent::agent_id.eq(agent_id));
+        }
+
+        if let Some(room_id) = self.room_id {
+            query = query.filter(agent::room_id.eq(room_id));
+        }
+
+        query.execute(conn)
     }
 }

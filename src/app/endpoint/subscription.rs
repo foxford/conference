@@ -132,7 +132,11 @@ impl EventHandler for DeleteHandler {
         // Delete agent from the DB.
         let room_id = payload.try_room_id()?;
         let conn = context.db().get()?;
-        let row_count = db::agent::DeleteQuery::new(&payload.subject, room_id).execute(&conn)?;
+
+        let row_count = db::agent::DeleteQuery::new()
+            .agent_id(&payload.subject)
+            .room_id(room_id)
+            .execute(&conn)?;
 
         if row_count == 1 {
             // Send broadcast notification that the agent has left the room.
