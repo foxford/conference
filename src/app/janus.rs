@@ -1237,6 +1237,12 @@ async fn handle_status_event_impl<C: Context>(
         Ok(Box::new(stream::once(boxed_event)))
     } else {
         let conn = context.db().get()?;
+
+        agent::BulkStatusUpdateQuery::new(agent::Status::Ready)
+            .backend_id(evp.as_agent_id())
+            .status(agent::Status::Connected)
+            .execute(&conn)?;
+
         janus_backend::DeleteQuery::new(evp.as_agent_id()).execute(&conn)?;
         Ok(Box::new(stream::empty()))
     }

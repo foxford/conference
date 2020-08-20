@@ -6,7 +6,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use super::room::Object as Room;
-use crate::schema::agent;
+use crate::schema::{agent, janus_rtc_stream, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -193,16 +193,18 @@ impl<'a> UpdateQuery<'a> {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
-pub(crate) struct BulkStatusUpdateQuery {
+pub(crate) struct BulkStatusUpdateQuery<'a> {
     room_id: Option<Uuid>,
+    backend_id: Option<&'a AgentId>,
     status: Option<Status>,
     new_status: Status,
 }
 
-impl BulkStatusUpdateQuery {
+impl<'a> BulkStatusUpdateQuery<'a> {
     pub(crate) fn new(new_status: Status) -> Self {
         Self {
             room_id: None,
+            backend_id: None,
             status: None,
             new_status,
         }
@@ -211,6 +213,13 @@ impl BulkStatusUpdateQuery {
     pub(crate) fn room_id(self, room_id: Uuid) -> Self {
         Self {
             room_id: Some(room_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn backend_id(self, backend_id: &'a AgentId) -> Self {
+        Self {
+            backend_id: Some(backend_id),
             ..self
         }
     }
@@ -225,17 +234,31 @@ impl BulkStatusUpdateQuery {
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use diesel::prelude::*;
 
-        let mut query = diesel::update(agent::table).into_boxed();
+        conn.transaction::<_, Error, _>(|| {
+            let mut query = diesel::update(agent::table).into_boxed();
 
-        if let Some(room_id) = self.room_id {
-            query = query.filter(agent::room_id.eq(room_id));
-        }
+            if let Some(room_id) = self.room_id {
+                query = query.filter(agent::room_id.eq(room_id));
+            }
 
-        if let Some(status) = self.status {
-            query = query.filter(agent::status.eq(status));
-        }
+            if let Some(backend_id) = self.backend_id {
+                // Diesel doesn't allow JOINs with UPDATE so find backend ids with a separate query.
+                let room_ids: Vec<Uuid> = rtc::table
+                    .inner_join(janus_rtc_stream::table)
+                    .filter(janus_rtc_stream::backend_id.eq(backend_id))
+                    .select(rtc::room_id)
+                    .distinct()
+                    .get_results(conn)?;
 
-        query.set(agent::status.eq(self.new_status)).execute(conn)
+                query = query.filter(agent::room_id.eq_any(room_ids))
+            }
+
+            if let Some(status) = self.status {
+                query = query.filter(agent::status.eq(status));
+            }
+
+            query.set(agent::status.eq(self.new_status)).execute(conn)
+        })
     }
 }
 
