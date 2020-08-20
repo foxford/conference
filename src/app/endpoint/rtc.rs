@@ -1045,10 +1045,12 @@ mod test {
                             .insert(&conn);
 
                         // Insert active stream.
-                        factory::JanusRtcStream::new(USR_AUDIENCE)
+                        let stream = factory::JanusRtcStream::new(USR_AUDIENCE)
                             .backend(&backend)
                             .rtc(&rtc)
                             .insert(&conn);
+
+                        crate::db::janus_rtc_stream::start(stream.id(), &conn).unwrap();
 
                         // Insert active agents.
                         shared_helpers::insert_agent(&conn, writer.agent_id(), rtc.room_id());
