@@ -214,6 +214,7 @@ pub(crate) fn finished_without_recordings(
             super::rtc::ALL_COLUMNS,
             super::janus_backend::ALL_COLUMNS,
         ))
+        .distinct_on(room::id)
         .load(conn)
 }
 
@@ -353,6 +354,9 @@ mod tests {
             let _rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
 
             shared_helpers::insert_janus_rtc_stream(&conn, &backend1, &rtc1);
+            // we insert two rtc_streams to simulate stream stop & start
+            // this should not affect number of returned rooms (there was a bug when it did)
+            shared_helpers::insert_janus_rtc_stream(&conn, &backend2, &rtc2);
             shared_helpers::insert_janus_rtc_stream(&conn, &backend2, &rtc2);
 
             let rooms = finished_without_recordings(&conn)
