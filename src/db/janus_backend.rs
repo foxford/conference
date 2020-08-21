@@ -4,8 +4,7 @@ use diesel::result::Error;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::db::agent::Status as AgentStatus;
-use crate::schema::{agent, janus_backend, janus_rtc_stream, rtc};
+use crate::schema::janus_backend;
 
 type AllColumns = (
     janus_backend::id,
@@ -45,10 +44,6 @@ impl Object {
 
     pub(crate) fn session_id(&self) -> i64 {
         self.session_id
-    }
-
-    pub(crate) fn capacity(&self) -> Option<i32> {
-        self.capacity
     }
 }
 
@@ -183,14 +178,15 @@ impl<'a> DeleteQuery<'a> {
 
 // Returns the least loaded backend capable to host the room with its reserve considering:
 // - actual number of online agents;
-// - optional backend subscribers limit;
+// - optional backend capacity;
 // - optional reserved capacity.
 const LEAST_LOADED_SQL: &str = r#"
     WITH
         room_load AS (
             SELECT
-                r.id AS room_id,
-                GREATEST(COALESCE(r.reserve, 0), COUNT(a.id)) AS taken
+                r.id                   AS room_id,
+                COALESCE(r.reserve, 0) AS reserve,
+                COUNT(a.id)            AS taken
             FROM room AS r
             LEFT JOIN agent AS a
             ON a.room_id = r.id
@@ -200,7 +196,7 @@ const LEAST_LOADED_SQL: &str = r#"
         janus_backend_load AS (
             SELECT
                 jrs.backend_id,
-                SUM(taken) AS taken
+                SUM(GREATEST(rl.taken, rl.reserve)) AS load
             FROM room_load as rl
             LEFT JOIN rtc
             ON rtc.room_id = rl.room_id
@@ -216,8 +212,8 @@ const LEAST_LOADED_SQL: &str = r#"
     LEFT JOIN room AS r2
     ON 1 = 1
     WHERE r2.id = $1
-    AND   COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.taken, 0) > COALESCE(r2.reserve, 0)
-    ORDER BY COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.taken, 0) DESC
+    AND   COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.load, 0) > COALESCE(r2.reserve, 0)
+    ORDER BY COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC
     LIMIT 1
 "#;
 
@@ -233,16 +229,65 @@ pub(crate) fn least_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn agents_count(backend_id: &AgentId, conn: &PgConnection) -> Result<i64, Error> {
-    use diesel::dsl::{count, sql};
-    use diesel::prelude::*;
+// Similar to the previous one but returns the number of free slots for the room on the backend
+// that hosts the active stream for the given RTC.
+const FREE_CAPACITY_SQL: &str = r#"
+    WITH
+        room_load AS (
+            SELECT
+                r.id                   AS room_id,
+                COALESCE(r.reserve, 0) AS reserve,
+                COUNT(a.id)            AS taken
+            FROM room AS r
+            LEFT JOIN agent AS a
+            ON a.room_id = r.id
+            WHERE a.status = 'connected'
+            GROUP BY r.id
+        ),
+        janus_backend_load AS (
+            SELECT
+                jrs.backend_id,
+                SUM(GREATEST(rl.taken, rl.reserve)) AS load
+            FROM room_load as rl
+            LEFT JOIN rtc
+            ON rtc.room_id = rl.room_id
+            LEFT JOIN janus_rtc_stream AS jrs
+            ON jrs.rtc_id = rtc.id
+            WHERE LOWER(jrs.time) IS NOT NULL AND UPPER(jrs.time) IS NULL
+            GROUP BY jrs.backend_id
+        )
+    SELECT
+        GREATEST(
+            COALESCE(jb.capacity, 2147483647)
+                - COALESCE(jbl.load, 0)
+                + GREATEST(COALESCE(rl.reserve, 0) - COALESCE(rl.taken, 0), 0),
+            0
+        )::INT AS free_capacity
+    FROM rtc
+    LEFT JOIN room_load as rl
+    ON rl.room_id = rtc.room_id
+    LEFT JOIN janus_rtc_stream AS jrs
+    ON  jrs.rtc_id = rtc.id
+    AND LOWER(jrs.time) IS NOT NULL AND UPPER(jrs.time) IS NULL
+    LEFT JOIN janus_backend AS jb
+    ON jb.id = jrs.backend_id
+    LEFT JOIN janus_backend_load AS jbl
+    ON jbl.backend_id = jb.id
+    WHERE rtc.id = $1
+"#;
 
-    agent::table
-        .inner_join(rtc::table.on(rtc::room_id.eq(agent::room_id)))
-        .inner_join(janus_rtc_stream::table.on(janus_rtc_stream::rtc_id.eq(rtc::id)))
-        .filter(janus_rtc_stream::backend_id.eq(backend_id))
-        .filter(sql("LOWER(\"janus_rtc_stream\".\"time\") IS NOT NULL AND UPPER(\"janus_rtc_stream\".\"time\") IS NULL"))
-        .filter(agent::status.eq(AgentStatus::Connected))
-        .select(count(agent::id))
-        .get_result(conn)
+#[derive(QueryableByName)]
+struct FreeCapacityQueryRow {
+    #[sql_type = "diesel::sql_types::Integer"]
+    free_capacity: i32,
+}
+
+pub(crate) fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Error> {
+    use diesel::prelude::*;
+    use diesel::sql_types::Uuid;
+
+    diesel::sql_query(FREE_CAPACITY_SQL)
+        .bind::<Uuid, _>(rtc_id)
+        .get_result::<FreeCapacityQueryRow>(conn)
+        .map(|row| row.free_capacity)
 }
