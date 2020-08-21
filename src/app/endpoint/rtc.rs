@@ -325,22 +325,16 @@ impl RequestHandler for ConnectHandler {
             };
 
             // Check that the backend's capacity is not exceeded for readers.
-            if payload.intent == ConnectIntent::Read {
-                if let Some(capacity) = backend.capacity() {
-                    let maybe_agents_count = db::janus_backend::agents_count(backend.id(), &conn)?;
+            if payload.intent == ConnectIntent::Read
+                && db::janus_backend::free_capacity(payload.id, &conn)? == 0
+            {
+                let err = SvcError::builder()
+                    .status(ResponseStatus::SERVICE_UNAVAILABLE)
+                    .kind("capacity_exceeded", "Capacity exceeded")
+                    .detail("active agents number on the backend exceeded its capacity")
+                    .build();
 
-                    if let Some(agents_count) = maybe_agents_count {
-                        if agents_count >= capacity {
-                            let err = SvcError::builder()
-                                .status(ResponseStatus::SERVICE_UNAVAILABLE)
-                                .kind("capacity_exceeded", "Capacity exceeded")
-                                .detail("active agents number on the backend exceeded its capacity")
-                                .build();
-
-                            return Err(err);
-                        }
-                    }
-                }
+                return Err(err);
             }
 
             backend
@@ -973,6 +967,118 @@ mod test {
 
                 assert_eq!(topic, expected_topic);
                 assert_eq!(req.session_id, backend.session_id());
+            });
+        }
+
+        #[test]
+        fn connect_to_rtc_take_reserved_slot() {
+            async_std::task::block_on(async {
+                let mut rng = rand::thread_rng();
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
+                let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
+                let reader2 = TestAgent::new("web", "reader2", USR_AUDIENCE);
+                let writer1 = TestAgent::new("web", "writer1", USR_AUDIENCE);
+                let writer2 = TestAgent::new("web", "writer2", USR_AUDIENCE);
+
+                let (rtc1, rtc2) = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| {
+                        let now = Utc::now();
+
+                        // Insert rooms: 1 with reserve = 2 and the other without reserve.
+                        let room1 = factory::Room::new()
+                            .audience(USR_AUDIENCE)
+                            .time((
+                                Bound::Included(now),
+                                Bound::Excluded(now + Duration::hours(1)),
+                            ))
+                            .backend(RoomBackend::Janus)
+                            .reserve(2)
+                            .insert(&conn);
+
+                        let room2 = shared_helpers::insert_room(&conn);
+
+                        // Insert rtcs.
+                        let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
+                        let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
+
+                        // Insert backend with capacity = 4.
+                        let backend_id = {
+                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                            agent.agent_id().to_owned()
+                        };
+
+                        let backend = factory::JanusBackend::new(backend_id, rng.gen(), rng.gen())
+                            .capacity(4)
+                            .insert(&conn);
+
+                        // Insert started streams.
+                        let stream1 = factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .backend(&backend)
+                            .rtc(&rtc1)
+                            .insert(&conn);
+
+                        crate::db::janus_rtc_stream::start(stream1.id(), &conn).unwrap();
+
+                        let stream2 = factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .backend(&backend)
+                            .rtc(&rtc2)
+                            .insert(&conn);
+
+                        crate::db::janus_rtc_stream::start(stream2.id(), &conn).unwrap();
+
+                        // Insert active agents.
+                        shared_helpers::insert_agent(&conn, writer1.agent_id(), room1.id());
+                        shared_helpers::insert_agent(&conn, writer2.agent_id(), room2.id());
+
+                        factory::Agent::new()
+                            .agent_id(reader1.agent_id())
+                            .room_id(room2.id())
+                            .status(AgentStatus::Ready)
+                            .insert(&conn);
+
+                        shared_helpers::insert_agent(&conn, reader2.agent_id(), room2.id());
+
+                        (rtc1, rtc2)
+                    })
+                    .unwrap();
+
+                // Allow user to read rtcs.
+                for rtc in &[&rtc1, &rtc2] {
+                    let room_id = rtc.room_id().to_string();
+                    let rtc_id = rtc.id().to_string();
+                    let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                    authz.allow(reader1.account_id(), object, "read");
+                }
+
+                // Connect to the rtc in the room without reserve.
+                let context = TestContext::new(db, authz);
+
+                let payload = ConnectRequest {
+                    id: rtc2.id(),
+                    intent: ConnectIntent::Read,
+                };
+
+                // Expect failure.
+                let err = handle_request::<ConnectHandler>(&context, &reader1, payload)
+                    .await
+                    .expect_err("Connected to RTC while expected capacity exceeded error");
+
+                assert_eq!(err.status_code(), ResponseStatus::SERVICE_UNAVAILABLE);
+                assert_eq!(err.kind(), "capacity_exceeded");
+
+                // Connect to the rtc in the room with free reserved slots.
+                let payload = ConnectRequest {
+                    id: rtc1.id(),
+                    intent: ConnectIntent::Read,
+                };
+
+                // Expect success.
+                handle_request::<ConnectHandler>(&context, &reader1, payload)
+                    .await
+                    .expect("RTC connect failed");
             });
         }
 
