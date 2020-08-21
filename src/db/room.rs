@@ -208,6 +208,7 @@ pub(crate) fn finished_without_recordings(
         .filter(room::backend.ne(RoomBackend::None))
         .filter(schema::recording::rtc_id.is_null())
         .filter(sql("upper(\"room\".\"time\") < now()"))
+        .filter(schema::janus_backend::id.is_not_null())
         .select((
             self::ALL_COLUMNS,
             super::rtc::ALL_COLUMNS,
@@ -337,12 +338,23 @@ mod tests {
 
             let room1 = shared_helpers::insert_closed_room(&conn);
             let room2 = shared_helpers::insert_closed_room(&conn);
+
+            // this room will have rtc but no rtc_stream simulating the case when janus_backend was removed
+            // (for example crashed) and via cascade removed all streams hosted on it
+            //
+            // it should not appear in query result and it should not result in query Err
+            let room3 = shared_helpers::insert_closed_room(&conn);
+
             let backend1 = shared_helpers::insert_janus_backend(&conn);
             let backend2 = shared_helpers::insert_janus_backend(&conn);
+
             let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
             let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+            let _rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
+
             shared_helpers::insert_janus_rtc_stream(&conn, &backend1, &rtc1);
             shared_helpers::insert_janus_rtc_stream(&conn, &backend2, &rtc2);
+
             let rooms = finished_without_recordings(&conn)
                 .expect("finished_without_recordings call failed");
             assert_eq!(rooms.len(), 2);
