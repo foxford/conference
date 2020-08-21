@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.1 (August 22, 2020)
+
+### Fixes
+- Fix considering reserve on load count for readers ([181fc05](https://github.com/netology-group/event/commit/181fc05b2210a39cf00497765e18a029f85ec08d))
+- Fix duplicate rooms in finished_without_recordings query ([90ef8ff](https://github.com/netology-group/event/commit/90ef8ffe9e71ba233c7e6b9ba43b2a1f0f251f5e))
+- Skip finished rooms without recording and no corresponding rtc_stream ([d2934ec](https://github.com/netology-group/event/commit/d2934ecc562a2c84bbc19ad827a00f1a82b7da97))
+- Put connected agents to ready state on backend disconnect ([11c7679](https://github.com/netology-group/event/commit/11c76790c7563ffb888aa6562aa71d91a62a1fa8))
+- Update balancer test ([78c1e42](https://github.com/netology-group/event/commit/78c1e42a16872056af08a106ece333a3e1bf1d3b))
+- Put readers to ready state on stream stop ([1c8854d](https://github.com/netology-group/event/commit/1c8854d4ca3c887d44c37f8f97ad4ee9c5126494))
+- Delete agents of closed rooms on vacuum ([8797737](https://github.com/netology-group/event/commit/87977371d9ed3dfdc85b6357524655ebada47038))
+- Fix least_loaded and agent_count queries to account only for active streams ([f560d45](https://github.com/netology-group/event/commit/f560d4502223fc02a1e7de5b50fc402631a00eb4))
+
+
 ## v0.5.0 (August 20, 2020)
 
 ### Features
