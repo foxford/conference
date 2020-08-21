@@ -26,7 +26,7 @@ use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingEvent, IncomingResponse,
     MessageRequest, OpaqueId, StatusEvent, TrickleRequest, JANUS_API_VERSION,
 };
-use crate::db::{janus_backend, janus_rtc_stream, recording, room, rtc};
+use crate::db::{agent, janus_backend, janus_rtc_stream, recording, room, rtc};
 use crate::util::{from_base64, generate_correlation_data, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1159,8 +1159,8 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
 
     let conn = context.db().get()?;
 
-    // If the event relates to a publisher's handle,
-    // we will find the corresponding stream and send event w/ updated stream object
+    // If the event relates to the publisher's handle,
+    // we will find the corresponding stream and send an event w/ updated stream object
     // to the room's topic.
     if let Some(rtc_stream) = janus_rtc_stream::stop(rtc_stream_id, &conn)? {
         let rtc_id = rtc_stream.rtc_id();
@@ -1172,9 +1172,17 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
             .ok_or_else(|| format!("a room for rtc = '{}' is not found", &rtc_id))
             .status(ResponseStatus::NOT_FOUND)?;
 
-        // Publish the update event if only stream object has been changed
-        // (if there weren't any actual media stream, the object won't contain its start time)
+        // Publish the update event only if the stream object has been changed.
+        // If there's no actual media stream, the object wouldn't contain its start time.
         if rtc_stream.time().is_some() {
+            // Put connected `agents` back into `ready` status since the stream has gone and
+            // they haven't been connected anymore.
+            agent::BulkStatusUpdateQuery::new(agent::Status::Ready)
+                .room_id(room.id())
+                .status(agent::Status::Connected)
+                .execute(&conn)?;
+
+            // Send rtc_stream.update event.
             let event = endpoint::rtc_stream::update_event(
                 room.id(),
                 rtc_stream,
@@ -1229,6 +1237,12 @@ async fn handle_status_event_impl<C: Context>(
         Ok(Box::new(stream::once(boxed_event)))
     } else {
         let conn = context.db().get()?;
+
+        agent::BulkStatusUpdateQuery::new(agent::Status::Ready)
+            .backend_id(evp.as_agent_id())
+            .status(agent::Status::Connected)
+            .execute(&conn)?;
+
         janus_backend::DeleteQuery::new(evp.as_agent_id()).execute(&conn)?;
         Ok(Box::new(stream::empty()))
     }

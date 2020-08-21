@@ -185,6 +185,7 @@ pub(crate) struct JanusRtcStream<'a> {
     audience: &'a str,
     backend: Option<&'a db::janus_backend::Object>,
     rtc: Option<&'a db::rtc::Object>,
+    sent_by: Option<&'a AgentId>,
 }
 
 impl<'a> JanusRtcStream<'a> {
@@ -193,6 +194,7 @@ impl<'a> JanusRtcStream<'a> {
             audience,
             backend: None,
             rtc: None,
+            sent_by: None,
         }
     }
 
@@ -206,6 +208,13 @@ impl<'a> JanusRtcStream<'a> {
     pub(crate) fn rtc(self, rtc: &'a db::rtc::Object) -> Self {
         Self {
             rtc: Some(rtc),
+            ..self
+        }
+    }
+
+    pub(crate) fn sent_by(self, sent_by: &'a AgentId) -> Self {
+        Self {
+            sent_by: Some(sent_by),
             ..self
         }
     }
@@ -231,7 +240,15 @@ impl<'a> JanusRtcStream<'a> {
             }
         };
 
-        let agent = TestAgent::new("web", "user123", self.audience);
+        let default_agent;
+
+        let sent_by = match self.sent_by {
+            Some(value) => value,
+            None => {
+                default_agent = TestAgent::new("web", "user123", self.audience);
+                default_agent.agent_id()
+            }
+        };
 
         db::janus_rtc_stream::InsertQuery::new(
             Uuid::new_v4(),
@@ -239,7 +256,7 @@ impl<'a> JanusRtcStream<'a> {
             rtc.id(),
             backend.id(),
             "alpha",
-            agent.agent_id(),
+            sent_by,
         )
         .execute(conn)
         .expect("Failed to insert janus_rtc_stream")

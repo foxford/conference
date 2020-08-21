@@ -6,7 +6,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use super::room::Object as Room;
-use crate::schema::agent;
+use crate::schema::{agent, janus_rtc_stream, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -192,23 +192,118 @@ impl<'a> UpdateQuery<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct DeleteQuery<'a> {
-    agent_id: &'a AgentId,
-    room_id: Uuid,
+#[derive(Debug)]
+pub(crate) struct BulkStatusUpdateQuery<'a> {
+    room_id: Option<Uuid>,
+    backend_id: Option<&'a AgentId>,
+    status: Option<Status>,
+    new_status: Status,
 }
 
-impl<'a> DeleteQuery<'a> {
-    pub(crate) fn new(agent_id: &'a AgentId, room_id: Uuid) -> Self {
-        Self { agent_id, room_id }
+impl<'a> BulkStatusUpdateQuery<'a> {
+    pub(crate) fn new(new_status: Status) -> Self {
+        Self {
+            room_id: None,
+            backend_id: None,
+            status: None,
+            new_status,
+        }
+    }
+
+    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
+        Self {
+            room_id: Some(room_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn backend_id(self, backend_id: &'a AgentId) -> Self {
+        Self {
+            backend_id: Some(backend_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn status(self, status: Status) -> Self {
+        Self {
+            status: Some(status),
+            ..self
+        }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use diesel::prelude::*;
 
-        let query = agent::table
-            .filter(agent::agent_id.eq(self.agent_id))
-            .filter(agent::room_id.eq(self.room_id));
+        conn.transaction::<_, Error, _>(|| {
+            let mut query = diesel::update(agent::table).into_boxed();
 
-        diesel::delete(query).execute(conn)
+            if let Some(room_id) = self.room_id {
+                query = query.filter(agent::room_id.eq(room_id));
+            }
+
+            if let Some(backend_id) = self.backend_id {
+                // Diesel doesn't allow JOINs with UPDATE so find backend ids with a separate query.
+                let room_ids: Vec<Uuid> = rtc::table
+                    .inner_join(janus_rtc_stream::table)
+                    .filter(janus_rtc_stream::backend_id.eq(backend_id))
+                    .select(rtc::room_id)
+                    .distinct()
+                    .get_results(conn)?;
+
+                query = query.filter(agent::room_id.eq_any(room_ids))
+            }
+
+            if let Some(status) = self.status {
+                query = query.filter(agent::status.eq(status));
+            }
+
+            query.set(agent::status.eq(self.new_status)).execute(conn)
+        })
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct DeleteQuery<'a> {
+    agent_id: Option<&'a AgentId>,
+    room_id: Option<Uuid>,
+}
+
+impl<'a> DeleteQuery<'a> {
+    pub(crate) fn new() -> Self {
+        Self {
+            agent_id: None,
+            room_id: None,
+        }
+    }
+
+    pub(crate) fn agent_id(self, agent_id: &'a AgentId) -> Self {
+        Self {
+            agent_id: Some(agent_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
+        Self {
+            room_id: Some(room_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+        use diesel::prelude::*;
+
+        let mut query = diesel::delete(agent::table).into_boxed();
+
+        if let Some(agent_id) = self.agent_id {
+            query = query.filter(agent::agent_id.eq(agent_id));
+        }
+
+        if let Some(room_id) = self.room_id {
+            query = query.filter(agent::room_id.eq(room_id));
+        }
+
+        query.execute(conn)
     }
 }

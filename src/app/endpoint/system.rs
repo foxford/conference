@@ -71,13 +71,14 @@ impl RequestHandler for VacuumHandler {
             .await?;
 
         let mut requests = Vec::new();
-
-        let rooms = {
-            let conn = context.db().get()?;
-            db::room::finished_without_recordings(&conn)?
-        };
+        let conn = context.db().get()?;
+        let rooms = db::room::finished_without_recordings(&conn)?;
 
         for (room, rtc, backend) in rooms.into_iter() {
+            db::agent::DeleteQuery::new()
+                .room_id(room.id())
+                .execute(&conn)?;
+
             // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
             let backreq = janus::upload_stream_request(
                 reqp,
@@ -160,6 +161,7 @@ fn record_name(rtc: &db::rtc::Object) -> String {
 mod test {
     mod vacuum {
         use chrono::{Duration, Utc};
+        use diesel::prelude::*;
 
         use crate::backend::janus::JANUS_API_VERSION;
         use crate::db;
@@ -203,12 +205,15 @@ mod test {
                         let _other_rtc = shared_helpers::insert_rtc(&conn);
                         let backend = shared_helpers::insert_janus_backend(&conn);
 
-                        // Close rooms.
+                        // Insert active agents and close rooms.
                         let start = Utc::now() - Duration::hours(2);
                         let finish = start + Duration::hours(1);
                         let time = (Bound::Included(start), Bound::Excluded(finish));
+                        let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
                         for rtc in rtcs.iter() {
+                            shared_helpers::insert_agent(&conn, agent.agent_id(), rtc.room_id());
+
                             db::room::UpdateQuery::new(rtc.room_id().to_owned())
                                 .time(time)
                                 .execute(&conn)
@@ -231,8 +236,10 @@ mod test {
                     .await
                     .expect("System vacuum failed");
 
-                // Assert outgoing Janus stream.upload requests.
+                let conn = context.db().get().unwrap();
+
                 for (message, rtc) in messages.into_iter().zip(rtcs.iter()) {
+                    // Assert outgoing Janus stream.upload requests.
                     match message.properties() {
                         OutgoingEnvelopeProperties::Request(_) => (),
                         _ => panic!("Expected outgoing request"),
@@ -262,6 +269,12 @@ mod test {
                             }
                         }
                     );
+
+                    // Assert deleted active agents.
+                    let query = crate::schema::agent::table
+                        .filter(crate::schema::agent::room_id.eq(rtc.room_id()));
+
+                    assert_eq!(query.execute(&conn).unwrap(), 0);
                 }
             });
         }
