@@ -327,16 +327,18 @@ impl RequestHandler for ConnectHandler {
             // Check that the backend's capacity is not exceeded for readers.
             if payload.intent == ConnectIntent::Read {
                 if let Some(capacity) = backend.capacity() {
-                    let agents_count = db::janus_backend::agents_count(backend.id(), &conn)?;
+                    let maybe_agents_count = db::janus_backend::agents_count(backend.id(), &conn)?;
 
-                    if agents_count >= capacity.into() {
-                        let err = SvcError::builder()
-                            .status(ResponseStatus::SERVICE_UNAVAILABLE)
-                            .kind("capacity_exceeded", "Capacity exceeded")
-                            .detail("active agents number on the backend exceeded its capacity")
-                            .build();
+                    if let Some(agents_count) = maybe_agents_count {
+                        if agents_count >= capacity {
+                            let err = SvcError::builder()
+                                .status(ResponseStatus::SERVICE_UNAVAILABLE)
+                                .kind("capacity_exceeded", "Capacity exceeded")
+                                .detail("active agents number on the backend exceeded its capacity")
+                                .build();
 
-                        return Err(err);
+                            return Err(err);
+                        }
                     }
                 }
             }
@@ -911,6 +913,16 @@ mod test {
                                 .capacity(20)
                                 .insert(&conn);
 
+                        let stream1 = factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .backend(&backend1)
+                            .rtc(&rtc1)
+                            .insert(&conn);
+
+                        crate::db::janus_rtc_stream::start(stream1.id(), &conn).unwrap();
+
+                        let agent = TestAgent::new("web", "user456", SVC_AUDIENCE);
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), rtc1.room_id());
+
                         // The second backend is too small but has no load.
                         let backend2_id = {
                             let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
@@ -919,12 +931,6 @@ mod test {
 
                         factory::JanusBackend::new(backend2_id, rng.gen(), rng.gen())
                             .capacity(5)
-                            .insert(&conn);
-
-                        // Insert stream.
-                        factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .backend(&backend1)
-                            .rtc(&rtc1)
                             .insert(&conn);
 
                         // Insert active agent.

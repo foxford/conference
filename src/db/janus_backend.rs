@@ -4,8 +4,7 @@ use diesel::result::Error;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::db::agent::Status as AgentStatus;
-use crate::schema::{agent, janus_backend, janus_rtc_stream, rtc};
+use crate::schema::janus_backend;
 
 type AllColumns = (
     janus_backend::id,
@@ -200,7 +199,7 @@ const LEAST_LOADED_SQL: &str = r#"
         janus_backend_load AS (
             SELECT
                 jrs.backend_id,
-                SUM(taken) AS taken
+                SUM(rl.taken) AS taken
             FROM room_load as rl
             LEFT JOIN rtc
             ON rtc.room_id = rl.room_id
@@ -233,16 +232,48 @@ pub(crate) fn least_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn agents_count(backend_id: &AgentId, conn: &PgConnection) -> Result<i64, Error> {
-    use diesel::dsl::{count, sql};
+// Returns the number of taken backend capacity considering:
+// - actual number of online agents;
+// - optional reserved capacity.
+const AGENTS_COUNT_SQL: &str = r#"
+    WITH
+        room_load AS (
+            SELECT
+                r.id AS room_id,
+                GREATEST(COALESCE(r.reserve, 0), COUNT(a.id)) AS taken
+            FROM room AS r
+            LEFT JOIN agent AS a
+            ON a.room_id = r.id
+            WHERE a.status = 'connected'
+            GROUP BY r.id
+        )
+    SELECT COALESCE(SUM(rl.taken)::INT, 0) AS taken
+    FROM room_load as rl
+    LEFT JOIN rtc
+    ON rtc.room_id = rl.room_id
+    LEFT JOIN janus_rtc_stream AS jrs
+    ON jrs.rtc_id = rtc.id
+    WHERE LOWER(jrs.time) IS NOT NULL AND UPPER(jrs.time) IS NULL
+    AND   jrs.backend_id = $1
+"#;
+
+#[derive(QueryableByName)]
+struct AgentsCountQueryRow {
+    #[sql_type = "diesel::sql_types::Integer"]
+    taken: i32,
+}
+
+pub(crate) fn agents_count(
+    backend_id: &AgentId,
+    conn: &PgConnection,
+) -> Result<Option<i32>, Error> {
+    use crate::db::sql::Agent_id;
     use diesel::prelude::*;
 
-    agent::table
-        .inner_join(rtc::table.on(rtc::room_id.eq(agent::room_id)))
-        .inner_join(janus_rtc_stream::table.on(janus_rtc_stream::rtc_id.eq(rtc::id)))
-        .filter(janus_rtc_stream::backend_id.eq(backend_id))
-        .filter(sql("LOWER(\"janus_rtc_stream\".\"time\") IS NOT NULL AND UPPER(\"janus_rtc_stream\".\"time\") IS NULL"))
-        .filter(agent::status.eq(AgentStatus::Connected))
-        .select(count(agent::id))
-        .get_result(conn)
+    let maybe_row = diesel::sql_query(AGENTS_COUNT_SQL)
+        .bind::<Agent_id, _>(backend_id)
+        .get_result::<AgentsCountQueryRow>(conn)
+        .optional()?;
+
+    Ok(maybe_row.map(|row| row.taken))
 }
