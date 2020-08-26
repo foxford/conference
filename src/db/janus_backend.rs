@@ -177,33 +177,46 @@ impl<'a> DeleteQuery<'a> {
 ////////////////////////////////////////////////////////////////////////////////
 
 // Returns the least loaded backend capable to host the room with its reserve considering:
+// - room opening period;
 // - actual number of online agents;
 // - optional backend capacity;
-// - optional reserved capacity.
+// - optional room reserve.
 const LEAST_LOADED_SQL: &str = r#"
     WITH
         room_load AS (
             SELECT
-                r.id                   AS room_id,
-                COALESCE(r.reserve, 0) AS reserve,
-                COUNT(a.id)            AS taken
-            FROM room AS r
-            LEFT JOIN agent AS a
-            ON a.room_id = r.id
-            WHERE a.status = 'connected'
-            GROUP BY r.id
+                room_id,
+                COUNT(id) AS taken
+            FROM agent
+            WHERE status = 'connected'
+            GROUP BY room_id
+        ),
+        active_room AS (
+            SELECT *
+            FROM room
+            WHERE backend = 'janus'
+            AND   NOW() < UPPER(time)
         ),
         janus_backend_load AS (
             SELECT
-                jrs.backend_id,
-                SUM(GREATEST(rl.taken, rl.reserve)) AS load
-            FROM room_load as rl
-            LEFT JOIN rtc
-            ON rtc.room_id = rl.room_id
-            LEFT JOIN janus_rtc_stream AS jrs
-            ON jrs.rtc_id = rtc.id
-            WHERE LOWER(jrs.time) IS NOT NULL AND UPPER(jrs.time) IS NULL
-            GROUP BY jrs.backend_id
+                backend_id,
+                SUM(GREATEST(taken, reserve)) AS load
+            FROM (
+                SELECT DISTINCT ON(backend_id, room_id)
+                    jrs.backend_id,
+                    rtc.room_id,
+                    COALESCE(rl.taken, 0)   AS taken,
+                    COALESCE(ar.reserve, 0) AS reserve
+                FROM janus_rtc_stream AS jrs
+                INNER JOIN rtc
+                ON rtc.id = jrs.rtc_id
+                LEFT JOIN active_room AS ar
+                ON ar.id = rtc.room_id
+                LEFT JOIN room_load AS rl
+                ON rl.room_id = rtc.room_id
+                WHERE LOWER(jrs.time) IS NOT NULL
+            ) AS sub
+            GROUP BY backend_id
         )
     SELECT jb.*
     FROM janus_backend AS jb
@@ -235,26 +248,41 @@ const FREE_CAPACITY_SQL: &str = r#"
     WITH
         room_load AS (
             SELECT
-                r.id                   AS room_id,
-                COALESCE(r.reserve, 0) AS reserve,
-                COUNT(a.id)            AS taken
-            FROM room AS r
-            LEFT JOIN agent AS a
-            ON a.room_id = r.id
+                r.id        AS room_id,
+                r.reserve,
+                COUNT(a.id) AS taken
+            FROM agent AS a
+            INNER JOIN room AS r
+            ON r.id = a.room_id
             WHERE a.status = 'connected'
             GROUP BY r.id
         ),
+        active_room AS (
+            SELECT *
+            FROM room
+            WHERE backend = 'janus'
+            AND   NOW() < UPPER(time)
+        ),
         janus_backend_load AS (
             SELECT
-                jrs.backend_id,
-                SUM(GREATEST(rl.taken, rl.reserve)) AS load
-            FROM room_load as rl
-            LEFT JOIN rtc
-            ON rtc.room_id = rl.room_id
-            LEFT JOIN janus_rtc_stream AS jrs
-            ON jrs.rtc_id = rtc.id
-            WHERE LOWER(jrs.time) IS NOT NULL AND UPPER(jrs.time) IS NULL
-            GROUP BY jrs.backend_id
+                backend_id,
+                SUM(GREATEST(taken, reserve)) AS load
+            FROM (
+                SELECT DISTINCT ON(backend_id, room_id)
+                    jrs.backend_id,
+                    rtc.room_id,
+                    COALESCE(rl.taken, 0)   AS taken,
+                    COALESCE(ar.reserve, 0) AS reserve
+                FROM janus_rtc_stream AS jrs
+                INNER JOIN rtc
+                ON rtc.id = jrs.rtc_id
+                LEFT JOIN active_room AS ar
+                ON ar.id = rtc.room_id
+                LEFT JOIN room_load AS rl
+                ON rl.room_id = rtc.room_id
+                WHERE LOWER(jrs.time) IS NOT NULL
+            ) AS sub
+            GROUP BY backend_id
         )
     SELECT
         GREATEST(
