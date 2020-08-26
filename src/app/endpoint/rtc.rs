@@ -1264,7 +1264,7 @@ mod test {
                     })
                     .unwrap();
 
-                // Allow user to read the rtc.
+                // Allow user to update the rtc.
                 let room_id = rtc.room_id().to_string();
                 let rtc_id = rtc.id().to_string();
                 let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
@@ -1281,6 +1281,92 @@ mod test {
                 handle_request::<ConnectHandler>(&context, &writer, payload)
                     .await
                     .expect("RTC connect failed");
+            });
+        }
+
+        #[test]
+        fn connect_to_rtc_reservation_with_stopped_stream() {
+            async_std::task::block_on(async {
+                let mut rng = rand::thread_rng();
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
+                let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
+
+                let rtc = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| {
+                        let now = Utc::now();
+
+                        // Insert rooms with reserves.
+                        let room1 = factory::Room::new()
+                            .audience(USR_AUDIENCE)
+                            .time((
+                                Bound::Included(now),
+                                Bound::Excluded(now + Duration::hours(1)),
+                            ))
+                            .backend(RoomBackend::Janus)
+                            .reserve(15)
+                            .insert(&conn);
+
+                        let room2 = factory::Room::new()
+                            .audience(USR_AUDIENCE)
+                            .time((
+                                Bound::Included(now),
+                                Bound::Excluded(now + Duration::hours(1)),
+                            ))
+                            .backend(RoomBackend::Janus)
+                            .reserve(15)
+                            .insert(&conn);
+
+                        // Insert rtcs.
+                        let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
+                        let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
+
+                        // Insert a backend with capacity less than the sum of reserves.
+                        let backend_id = {
+                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                            agent.agent_id().to_owned()
+                        };
+
+                        let backend = factory::JanusBackend::new(backend_id, rng.gen(), rng.gen())
+                            .capacity(20)
+                            .insert(&conn);
+
+                        // Insert a stopped stream in the first room.
+                        let stream = factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .backend(&backend)
+                            .rtc(&rtc1)
+                            .insert(&conn);
+
+                        crate::db::janus_rtc_stream::start(stream.id(), &conn).unwrap();
+                        crate::db::janus_rtc_stream::stop(stream.id(), &conn).unwrap();
+
+                        rtc2
+                    })
+                    .unwrap();
+
+                // Allow user to update the rtc.
+                let room_id = rtc.room_id().to_string();
+                let rtc_id = rtc.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                authz.allow(writer.account_id(), object, "update");
+
+                // Make an rtc.connect request.
+                // The reserve of the first room must be taken into account despited of the
+                // stream has been already stopped.
+                let context = TestContext::new(db, authz);
+
+                let payload = ConnectRequest {
+                    id: rtc.id(),
+                    intent: ConnectIntent::Write,
+                };
+
+                let err = handle_request::<ConnectHandler>(&context, &writer, payload)
+                    .await
+                    .expect_err("Unexpected success on rtc connecting");
+
+                assert_eq!(err.status_code(), ResponseStatus::SERVICE_UNAVAILABLE);
             });
         }
 
