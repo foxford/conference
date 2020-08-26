@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.2 (August 26, 2020)
+
+### Features
+- Consider reserve in stream pauses ([3e262f0](https://github.com/netology-group/event/commit/3e262f02bc7c77c3d44a8948ab4c4fefb34bd2dc))
+
+
 ## v0.5.1 (August 22, 2020)
 
 ### Fixes
