@@ -45,8 +45,12 @@ pub(crate) enum Metric {
     OutgoingQueueEvents(MetricValue),
     #[serde(rename(serialize = "apps.conference.db_connections_total"))]
     DbConnections(MetricValue),
-    #[serde(rename(serialize = "apps.event.redis_connections_total"))]
+    #[serde(rename(serialize = "apps.conference.idle_db_connections_total"))]
+    IdleDbConnections(MetricValue),
+    #[serde(rename(serialize = "apps.conference.redis_connections_total"))]
     RedisConnections(MetricValue),
+    #[serde(rename(serialize = "apps.conference.idle_redis_connections_total"))]
+    IdleRedisConnections(MetricValue),
 }
 
 pub(crate) struct PullHandler;
@@ -102,15 +106,26 @@ impl EventHandler for PullHandler {
                     vec![]
                 };
 
+                let db_state = context.db().state();
                 metrics.push(Metric::DbConnections(MetricValue {
-                    value: context.db().state().connections as u64,
+                    value: db_state.connections as u64,
+                    timestamp: now,
+                }));
+
+                metrics.push(Metric::IdleDbConnections(MetricValue {
+                    value: db_state.idle_connections as u64,
                     timestamp: now,
                 }));
 
                 if let Some(pool) = context.redis_pool() {
-                    let connections = pool.state().connections as u64;
+                    let pool_state = pool.state();
                     metrics.push(Metric::RedisConnections(MetricValue {
-                        value: connections,
+                        value: pool_state.connections as u64,
+                        timestamp: now,
+                    }));
+
+                    metrics.push(Metric::IdleRedisConnections(MetricValue {
+                        value: pool_state.idle_connections as u64,
                         timestamp: now,
                     }));
                 }
