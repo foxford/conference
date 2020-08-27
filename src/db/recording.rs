@@ -18,6 +18,8 @@ pub(crate) type Segment = (Bound<i64>, Bound<i64>);
 #[PgType = "recording_status"]
 #[DieselType = "Recording_status"]
 pub(crate) enum Status {
+    #[serde(rename = "in_progress")]
+    InProgress,
     Ready,
     Missing,
 }
@@ -44,6 +46,10 @@ pub(crate) struct Object {
 }
 
 impl Object {
+    pub(crate) fn rtc_id(&self) -> Uuid {
+        self.rtc_id
+    }
+
     pub(crate) fn started_at(&self) -> &Option<DateTime<Utc>> {
         &self.started_at
     }
@@ -63,18 +69,47 @@ impl Object {
 #[table_name = "recording"]
 pub(crate) struct InsertQuery {
     rtc_id: Uuid,
-    started_at: Option<DateTime<Utc>>,
-    segments: Option<Vec<Segment>>,
-    status: Status,
 }
 
 impl InsertQuery {
-    pub(crate) fn new(rtc_id: Uuid, status: Status) -> Self {
+    pub(crate) fn new(rtc_id: Uuid) -> Self {
+        Self { rtc_id }
+    }
+
+    pub(crate) fn execute(self, conn: &PgConnection) -> Result<Object, Error> {
+        use crate::schema::recording::dsl::recording;
+        use diesel::RunQueryDsl;
+
+        diesel::insert_into(recording).values(self).get_result(conn)
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Identifiable, AsChangeset)]
+#[table_name = "recording"]
+#[primary_key(rtc_id)]
+pub(crate) struct UpdateQuery {
+    rtc_id: Uuid,
+    status: Option<Status>,
+    started_at: Option<DateTime<Utc>>,
+    segments: Option<Vec<Segment>>,
+}
+
+impl UpdateQuery {
+    pub(crate) fn new(rtc_id: Uuid) -> Self {
         Self {
             rtc_id,
+            status: None,
             started_at: None,
             segments: None,
-            status,
+        }
+    }
+
+    pub(crate) fn status(self, status: Status) -> Self {
+        Self {
+            status: Some(status),
+            ..self
         }
     }
 
@@ -92,10 +127,9 @@ impl InsertQuery {
         }
     }
 
-    pub(crate) fn execute(self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::schema::recording::dsl::recording;
-        use diesel::RunQueryDsl;
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+        use diesel::prelude::*;
 
-        diesel::insert_into(recording).values(self).get_result(conn)
+        diesel::update(self).set(self).get_result(conn)
     }
 }

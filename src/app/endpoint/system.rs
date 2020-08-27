@@ -1,5 +1,6 @@
 use std::ops::Bound;
 
+use anyhow::bail;
 use async_std::stream;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -15,6 +16,7 @@ use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::app::janus;
 use crate::db;
+use crate::db::recording::Status as RecordingStatus;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -27,7 +29,7 @@ pub(crate) struct RoomUploadEventData {
 #[derive(Debug, Serialize)]
 struct RtcUploadEventData {
     id: Uuid,
-    status: db::recording::Status,
+    status: RecordingStatus,
     #[serde(
         serialize_with = "crate::serde::milliseconds_bound_tuples_option",
         skip_serializing_if = "Option::is_none"
@@ -79,6 +81,8 @@ impl RequestHandler for VacuumHandler {
                 .room_id(room.id())
                 .execute(&conn)?;
 
+            db::recording::InsertQuery::new(rtc.id()).execute(&conn)?;
+
             // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
             let backreq = janus::upload_stream_request(
                 reqp,
@@ -117,8 +121,12 @@ where
     let mut event_entries = Vec::new();
     for (rtc, recording) in rtcs_and_recordings {
         let uri = match recording.status() {
-            db::recording::Status::Missing => None,
-            db::recording::Status::Ready => {
+            RecordingStatus::InProgress => bail!(
+                "Unexpected recording in in_progress status, rtc_id = '{}'",
+                recording.rtc_id()
+            ),
+            RecordingStatus::Missing => None,
+            RecordingStatus::Ready => {
                 Some(format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)))
             }
         };
@@ -275,6 +283,14 @@ mod test {
                         .filter(crate::schema::agent::room_id.eq(rtc.room_id()));
 
                     assert_eq!(query.execute(&conn).unwrap(), 0);
+
+                    // Assert recording in `in_progress` status.
+                    let recording = crate::schema::recording::table
+                        .filter(crate::schema::recording::rtc_id.eq(rtc.id()))
+                        .get_result::<crate::db::recording::Object>(&conn)
+                        .expect("Failed to get recording from the DB");
+
+                    assert_eq!(recording.status(), &RecordingStatus::InProgress);
                 }
             });
         }
