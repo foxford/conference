@@ -867,7 +867,8 @@ async fn handle_response_impl<C: Context>(
                             val if val == "404" => {
                                 let conn = context.db().get()?;
 
-                                recording::InsertQuery::new(tn.rtc_id, recording::Status::Missing)
+                                recording::UpdateQuery::new(tn.rtc_id)
+                                    .status(recording::Status::Missing)
                                     .execute(&conn)?;
 
                                 let err = format!(
@@ -948,7 +949,8 @@ async fn handle_response_impl<C: Context>(
                             let (room, rtcs, recs) = {
                                 let conn = context.db().get()?;
 
-                                recording::InsertQuery::new(rtc_id, recording::Status::Ready)
+                                recording::UpdateQuery::new(rtc_id)
+                                    .status(recording::Status::Ready)
                                     .started_at(started_at)
                                     .segments(segments)
                                     .execute(&conn)?;

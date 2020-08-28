@@ -202,7 +202,10 @@ pub(crate) fn finished_without_recordings(
             schema::rtc::table
                 .left_join(schema::recording::table)
                 .left_join(
-                    schema::janus_rtc_stream::table.inner_join(schema::janus_backend::table),
+                    schema::janus_rtc_stream::table
+                        .inner_join(schema::janus_backend::table.on(
+                            schema::janus_backend::id.eq(schema::janus_rtc_stream::backend_id),
+                        )),
                 ),
         )
         .filter(room::backend.ne(RoomBackend::None))

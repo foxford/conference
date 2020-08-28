@@ -91,7 +91,6 @@ table! {
 
 joinable!(agent -> room (room_id));
 joinable!(agent_stream -> agent (sent_by));
-joinable!(janus_rtc_stream -> janus_backend (backend_id));
 joinable!(janus_rtc_stream -> rtc (rtc_id));
 joinable!(recording -> rtc (rtc_id));
 joinable!(rtc -> room (room_id));
