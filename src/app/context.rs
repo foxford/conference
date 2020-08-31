@@ -4,6 +4,7 @@ use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
+use crate::app::metrics::StatsCollector;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
 
@@ -18,6 +19,7 @@ pub(crate) struct AppContext {
     janus_topics: JanusTopics,
     queue_counter: Option<QueueCounterHandle>,
     redis_pool: Option<RedisConnectionPool>,
+    db_pool_stats: Option<StatsCollector>,
 }
 
 impl AppContext {
@@ -32,6 +34,7 @@ impl AppContext {
             janus_topics,
             queue_counter: None,
             redis_pool: None,
+            db_pool_stats: None,
         }
     }
 
@@ -48,6 +51,13 @@ impl AppContext {
             ..self
         }
     }
+
+    pub(crate) fn db_pool_stats(self, stats: StatsCollector) -> Self {
+        Self {
+            db_pool_stats: Some(stats),
+            ..self
+        }
+    }
 }
 
 pub(crate) trait Context: Sync {
@@ -58,6 +68,7 @@ pub(crate) trait Context: Sync {
     fn janus_topics(&self) -> &JanusTopics;
     fn queue_counter(&self) -> &Option<QueueCounterHandle>;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
+    fn db_pool_stats(&self) -> &Option<StatsCollector>;
 }
 
 impl Context for AppContext {
@@ -87,6 +98,10 @@ impl Context for AppContext {
 
     fn redis_pool(&self) -> &Option<RedisConnectionPool> {
         &self.redis_pool
+    }
+
+    fn db_pool_stats(&self) -> &Option<StatsCollector> {
+        &self.db_pool_stats
     }
 }
 

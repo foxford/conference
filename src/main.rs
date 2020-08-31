@@ -12,7 +12,7 @@ use svc_authz::cache::{create_pool, Cache};
 async fn main() -> Result<()> {
     env_logger::init();
 
-    let db = {
+    let (db, db_pool_stats) = {
         let url = var("DATABASE_URL").expect("DATABASE_URL must be specified");
         let size = var("DATABASE_POOL_SIZE")
             .map(|val| {
@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
             })
             .unwrap_or_else(|_| 5);
 
-        crate::db::create_pool(&url, size, idle_size, timeout)
+        crate::db::create_pool(&url, size, idle_size, timeout, true)
     };
 
     let (redis_pool, authz_cache) = if let Some("1") = var("CACHE_ENABLED").ok().as_deref() {
@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
         (None, None)
     };
 
-    app::run(&db, redis_pool, authz_cache).await
+    app::run(&db, redis_pool, authz_cache, db_pool_stats).await
 }
 
 mod app;
