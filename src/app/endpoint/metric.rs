@@ -56,21 +56,21 @@ pub(crate) enum Metric {
     RedisConnections(MetricValue<u64>),
     #[serde(rename(serialize = "apps.conference.idle_redis_connections_total"))]
     IdleRedisConnections(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.event.db_pool_checkin_average_total"))]
+    #[serde(rename(serialize = "apps.conference.db_pool_checkin_average_total"))]
     DbPoolCheckinAverage(MetricValue<f64>),
-    #[serde(rename(serialize = "apps.event.max_db_pool_checkin_total"))]
+    #[serde(rename(serialize = "apps.conference.max_db_pool_checkin_total"))]
     MaxDbPoolCheckin(MetricValue<u128>),
-    #[serde(rename(serialize = "apps.event.db_pool_checkout_average_total"))]
+    #[serde(rename(serialize = "apps.conference.db_pool_checkout_average_total"))]
     DbPoolCheckoutAverage(MetricValue<f64>),
-    #[serde(rename(serialize = "apps.event.max_db_pool_checkout_total"))]
+    #[serde(rename(serialize = "apps.conference.max_db_pool_checkout_total"))]
     MaxDbPoolCheckout(MetricValue<u128>),
-    #[serde(rename(serialize = "apps.event.db_pool_release_average_total"))]
+    #[serde(rename(serialize = "apps.conference.db_pool_release_average_total"))]
     DbPoolReleaseAverage(MetricValue<f64>),
-    #[serde(rename(serialize = "apps.event.max_db_pool_release_total"))]
+    #[serde(rename(serialize = "apps.conference.max_db_pool_release_total"))]
     MaxDbPoolRelease(MetricValue<u128>),
-    #[serde(rename(serialize = "apps.event.db_pool_timeout_average_total"))]
+    #[serde(rename(serialize = "apps.conference.db_pool_timeout_average_total"))]
     DbPoolTimeoutAverage(MetricValue<f64>),
-    #[serde(rename(serialize = "apps.event.max_db_pool_timeout_total"))]
+    #[serde(rename(serialize = "apps.conference.max_db_pool_timeout_total"))]
     MaxDbPoolTimeout(MetricValue<u128>),
 }
 
