@@ -1,50 +1,66 @@
 # Changelog
 
+## v0.5.4 (August 31, 2020)
+
+### Features
+- Add DB pool metrics ([91ad494](https://github.com/netology-group/conference/commit/91ad494d339603031b114cebdac1bca4286966e3), [f4c695a](https://github.com/netology-group/conference/commit/f4c695ae08c4bcf270a73b308d04317f9718c23a))
+
+### Fixes
+- Add in_progress status for recordings and prevent stream cascade deletion ([084d03f](https://github.com/netology-group/conference/commit/084d03fb6280905f80a831ad595f9ccc23464d10))
+
+
+## v0.5.3 (August 27, 2020)
+
+### Features
+- Add redis_connections_total metric ([b40776c](https://github.com/netology-group/conference/commit/b40776cba32fbf2d687c2dd0de2e16d0d95c4245))
+- Transmit idle connections metrics both for redis and pg pools ([59c36db](https://github.com/netology-group/conference/commit/59c36db8b31a506e553796154f22165f62463824))
+
+
 ## v0.5.2 (August 26, 2020)
 
 ### Features
-- Consider reserve in stream pauses ([3e262f0](https://github.com/netology-group/event/commit/3e262f02bc7c77c3d44a8948ab4c4fefb34bd2dc))
+- Consider reserve in stream pauses ([3e262f0](https://github.com/netology-group/conference/commit/3e262f02bc7c77c3d44a8948ab4c4fefb34bd2dc))
 
 
 ## v0.5.1 (August 22, 2020)
 
 ### Fixes
-- Fix considering reserve on load count for readers ([181fc05](https://github.com/netology-group/event/commit/181fc05b2210a39cf00497765e18a029f85ec08d))
-- Fix duplicate rooms in finished_without_recordings query ([90ef8ff](https://github.com/netology-group/event/commit/90ef8ffe9e71ba233c7e6b9ba43b2a1f0f251f5e))
-- Skip finished rooms without recording and no corresponding rtc_stream ([d2934ec](https://github.com/netology-group/event/commit/d2934ecc562a2c84bbc19ad827a00f1a82b7da97))
-- Put connected agents to ready state on backend disconnect ([11c7679](https://github.com/netology-group/event/commit/11c76790c7563ffb888aa6562aa71d91a62a1fa8))
-- Update balancer test ([78c1e42](https://github.com/netology-group/event/commit/78c1e42a16872056af08a106ece333a3e1bf1d3b))
-- Put readers to ready state on stream stop ([1c8854d](https://github.com/netology-group/event/commit/1c8854d4ca3c887d44c37f8f97ad4ee9c5126494))
-- Delete agents of closed rooms on vacuum ([8797737](https://github.com/netology-group/event/commit/87977371d9ed3dfdc85b6357524655ebada47038))
-- Fix least_loaded and agent_count queries to account only for active streams ([f560d45](https://github.com/netology-group/event/commit/f560d4502223fc02a1e7de5b50fc402631a00eb4))
+- Fix considering reserve on load count for readers ([181fc05](https://github.com/netology-group/conference/commit/181fc05b2210a39cf00497765e18a029f85ec08d))
+- Fix duplicate rooms in finished_without_recordings query ([90ef8ff](https://github.com/netology-group/conference/commit/90ef8ffe9e71ba233c7e6b9ba43b2a1f0f251f5e))
+- Skip finished rooms without recording and no corresponding rtc_stream ([d2934ec](https://github.com/netology-group/conference/commit/d2934ecc562a2c84bbc19ad827a00f1a82b7da97))
+- Put connected agents to ready state on backend disconnect ([11c7679](https://github.com/netology-group/conference/commit/11c76790c7563ffb888aa6562aa71d91a62a1fa8))
+- Update balancer test ([78c1e42](https://github.com/netology-group/conference/commit/78c1e42a16872056af08a106ece333a3e1bf1d3b))
+- Put readers to ready state on stream stop ([1c8854d](https://github.com/netology-group/conference/commit/1c8854d4ca3c887d44c37f8f97ad4ee9c5126494))
+- Delete agents of closed rooms on vacuum ([8797737](https://github.com/netology-group/conference/commit/87977371d9ed3dfdc85b6357524655ebada47038))
+- Fix least_loaded and agent_count queries to account only for active streams ([f560d45](https://github.com/netology-group/conference/commit/f560d4502223fc02a1e7de5b50fc402631a00eb4))
 
 
 ## v0.5.0 (August 20, 2020)
 
 ### Features
-- Add intent parameter to rtc.connect ([2fdc33d](https://github.com/netology-group/event/commit/2fdc33d62f01f5301dcc11278b4c927c10fb4238))
+- Add intent parameter to rtc.connect ([2fdc33d](https://github.com/netology-group/conference/commit/2fdc33d62f01f5301dcc11278b4c927c10fb4238))
 
 ### Changes
-- Reserve and limit overhaul ([11808eb](https://github.com/netology-group/event/commit/11808eb1aa9eaed00e24a7961feca3aef0d5b910))
-- Handle both hangup and detach events ([16d8537](https://github.com/netology-group/event/commit/16d8537516757d2c2f29529411cd1fdad205a180))
-- Revert publisher migration ([8c3e29b](https://github.com/netology-group/event/commit/8c3e29b4ee80088d827b9d753dd00d530c0aedfc))
-- Add CACHE_ENABLED envvar check ([be8b163](https://github.com/netology-group/event/commit/be8b163e980437c73d97dfa2e28cb2e6f8315748))
-- Subscribe to unicast requests without shared group ([4bbf30a](https://github.com/netology-group/event/commit/4bbf30aaf4b774a85974e06d959a6f3a4a9e9620))
-- Remove deprecated time field in room.upload ([6d3b0b7](https://github.com/netology-group/event/commit/6d3b0b7f009b3321276ed7d39c8f82d37d7aa1c2))
+- Reserve and limit overhaul ([11808eb](https://github.com/netology-group/conference/commit/11808eb1aa9eaed00e24a7961feca3aef0d5b910))
+- Handle both hangup and detach events ([16d8537](https://github.com/netology-group/conference/commit/16d8537516757d2c2f29529411cd1fdad205a180))
+- Revert publisher migration ([8c3e29b](https://github.com/netology-group/conference/commit/8c3e29b4ee80088d827b9d753dd00d530c0aedfc))
+- Add CACHE_ENABLED envvar check ([be8b163](https://github.com/netology-group/conference/commit/be8b163e980437c73d97dfa2e28cb2e6f8315748))
+- Subscribe to unicast requests without shared group ([4bbf30a](https://github.com/netology-group/conference/commit/4bbf30aaf4b774a85974e06d959a6f3a4a9e9620))
+- Remove deprecated time field in room.upload ([6d3b0b7](https://github.com/netology-group/conference/commit/6d3b0b7f009b3321276ed7d39c8f82d37d7aa1c2))
 
 ### Fixes
-- Fix publisher migration to another backend ([843f4f6](https://github.com/netology-group/event/commit/843f4f697f839e0dc38e43f8fe605f3cf77e7d07))
-- Fix subscribers limit check ([18b334e](https://github.com/netology-group/event/commit/18b334e278f6a061c156447c00cf8bff15026a02))
-- Fix capacity edge case ([0bb614a](https://github.com/netology-group/event/commit/0bb614aa603809b1af7f7c42787e3157f8020295))
-- Fix vacuum with multiple backends ([e6a577a](https://github.com/netology-group/event/commit/e6a577a89f4bca944cdf53df8dd0f7844ed9342b))
-- Fix connected status toggle & agents count ([e971df1](https://github.com/netology-group/event/commit/e971df197d3168244b7f5db023c875bb6a505f14))
+- Fix publisher migration to another backend ([843f4f6](https://github.com/netology-group/conference/commit/843f4f697f839e0dc38e43f8fe605f3cf77e7d07))
+- Fix subscribers limit check ([18b334e](https://github.com/netology-group/conference/commit/18b334e278f6a061c156447c00cf8bff15026a02))
+- Fix capacity edge case ([0bb614a](https://github.com/netology-group/conference/commit/0bb614aa603809b1af7f7c42787e3157f8020295))
+- Fix vacuum with multiple backends ([e6a577a](https://github.com/netology-group/conference/commit/e6a577a89f4bca944cdf53df8dd0f7844ed9342b))
+- Fix connected status toggle & agents count ([e971df1](https://github.com/netology-group/conference/commit/e971df197d3168244b7f5db023c875bb6a505f14))
 
 
 ## v0.4.1 (July 30, 2020)
 
 ### Changes
-- Added unix signals handlers ([61a020b](https://github.com/netology-group/event/commit/61a020bd38a46487a7f7b6e00c7276e7c8717fe6))
-- Svc agent update ([b5ff057](https://github.com/netology-group/event/commit/b5ff057344920729fb18fbb90f10eee1c9112888))
+- Added unix signals handlers ([61a020b](https://github.com/netology-group/conference/commit/61a020bd38a46487a7f7b6e00c7276e7c8717fe6))
+- Svc agent update ([b5ff057](https://github.com/netology-group/conference/commit/b5ff057344920729fb18fbb90f10eee1c9112888))
 
 ## v0.4.0 (July 15, 2020)
 
