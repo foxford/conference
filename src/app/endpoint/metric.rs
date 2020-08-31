@@ -21,36 +21,57 @@ fn default_duration() -> u64 {
     5
 }
 
-#[derive(Serialize, Debug)]
-pub(crate) struct MetricValue {
-    value: u64,
+#[derive(Serialize, Debug, Copy, Clone)]
+pub(crate) struct MetricValue<T: serde::Serialize> {
+    value: T,
     #[serde(with = "ts_seconds")]
     timestamp: DateTime<Utc>,
 }
 
-#[derive(Serialize, Debug)]
+impl<T: serde::Serialize> MetricValue<T> {
+    fn new(value: T, timestamp: DateTime<Utc>) -> Self {
+        Self { value, timestamp }
+    }
+}
+#[derive(Serialize, Debug, Copy, Clone)]
 #[serde(tag = "metric")]
 pub(crate) enum Metric {
     #[serde(rename(serialize = "apps.conference.incoming_requests_total"))]
-    IncomingQueueRequests(MetricValue),
+    IncomingQueueRequests(MetricValue<u64>),
     #[serde(rename(serialize = "apps.conference.incoming_responses_total"))]
-    IncomingQueueResponses(MetricValue),
+    IncomingQueueResponses(MetricValue<u64>),
     #[serde(rename(serialize = "apps.conference.incoming_events_total"))]
-    IncomingQueueEvents(MetricValue),
+    IncomingQueueEvents(MetricValue<u64>),
     #[serde(rename(serialize = "apps.conference.outgoing_requests_total"))]
-    OutgoingQueueRequests(MetricValue),
+    OutgoingQueueRequests(MetricValue<u64>),
     #[serde(rename(serialize = "apps.conference.outgoing_responses_total"))]
-    OutgoingQueueResponses(MetricValue),
+    OutgoingQueueResponses(MetricValue<u64>),
     #[serde(rename(serialize = "apps.conference.outgoing_events_total"))]
-    OutgoingQueueEvents(MetricValue),
+    OutgoingQueueEvents(MetricValue<u64>),
     #[serde(rename(serialize = "apps.conference.db_connections_total"))]
-    DbConnections(MetricValue),
+    DbConnections(MetricValue<u64>),
     #[serde(rename(serialize = "apps.conference.idle_db_connections_total"))]
-    IdleDbConnections(MetricValue),
+    IdleDbConnections(MetricValue<u64>),
     #[serde(rename(serialize = "apps.conference.redis_connections_total"))]
-    RedisConnections(MetricValue),
+    RedisConnections(MetricValue<u64>),
     #[serde(rename(serialize = "apps.conference.idle_redis_connections_total"))]
-    IdleRedisConnections(MetricValue),
+    IdleRedisConnections(MetricValue<u64>),
+    #[serde(rename(serialize = "apps.event.db_pool_checkin_average_total"))]
+    DbPoolCheckinAverage(MetricValue<f64>),
+    #[serde(rename(serialize = "apps.event.max_db_pool_checkin_total"))]
+    MaxDbPoolCheckin(MetricValue<u128>),
+    #[serde(rename(serialize = "apps.event.db_pool_checkout_average_total"))]
+    DbPoolCheckoutAverage(MetricValue<f64>),
+    #[serde(rename(serialize = "apps.event.max_db_pool_checkout_total"))]
+    MaxDbPoolCheckout(MetricValue<u128>),
+    #[serde(rename(serialize = "apps.event.db_pool_release_average_total"))]
+    DbPoolReleaseAverage(MetricValue<f64>),
+    #[serde(rename(serialize = "apps.event.max_db_pool_release_total"))]
+    MaxDbPoolRelease(MetricValue<u128>),
+    #[serde(rename(serialize = "apps.event.db_pool_timeout_average_total"))]
+    DbPoolTimeoutAverage(MetricValue<f64>),
+    #[serde(rename(serialize = "apps.event.max_db_pool_timeout_total"))]
+    MaxDbPoolTimeout(MetricValue<u128>),
 }
 
 pub(crate) struct PullHandler;
@@ -130,6 +151,8 @@ impl EventHandler for PullHandler {
                     }));
                 }
 
+                append_db_pool_stats(&mut metrics, context, now);
+
                 let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
                 let props = evp.to_event("metric.create", short_term_timing);
                 let outgoing_event = OutgoingEvent::multicast(metrics, props, account_id);
@@ -140,5 +163,24 @@ impl EventHandler for PullHandler {
 
             _ => Ok(Box::new(stream::empty())),
         }
+    }
+}
+
+fn append_db_pool_stats(metrics: &mut Vec<Metric>, context: &dyn Context, now: DateTime<Utc>) {
+    if let Some(db_pool_stats) = context.db_pool_stats() {
+        let stats = db_pool_stats.get_stats();
+
+        let m = [
+            Metric::DbPoolCheckinAverage(MetricValue::new(stats.avg_checkin, now)),
+            Metric::MaxDbPoolCheckin(MetricValue::new(stats.max_checkin, now)),
+            Metric::DbPoolCheckoutAverage(MetricValue::new(stats.avg_checkout, now)),
+            Metric::MaxDbPoolCheckout(MetricValue::new(stats.max_checkout, now)),
+            Metric::DbPoolTimeoutAverage(MetricValue::new(stats.avg_timeout, now)),
+            Metric::MaxDbPoolTimeout(MetricValue::new(stats.max_timeout, now)),
+            Metric::DbPoolReleaseAverage(MetricValue::new(stats.avg_release, now)),
+            Metric::MaxDbPoolRelease(MetricValue::new(stats.max_release, now)),
+        ];
+
+        metrics.extend_from_slice(&m);
     }
 }

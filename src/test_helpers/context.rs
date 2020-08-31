@@ -4,6 +4,7 @@ use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
 use crate::app::context::{Context, JanusTopics};
+use crate::app::metrics::StatsCollector;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
 
@@ -89,6 +90,10 @@ impl Context for TestContext {
     }
 
     fn redis_pool(&self) -> &Option<RedisConnectionPool> {
+        &None
+    }
+
+    fn db_pool_stats(&self) -> &Option<StatsCollector> {
         &None
     }
 }
