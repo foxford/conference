@@ -21,7 +21,7 @@ use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPoo
 use svc_error::{extension::sentry, Error as SvcError};
 
 use crate::app::context::Context;
-use crate::app::metrics::StatsCollector;
+use crate::app::metrics::DbPoolStatsCollector;
 use crate::config::{self, Config, KruonisConfig};
 use crate::db::ConnectionPool;
 use context::{AppContext, JanusTopics};
@@ -35,7 +35,7 @@ pub(crate) async fn run(
     db: &ConnectionPool,
     redis_pool: Option<RedisConnectionPool>,
     authz_cache: Option<AuthzCache>,
-    db_pool_stats: StatsCollector,
+    db_pool_stats: DbPoolStatsCollector,
 ) -> Result<()> {
     // Config
     let config = config::load().expect("Failed to load config");

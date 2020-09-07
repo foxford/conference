@@ -4,7 +4,7 @@ use diesel::r2d2::{ConnectionManager, Pool};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::app::metrics::StatsCollector;
+use crate::app::metrics::DbPoolStatsCollector;
 
 pub(crate) type ConnectionPool = Arc<Pool<ConnectionManager<PgConnection>>>;
 
@@ -14,9 +14,9 @@ pub(crate) fn create_pool(
     idle_size: Option<u32>,
     timeout: u64,
     enable_stats: bool,
-) -> (ConnectionPool, StatsCollector) {
+) -> (ConnectionPool, DbPoolStatsCollector) {
     let manager = ConnectionManager::<PgConnection>::new(url);
-    let (collector, transmitter) = StatsCollector::new();
+    let (collector, transmitter) = DbPoolStatsCollector::new();
 
     let builder = Pool::builder()
         .max_size(size)

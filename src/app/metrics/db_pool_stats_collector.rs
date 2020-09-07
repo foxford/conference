@@ -96,11 +96,11 @@ pub struct Stats {
 }
 
 #[derive(Debug, Clone)]
-pub struct StatsCollector {
+pub struct DbPoolStatsCollector {
     inner: Arc<Mutex<Inner>>,
 }
 
-impl StatsCollector {
+impl DbPoolStatsCollector {
     pub fn new() -> (Self, StatsTransmitter) {
         let inner: Arc<Mutex<Inner>> = Default::default();
         let collector = Self {
