@@ -33,7 +33,7 @@ impl<T: serde::Serialize> MetricValue<T> {
         Self { value, timestamp }
     }
 }
-#[derive(Serialize, Debug, Copy, Clone)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(tag = "metric")]
 pub(crate) enum Metric {
     #[serde(rename(serialize = "apps.conference.incoming_requests_total"))]
@@ -72,6 +72,11 @@ pub(crate) enum Metric {
     DbPoolTimeoutAverage(MetricValue<f64>),
     #[serde(rename(serialize = "apps.conference.max_db_pool_timeout_total"))]
     MaxDbPoolTimeout(MetricValue<u128>),
+    #[serde(serialize_with = "serialize_dynamic_metric")]
+    Dynamic {
+        key: String,
+        value: MetricValue<u64>,
+    },
 }
 
 pub(crate) struct PullHandler;
@@ -153,6 +158,10 @@ impl EventHandler for PullHandler {
 
                 append_db_pool_stats(&mut metrics, context, now);
 
+                append_dynamic_stats(&mut metrics, context, now)
+                    .map_err(|err| err.to_string())
+                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+
                 let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
                 let props = evp.to_event("metric.create", short_term_timing);
                 let outgoing_event = OutgoingEvent::multicast(metrics, props, account_id);
@@ -183,4 +192,39 @@ fn append_db_pool_stats(metrics: &mut Vec<Metric>, context: &dyn Context, now: D
 
         metrics.extend_from_slice(&m);
     }
+}
+
+fn append_dynamic_stats(
+    metrics: &mut Vec<Metric>,
+    context: &dyn Context,
+    now: DateTime<Utc>,
+) -> anyhow::Result<()> {
+    if let Some(dynamic_stats) = context.dynamic_stats() {
+        for (key, value) in dynamic_stats.flush()? {
+            metrics.push(Metric::Dynamic {
+                key,
+                value: MetricValue::new(value as u64, now),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+pub(crate) fn serialize_dynamic_metric<K, V, S>(
+    key: K,
+    value: V,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    K: std::fmt::Display,
+    V: serde::Serialize,
+    S: serde::ser::Serializer,
+{
+    use serde::ser::SerializeMap;
+
+    let mut map = serializer.serialize_map(Some(2))?;
+    map.serialize_entry("metric", &format!("app.conference.{}_total", key))?;
+    map.serialize_entry("value", &value)?;
+    map.end()
 }

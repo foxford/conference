@@ -85,6 +85,7 @@ impl RequestHandler for UnicastHandler {
 pub(crate) struct BroadcastRequest {
     room_id: Uuid,
     data: JsonValue,
+    label: Option<String>,
 }
 
 pub(crate) struct BroadcastHandler;
@@ -106,6 +107,12 @@ impl RequestHandler for BroadcastHandler {
             check_room_presence(&room, &reqp.as_agent_id(), &conn)?;
             room
         };
+
+        if let Some(stats) = context.dynamic_stats() {
+            if let Some(label) = payload.label {
+                stats.collect(&format!("message_broadcast_{}", label), 1);
+            }
+        }
 
         // Respond and broadcast to the room topic.
         let response =
@@ -400,6 +407,7 @@ mod test {
                 let payload = BroadcastRequest {
                     room_id: room.id(),
                     data: json!({ "key": "value" }),
+                    label: None,
                 };
 
                 let messages = handle_request::<BroadcastHandler>(&context, &sender, payload)
@@ -435,6 +443,7 @@ mod test {
                 let payload = BroadcastRequest {
                     room_id: Uuid::new_v4(),
                     data: json!({ "key": "value" }),
+                    label: None,
                 };
 
                 let err = handle_request::<BroadcastHandler>(&context, &sender, payload)
@@ -464,6 +473,7 @@ mod test {
                 let payload = BroadcastRequest {
                     room_id: room.id(),
                     data: json!({ "key": "value" }),
+                    label: None,
                 };
 
                 let err = handle_request::<BroadcastHandler>(&context, &sender, payload)

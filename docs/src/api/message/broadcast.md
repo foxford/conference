@@ -18,6 +18,7 @@ Name              | Type       | Default    | Description
 ----------------- | ---------- | ---------- | ------------------
 room_id           | Uuid       | _required_ | A destination room identifier. The room must be opened.
 data              | JsonObject | _required_ | JSON object.
+label             | String     | _optional_ | A label to group messages by in metrics.
 
 
 
