@@ -114,6 +114,37 @@ impl<'a> ListQuery<'a> {
     }
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct CountQuery {
+    status: Option<Status>,
+}
+
+impl CountQuery {
+    pub(crate) fn new() -> Self {
+        Self { status: None }
+    }
+
+    pub(crate) fn status(self, status: Status) -> Self {
+        Self {
+            status: Some(status),
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
+        use diesel::dsl::count;
+        use diesel::prelude::*;
+
+        let mut query = agent::table.select(count(agent::id)).into_boxed();
+
+        if let Some(status) = self.status {
+            query = query.filter(agent::status.eq(status));
+        }
+
+        query.get_result(conn)
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Insertable)]

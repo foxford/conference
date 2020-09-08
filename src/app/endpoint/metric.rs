@@ -10,6 +10,7 @@ use svc_agent::mqtt::{
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::config::TelemetryConfig;
+use crate::db;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct PullPayload {
@@ -72,6 +73,12 @@ pub(crate) enum Metric {
     DbPoolTimeoutAverage(MetricValue<f64>),
     #[serde(rename(serialize = "apps.conference.max_db_pool_timeout_total"))]
     MaxDbPoolTimeout(MetricValue<u128>),
+    #[serde(rename(serialize = "apps.conference.online_janus_backends_total"))]
+    OnlineJanusBackendsCount(MetricValue<u64>),
+    #[serde(rename(serialize = "apps.conference.janus_backends_capacity_total"))]
+    JanusBackendTotalCapacity(MetricValue<u64>),
+    #[serde(rename(serialize = "apps.conference.connected_agents_total"))]
+    ConnectedAgentsCount(MetricValue<u64>),
     #[serde(serialize_with = "serialize_dynamic_metric")]
     Dynamic {
         key: String,
@@ -162,6 +169,10 @@ impl EventHandler for PullHandler {
                     .map_err(|err| err.to_string())
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
+                append_janus_stats(&mut metrics, context, now)
+                    .map_err(|err| err.to_string())
+                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+
                 let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
                 let props = evp.to_event("metric.create", short_term_timing);
                 let outgoing_event = OutgoingEvent::multicast(metrics, props, account_id);
@@ -211,7 +222,7 @@ fn append_dynamic_stats(
     Ok(())
 }
 
-pub(crate) fn serialize_dynamic_metric<K, V, S>(
+fn serialize_dynamic_metric<K, V, S>(
     key: K,
     value: V,
     serializer: S,
@@ -227,4 +238,39 @@ where
     map.serialize_entry("metric", &format!("app.conference.{}_total", key))?;
     map.serialize_entry("value", &value)?;
     map.end()
+}
+
+fn append_janus_stats(
+    metrics: &mut Vec<Metric>,
+    context: &dyn Context,
+    now: DateTime<Utc>,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+
+    let conn = context.db().get()?;
+
+    // The number of online janus backends.
+    let online_backends_count =
+        db::janus_backend::count(&conn).context("Failed to get janus backends count")?;
+
+    let value = MetricValue::new(online_backends_count as u64, now);
+    metrics.push(Metric::OnlineJanusBackendsCount(value));
+
+    // Total capacity of online janus backends.
+    let total_capacity = db::janus_backend::total_capacity(&conn)
+        .context("Failed to get janus backends total capacity")?;
+
+    let value = MetricValue::new(total_capacity as u64, now);
+    metrics.push(Metric::JanusBackendTotalCapacity(value));
+
+    // The number of agents connect to an RTC.
+    let connected_agents_count = db::agent::CountQuery::new()
+        .status(db::agent::Status::Connected)
+        .execute(&conn)
+        .context("Failed to get connected agents count")?;
+
+    let value = MetricValue::new(connected_agents_count as u64, now);
+    metrics.push(Metric::ConnectedAgentsCount(value));
+
+    Ok(())
 }
