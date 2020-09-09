@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.5 (September 9, 2020)
+
+### Features
+- Updated svc agent, allows to tune threads configuration in tokio and async_std runtimes
+- Added label metrics for message.broadcast
+- Added janus and connected agents metrics
+
 ## v0.5.4 (August 31, 2020)
 
 ### Features
