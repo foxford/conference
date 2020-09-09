@@ -319,3 +319,24 @@ pub(crate) fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Er
         .get_result::<FreeCapacityQueryRow>(conn)
         .map(|row| row.free_capacity)
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) fn count(conn: &PgConnection) -> Result<i64, Error> {
+    use diesel::dsl::sum;
+    use diesel::prelude::*;
+
+    janus_backend::table
+        .select(sum(janus_backend::capacity))
+        .get_result::<Option<i64>>(conn)
+        .map(|v| v.unwrap_or(0))
+}
+
+pub(crate) fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
+    use diesel::dsl::count;
+    use diesel::prelude::*;
+
+    janus_backend::table
+        .select(count(janus_backend::id))
+        .get_result(conn)
+}
