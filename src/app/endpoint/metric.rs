@@ -224,7 +224,7 @@ fn append_dynamic_stats(
 
 fn serialize_dynamic_metric<K, V, S>(
     key: K,
-    value: V,
+    metric_value: &MetricValue<V>,
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error>
 where
@@ -234,9 +234,10 @@ where
 {
     use serde::ser::SerializeMap;
 
-    let mut map = serializer.serialize_map(Some(2))?;
-    map.serialize_entry("metric", &format!("app.conference.{}_total", key))?;
-    map.serialize_entry("value", &value)?;
+    let mut map = serializer.serialize_map(Some(3))?;
+    map.serialize_entry("metric", &format!("apps.conference.{}_total", key))?;
+    map.serialize_entry("value", &metric_value.value)?;
+    map.serialize_entry("timestamp", &metric_value.timestamp)?;
     map.end()
 }
 
@@ -273,4 +274,33 @@ fn append_janus_stats(
     metrics.push(Metric::ConnectedAgentsCount(value));
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Deserialize)]
+    struct DynamicMetric {
+        metric: String,
+        value: u64,
+        timestamp: DateTime<Utc>,
+    }
+
+    #[test]
+    fn serialize_dynamic_metric() {
+        let now = Utc::now();
+
+        let json = serde_json::json!(Metric::Dynamic {
+            key: String::from("example"),
+            value: MetricValue::new(123, now),
+        });
+
+        let parsed: DynamicMetric = serde_json::from_str(&json.to_string())
+            .expect("Failed to parse json");
+
+        assert_eq!(&parsed.metric, "apps.conference.example_total");
+        assert_eq!(parsed.value, 123);
+        assert_eq!(parsed.timestamp, now);
+    }
 }
