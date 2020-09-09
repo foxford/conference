@@ -1,11 +1,18 @@
 # Changelog
 
+## v0.5.6 (September 9, 2020)
+
+### Fixes
+- Fix dynamic metrics serialization ([5aca16c](https://github.com/netology-group/conference/commit/5aca16c3718ccdefbb9836cfc8ea7d63f4a7dfdb))
+
+
 ## v0.5.5 (September 9, 2020)
 
 ### Features
-- Updated svc agent, allows to tune threads configuration in tokio and async_std runtimes
-- Added label metrics for message.broadcast
-- Added janus and connected agents metrics
+- Updated svc agent, allows to tune threads configuration in tokio and async_std runtimes ([f890119](https://github.com/netology-group/conference/commit/f8901198f348845afe6e6978ed306fbdc08c9e0c))
+- Added label metrics for message.broadcast ([9218acc](https://github.com/netology-group/conference/commit/9218accf25abbafc4952211ea7a4e5befe9982f6))
+- Added janus and connected agents metrics ([dee2d34](https://github.com/netology-group/conference/commit/dee2d34cf0a52d2da5c7cdc0c5dd80e4e0af65b0))
+
 
 ## v0.5.4 (August 31, 2020)
 
