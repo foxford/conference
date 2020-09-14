@@ -9,12 +9,6 @@ use crate::schema::rtc;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type AllColumns = (rtc::id, rtc::room_id, rtc::created_at);
-
-pub(crate) const ALL_COLUMNS: AllColumns = (rtc::id, rtc::room_id, rtc::created_at);
-
-////////////////////////////////////////////////////////////////////////////////
-
 #[derive(
     Clone, Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations,
 )]

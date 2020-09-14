@@ -4,10 +4,30 @@ use std::ops::Bound;
 use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
 use serde_derive::{Deserialize, Serialize};
+use svc_agent::AgentId;
 use uuid::Uuid;
 
+use super::janus_backend::Object as JanusBackend;
 use super::rtc::Object as Rtc;
 use crate::schema::recording;
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) type AllColumns = (
+    recording::rtc_id,
+    recording::started_at,
+    recording::segments,
+    recording::status,
+    recording::backend_id,
+);
+
+pub(crate) const ALL_COLUMNS: AllColumns = (
+    recording::rtc_id,
+    recording::started_at,
+    recording::segments,
+    recording::status,
+    recording::backend_id,
+);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -35,6 +55,7 @@ impl fmt::Display for Status {
 
 #[derive(Debug, Serialize, Identifiable, Associations, Queryable)]
 #[belongs_to(Rtc, foreign_key = "rtc_id")]
+#[belongs_to(JanusBackend, foreign_key = "backend_id")]
 #[primary_key(rtc_id)]
 #[table_name = "recording"]
 pub(crate) struct Object {
@@ -43,6 +64,7 @@ pub(crate) struct Object {
     started_at: Option<DateTime<Utc>>,
     segments: Option<Vec<Segment>>,
     status: Status,
+    backend_id: AgentId,
 }
 
 impl Object {
@@ -67,13 +89,14 @@ impl Object {
 
 #[derive(Debug, Insertable)]
 #[table_name = "recording"]
-pub(crate) struct InsertQuery {
+pub(crate) struct InsertQuery<'a> {
     rtc_id: Uuid,
+    backend_id: &'a AgentId,
 }
 
-impl InsertQuery {
-    pub(crate) fn new(rtc_id: Uuid) -> Self {
-        Self { rtc_id }
+impl<'a> InsertQuery<'a> {
+    pub(crate) fn new(rtc_id: Uuid, backend_id: &'a AgentId) -> Self {
+        Self { rtc_id, backend_id }
     }
 
     pub(crate) fn execute(self, conn: &PgConnection) -> Result<Object, Error> {
