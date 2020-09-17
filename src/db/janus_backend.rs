@@ -6,14 +6,15 @@ use uuid::Uuid;
 
 use crate::schema::janus_backend;
 
-type AllColumns = (
+pub(crate) type AllColumns = (
     janus_backend::id,
     janus_backend::handle_id,
     janus_backend::session_id,
     janus_backend::created_at,
     janus_backend::capacity,
 );
-pub const ALL_COLUMNS: AllColumns = (
+
+pub(crate) const ALL_COLUMNS: AllColumns = (
     janus_backend::id,
     janus_backend::handle_id,
     janus_backend::session_id,

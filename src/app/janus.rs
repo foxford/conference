@@ -946,7 +946,7 @@ async fn handle_response_impl<C: Context>(
                                         .collect())
                                 })?;
 
-                            let (room, rtcs, recs) = {
+                            let (room, rtcs, recs): (room::Object, Vec<rtc::Object>, Vec<recording::Object>) = {
                                 let conn = context.db().get()?;
 
                                 recording::UpdateQuery::new(rtc_id)
@@ -980,52 +980,40 @@ async fn handle_response_impl<C: Context>(
                                 // TODO: move to db module
                                 use diesel::prelude::*;
                                 let rtcs = rtc::Object::belonging_to(&room).load(&conn)?;
-                                let recs = recording::Object::belonging_to(&rtcs).load(&conn)?.grouped_by(&rtcs);
+                                let recs = recording::Object::belonging_to(&rtcs).load(&conn)?;
 
                                 (room, rtcs, recs)
                             };
 
-                            let maybe_rtcs_and_recordings: Option<Vec<(rtc::Object, recording::Object)>> = rtcs
-                                .into_iter()
-                                .zip(recs)
-                                .map(|(rtc, rtc_recs)| {
-                                    if rtc_recs.len() > 1 {
-                                        warn!(
-                                            "there must be at most 1 recording for an rtc, got {} for the room = '{}', rtc = '{}'; using the first one, ignoring the rest",
-                                            rtc_recs.len(),
-                                            room.id(),
-                                            rtc.id(),
-                                        );
-                                    }
+                            // Ensure that all rtcs have a recording.
+                            let rtc_ids_with_recs = recs
+                                .iter()
+                                .map(|rec| rec.rtc_id())
+                                .collect::<Vec<Uuid>>();
 
-                                    rtc_recs.into_iter().next().map(|rec| (rtc, rec))
-                                })
-                                .collect();
-
-                            match maybe_rtcs_and_recordings {
-                                Some(rtcs_and_recordings) => {
-                                    let event = endpoint::system::upload_event(
-                                        &room,
-                                        rtcs_and_recordings.into_iter(),
-                                        start_timestamp,
-                                        respp.tracking(),
-                                    )
-                                    .map_err(|e| format!("error creating a system event, {}", e))
-                                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
-
-                                    let event_box = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
-                                    Ok(Box::new(stream::once(event_box)) as MessageStream)
-                                }
-                                None => {
-                                    // Waiting for all the room's rtc being uploaded
+                            for rtc in rtcs {
+                                if !rtc_ids_with_recs.contains(&rtc.id()) {
                                     info!(
                                         "postpone 'room.upload' event because still waiting for rtcs being uploaded for the room = '{}'",
                                         room.id(),
                                     );
 
-                                    Ok(Box::new(stream::empty()) as MessageStream)
+                                    return Ok(Box::new(stream::empty()) as MessageStream);
                                 }
                             }
+
+                            // Send room.upload event.
+                            let event = endpoint::system::upload_event(
+                                &room,
+                                recs.into_iter(),
+                                start_timestamp,
+                                respp.tracking(),
+                            )
+                            .map_err(|e| format!("error creating a system event, {}", e))
+                            .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+
+                            let event_box = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
+                            Ok(Box::new(stream::once(event_box)) as MessageStream)
                         })
                 }
                 // An unsupported incoming Event message has been received

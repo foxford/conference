@@ -8,6 +8,8 @@ use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::db::janus_backend::Object as JanusBackend;
+use crate::db::recording::{Object as Recording, Status as RecordingStatus};
 use crate::schema::{room, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -184,40 +186,29 @@ impl FindQuery {
 // room1 | rtc2 | recording1  -> room1 | rtc2 | recording1
 // room2 | rtc3 | recording2     room2 | rtc3 | recording2
 // room3 | rtc4 | null           room3 | null | null
-pub(crate) fn finished_without_recordings(
+pub(crate) fn finished_with_in_progress_recordings(
     conn: &PgConnection,
-) -> Result<
-    Vec<(
-        self::Object,
-        super::rtc::Object,
-        super::janus_backend::Object,
-    )>,
-    Error,
-> {
+) -> Result<Vec<(Object, Recording, JanusBackend)>, Error> {
     use crate::schema;
     use diesel::{dsl::sql, prelude::*};
 
     schema::room::table
         .inner_join(
-            schema::rtc::table
-                .left_join(schema::recording::table)
-                .left_join(
-                    schema::janus_rtc_stream::table
-                        .inner_join(schema::janus_backend::table.on(
-                            schema::janus_backend::id.eq(schema::janus_rtc_stream::backend_id),
-                        )),
+            schema::rtc::table.inner_join(
+                schema::recording::table.inner_join(
+                    schema::janus_backend::table
+                        .on(schema::janus_backend::id.eq(schema::recording::backend_id)),
                 ),
+            ),
         )
-        .filter(room::backend.ne(RoomBackend::None))
-        .filter(schema::recording::rtc_id.is_null())
+        .filter(room::backend.eq(RoomBackend::Janus))
         .filter(sql("upper(\"room\".\"time\") < now()"))
-        .filter(schema::janus_backend::id.is_not_null())
+        .filter(schema::recording::status.eq(RecordingStatus::InProgress))
         .select((
             self::ALL_COLUMNS,
-            super::rtc::ALL_COLUMNS,
+            super::recording::ALL_COLUMNS,
             super::janus_backend::ALL_COLUMNS,
         ))
-        .distinct_on(room::id)
         .load(conn)
 }
 
@@ -330,7 +321,7 @@ impl UpdateQuery {
 
 #[cfg(test)]
 mod tests {
-    mod finished_without_recordings {
+    mod finished_with_in_progress_recordings {
         use super::super::*;
         use crate::test_helpers::prelude::*;
 
@@ -356,15 +347,14 @@ mod tests {
             let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
             let _rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
 
-            shared_helpers::insert_janus_rtc_stream(&conn, &backend1, &rtc1);
-            // we insert two rtc_streams to simulate stream stop & start
-            // this should not affect number of returned rooms (there was a bug when it did)
-            shared_helpers::insert_janus_rtc_stream(&conn, &backend2, &rtc2);
-            shared_helpers::insert_janus_rtc_stream(&conn, &backend2, &rtc2);
+            shared_helpers::insert_recording(&conn, &rtc1, &backend1);
+            shared_helpers::insert_recording(&conn, &rtc2, &backend2);
 
-            let rooms = finished_without_recordings(&conn)
-                .expect("finished_without_recordings call failed");
+            let rooms = finished_with_in_progress_recordings(&conn)
+                .expect("finished_with_in_progress_recordings call failed");
+
             assert_eq!(rooms.len(), 2);
+
             // order of rooms is not specified so we check that its [(room1, _, backend1), (room2, _, backend2)] in any order
             if rooms[0].0.id() == room1.id() {
                 assert_eq!(rooms[0].0.id(), room1.id());

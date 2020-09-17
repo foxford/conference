@@ -199,3 +199,32 @@ fn append_janus_stats(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Deserialize)]
+    struct DynamicMetric {
+        metric: String,
+        value: u64,
+        timestamp: DateTime<Utc>,
+    }
+
+    #[test]
+    fn serialize_dynamic_metric() {
+        let now = Utc::now();
+
+        let json = serde_json::json!(Metric::Dynamic {
+            key: String::from("example"),
+            value: MetricValue::new(123, now),
+        });
+
+        let parsed: DynamicMetric =
+            serde_json::from_str(&json.to_string()).expect("Failed to parse json");
+
+        assert_eq!(&parsed.metric, "apps.conference.example_total");
+        assert_eq!(parsed.value, 123);
+        assert_eq!(parsed.timestamp, now);
+    }
+}

@@ -262,3 +262,59 @@ impl<'a> JanusRtcStream<'a> {
         .expect("Failed to insert janus_rtc_stream")
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct Recording<'a> {
+    rtc: Option<&'a db::rtc::Object>,
+    backend: Option<&'a db::janus_backend::Object>,
+}
+
+impl<'a> Recording<'a> {
+    pub(crate) fn new() -> Self {
+        Self {
+            rtc: None,
+            backend: None,
+        }
+    }
+
+    pub(crate) fn rtc(self, rtc: &'a db::rtc::Object) -> Self {
+        Self {
+            rtc: Some(rtc),
+            ..self
+        }
+    }
+
+    pub(crate) fn backend(self, backend: &'a db::janus_backend::Object) -> Self {
+        Self {
+            backend: Some(backend),
+            ..self
+        }
+    }
+
+    pub(crate) fn insert(&self, conn: &PgConnection) -> db::recording::Object {
+        let default_rtc;
+
+        let rtc = match self.rtc {
+            Some(value) => value,
+            None => {
+                default_rtc = insert_rtc(conn);
+                &default_rtc
+            }
+        };
+
+        let default_backend;
+
+        let backend = match self.backend {
+            Some(value) => value,
+            None => {
+                default_backend = insert_janus_backend(conn);
+                &default_backend
+            }
+        };
+
+        db::recording::InsertQuery::new(rtc.id(), backend.id())
+            .execute(conn)
+            .expect("Failed to insert recording")
+    }
+}

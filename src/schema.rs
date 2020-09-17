@@ -61,6 +61,7 @@ table! {
         started_at -> Nullable<Timestamptz>,
         segments -> Nullable<Array<Int8range>>,
         status -> Recording_status,
+        backend_id -> Agent_id,
     }
 }
 
@@ -91,6 +92,7 @@ table! {
 
 joinable!(agent -> room (room_id));
 joinable!(agent_stream -> agent (sent_by));
+joinable!(janus_rtc_stream -> janus_backend (backend_id));
 joinable!(janus_rtc_stream -> rtc (rtc_id));
 joinable!(recording -> rtc (rtc_id));
 joinable!(rtc -> room (room_id));

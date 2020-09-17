@@ -74,14 +74,12 @@ impl RequestHandler for VacuumHandler {
 
         let mut requests = Vec::new();
         let conn = context.db().get()?;
-        let rooms = db::room::finished_without_recordings(&conn)?;
+        let rooms = db::room::finished_with_in_progress_recordings(&conn)?;
 
-        for (room, rtc, backend) in rooms.into_iter() {
+        for (room, recording, backend) in rooms.into_iter() {
             db::agent::DeleteQuery::new()
                 .room_id(room.id())
                 .execute(&conn)?;
-
-            db::recording::InsertQuery::new(rtc.id()).execute(&conn)?;
 
             // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
             let backreq = janus::upload_stream_request(
@@ -89,9 +87,9 @@ impl RequestHandler for VacuumHandler {
                 backend.session_id(),
                 backend.handle_id(),
                 janus::UploadStreamRequestBody::new(
-                    rtc.id(),
+                    recording.rtc_id(),
                     &bucket_name(&room),
-                    &record_name(&rtc),
+                    &record_name(&recording),
                 ),
                 backend.id(),
                 context.agent_id(),
@@ -111,28 +109,30 @@ impl RequestHandler for VacuumHandler {
 
 pub(crate) fn upload_event<I>(
     room: &db::room::Object,
-    rtcs_and_recordings: I,
+    recordings: I,
     start_timestamp: DateTime<Utc>,
     tracking: &TrackingProperties,
 ) -> anyhow::Result<RoomUploadEvent>
 where
-    I: Iterator<Item = (db::rtc::Object, db::recording::Object)>,
+    I: Iterator<Item = db::recording::Object>,
 {
     let mut event_entries = Vec::new();
-    for (rtc, recording) in rtcs_and_recordings {
+    for recording in recordings {
         let uri = match recording.status() {
             RecordingStatus::InProgress => bail!(
                 "Unexpected recording in in_progress status, rtc_id = '{}'",
                 recording.rtc_id()
             ),
             RecordingStatus::Missing => None,
-            RecordingStatus::Ready => {
-                Some(format!("s3://{}/{}", bucket_name(&room), record_name(&rtc)))
-            }
+            RecordingStatus::Ready => Some(format!(
+                "s3://{}/{}",
+                bucket_name(&room),
+                record_name(&recording)
+            )),
         };
 
         let entry = RtcUploadEventData {
-            id: rtc.id(),
+            id: recording.rtc_id(),
             status: recording.status().to_owned(),
             uri,
             segments: recording.segments().to_owned(),
@@ -159,8 +159,8 @@ fn bucket_name(room: &db::room::Object) -> String {
     format!("origin.webinar.{}", room.audience())
 }
 
-fn record_name(rtc: &db::rtc::Object) -> String {
-    format!("{}.source.webm", rtc.id())
+fn record_name(recording: &db::recording::Object) -> String {
+    format!("{}.source.webm", recording.rtc_id())
 }
 
 ///////////////////////////////////////////////////////////////////////////////

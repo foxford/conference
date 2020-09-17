@@ -324,6 +324,12 @@ impl RequestHandler for ConnectHandler {
                     .status(ResponseStatus::SERVICE_UNAVAILABLE)?,
             };
 
+            // Create recording if a writer connects for the first time.
+            if payload.intent == ConnectIntent::Write && maybe_rtc_stream.is_none() {
+                db::recording::InsertQuery::new(payload.id, backend.id())
+                    .execute(&conn)?;
+            }
+
             // Check that the backend's capacity is not exceeded for readers.
             if payload.intent == ConnectIntent::Read
                 && db::janus_backend::free_capacity(payload.id, &conn)? == 0
