@@ -103,7 +103,10 @@ impl<'a> InsertQuery<'a> {
         use crate::schema::recording::dsl::recording;
         use diesel::RunQueryDsl;
 
-        diesel::insert_into(recording).values(self).get_result(conn)
+        diesel::insert_into(recording)
+            .values(self)
+            .on_conflict_do_nothing()
+            .get_result(conn)
     }
 }
 
