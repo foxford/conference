@@ -93,55 +93,6 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct FindQuery {
-    id: Option<Uuid>,
-    rtc_id: Option<Uuid>,
-}
-
-impl FindQuery {
-    pub(crate) fn new() -> Self {
-        Self {
-            id: None,
-            rtc_id: None,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn id(self, id: Uuid) -> Self {
-        Self {
-            id: Some(id),
-            ..self
-        }
-    }
-
-    pub(crate) fn rtc_id(self, rtc_id: Uuid) -> Self {
-        Self {
-            rtc_id: Some(rtc_id),
-            ..self
-        }
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        let query = match (self.id, self.rtc_id) {
-            (Some(ref id), None) => janus_rtc_stream::table.find(id.to_owned()).into_boxed(),
-            (None, Some(ref rtc_id)) => janus_rtc_stream::table
-                .filter(janus_rtc_stream::rtc_id.eq(rtc_id.to_owned()))
-                .into_boxed(),
-            _ => {
-                return Err(Error::QueryBuilderError(
-                    "id either rtc_id is required parameter of the query".into(),
-                ))
-            }
-        };
-
-        query.get_result(conn).optional()
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 const ACTIVE_SQL: &str = r#"(
     lower("janus_rtc_stream"."time") is not null
     and upper("janus_rtc_stream"."time") is null

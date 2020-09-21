@@ -223,6 +223,7 @@ mod tests {
     use std::ops::Bound;
 
     use crate::db::agent::{ListQuery as AgentListQuery, Status as AgentStatus};
+    use crate::db::janus_rtc_stream::Object as JanusRtcStream;
     use crate::test_helpers::prelude::*;
 
     use super::*;
@@ -413,6 +414,8 @@ mod tests {
     #[test]
     fn delete_subscription_for_stream_writer() {
         async_std::task::block_on(async {
+            use diesel::prelude::*;
+
             let db = TestDb::new();
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
@@ -466,13 +469,10 @@ mod tests {
                 .get()
                 .expect("Failed to get DB connection");
 
-            let db_stream = crate::db::janus_rtc_stream::FindQuery::new()
-                .id(stream.id())
-                .execute(&conn)
-                .expect("Failed to get janus rtc stream")
-                .expect("Janus rtc stream not found");
-
-            println!("{:?}", db_stream.time());
+            let db_stream: JanusRtcStream = crate::schema::janus_rtc_stream::table
+                .find(stream.id())
+                .get_result(&conn)
+                .expect("Failed to get janus rtc stream");
 
             assert!(matches!(
                 db_stream.time(),
