@@ -83,6 +83,32 @@ impl Object {
     pub(crate) fn status(&self) -> &Status {
         &self.status
     }
+
+    pub(crate) fn backend_id(&self) -> &AgentId {
+        &self.backend_id
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
+pub(crate) struct FindQuery {
+    rtc_id: Uuid,
+}
+
+impl FindQuery {
+    pub(crate) fn new(rtc_id: Uuid) -> Self {
+        Self { rtc_id }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+        use diesel::prelude::*;
+
+        recording::table
+            .find(self.rtc_id)
+            .get_result(conn)
+            .optional()
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

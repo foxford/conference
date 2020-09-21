@@ -302,20 +302,18 @@ impl RequestHandler for ConnectHandler {
             let conn = context.db().get()?;
 
             // There are 3 cases:
-            // 1. Connecting as writer with no previous stream. Select the least loaded backend
-            //    that is capable to host the room's reservation.
-            // 2. Connecting as reader with existing stream. Choose the backend of the active
-            //    stream because Janus doesn't support clustering and it must be the same server
-            //    that the stream's writer is connected to.
-            // 3. Reconnecting as writer with previous stream. Select the backend of the previous
-            //    stream to avoid partitioning the record across multiple servers.
-            let maybe_rtc_stream = db::janus_rtc_stream::FindQuery::new()
-                .rtc_id(payload.id)
-                .execute(&conn)?;
+            // 1. Connecting as writer for the first time. There's no recording in that case.
+            //    Select the least loaded backend that is capable to host the room's reservation.
+            // 2. Connecting as reader with existing recording. Choose the backend of the active
+            //    recording because Janus doesn't support clustering and it must be the same server
+            //    that the writer is connected to.
+            // 3. Reconnecting as writer with previous recording. Select the recording's backend id
+            //    to avoid partitioning of the record across multiple servers.
+            let maybe_recording = db::recording::FindQuery::new(payload.id).execute(&conn)?;
 
-            let backend = match maybe_rtc_stream {
-                Some(ref stream) => db::janus_backend::FindQuery::new()
-                    .id(stream.backend_id().to_owned())
+            let backend = match maybe_recording {
+                Some(ref recording) => db::janus_backend::FindQuery::new()
+                    .id(recording.backend_id().to_owned())
                     .execute(&conn)?
                     .ok_or("no backend found for stream")
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?,
@@ -325,9 +323,8 @@ impl RequestHandler for ConnectHandler {
             };
 
             // Create recording if a writer connects for the first time.
-            if payload.intent == ConnectIntent::Write && maybe_rtc_stream.is_none() {
-                db::recording::InsertQuery::new(payload.id, backend.id())
-                    .execute(&conn)?;
+            if payload.intent == ConnectIntent::Write && maybe_recording.is_none() {
+                db::recording::InsertQuery::new(payload.id, backend.id()).execute(&conn)?;
             }
 
             // Check that the backend's capacity is not exceeded for readers.
@@ -721,8 +718,13 @@ mod test {
                         let backend1 = shared_helpers::insert_janus_backend(&conn);
                         let backend2 = shared_helpers::insert_janus_backend(&conn);
 
-                        // The first backend has 1 active stream with 1 agent.
+                        // The first backend has a recording and an active agent.
                         let rtc1 = shared_helpers::insert_rtc(&conn);
+
+                        factory::Recording::new()
+                            .rtc(&rtc1)
+                            .backend(&backend1)
+                            .insert(&conn);
 
                         let stream1 = factory::JanusRtcStream::new(USR_AUDIENCE)
                             .rtc(&rtc1)
@@ -738,6 +740,11 @@ mod test {
                         // so it doesn't make any load on the backend and should be selected
                         // by the balancer.
                         let rtc2 = shared_helpers::insert_rtc(&conn);
+
+                        factory::Recording::new()
+                            .rtc(&rtc2)
+                            .backend(&backend2)
+                            .insert(&conn);
 
                         let _stream2 = factory::JanusRtcStream::new(USR_AUDIENCE)
                             .rtc(&rtc2)
@@ -834,6 +841,12 @@ mod test {
                             .insert(&conn);
 
                         crate::db::janus_rtc_stream::start(stream.id(), &conn).unwrap();
+
+                        factory::Recording::new()
+                            .rtc(&rtc)
+                            .backend(&backend2)
+                            .insert(&conn);
+
                         (rtc, backend2)
                     })
                     .unwrap();
@@ -919,6 +932,11 @@ mod test {
                             .insert(&conn);
 
                         crate::db::janus_rtc_stream::start(stream1.id(), &conn).unwrap();
+
+                        factory::Recording::new()
+                            .rtc(&rtc1)
+                            .backend(&backend1)
+                            .insert(&conn);
 
                         let agent = TestAgent::new("web", "user456", SVC_AUDIENCE);
                         shared_helpers::insert_agent(&conn, agent.agent_id(), rtc1.room_id());
@@ -1028,12 +1046,22 @@ mod test {
 
                         crate::db::janus_rtc_stream::start(stream1.id(), &conn).unwrap();
 
+                        factory::Recording::new()
+                            .rtc(&rtc1)
+                            .backend(&backend)
+                            .insert(&conn);
+
                         let stream2 = factory::JanusRtcStream::new(USR_AUDIENCE)
                             .backend(&backend)
                             .rtc(&rtc2)
                             .insert(&conn);
 
                         crate::db::janus_rtc_stream::start(stream2.id(), &conn).unwrap();
+
+                        factory::Recording::new()
+                            .rtc(&rtc2)
+                            .backend(&backend)
+                            .insert(&conn);
 
                         // Insert active agents.
                         shared_helpers::insert_agent(&conn, writer1.agent_id(), room1.id());
@@ -1114,10 +1142,15 @@ mod test {
                             .capacity(2)
                             .insert(&conn);
 
-                        // Insert active stream.
+                        // Insert stream and recording.
                         factory::JanusRtcStream::new(USR_AUDIENCE)
                             .backend(&backend)
                             .rtc(&rtc)
+                            .insert(&conn);
+
+                        factory::Recording::new()
+                            .rtc(&rtc)
+                            .backend(&backend)
                             .insert(&conn);
 
                         // Insert active agents.
@@ -1180,13 +1213,18 @@ mod test {
                             .capacity(2)
                             .insert(&conn);
 
-                        // Insert active stream.
+                        // Insert active stream and recording.
                         let stream = factory::JanusRtcStream::new(USR_AUDIENCE)
                             .backend(&backend)
                             .rtc(&rtc)
                             .insert(&conn);
 
                         crate::db::janus_rtc_stream::start(stream.id(), &conn).unwrap();
+
+                        factory::Recording::new()
+                            .rtc(&rtc)
+                            .backend(&backend)
+                            .insert(&conn);
 
                         // Insert active agents.
                         shared_helpers::insert_agent(&conn, writer.agent_id(), rtc.room_id());
@@ -1251,10 +1289,15 @@ mod test {
                             .capacity(1)
                             .insert(&conn);
 
-                        // Insert active stream.
+                        // Insert stream and recording.
                         factory::JanusRtcStream::new(USR_AUDIENCE)
                             .backend(&backend)
                             .rtc(&rtc)
+                            .insert(&conn);
+
+                        factory::Recording::new()
+                            .rtc(&rtc)
+                            .backend(&backend)
                             .insert(&conn);
 
                         // Insert active agents.
@@ -1347,6 +1390,11 @@ mod test {
 
                         crate::db::janus_rtc_stream::start(stream.id(), &conn).unwrap();
                         crate::db::janus_rtc_stream::stop(stream.id(), &conn).unwrap();
+
+                        factory::Recording::new()
+                            .rtc(&rtc1)
+                            .backend(&backend)
+                            .insert(&conn);
 
                         rtc2
                     })
