@@ -37,12 +37,11 @@ impl RequestHandler for ListHandler {
         let room = {
             let conn = context.db().get()?;
 
-            db::room::FindQuery::new()
-                .id(payload.room_id)
-                .time(db::room::now())
-                .execute(&conn)?
-                .ok_or_else(|| format!("the room = '{}' is not found or closed", payload.room_id))
-                .status(ResponseStatus::NOT_FOUND)?
+            let query = db::room::FindQuery::new().id(payload.room_id);
+
+            shared::find_open_room(&query, &conn, Self::ERROR_TITLE, || {
+                format!("the room = '{}' is not found", payload.room_id)
+            })?
         };
 
         // Authorize agents listing in the room.

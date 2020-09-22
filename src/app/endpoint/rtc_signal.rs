@@ -167,12 +167,10 @@ async fn authorize<C: Context>(
     let room = {
         let conn = context.db().get()?;
 
-        db::room::FindQuery::new()
-            .time(db::room::now())
-            .rtc_id(rtc_id)
-            .execute(&conn)?
-            .ok_or_else(|| format!("a room for the rtc = '{}' is not found", &rtc_id))
-            .status(ResponseStatus::NOT_FOUND)?
+        let query = db::room::FindQuery::new().rtc_id(rtc_id);
+        shared::find_open_room(&query, &conn, "Failed to create rtc", || {
+            format!("a room for the rtc = '{}' is not found", &rtc_id)
+        })?
     };
 
     if room.backend() != db::room::RoomBackend::Janus {

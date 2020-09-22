@@ -53,12 +53,10 @@ impl RequestHandler for CreateHandler {
         let room = {
             let conn = context.db().get()?;
 
-            db::room::FindQuery::new()
-                .time(db::room::now())
-                .id(payload.room_id)
-                .execute(&conn)?
-                .ok_or_else(|| format!("the room = '{}' is not found", payload.room_id))
-                .status(ResponseStatus::NOT_FOUND)?
+            let query = db::room::FindQuery::new().id(payload.room_id);
+            shared::find_open_room(&query, &conn, Self::ERROR_TITLE, || {
+                format!("the room = '{}' is not found", payload.room_id)
+            })?
         };
 
         // Authorize room creation.
@@ -120,12 +118,10 @@ impl RequestHandler for ReadHandler {
         let room = {
             let conn = context.db().get()?;
 
-            db::room::FindQuery::new()
-                .time(db::room::now())
-                .rtc_id(payload.id)
-                .execute(&conn)?
-                .ok_or_else(|| format!("a room for the rtc = '{}' is not found", payload.id))
-                .status(ResponseStatus::NOT_FOUND)?
+            let query = db::room::FindQuery::new().rtc_id(payload.id);
+            shared::find_open_room(&query, &conn, Self::ERROR_TITLE, || {
+                format!("a room for the rtc = '{}' is not found", payload.id)
+            })?
         };
 
         // Authorize rtc reading.
@@ -186,12 +182,10 @@ impl RequestHandler for ListHandler {
         let room = {
             let conn = context.db().get()?;
 
-            db::room::FindQuery::new()
-                .time(db::room::now())
-                .id(payload.room_id)
-                .execute(&conn)?
-                .ok_or_else(|| format!("the room = '{}' is not found", payload.room_id))
-                .status(ResponseStatus::NOT_FOUND)?
+            let query = db::room::FindQuery::new().id(payload.room_id);
+            shared::find_open_room(&query, &conn, Self::ERROR_TITLE, || {
+                format!("the room = '{}' is not found", payload.room_id)
+            })?
         };
 
         // Authorize rtc listing.
@@ -266,12 +260,10 @@ impl RequestHandler for ConnectHandler {
         let room = {
             let conn = context.db().get()?;
 
-            db::room::FindQuery::new()
-                .time(db::room::now())
-                .rtc_id(payload.id)
-                .execute(&conn)?
-                .ok_or_else(|| format!("a room for the rtc = '{}' is not found", payload.id))
-                .status(ResponseStatus::NOT_FOUND)?
+            let query = db::room::FindQuery::new().rtc_id(payload.id);
+            shared::find_open_room(&query, &conn, Self::ERROR_TITLE, || {
+                format!("a room for the rtc = '{}' is not found", payload.id)
+            })?
         };
 
         // Authorize connecting to the rtc.

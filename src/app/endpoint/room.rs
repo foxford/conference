@@ -128,11 +128,10 @@ impl RequestHandler for ReadHandler {
         let room = {
             let conn = context.db().get()?;
 
-            db::room::FindQuery::new()
-                .id(payload.id)
-                .execute(&conn)?
-                .ok_or_else(|| format!("Room not found, id = '{}'", payload.id))
-                .status(ResponseStatus::NOT_FOUND)?
+            let query = db::room::FindQuery::new().id(payload.id);
+            shared::find_room(&query, &conn, Self::ERROR_TITLE, || {
+                format!("the room = '{}' is not found", payload.id)
+            })?
         };
 
         // Authorize room reading on the tenant.
@@ -173,12 +172,10 @@ impl RequestHandler for UpdateHandler {
         let room = {
             let conn = context.db().get()?;
 
-            db::room::FindQuery::new()
-                .time(db::room::since_now())
-                .id(payload.id())
-                .execute(&conn)?
-                .ok_or_else(|| format!("Room not found, id = '{}' or closed", payload.id()))
-                .status(ResponseStatus::NOT_FOUND)?
+            let query = db::room::FindQuery::new().id(payload.id());
+            shared::find_open_room(&query, &conn, Self::ERROR_TITLE, || {
+                format!("the room = '{}' is not found", payload.id())
+            })?
         };
 
         // Authorize room updating on the tenant.
@@ -236,12 +233,10 @@ impl RequestHandler for DeleteHandler {
         let room = {
             let conn = context.db().get()?;
 
-            db::room::FindQuery::new()
-                .time(db::room::since_now())
-                .id(payload.id)
-                .execute(&conn)?
-                .ok_or_else(|| format!("Room not found, id = '{}' or closed", payload.id))
-                .status(ResponseStatus::NOT_FOUND)?
+            let query = db::room::FindQuery::new().id(payload.id);
+            shared::find_open_room(&query, &conn, Self::ERROR_TITLE, || {
+                format!("the room = '{}' is not found", payload.id)
+            })?
         };
 
         // Authorize room deletion on the tenant.
@@ -300,12 +295,10 @@ impl RequestHandler for EnterHandler {
             let conn = context.db().get()?;
 
             // Find opened room.
-            db::room::FindQuery::new()
-                .id(payload.id)
-                .time(db::room::now())
-                .execute(&conn)?
-                .ok_or_else(|| format!("Room not found or closed, id = '{}'", payload.id))
-                .status(ResponseStatus::NOT_FOUND)?
+            let query = db::room::FindQuery::new().id(payload.id);
+            shared::find_open_room(&query, &conn, Self::ERROR_TITLE, || {
+                format!("the room = '{}' is not found", payload.id)
+            })?
         };
 
         // Authorize subscribing to the room's events.
@@ -370,11 +363,10 @@ impl RequestHandler for LeaveHandler {
         let (room, presence) = {
             let conn = context.db().get()?;
 
-            let room = db::room::FindQuery::new()
-                .id(payload.id)
-                .execute(&conn)?
-                .ok_or_else(|| format!("Room not found, id = '{}'", payload.id))
-                .status(ResponseStatus::NOT_FOUND)?;
+            let query = db::room::FindQuery::new().id(payload.id);
+            let room = shared::find_room(&query, &conn, Self::ERROR_TITLE, || {
+                format!("the room = '{}' is not found", payload.id)
+            })?;
 
             // Check room presence.
             let presence = db::agent::ListQuery::new()

@@ -113,6 +113,14 @@ impl Object {
     pub(crate) fn reserve(&self) -> Option<i32> {
         self.reserve
     }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        match self.time.1 {
+            Bound::Included(t) => t < Utc::now(),
+            Bound::Excluded(t) => t <= Utc::now(),
+            Bound::Unbounded => false,
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

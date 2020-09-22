@@ -45,7 +45,7 @@ impl RequestHandler for UnicastHandler {
     ) -> Result {
         {
             let conn = context.db().get()?;
-            let room = find_room(payload.room_id, &conn)?;
+            let room = find_room(payload.room_id, &conn, Self::ERROR_TITLE)?;
             check_room_presence(&room, reqp.as_agent_id(), &conn)?;
             check_room_presence(&room, &payload.agent_id, &conn)?;
         }
@@ -103,7 +103,7 @@ impl RequestHandler for BroadcastHandler {
     ) -> Result {
         let room = {
             let conn = context.db().get()?;
-            let room = find_room(payload.room_id, &conn)?;
+            let room = find_room(payload.room_id, &conn, Self::ERROR_TITLE)?;
             check_room_presence(&room, &reqp.as_agent_id(), &conn)?;
             room
         };
@@ -172,13 +172,12 @@ impl ResponseHandler for CallbackHandler {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-fn find_room(id: Uuid, conn: &PgConnection) -> StdResult<Room, SvcError> {
-    db::room::FindQuery::new()
-        .time(db::room::now())
-        .id(id)
-        .execute(&conn)?
-        .ok_or_else(|| format!("the room = '{}' is not found", id))
-        .status(ResponseStatus::NOT_FOUND)
+fn find_room(id: Uuid, conn: &PgConnection, error_title: &str) -> StdResult<Room, SvcError> {
+    let query = db::room::FindQuery::new().id(id);
+
+    shared::find_open_room(&query, &conn, error_title, || {
+        format!("the room = '{}' is not found", id)
+    })
 }
 
 fn check_room_presence(
