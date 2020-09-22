@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.8 (September 22, 2020)
+
+### Changes
+- Relate recordings to backends w/o mediation of streams ([dba75e2](https://github.com/netology-group/conference/dba75e2fb0591a25713a368d9ad2044b6bead074), [d1fe7a4](https://github.com/netology-group/conference/d1fe7a41345dbaf165f436abd14f752a51643ed6), [83dcbb5](https://github.com/netology-group/conference/83dcbb5817a48d51daf23b1e30a6e728a465690b))
+
+
+## v0.5.7 (September 16, 2020)
+
+### Features
+- Add metric2 with different serialization tag ([b24105a](https://github.com/netology-group/conference/b24105aac775daee675b2103a9b81b3e89ac15ad))
+
+
 ## v0.5.6 (September 9, 2020)
 
 ### Fixes
