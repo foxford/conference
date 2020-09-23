@@ -27,6 +27,7 @@ use crate::backend::janus::{
     MessageRequest, OpaqueId, StatusEvent, TrickleRequest, JANUS_API_VERSION,
 };
 use crate::db::{agent, janus_backend, janus_rtc_stream, recording, room, rtc};
+use crate::diesel::Connection;
 use crate::util::{from_base64, generate_correlation_data, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1228,12 +1229,34 @@ async fn handle_status_event_impl<C: Context>(
     } else {
         let conn = context.db().get()?;
 
-        agent::BulkStatusUpdateQuery::new(agent::Status::Ready)
-            .backend_id(evp.as_agent_id())
-            .status(agent::Status::Connected)
-            .execute(&conn)?;
+        let streams_with_rtc = conn.transaction::<_, SvcError, _>(|| {
+            let streams_with_rtc = janus_rtc_stream::ListWithRtcQuery::new()
+                .active(true)
+                .backend_id(evp.as_agent_id())
+                .execute(&conn)?;
 
-        janus_backend::DeleteQuery::new(evp.as_agent_id()).execute(&conn)?;
-        Ok(Box::new(stream::empty()))
+            agent::BulkStatusUpdateQuery::new(agent::Status::Ready)
+                .backend_id(evp.as_agent_id())
+                .status(agent::Status::Connected)
+                .execute(&conn)?;
+
+            janus_backend::DeleteQuery::new(evp.as_agent_id()).execute(&conn)?;
+            Ok(streams_with_rtc)
+        })?;
+
+        let mut events = Vec::with_capacity(streams_with_rtc.len());
+
+        for (stream, rtc) in streams_with_rtc {
+            let event = endpoint::rtc_stream::update_event(
+                rtc.room_id(),
+                stream,
+                start_timestamp,
+                evp.tracking(),
+            )?;
+
+            events.push(Box::new(event) as Box<dyn IntoPublishableMessage + Send>);
+        }
+
+        Ok(Box::new(stream::from_iter(events)))
     }
 }
