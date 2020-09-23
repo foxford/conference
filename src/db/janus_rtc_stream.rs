@@ -7,6 +7,7 @@ use std::ops::Bound;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
+use crate::db::rtc::Object as Rtc;
 use crate::schema::{janus_rtc_stream, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -98,6 +99,7 @@ const ACTIVE_SQL: &str = r#"(
     and upper("janus_rtc_stream"."time") is null
 )"#;
 
+#[derive(Debug, Default)]
 pub(crate) struct ListQuery {
     room_id: Option<Uuid>,
     rtc_id: Option<Uuid>,
@@ -109,14 +111,7 @@ pub(crate) struct ListQuery {
 
 impl ListQuery {
     pub(crate) fn new() -> Self {
-        Self {
-            room_id: None,
-            rtc_id: None,
-            time: None,
-            active: None,
-            offset: None,
-            limit: None,
-        }
+        Self::default()
     }
 
     pub(crate) fn room_id(self, room_id: Uuid) -> Self {
@@ -195,6 +190,51 @@ impl ListQuery {
 
         q.order_by(janus_rtc_stream::created_at.desc())
             .get_results(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Default)]
+pub(crate) struct ListWithRtcQuery<'a> {
+    active: Option<bool>,
+    backend_id: Option<&'a AgentId>,
+}
+
+impl<'a> ListWithRtcQuery<'a> {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn active(self, active: bool) -> Self {
+        Self {
+            active: Some(active),
+            ..self
+        }
+    }
+
+    pub(crate) fn backend_id(self, backend_id: &'a AgentId) -> Self {
+        Self {
+            backend_id: Some(backend_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Rtc)>, Error> {
+        use diesel::dsl::sql;
+        use diesel::prelude::*;
+
+        let mut q = janus_rtc_stream::table.inner_join(rtc::table).into_boxed();
+
+        match self.active {
+            None => (),
+            Some(true) => q = q.filter(sql(ACTIVE_SQL)),
+            Some(false) => q = q.filter(sql(&format!("not {}", ACTIVE_SQL))),
+        }
+
+        q.order_by(janus_rtc_stream::id)
+            .select((self::ALL_COLUMNS, super::rtc::ALL_COLUMNS))
+            .load(conn)
     }
 }
 
