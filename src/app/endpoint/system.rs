@@ -47,6 +47,11 @@ pub(crate) type RoomUploadEvent = OutgoingMessage<RoomUploadEventData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Serialize)]
+struct ClosedRoomNotification {
+    room_id: Uuid,
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct VacuumRequest {}
 
@@ -98,6 +103,17 @@ impl RequestHandler for VacuumHandler {
                 .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
             requests.push(Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>);
+
+            // Publish room closed notification
+            let closed_notification = shared::build_notification(
+                "room.close",
+                &format!("rooms/{}/events", room.id()),
+                room,
+                reqp,
+                context.start_timestamp(),
+            );
+
+            requests.push(closed_notification);
         }
 
         Ok(Box::new(stream::from_iter(requests)))
@@ -169,11 +185,12 @@ mod test {
     mod vacuum {
         use chrono::{Duration, Utc};
         use diesel::prelude::*;
+        use serde_json::Value as JsonValue;
 
         use crate::backend::janus::JANUS_API_VERSION;
         use crate::db;
-        use crate::test_helpers::outgoing_envelope::OutgoingEnvelopeProperties;
         use crate::test_helpers::prelude::*;
+        use crate::test_helpers::{find_event_by_predicate, find_request_by_predicate};
 
         use super::super::*;
 
@@ -220,9 +237,10 @@ mod test {
 
                         for rtc in rtcs.iter() {
                             shared_helpers::insert_agent(&conn, agent.agent_id(), rtc.room_id());
+                            shared_helpers::insert_recording(&conn, rtc, &backend);
 
                             db::room::UpdateQuery::new(rtc.room_id().to_owned())
-                                .time(time)
+                                .time(Some(time))
                                 .execute(&conn)
                                 .unwrap();
                         }
@@ -236,24 +254,27 @@ mod test {
                 authz.allow(agent.account_id(), vec!["system"], "update");
 
                 // Make system.vacuum request.
-                let mut context = TestContext::new(TestDb::new(), authz);
+                let mut context = TestContext::new(db, authz);
                 let payload = VacuumRequest {};
 
                 let messages = handle_request::<VacuumHandler>(&mut context, &agent, payload)
                     .await
                     .expect("System vacuum failed");
 
+                assert!(messages.len() > 0);
+
                 let conn = context.db().get().unwrap();
 
-                for (message, rtc) in messages.into_iter().zip(rtcs.iter()) {
+                for rtc in rtcs {
                     // Assert outgoing Janus stream.upload requests.
-                    match message.properties() {
-                        OutgoingEnvelopeProperties::Request(_) => (),
-                        _ => panic!("Expected outgoing request"),
-                    }
+                    let (payload, _, topic) = find_request_by_predicate::<VacuumJanusRequest, _>(
+                        &messages,
+                        |_reqp, p| p.body.method == "stream.upload" && p.body.id == rtc.id(),
+                    )
+                    .expect("Failed to find stream.upload message for rtc");
 
                     assert_eq!(
-                        message.topic(),
+                        topic,
                         format!(
                             "agents/{}/api/{}/in/conference.{}",
                             backend.id(),
@@ -263,7 +284,7 @@ mod test {
                     );
 
                     assert_eq!(
-                        message.payload::<VacuumJanusRequest>(),
+                        payload,
                         VacuumJanusRequest {
                             janus: "message".to_string(),
                             session_id: backend.session_id(),
@@ -290,6 +311,13 @@ mod test {
                         .expect("Failed to get recording from the DB");
 
                     assert_eq!(recording.status(), &RecordingStatus::InProgress);
+
+                    find_event_by_predicate::<JsonValue, _>(&messages, |evp, p| {
+                        evp.label() == "room.close"
+                            && p.get("id").and_then(|v| v.as_str())
+                                == Some(rtc.room_id().to_string()).as_deref()
+                    })
+                    .expect("Failed to find room.close event for given rtc");
                 }
             });
         }

@@ -36,4 +36,14 @@ A notification is being sent to the _audience_ topic.
 
 **Label:** `room.update`.
 
-**Payload:** [room](../room.md#room) object.
+**Payload:** [room](../room.md#properties) object.
+
+If the room closure date had been in the future but was moved by the update into the past, a notification will be sent to the _room_ topic.
+Clients should not rely on this notification being unique.
+That is this notification can reoccur even if it was sent before.
+
+**URI:** `rooms/:room_id/events`
+
+**Label:** `room.close`.
+
+**Payload:** [room](../room.md#properties) object.
