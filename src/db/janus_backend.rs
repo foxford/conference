@@ -189,12 +189,12 @@ impl<'a> DeleteQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// Returns the least loaded backend capable to host the room with its reserve considering:
+// Returns the most loaded backend capable to host the room with its reserve considering:
 // - room opening period;
 // - actual number of online agents;
 // - optional backend capacity;
 // - optional room reserve.
-const LEAST_LOADED_SQL: &str = r#"
+const MOST_LOADED_SQL: &str = r#"
     WITH
         room_load AS (
             SELECT
@@ -239,15 +239,15 @@ const LEAST_LOADED_SQL: &str = r#"
     ON 1 = 1
     WHERE r2.id = $1
     AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) > COALESCE(r2.reserve, 0)
-    ORDER BY COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC
+    ORDER BY COALESCE(jbl.load, 0) DESC
     LIMIT 1
 "#;
 
-pub(crate) fn least_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
+pub(crate) fn most_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
     use diesel::prelude::*;
     use diesel::sql_types::Uuid;
 
-    diesel::sql_query(LEAST_LOADED_SQL)
+    diesel::sql_query(MOST_LOADED_SQL)
         .bind::<Uuid, _>(room_id)
         .get_result(conn)
         .optional()

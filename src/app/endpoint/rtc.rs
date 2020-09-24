@@ -297,7 +297,7 @@ impl RequestHandler for ConnectHandler {
 
             // There are 3 cases:
             // 1. Connecting as writer for the first time. There's no recording in that case.
-            //    Select the least loaded backend that is capable to host the room's reservation.
+            //    Select the most loaded backend that is capable to host the room's reservation.
             // 2. Connecting as reader with existing recording. Choose the backend of the active
             //    recording because Janus doesn't support clustering and it must be the same server
             //    that the writer is connected to.
@@ -311,7 +311,7 @@ impl RequestHandler for ConnectHandler {
                     .execute(&conn)?
                     .ok_or("no backend found for stream")
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?,
-                None => db::janus_backend::least_loaded(room.id(), &conn)?
+                None => db::janus_backend::most_loaded(room.id(), &conn)?
                     .ok_or("no available backends")
                     .status(ResponseStatus::SERVICE_UNAVAILABLE)?,
             };
@@ -730,8 +730,7 @@ mod test {
                         shared_helpers::insert_agent(&conn, s1a1.agent_id(), rtc1.room_id());
 
                         // The second backend has 1 stream with 2 agents but it's not started
-                        // so it doesn't make any load on the backend and should be selected
-                        // by the balancer.
+                        // so it doesn't make any load on the backend.
                         let rtc2 = shared_helpers::insert_rtc(&conn);
 
                         factory::Recording::new()
@@ -753,7 +752,7 @@ mod test {
                         // The new rtc for which we will balance the stream.
                         let rtc3 = shared_helpers::insert_rtc(&conn);
 
-                        (rtc3, backend2)
+                        (rtc3, backend1)
                     })
                     .unwrap();
 
