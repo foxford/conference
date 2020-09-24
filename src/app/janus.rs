@@ -1244,9 +1244,12 @@ async fn handle_status_event_impl<C: Context>(
             Ok(streams_with_rtc)
         })?;
 
+        let now = Utc::now();
         let mut events = Vec::with_capacity(streams_with_rtc.len());
 
-        for (stream, rtc) in streams_with_rtc {
+        for (mut stream, rtc) in streams_with_rtc {
+            stream.set_time(stream.time().map(|t| (t.0, Bound::Excluded(now))));
+
             let event = endpoint::rtc_stream::update_event(
                 rtc.room_id(),
                 stream,

@@ -90,6 +90,11 @@ impl Object {
     pub(crate) fn created_at(&self) -> DateTime<Utc> {
         self.created_at
     }
+
+    pub(crate) fn set_time(&mut self, time: Option<Time>) -> &mut Self {
+        self.time = time;
+        self
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
