@@ -21,6 +21,7 @@ time     | [i64, i64) | _required_ | A [lt, rt) range of unix time (seconds) or 
 audience | String     | _required_ | The room audience.
 backend  | String     | none       | The room backend. Available values: janus, none.
 reserve  | i32        | _optional_ | The number of slots for subscribers to reserve on the server.
+tags     | json       | {}         | Arbitrary tags object associated with the room.
 
 
 ## Unicast response
