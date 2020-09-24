@@ -165,7 +165,17 @@ impl RequestHandler for ReadHandler {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type UpdateRequest = db::room::UpdateQuery;
+#[derive(Debug, Deserialize, Default)]
+pub(crate) struct UpdateRequest {
+    id: Uuid,
+    #[serde(default)]
+    #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
+    time: Option<db::room::Time>,
+    audience: Option<String>,
+    backend: Option<db::room::RoomBackend>,
+    reserve: Option<Option<i32>>,
+    tags: Option<JsonValue>,
+}
 pub(crate) struct UpdateHandler;
 
 #[async_trait]
@@ -178,16 +188,16 @@ impl RequestHandler for UpdateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!("room_id" => payload.id().to_string()));
+        context.add_logger_tags(o!("room_id" => payload.id.to_string()));
 
         let room = {
             let conn = context.db().get()?;
 
             db::room::FindQuery::new()
                 .time(db::room::since_now())
-                .id(payload.id())
+                .id(payload.id)
                 .execute(&conn)?
-                .ok_or_else(|| format!("Room not found, id = '{}' or closed", payload.id()))
+                .ok_or_else(|| format!("Room not found, id = '{}' or closed", payload.id))
                 .status(ResponseStatus::NOT_FOUND)?
         };
 
@@ -200,10 +210,19 @@ impl RequestHandler for UpdateHandler {
             .authorize(room.audience(), reqp, object, "update")
             .await?;
 
+        let room_was_open = !room.is_closed();
+
         // Update room.
         let room = {
+            let query = db::room::UpdateQuery::new(room.id())
+                .time(payload.time)
+                .audience(payload.audience)
+                .backend(payload.backend)
+                .reserve(payload.reserve)
+                .tags(payload.tags);
+
             let conn = context.db().get()?;
-            payload.execute(&conn)?
+            query.execute(&conn)?
         };
 
         // Respond and broadcast to the audience topic.
@@ -218,12 +237,40 @@ impl RequestHandler for UpdateHandler {
         let notification = shared::build_notification(
             "room.update",
             &format!("audiences/{}/events", room.audience()),
-            room,
+            room.clone(),
             reqp,
             context.start_timestamp(),
         );
 
-        Ok(Box::new(stream::from_iter(vec![response, notification])))
+        let mut responses = vec![response, notification];
+
+        let append_closed_notification = || {
+            let closed_notification = shared::build_notification(
+                "room.close",
+                &format!("rooms/{}/events", room.id()),
+                room,
+                reqp,
+                context.start_timestamp(),
+            );
+            responses.push(closed_notification);
+        };
+
+        // Publish room closed notification
+        if room_was_open {
+            if let Some(time) = payload.time {
+                match time.1 {
+                    Bound::Included(t) if Utc::now() > t => {
+                        append_closed_notification();
+                    }
+                    Bound::Excluded(t) if Utc::now() >= t => {
+                        append_closed_notification();
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(Box::new(stream::from_iter(responses)))
     }
 }
 
@@ -625,6 +672,7 @@ mod test {
         use serde_json::json;
 
         use crate::db::room::Object as Room;
+        use crate::test_helpers::find_event_by_predicate;
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
@@ -666,10 +714,14 @@ mod test {
                     Bound::Excluded(now + Duration::hours(3)),
                 );
 
-                let payload = UpdateRequest::new(room.id())
-                    .time(time)
-                    .reserve(Some(123))
-                    .tags(json!({"foo": "bar"}));
+                let payload = UpdateRequest {
+                    id: room.id(),
+                    time: Some(time),
+                    reserve: Some(Some(123)),
+                    tags: Some(json!({"foo": "bar"})),
+                    audience: None,
+                    backend: None,
+                };
 
                 let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
                     .await
@@ -688,11 +740,77 @@ mod test {
         }
 
         #[test]
+        fn update_and_close_room() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let now = Utc::now().trunc_subsecs(0);
+
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    // Create room.
+                    factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(now - Duration::hours(1)),
+                            Bound::Excluded(now + Duration::hours(2)),
+                        ))
+                        .backend(db::room::RoomBackend::Janus)
+                        .insert(&conn)
+                };
+
+                // Allow agent to update the room.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let mut authz = TestAuthz::new();
+                let room_id = room.id().to_string();
+                authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+
+                // Make room.update request.
+                let mut context = TestContext::new(db, authz);
+
+                let time = (
+                    Bound::Included(now - Duration::hours(1)),
+                    Bound::Excluded(now - Duration::seconds(5)),
+                );
+
+                let payload = UpdateRequest {
+                    id: room.id(),
+                    time: Some(time),
+                    reserve: Some(Some(123)),
+                    audience: None,
+                    backend: None,
+                    tags: None,
+                };
+
+                let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect("Room update failed");
+
+                assert_eq!(messages.len(), 3);
+                let (closed_notification, _, _) =
+                    find_event_by_predicate::<JsonValue, _>(messages.as_slice(), |evp, _| {
+                        evp.label() == "room.close"
+                    })
+                    .expect("Failed to find room.close event");
+                assert_eq!(
+                    closed_notification.get("id").and_then(|v| v.as_str()),
+                    Some(room.id().to_string()).as_deref()
+                );
+            });
+        }
+
+        #[test]
         fn update_room_missing() {
             async_std::task::block_on(async {
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-                let payload = UpdateRequest::new(Uuid::new_v4());
+                let payload = UpdateRequest {
+                    id: Uuid::new_v4(),
+                    ..Default::default()
+                };
 
                 let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
                     .await
@@ -719,7 +837,10 @@ mod test {
                 };
 
                 let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-                let payload = UpdateRequest::new(room.id());
+                let payload = UpdateRequest {
+                    id: room.id(),
+                    ..Default::default()
+                };
 
                 let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
                     .await

@@ -118,6 +118,14 @@ impl Object {
         self.reserve
     }
 
+    pub(crate) fn is_closed(&self) -> bool {
+        match self.time.1 {
+            Bound::Included(t) => t < Utc::now(),
+            Bound::Excluded(t) => t <= Utc::now(),
+            Bound::Unbounded => false,
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn tags(&self) -> &JsonValue {
         &self.tags
@@ -286,12 +294,10 @@ impl DeleteQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Identifiable, AsChangeset, Deserialize)]
+#[derive(Debug, Identifiable, AsChangeset)]
 #[table_name = "room"]
 pub(crate) struct UpdateQuery {
     id: Uuid,
-    #[serde(default)]
-    #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
     time: Option<Time>,
     audience: Option<String>,
     backend: Option<RoomBackend>,
@@ -300,7 +306,6 @@ pub(crate) struct UpdateQuery {
 }
 
 impl UpdateQuery {
-    #[cfg(test)]
     pub(crate) fn new(id: Uuid) -> Self {
         Self {
             id,
@@ -312,32 +317,24 @@ impl UpdateQuery {
         }
     }
 
-    pub(crate) fn id(&self) -> Uuid {
-        self.id
+    pub(crate) fn time(self, time: Option<Time>) -> Self {
+        Self { time, ..self }
     }
 
-    #[cfg(test)]
-    pub(crate) fn time(self, time: Time) -> Self {
-        Self {
-            time: Some(time),
-            ..self
-        }
+    pub(crate) fn audience(self, audience: Option<String>) -> Self {
+        Self { audience, ..self }
     }
 
-    #[cfg(test)]
-    pub(crate) fn reserve(self, value: Option<i32>) -> Self {
-        Self {
-            reserve: Some(value),
-            ..self
-        }
+    pub(crate) fn backend(self, backend: Option<RoomBackend>) -> Self {
+        Self { backend, ..self }
     }
 
-    #[cfg(test)]
-    pub(crate) fn tags(self, value: JsonValue) -> Self {
-        Self {
-            tags: Some(value),
-            ..self
-        }
+    pub(crate) fn reserve(self, reserve: Option<Option<i32>>) -> Self {
+        Self { reserve, ..self }
+    }
+
+    pub(crate) fn tags(self, tags: Option<JsonValue>) -> Self {
+        Self { tags, ..self }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
