@@ -21,6 +21,7 @@ use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPoo
 use svc_error::{extension::sentry, Error as SvcError};
 
 use crate::app::context::Context;
+use crate::app::janus::Client as JanusClient;
 use crate::app::metrics::DbPoolStatsCollector;
 use crate::config::{self, Config, KruonisConfig};
 use crate::db::ConnectionPool;
@@ -87,9 +88,15 @@ pub(crate) async fn run(
     let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
 
     // Context
-    let context = AppContext::new(config.clone(), authz, db.clone(), janus_topics)
-        .add_queue_counter(agent.get_queue_counter())
-        .db_pool_stats(db_pool_stats);
+    let context = AppContext::new(
+        config.clone(),
+        authz,
+        db.clone(),
+        JanusClient::new(agent_id),
+        janus_topics,
+    )
+    .add_queue_counter(agent.get_queue_counter())
+    .db_pool_stats(db_pool_stats);
 
     let context = match redis_pool {
         Some(pool) => context.add_redis_pool(pool),
@@ -237,6 +244,6 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
 pub(crate) mod context;
 pub(crate) mod endpoint;
 pub(crate) mod handle_id;
-mod janus;
+pub(crate) mod janus;
 pub(crate) mod message_handler;
 pub(crate) mod metrics;

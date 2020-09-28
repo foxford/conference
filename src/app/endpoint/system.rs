@@ -82,21 +82,22 @@ impl RequestHandler for VacuumHandler {
                 .execute(&conn)?;
 
             // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
-            let backreq = janus::upload_stream_request(
-                reqp,
-                backend.session_id(),
-                backend.handle_id(),
-                janus::UploadStreamRequestBody::new(
-                    recording.rtc_id(),
-                    &bucket_name(&room),
-                    &record_name(&recording),
-                ),
-                backend.id(),
-                context.agent_id(),
-                start_timestamp,
-            )
-            .map_err(|err| format!("error creating a backend request: {}", err))
-            .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+            let backreq = context
+                .janus_client()
+                .upload_stream_request(
+                    reqp,
+                    backend.session_id(),
+                    backend.handle_id(),
+                    janus::UploadStreamRequestBody::new(
+                        recording.rtc_id(),
+                        &bucket_name(&room),
+                        &record_name(&recording),
+                    ),
+                    backend.id(),
+                    start_timestamp,
+                )
+                .map_err(|err| format!("error creating a backend request: {}", err))
+                .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
             requests.push(Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>);
         }

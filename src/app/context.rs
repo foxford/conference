@@ -4,6 +4,7 @@ use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
+use crate::app::janus::Client as JanusClient;
 use crate::app::metrics::{DbPoolStatsCollector, DynamicStatsCollector};
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
@@ -16,6 +17,7 @@ pub(crate) struct AppContext {
     authz: Authz,
     db: Db,
     agent_id: AgentId,
+    janus_client: Arc<JanusClient<AgentId>>,
     janus_topics: JanusTopics,
     queue_counter: Option<QueueCounterHandle>,
     redis_pool: Option<RedisConnectionPool>,
@@ -24,7 +26,13 @@ pub(crate) struct AppContext {
 }
 
 impl AppContext {
-    pub(crate) fn new(config: Config, authz: Authz, db: Db, janus_topics: JanusTopics) -> Self {
+    pub(crate) fn new(
+        config: Config,
+        authz: Authz,
+        db: Db,
+        janus_client: JanusClient<AgentId>,
+        janus_topics: JanusTopics,
+    ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
 
         Self {
@@ -32,6 +40,7 @@ impl AppContext {
             authz,
             db,
             agent_id,
+            janus_client: Arc::new(janus_client),
             janus_topics,
             queue_counter: None,
             redis_pool: None,
@@ -67,6 +76,7 @@ pub(crate) trait Context: Sync {
     fn config(&self) -> &Config;
     fn db(&self) -> &Db;
     fn agent_id(&self) -> &AgentId;
+    fn janus_client(&self) -> &Arc<JanusClient<AgentId>>;
     fn janus_topics(&self) -> &JanusTopics;
     fn queue_counter(&self) -> &Option<QueueCounterHandle>;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
@@ -89,6 +99,10 @@ impl Context for AppContext {
 
     fn agent_id(&self) -> &AgentId {
         &self.agent_id
+    }
+
+    fn janus_client(&self) -> &Arc<JanusClient<AgentId>> {
+        &self.janus_client
     }
 
     fn janus_topics(&self) -> &JanusTopics {

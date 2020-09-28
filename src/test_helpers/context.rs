@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use serde_json::json;
 use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
 use crate::app::context::{Context, JanusTopics};
+use crate::app::janus::Client as JanusClient;
 use crate::app::metrics::{DbPoolStatsCollector, DynamicStatsCollector};
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
@@ -46,6 +49,7 @@ pub(crate) struct TestContext {
     authz: Authz,
     db: TestDb,
     agent_id: AgentId,
+    janus_client: Arc<JanusClient<AgentId>>,
     janus_topics: JanusTopics,
 }
 
@@ -53,12 +57,14 @@ impl TestContext {
     pub(crate) fn new(db: TestDb, authz: TestAuthz) -> Self {
         let config = build_config();
         let agent_id = AgentId::new(&config.agent_label, config.id.clone());
+        let janus_client = Arc::new(JanusClient::new(agent_id.clone()));
 
         Self {
             config,
             authz: authz.into(),
             db,
             agent_id,
+            janus_client,
             janus_topics: JanusTopics::new("ignore", "ignore", "ignore"),
         }
     }
@@ -79,6 +85,10 @@ impl Context for TestContext {
 
     fn agent_id(&self) -> &AgentId {
         &self.agent_id
+    }
+
+    fn janus_client(&self) -> &Arc<JanusClient<AgentId>> {
+        &self.janus_client
     }
 
     fn janus_topics(&self) -> &JanusTopics {

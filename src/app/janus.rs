@@ -36,6 +36,24 @@ const STREAM_UPLOAD_METHOD: &str = "stream.upload";
 
 ////////////////////////////////////////////////////////////////////////////////
 
+pub(crate) struct Client<M: Addressable> {
+    me: M,
+}
+
+impl<M: Addressable> Client<M> {
+    pub(crate) fn new(me: M) -> Self {
+        Self { me }
+    }
+
+    fn response_topic<T: Addressable>(&self, to: &T) -> Result<String> {
+        Subscription::unicast_responses_from(to)
+            .subscription_topic(&self.me, JANUS_API_VERSION)
+            .context("Failed to build subscription topic")
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) enum Transaction {
@@ -84,43 +102,42 @@ impl CreateSessionTransaction {
     }
 }
 
-pub(crate) fn create_session_request<M>(
-    payload: &StatusEvent,
-    evp: &IncomingEventProperties,
-    me: &M,
-    start_timestamp: DateTime<Utc>,
-) -> Result<OutgoingMessage<CreateSessionRequest>>
-where
-    M: Addressable,
-{
-    let to = evp.as_agent_id();
-    let mut tn_data = CreateSessionTransaction::new();
+impl<M: Addressable> Client<M> {
+    pub(crate) fn create_session_request(
+        &self,
+        payload: &StatusEvent,
+        evp: &IncomingEventProperties,
+        start_timestamp: DateTime<Utc>,
+    ) -> Result<OutgoingMessage<CreateSessionRequest>> {
+        let to = evp.as_agent_id();
+        let mut tn_data = CreateSessionTransaction::new();
 
-    if let Some(capacity) = payload.capacity() {
-        tn_data.set_capacity(capacity);
+        if let Some(capacity) = payload.capacity() {
+            tn_data.set_capacity(capacity);
+        }
+
+        if let Some(balancer_capacity) = payload.balancer_capacity() {
+            tn_data.set_balancer_capacity(balancer_capacity);
+        }
+
+        let transaction = Transaction::CreateSession(tn_data);
+        let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
+
+        let mut props = OutgoingRequestProperties::new(
+            "janus_session.create",
+            &self.response_topic(to)?,
+            &generate_correlation_data(),
+            ShortTermTimingProperties::until_now(start_timestamp),
+        );
+
+        props.set_tracking(evp.tracking().to_owned());
+        Ok(OutgoingRequest::unicast(
+            payload,
+            props,
+            to,
+            JANUS_API_VERSION,
+        ))
     }
-
-    if let Some(balancer_capacity) = payload.balancer_capacity() {
-        tn_data.set_balancer_capacity(balancer_capacity);
-    }
-
-    let transaction = Transaction::CreateSession(tn_data);
-    let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
-
-    let mut props = OutgoingRequestProperties::new(
-        "janus_session.create",
-        &response_topic(to, me)?,
-        &generate_correlation_data(),
-        ShortTermTimingProperties::until_now(start_timestamp),
-    );
-
-    props.set_tracking(evp.tracking().to_owned());
-    Ok(OutgoingRequest::unicast(
-        payload,
-        props,
-        to,
-        JANUS_API_VERSION,
-    ))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -160,52 +177,51 @@ impl CreateHandleTransaction {
     }
 }
 
-pub(crate) fn create_handle_request<M>(
-    respp: &IncomingResponseProperties,
-    session_id: i64,
-    capacity: Option<i32>,
-    balancer_capacity: Option<i32>,
-    me: &M,
-    start_timestamp: DateTime<Utc>,
-) -> Result<OutgoingMessage<CreateHandleRequest>>
-where
-    M: Addressable,
-{
-    let to = respp.as_agent_id();
-    let mut tn_data = CreateHandleTransaction::new(session_id);
+impl<M: Addressable> Client<M> {
+    pub(crate) fn create_handle_request(
+        &self,
+        respp: &IncomingResponseProperties,
+        session_id: i64,
+        capacity: Option<i32>,
+        balancer_capacity: Option<i32>,
+        start_timestamp: DateTime<Utc>,
+    ) -> Result<OutgoingMessage<CreateHandleRequest>> {
+        let to = respp.as_agent_id();
+        let mut tn_data = CreateHandleTransaction::new(session_id);
 
-    if let Some(capacity) = capacity {
-        tn_data.set_capacity(capacity);
+        if let Some(capacity) = capacity {
+            tn_data.set_capacity(capacity);
+        }
+
+        if let Some(balancer_capacity) = balancer_capacity {
+            tn_data.set_balancer_capacity(balancer_capacity);
+        }
+
+        let transaction = Transaction::CreateHandle(tn_data);
+
+        let payload = CreateHandleRequest::new(
+            &to_base64(&transaction)?,
+            session_id,
+            "janus.plugin.conference",
+            None,
+        );
+
+        let mut props = OutgoingRequestProperties::new(
+            "janus_handle.create",
+            &self.response_topic(to)?,
+            &generate_correlation_data(),
+            ShortTermTimingProperties::until_now(start_timestamp),
+        );
+
+        props.set_tracking(respp.tracking().to_owned());
+
+        Ok(OutgoingRequest::unicast(
+            payload,
+            props,
+            to,
+            JANUS_API_VERSION,
+        ))
     }
-
-    if let Some(balancer_capacity) = balancer_capacity {
-        tn_data.set_balancer_capacity(balancer_capacity);
-    }
-
-    let transaction = Transaction::CreateHandle(tn_data);
-
-    let payload = CreateHandleRequest::new(
-        &to_base64(&transaction)?,
-        session_id,
-        "janus.plugin.conference",
-        None,
-    );
-
-    let mut props = OutgoingRequestProperties::new(
-        "janus_handle.create",
-        &response_topic(to, me)?,
-        &generate_correlation_data(),
-        ShortTermTimingProperties::until_now(start_timestamp),
-    );
-
-    props.set_tracking(respp.tracking().to_owned());
-
-    Ok(OutgoingRequest::unicast(
-        payload,
-        props,
-        to,
-        JANUS_API_VERSION,
-    ))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -235,53 +251,54 @@ impl CreateRtcHandleTransaction {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn create_rtc_handle_request<A, M>(
-    reqp: IncomingRequestProperties,
-    rtc_stream_id: Uuid,
-    rtc_id: Uuid,
-    session_id: i64,
-    to: &A,
-    me: &M,
-    start_timestamp: DateTime<Utc>,
-    authz_time: Duration,
-) -> Result<OutgoingMessage<CreateHandleRequest>>
-where
-    A: Addressable,
-    M: Addressable,
-{
-    let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-    short_term_timing.set_authorization_time(authz_time);
+impl<M: Addressable> Client<M> {
+    pub(crate) fn create_rtc_handle_request<A>(
+        &self,
+        reqp: IncomingRequestProperties,
+        rtc_stream_id: Uuid,
+        rtc_id: Uuid,
+        session_id: i64,
+        to: &A,
+        start_timestamp: DateTime<Utc>,
+        authz_time: Duration,
+    ) -> Result<OutgoingMessage<CreateHandleRequest>>
+    where
+        A: Addressable,
+    {
+        let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+        short_term_timing.set_authorization_time(authz_time);
 
-    let props = reqp.to_request(
-        "janus_handle.create",
-        &response_topic(to, me)?,
-        &generate_correlation_data(),
-        short_term_timing,
-    );
+        let props = reqp.to_request(
+            "janus_handle.create",
+            &self.response_topic(to)?,
+            &generate_correlation_data(),
+            short_term_timing,
+        );
 
-    let transaction = Transaction::CreateRtcHandle(CreateRtcHandleTransaction::new(
-        reqp,
-        rtc_stream_id,
-        rtc_id,
-        session_id,
-    ));
+        let transaction = Transaction::CreateRtcHandle(CreateRtcHandleTransaction::new(
+            reqp,
+            rtc_stream_id,
+            rtc_id,
+            session_id,
+        ));
 
-    let payload = CreateHandleRequest::new(
-        &to_base64(&transaction)?,
-        session_id,
-        "janus.plugin.conference",
-        Some(&rtc_stream_id.to_string()),
-    );
+        let payload = CreateHandleRequest::new(
+            &to_base64(&transaction)?,
+            session_id,
+            "janus.plugin.conference",
+            Some(&rtc_stream_id.to_string()),
+        );
 
-    Ok(OutgoingRequest::unicast(
-        payload,
-        props,
-        to,
-        JANUS_API_VERSION,
-    ))
+        Ok(OutgoingRequest::unicast(
+            payload,
+            props,
+            to,
+            JANUS_API_VERSION,
+        ))
+    }
 }
 
-// ////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateStreamTransaction {
@@ -312,49 +329,50 @@ impl CreateStreamRequestBody {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn create_stream_request<A, M>(
-    reqp: IncomingRequestProperties,
-    session_id: i64,
-    handle_id: i64,
-    rtc_id: Uuid,
-    jsep: JsonValue,
-    to: &A,
-    me: &M,
-    start_timestamp: DateTime<Utc>,
-    authz_time: Duration,
-) -> Result<OutgoingMessage<MessageRequest>>
-where
-    A: Addressable,
-    M: Addressable,
-{
-    let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-    short_term_timing.set_authorization_time(authz_time);
+impl<M: Addressable> Client<M> {
+    pub(crate) fn create_stream_request<A>(
+        &self,
+        reqp: IncomingRequestProperties,
+        session_id: i64,
+        handle_id: i64,
+        rtc_id: Uuid,
+        jsep: JsonValue,
+        to: &A,
+        start_timestamp: DateTime<Utc>,
+        authz_time: Duration,
+    ) -> Result<OutgoingMessage<MessageRequest>>
+    where
+        A: Addressable,
+    {
+        let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+        short_term_timing.set_authorization_time(authz_time);
 
-    let props = reqp.to_request(
-        "janus_conference_stream.create",
-        &response_topic(to, me)?,
-        &generate_correlation_data(),
-        short_term_timing,
-    );
+        let props = reqp.to_request(
+            "janus_conference_stream.create",
+            &self.response_topic(to)?,
+            &generate_correlation_data(),
+            short_term_timing,
+        );
 
-    let agent_id = reqp.as_agent_id().to_owned();
-    let body = CreateStreamRequestBody::new(rtc_id, agent_id);
-    let transaction = Transaction::CreateStream(CreateStreamTransaction::new(reqp));
+        let agent_id = reqp.as_agent_id().to_owned();
+        let body = CreateStreamRequestBody::new(rtc_id, agent_id);
+        let transaction = Transaction::CreateStream(CreateStreamTransaction::new(reqp));
 
-    let payload = MessageRequest::new(
-        &to_base64(&transaction)?,
-        session_id,
-        handle_id,
-        serde_json::to_value(&body)?,
-        Some(jsep),
-    );
+        let payload = MessageRequest::new(
+            &to_base64(&transaction)?,
+            session_id,
+            handle_id,
+            serde_json::to_value(&body)?,
+            Some(jsep),
+        );
 
-    Ok(OutgoingRequest::unicast(
-        payload,
-        props,
-        to,
-        JANUS_API_VERSION,
-    ))
+        Ok(OutgoingRequest::unicast(
+            payload,
+            props,
+            to,
+            JANUS_API_VERSION,
+        ))
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -388,49 +406,51 @@ impl ReadStreamRequestBody {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn read_stream_request<A, M>(
-    reqp: IncomingRequestProperties,
-    session_id: i64,
-    handle_id: i64,
-    rtc_id: Uuid,
-    jsep: JsonValue,
-    to: &A,
-    me: &M,
-    start_timestamp: DateTime<Utc>,
-    authz_time: Duration,
-) -> Result<OutgoingMessage<MessageRequest>>
-where
-    A: Addressable,
-    M: Addressable,
-{
-    let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-    short_term_timing.set_authorization_time(authz_time);
+impl<M: Addressable> Client<M> {
+    pub(crate) fn read_stream_request<A>(
+        &self,
+        reqp: IncomingRequestProperties,
+        session_id: i64,
+        handle_id: i64,
+        rtc_id: Uuid,
+        jsep: JsonValue,
+        to: &A,
+        start_timestamp: DateTime<Utc>,
+        authz_time: Duration,
+    ) -> Result<OutgoingMessage<MessageRequest>>
+    where
+        A: Addressable,
+        M: Addressable,
+    {
+        let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+        short_term_timing.set_authorization_time(authz_time);
 
-    let props = reqp.to_request(
-        "janus_conference_stream.create",
-        &response_topic(to, me)?,
-        &generate_correlation_data(),
-        short_term_timing,
-    );
+        let props = reqp.to_request(
+            "janus_conference_stream.create",
+            &self.response_topic(to)?,
+            &generate_correlation_data(),
+            short_term_timing,
+        );
 
-    let agent_id = reqp.as_agent_id().to_owned();
-    let body = ReadStreamRequestBody::new(rtc_id, agent_id);
-    let transaction = Transaction::ReadStream(ReadStreamTransaction::new(reqp));
+        let agent_id = reqp.as_agent_id().to_owned();
+        let body = ReadStreamRequestBody::new(rtc_id, agent_id);
+        let transaction = Transaction::ReadStream(ReadStreamTransaction::new(reqp));
 
-    let payload = MessageRequest::new(
-        &to_base64(&transaction)?,
-        session_id,
-        handle_id,
-        serde_json::to_value(&body)?,
-        Some(jsep),
-    );
+        let payload = MessageRequest::new(
+            &to_base64(&transaction)?,
+            session_id,
+            handle_id,
+            serde_json::to_value(&body)?,
+            Some(jsep),
+        );
 
-    Ok(OutgoingRequest::unicast(
-        payload,
-        props,
-        to,
-        JANUS_API_VERSION,
-    ))
+        Ok(OutgoingRequest::unicast(
+            payload,
+            props,
+            to,
+            JANUS_API_VERSION,
+        ))
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -469,44 +489,45 @@ impl UploadStreamRequestBody {
     }
 }
 
-pub(crate) fn upload_stream_request<A, M>(
-    reqp: &IncomingRequestProperties,
-    session_id: i64,
-    handle_id: i64,
-    body: UploadStreamRequestBody,
-    to: &A,
-    me: &M,
-    start_timestamp: DateTime<Utc>,
-) -> Result<OutgoingMessage<MessageRequest>>
-where
-    A: Addressable,
-    M: Addressable,
-{
-    let transaction = Transaction::UploadStream(UploadStreamTransaction::new(body.id));
+impl<M: Addressable> Client<M> {
+    pub(crate) fn upload_stream_request<A>(
+        &self,
+        reqp: &IncomingRequestProperties,
+        session_id: i64,
+        handle_id: i64,
+        body: UploadStreamRequestBody,
+        to: &A,
+        start_timestamp: DateTime<Utc>,
+    ) -> Result<OutgoingMessage<MessageRequest>>
+    where
+        A: Addressable,
+    {
+        let transaction = Transaction::UploadStream(UploadStreamTransaction::new(body.id));
 
-    let payload = MessageRequest::new(
-        &to_base64(&transaction)?,
-        session_id,
-        handle_id,
-        serde_json::to_value(&body)?,
-        None,
-    );
+        let payload = MessageRequest::new(
+            &to_base64(&transaction)?,
+            session_id,
+            handle_id,
+            serde_json::to_value(&body)?,
+            None,
+        );
 
-    let mut props = OutgoingRequestProperties::new(
-        "janus_conference_stream.upload",
-        &response_topic(to, me)?,
-        &generate_correlation_data(),
-        ShortTermTimingProperties::until_now(start_timestamp),
-    );
+        let mut props = OutgoingRequestProperties::new(
+            "janus_conference_stream.upload",
+            &self.response_topic(to)?,
+            &generate_correlation_data(),
+            ShortTermTimingProperties::until_now(start_timestamp),
+        );
 
-    props.set_tracking(reqp.tracking().to_owned());
+        props.set_tracking(reqp.tracking().to_owned());
 
-    Ok(OutgoingRequest::unicast(
-        payload,
-        props,
-        to,
-        JANUS_API_VERSION,
-    ))
+        Ok(OutgoingRequest::unicast(
+            payload,
+            props,
+            to,
+            JANUS_API_VERSION,
+        ))
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -522,39 +543,40 @@ impl TrickleTransaction {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn trickle_request<A, M>(
-    reqp: IncomingRequestProperties,
-    session_id: i64,
-    handle_id: i64,
-    jsep: JsonValue,
-    to: &A,
-    me: &M,
-    start_timestamp: DateTime<Utc>,
-    authz_time: Duration,
-) -> Result<OutgoingMessage<TrickleRequest>>
-where
-    A: Addressable,
-    M: Addressable,
-{
-    let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-    short_term_timing.set_authorization_time(authz_time);
+impl<M: Addressable> Client<M> {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn trickle_request<A>(
+        &self,
+        reqp: IncomingRequestProperties,
+        session_id: i64,
+        handle_id: i64,
+        jsep: JsonValue,
+        to: &A,
+        start_timestamp: DateTime<Utc>,
+        authz_time: Duration,
+    ) -> Result<OutgoingMessage<TrickleRequest>>
+    where
+        A: Addressable,
+    {
+        let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+        short_term_timing.set_authorization_time(authz_time);
 
-    let props = reqp.to_request(
-        "janus_trickle.create",
-        &response_topic(to, me)?,
-        &generate_correlation_data(),
-        short_term_timing,
-    );
+        let props = reqp.to_request(
+            "janus_trickle.create",
+            &self.response_topic(to)?,
+            &generate_correlation_data(),
+            short_term_timing,
+        );
 
-    let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
-    let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
-    Ok(OutgoingRequest::unicast(
-        payload,
-        props,
-        to,
-        JANUS_API_VERSION,
-    ))
+        let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
+        let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
+        Ok(OutgoingRequest::unicast(
+            payload,
+            props,
+            to,
+            JANUS_API_VERSION,
+        ))
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -585,55 +607,47 @@ impl AgentLeaveRequestBody {
     }
 }
 
-pub(crate) fn agent_leave_request<T, M>(
-    evp: IncomingEventProperties,
-    session_id: i64,
-    handle_id: i64,
-    agent_id: &AgentId,
-    to: &T,
-    me: &M,
-    tracking: &TrackingProperties,
-) -> Result<OutgoingMessage<MessageRequest>>
-where
-    T: Addressable,
-    M: Addressable,
-{
-    let mut props = OutgoingRequestProperties::new(
-        "janus_conference_agent.leave",
-        &response_topic(to, me)?,
-        &generate_correlation_data(),
-        ShortTermTimingProperties::new(Utc::now()),
-    );
+impl<M: Addressable> Client<M> {
+    pub(crate) fn agent_leave_request<T>(
+        &self,
+        evp: IncomingEventProperties,
+        session_id: i64,
+        handle_id: i64,
+        agent_id: &AgentId,
+        to: &T,
+        tracking: &TrackingProperties,
+    ) -> Result<OutgoingMessage<MessageRequest>>
+    where
+        T: Addressable,
+        M: Addressable,
+    {
+        let mut props = OutgoingRequestProperties::new(
+            "janus_conference_agent.leave",
+            &self.response_topic(to)?,
+            &generate_correlation_data(),
+            ShortTermTimingProperties::new(Utc::now()),
+        );
 
-    props.set_tracking(tracking.to_owned());
+        props.set_tracking(tracking.to_owned());
 
-    let transaction = Transaction::AgentLeave(AgentLeaveTransaction::new(evp));
-    let body = AgentLeaveRequestBody::new(agent_id.to_owned());
+        let transaction = Transaction::AgentLeave(AgentLeaveTransaction::new(evp));
+        let body = AgentLeaveRequestBody::new(agent_id.to_owned());
 
-    let payload = MessageRequest::new(
-        &to_base64(&transaction)?,
-        session_id,
-        handle_id,
-        serde_json::to_value(&body)?,
-        None,
-    );
+        let payload = MessageRequest::new(
+            &to_base64(&transaction)?,
+            session_id,
+            handle_id,
+            serde_json::to_value(&body)?,
+            None,
+        );
 
-    Ok(OutgoingRequest::unicast(
-        payload,
-        props,
-        to,
-        JANUS_API_VERSION,
-    ))
-}
-
-fn response_topic<T, M>(to: &T, me: &M) -> Result<String>
-where
-    T: Addressable,
-    M: Addressable,
-{
-    Subscription::unicast_responses_from(to)
-        .subscription_topic(me, JANUS_API_VERSION)
-        .context("Failed to build subscription topic")
+        Ok(OutgoingRequest::unicast(
+            payload,
+            props,
+            to,
+            JANUS_API_VERSION,
+        ))
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -673,16 +687,17 @@ async fn handle_response_impl<C: Context>(
                 // Session has been created
                 Transaction::CreateSession(tn) => {
                     // Creating Handle
-                    let backreq = create_handle_request(
-                        respp,
-                        inresp.data().id(),
-                        tn.capacity(),
-                        tn.balancer_capacity(),
-                        context.agent_id(),
-                        start_timestamp,
-                    )
-                    .map_err(|err| err.to_string())
-                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+                    let backreq = context
+                        .janus_client()
+                        .create_handle_request(
+                            respp,
+                            inresp.data().id(),
+                            tn.capacity(),
+                            tn.balancer_capacity(),
+                            start_timestamp,
+                        )
+                        .map_err(|err| err.to_string())
+                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
                     let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>;
                     Ok(Box::new(stream::once(boxed_backreq)))
@@ -1258,7 +1273,9 @@ async fn handle_status_event_impl<C: Context>(
         .status(ResponseStatus::BAD_REQUEST)?;
 
     if payload.online() {
-        let event = create_session_request(&payload, evp, context.agent_id(), start_timestamp)
+        let event = context
+            .janus_client()
+            .create_session_request(&payload, evp, start_timestamp)
             .map_err(|err| err.to_string())
             .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
