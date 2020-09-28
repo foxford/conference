@@ -92,7 +92,7 @@ pub(crate) async fn run(
         config.clone(),
         authz,
         db.clone(),
-        JanusClient::new(agent_id),
+        JanusClient::start(agent_id)?,
         janus_topics,
     )
     .add_queue_counter(agent.get_queue_counter())

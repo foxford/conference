@@ -1,11 +1,14 @@
+use std::collections::HashMap;
 use std::str::FromStr;
+use std::thread;
+use std::time::Duration as StdDuration;
 
 use anyhow::{Context as AnyhowContext, Result};
 use async_std::stream;
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use log::{error, info, warn};
 use serde_derive::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
 use std::ops::Bound;
 use svc_agent::mqtt::{
     IncomingEvent as MQTTIncomingEvent, IncomingEventProperties, IncomingRequestProperties,
@@ -34,21 +37,137 @@ use crate::util::{from_base64, generate_correlation_data, to_base64};
 
 const STREAM_UPLOAD_METHOD: &str = "stream.upload";
 
-////////////////////////////////////////////////////////////////////////////////
-
-pub(crate) struct Client<M: Addressable> {
-    me: M,
+lazy_static! {
+    static ref DEFAULT_TIMEOUT: Duration = Duration::seconds(5);
+    static ref STREAM_UPLOAD_TIMEOUT: Duration = Duration::minutes(10);
+    static ref TRANSACTION_WATCHDOG_CHECK_PERIOD: StdDuration = StdDuration::from_secs(1);
 }
 
-impl<M: Addressable> Client<M> {
-    pub(crate) fn new(me: M) -> Self {
-        Self { me }
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
+struct RequestInfo {
+    timeout: Duration,
+    to: AgentId,
+    start_timestamp: DateTime<Utc>,
+    payload: JsonValue,
+}
+
+enum TransactionWatchdogMessage {
+    Halt,
+    Insert(String, RequestInfo),
+    Remove(String),
+}
+
+pub(crate) struct Client {
+    me: AgentId,
+    transaction_watchdog_tx: crossbeam_channel::Sender<TransactionWatchdogMessage>,
+}
+
+impl Client {
+    pub(crate) fn start(me: AgentId) -> Result<Self> {
+        let (tx, rx) = crossbeam_channel::unbounded();
+
+        let thread_builder = thread::Builder::new()
+            .name("janus_transaction_watchdog".into());
+
+        thread_builder
+            .spawn(move || {
+                let mut state: HashMap<String, RequestInfo> = HashMap::new();
+
+                loop {
+                    if let Ok(message) = rx.recv_timeout(*TRANSACTION_WATCHDOG_CHECK_PERIOD) {
+                        match message {
+                            TransactionWatchdogMessage::Halt => break,
+                            TransactionWatchdogMessage::Insert(corr_data, info) => {
+                                state.insert(corr_data, info);
+                            }
+                            TransactionWatchdogMessage::Remove(ref corr_data) => {
+                                state.remove(corr_data);
+                            }
+                        }
+                    }
+
+                    state = state
+                        .into_iter()
+                        .filter(|(corr_data, info)| {
+                            if info.start_timestamp + info.timeout > Utc::now() {
+                                let msg =
+                                    format!("Janus request timed out ({}): {:?}", corr_data, info);
+
+                                error!("{}", msg);
+
+                                let svc_error = SvcError::builder()
+                                    .status(ResponseStatus::GATEWAY_TIMEOUT)
+                                    .kind("janus_request_timed_out", "Janus request timed out")
+                                    .detail(&msg)
+                                    .build();
+
+                                sentry::send(svc_error).unwrap_or_else(|err| {
+                                    warn!("Error sending error to Sentry: {}", err)
+                                });
+
+                                false
+                            } else {
+                                true
+                            }
+                        })
+                        .collect();
+                }
+            })
+            .context("Failed to spawn janus transaction watchdog thread")?;
+
+        Ok(Self {
+            me,
+            transaction_watchdog_tx: tx,
+        })
     }
 
-    fn response_topic<T: Addressable>(&self, to: &T) -> Result<String> {
+    fn register_transaction<P: serde::Serialize>(
+        &self,
+        to: &AgentId,
+        start_timestamp: DateTime<Utc>,
+        reqp: &OutgoingRequestProperties,
+        payload: &P,
+        timeout: Duration,
+    ) {
+        let request_info = RequestInfo {
+            timeout,
+            to: to.to_owned(),
+            start_timestamp,
+            payload: json!(payload),
+        };
+
+        self.transaction_watchdog_tx
+            .send(TransactionWatchdogMessage::Insert(
+                reqp.correlation_data().to_owned(),
+                request_info,
+            ))
+            .unwrap_or_else(|err| error!("Failed to register janus client transaction: {}", err));
+    }
+
+    fn finish_transaction(&self, respp: &IncomingResponseProperties) {
+        let corr_data = respp.correlation_data().to_owned();
+
+        self.transaction_watchdog_tx
+            .send(TransactionWatchdogMessage::Remove(corr_data))
+            .unwrap_or_else(|err| error!("Failed to remove janus client transaction: {}", err));
+    }
+
+    fn response_topic(&self, to: &AgentId) -> Result<String> {
         Subscription::unicast_responses_from(to)
             .subscription_topic(&self.me, JANUS_API_VERSION)
             .context("Failed to build subscription topic")
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        self.transaction_watchdog_tx
+            .send(TransactionWatchdogMessage::Halt)
+            .unwrap_or_else(|err| {
+                error!("Failed to stop janus client transaction watchdog: {}", err)
+            });
     }
 }
 
@@ -102,7 +221,7 @@ impl CreateSessionTransaction {
     }
 }
 
-impl<M: Addressable> Client<M> {
+impl Client {
     pub(crate) fn create_session_request(
         &self,
         payload: &StatusEvent,
@@ -131,6 +250,8 @@ impl<M: Addressable> Client<M> {
         );
 
         props.set_tracking(evp.tracking().to_owned());
+        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
+
         Ok(OutgoingRequest::unicast(
             payload,
             props,
@@ -177,7 +298,7 @@ impl CreateHandleTransaction {
     }
 }
 
-impl<M: Addressable> Client<M> {
+impl Client {
     pub(crate) fn create_handle_request(
         &self,
         respp: &IncomingResponseProperties,
@@ -214,6 +335,7 @@ impl<M: Addressable> Client<M> {
         );
 
         props.set_tracking(respp.tracking().to_owned());
+        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
 
         Ok(OutgoingRequest::unicast(
             payload,
@@ -251,20 +373,17 @@ impl CreateRtcHandleTransaction {
 }
 
 #[allow(clippy::too_many_arguments)]
-impl<M: Addressable> Client<M> {
-    pub(crate) fn create_rtc_handle_request<A>(
+impl Client {
+    pub(crate) fn create_rtc_handle_request(
         &self,
         reqp: IncomingRequestProperties,
         rtc_stream_id: Uuid,
         rtc_id: Uuid,
         session_id: i64,
-        to: &A,
+        to: &AgentId,
         start_timestamp: DateTime<Utc>,
         authz_time: Duration,
-    ) -> Result<OutgoingMessage<CreateHandleRequest>>
-    where
-        A: Addressable,
-    {
+    ) -> Result<OutgoingMessage<CreateHandleRequest>> {
         let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
         short_term_timing.set_authorization_time(authz_time);
 
@@ -288,6 +407,8 @@ impl<M: Addressable> Client<M> {
             "janus.plugin.conference",
             Some(&rtc_stream_id.to_string()),
         );
+
+        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
 
         Ok(OutgoingRequest::unicast(
             payload,
@@ -329,21 +450,18 @@ impl CreateStreamRequestBody {
 }
 
 #[allow(clippy::too_many_arguments)]
-impl<M: Addressable> Client<M> {
-    pub(crate) fn create_stream_request<A>(
+impl Client {
+    pub(crate) fn create_stream_request(
         &self,
         reqp: IncomingRequestProperties,
         session_id: i64,
         handle_id: i64,
         rtc_id: Uuid,
         jsep: JsonValue,
-        to: &A,
+        to: &AgentId,
         start_timestamp: DateTime<Utc>,
         authz_time: Duration,
-    ) -> Result<OutgoingMessage<MessageRequest>>
-    where
-        A: Addressable,
-    {
+    ) -> Result<OutgoingMessage<MessageRequest>> {
         let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
         short_term_timing.set_authorization_time(authz_time);
 
@@ -365,6 +483,8 @@ impl<M: Addressable> Client<M> {
             serde_json::to_value(&body)?,
             Some(jsep),
         );
+
+        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
 
         Ok(OutgoingRequest::unicast(
             payload,
@@ -406,22 +526,18 @@ impl ReadStreamRequestBody {
 }
 
 #[allow(clippy::too_many_arguments)]
-impl<M: Addressable> Client<M> {
-    pub(crate) fn read_stream_request<A>(
+impl Client {
+    pub(crate) fn read_stream_request(
         &self,
         reqp: IncomingRequestProperties,
         session_id: i64,
         handle_id: i64,
         rtc_id: Uuid,
         jsep: JsonValue,
-        to: &A,
+        to: &AgentId,
         start_timestamp: DateTime<Utc>,
         authz_time: Duration,
-    ) -> Result<OutgoingMessage<MessageRequest>>
-    where
-        A: Addressable,
-        M: Addressable,
-    {
+    ) -> Result<OutgoingMessage<MessageRequest>> {
         let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
         short_term_timing.set_authorization_time(authz_time);
 
@@ -443,6 +559,8 @@ impl<M: Addressable> Client<M> {
             serde_json::to_value(&body)?,
             Some(jsep),
         );
+
+        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
 
         Ok(OutgoingRequest::unicast(
             payload,
@@ -489,19 +607,16 @@ impl UploadStreamRequestBody {
     }
 }
 
-impl<M: Addressable> Client<M> {
-    pub(crate) fn upload_stream_request<A>(
+impl Client {
+    pub(crate) fn upload_stream_request(
         &self,
         reqp: &IncomingRequestProperties,
         session_id: i64,
         handle_id: i64,
         body: UploadStreamRequestBody,
-        to: &A,
+        to: &AgentId,
         start_timestamp: DateTime<Utc>,
-    ) -> Result<OutgoingMessage<MessageRequest>>
-    where
-        A: Addressable,
-    {
+    ) -> Result<OutgoingMessage<MessageRequest>> {
         let transaction = Transaction::UploadStream(UploadStreamTransaction::new(body.id));
 
         let payload = MessageRequest::new(
@@ -520,6 +635,13 @@ impl<M: Addressable> Client<M> {
         );
 
         props.set_tracking(reqp.tracking().to_owned());
+        self.register_transaction(
+            to,
+            start_timestamp,
+            &props,
+            &payload,
+            *STREAM_UPLOAD_TIMEOUT,
+        );
 
         Ok(OutgoingRequest::unicast(
             payload,
@@ -543,21 +665,18 @@ impl TrickleTransaction {
     }
 }
 
-impl<M: Addressable> Client<M> {
+impl Client {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn trickle_request<A>(
+    pub(crate) fn trickle_request(
         &self,
         reqp: IncomingRequestProperties,
         session_id: i64,
         handle_id: i64,
         jsep: JsonValue,
-        to: &A,
+        to: &AgentId,
         start_timestamp: DateTime<Utc>,
         authz_time: Duration,
-    ) -> Result<OutgoingMessage<TrickleRequest>>
-    where
-        A: Addressable,
-    {
+    ) -> Result<OutgoingMessage<TrickleRequest>> {
         let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
         short_term_timing.set_authorization_time(authz_time);
 
@@ -570,6 +689,8 @@ impl<M: Addressable> Client<M> {
 
         let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
         let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
+        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
+
         Ok(OutgoingRequest::unicast(
             payload,
             props,
@@ -607,25 +728,23 @@ impl AgentLeaveRequestBody {
     }
 }
 
-impl<M: Addressable> Client<M> {
-    pub(crate) fn agent_leave_request<T>(
+impl Client {
+    pub(crate) fn agent_leave_request(
         &self,
         evp: IncomingEventProperties,
         session_id: i64,
         handle_id: i64,
         agent_id: &AgentId,
-        to: &T,
+        to: &AgentId,
         tracking: &TrackingProperties,
-    ) -> Result<OutgoingMessage<MessageRequest>>
-    where
-        T: Addressable,
-        M: Addressable,
-    {
+    ) -> Result<OutgoingMessage<MessageRequest>> {
+        let start_timestamp = Utc::now();
+
         let mut props = OutgoingRequestProperties::new(
             "janus_conference_agent.leave",
             &self.response_topic(to)?,
             &generate_correlation_data(),
-            ShortTermTimingProperties::new(Utc::now()),
+            ShortTermTimingProperties::new(start_timestamp),
         );
 
         props.set_tracking(tracking.to_owned());
@@ -640,6 +759,8 @@ impl<M: Addressable> Client<M> {
             serde_json::to_value(&body)?,
             None,
         );
+
+        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
 
         Ok(OutgoingRequest::unicast(
             payload,
@@ -671,11 +792,12 @@ async fn handle_response_impl<C: Context>(
     resp: &MQTTIncomingResponse<String>,
     start_timestamp: DateTime<Utc>,
 ) -> Result<MessageStream, SvcError> {
+    let respp = resp.properties();
+    context.janus_client().finish_transaction(respp);
+
     let payload = MQTTIncomingResponse::convert_payload::<IncomingResponse>(&resp)
         .map_err(|err| format!("failed to parse response: {}", err))
         .status(ResponseStatus::BAD_REQUEST)?;
-
-    let respp = resp.properties();
 
     match payload {
         IncomingResponse::Success(ref inresp) => {

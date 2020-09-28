@@ -49,7 +49,7 @@ pub(crate) struct TestContext {
     authz: Authz,
     db: TestDb,
     agent_id: AgentId,
-    janus_client: Arc<JanusClient<AgentId>>,
+    janus_client: Arc<JanusClient>,
     janus_topics: JanusTopics,
 }
 
@@ -57,14 +57,16 @@ impl TestContext {
     pub(crate) fn new(db: TestDb, authz: TestAuthz) -> Self {
         let config = build_config();
         let agent_id = AgentId::new(&config.agent_label, config.id.clone());
-        let janus_client = Arc::new(JanusClient::new(agent_id.clone()));
+
+        let janus_client =
+            JanusClient::start(agent_id.clone()).expect("Failed to start janus client");
 
         Self {
             config,
             authz: authz.into(),
             db,
             agent_id,
-            janus_client,
+            janus_client: Arc::new(janus_client),
             janus_topics: JanusTopics::new("ignore", "ignore", "ignore"),
         }
     }
@@ -87,8 +89,8 @@ impl Context for TestContext {
         &self.agent_id
     }
 
-    fn janus_client(&self) -> &Arc<JanusClient<AgentId>> {
-        &self.janus_client
+    fn janus_client(&self) -> Arc<JanusClient> {
+        self.janus_client.clone()
     }
 
     fn janus_topics(&self) -> &JanusTopics {
