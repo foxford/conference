@@ -1,8 +1,10 @@
+use std::ops::Bound;
+
 use async_std::stream;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
-use std::ops::Bound;
+use serde_json::Value as JsonValue;
 use svc_agent::mqtt::{
     IncomingRequestProperties, IntoPublishableMessage, OutgoingRequest, ResponseStatus,
     ShortTermTimingProperties,
@@ -43,6 +45,7 @@ pub(crate) struct CreateRequest {
     #[serde(default = "CreateRequest::default_backend")]
     backend: db::room::RoomBackend,
     reserve: Option<i32>,
+    tags: Option<JsonValue>,
 }
 
 impl CreateRequest {
@@ -77,6 +80,10 @@ impl RequestHandler for CreateHandler {
 
             if let Some(reserve) = payload.reserve {
                 q = q.reserve(reserve);
+            }
+
+            if let Some(ref tags) = payload.tags {
+                q = q.tags(tags);
             }
 
             let conn = context.db().get()?;
@@ -442,6 +449,7 @@ mod test {
         use std::ops::Bound;
 
         use chrono::{SubsecRound, Utc};
+        use serde_json::json;
 
         use crate::db::room::Object as Room;
         use crate::test_helpers::prelude::*;
@@ -466,6 +474,7 @@ mod test {
                     audience: USR_AUDIENCE.to_owned(),
                     backend: db::room::RoomBackend::Janus,
                     reserve: Some(123),
+                    tags: Some(json!({ "foo": "bar" })),
                 };
 
                 let messages = handle_request::<CreateHandler>(&context, &agent, payload)
@@ -479,6 +488,7 @@ mod test {
                 assert_eq!(room.time(), &time);
                 assert_eq!(room.backend(), db::room::RoomBackend::Janus);
                 assert_eq!(room.reserve(), Some(123));
+                assert_eq!(room.tags(), &json!({ "foo": "bar" }));
 
                 // Assert notification.
                 let (room, evp, topic) = find_event::<Room>(messages.as_slice());
@@ -488,6 +498,7 @@ mod test {
                 assert_eq!(room.time(), &time);
                 assert_eq!(room.backend(), db::room::RoomBackend::Janus);
                 assert_eq!(room.reserve(), Some(123));
+                assert_eq!(room.tags(), &json!({ "foo": "bar" }));
             });
         }
 
@@ -503,6 +514,7 @@ mod test {
                     audience: USR_AUDIENCE.to_owned(),
                     backend: db::room::RoomBackend::Janus,
                     reserve: None,
+                    tags: None,
                 };
 
                 let err = handle_request::<CreateHandler>(&context, &agent, payload)
@@ -604,6 +616,7 @@ mod test {
         use std::ops::Bound;
 
         use chrono::{Duration, SubsecRound, Utc};
+        use serde_json::json;
 
         use crate::db::room::Object as Room;
         use crate::test_helpers::prelude::*;
@@ -647,7 +660,10 @@ mod test {
                     Bound::Excluded(now + Duration::hours(3)),
                 );
 
-                let payload = UpdateRequest::new(room.id()).time(time).reserve(Some(123));
+                let payload = UpdateRequest::new(room.id())
+                    .time(time)
+                    .reserve(Some(123))
+                    .tags(json!({"foo": "bar"}));
 
                 let messages = handle_request::<UpdateHandler>(&context, &agent, payload)
                     .await
@@ -661,6 +677,7 @@ mod test {
                 assert_eq!(resp_room.time(), &time);
                 assert_eq!(resp_room.backend(), db::room::RoomBackend::Janus);
                 assert_eq!(resp_room.reserve(), Some(123));
+                assert_eq!(resp_room.tags(), &json!({"foo": "bar"}));
             });
         }
 

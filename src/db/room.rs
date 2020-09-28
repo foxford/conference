@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
 use crate::db::janus_backend::Object as JanusBackend;
@@ -46,6 +47,7 @@ type AllColumns = (
     room::created_at,
     room::backend,
     room::reserve,
+    room::tags,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -55,6 +57,7 @@ const ALL_COLUMNS: AllColumns = (
     room::created_at,
     room::backend,
     room::reserve,
+    room::tags,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -89,6 +92,7 @@ pub(crate) struct Object {
     backend: RoomBackend,
     #[serde(skip_serializing_if = "Option::is_none")]
     reserve: Option<i32>,
+    tags: JsonValue,
 }
 
 impl Object {
@@ -112,6 +116,11 @@ impl Object {
     #[cfg(test)]
     pub(crate) fn reserve(&self) -> Option<i32> {
         self.reserve
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tags(&self) -> &JsonValue {
+        &self.tags
     }
 }
 
@@ -221,6 +230,7 @@ pub(crate) struct InsertQuery<'a> {
     audience: &'a str,
     backend: RoomBackend,
     reserve: Option<i32>,
+    tags: Option<&'a JsonValue>,
 }
 
 impl<'a> InsertQuery<'a> {
@@ -230,12 +240,20 @@ impl<'a> InsertQuery<'a> {
             audience,
             backend,
             reserve: None,
+            tags: None,
         }
     }
 
     pub(crate) fn reserve(self, value: i32) -> Self {
         Self {
             reserve: Some(value),
+            ..self
+        }
+    }
+
+    pub(crate) fn tags(self, value: &'a JsonValue) -> Self {
+        Self {
+            tags: Some(value),
             ..self
         }
     }
@@ -278,6 +296,7 @@ pub(crate) struct UpdateQuery {
     audience: Option<String>,
     backend: Option<RoomBackend>,
     reserve: Option<Option<i32>>,
+    tags: Option<JsonValue>,
 }
 
 impl UpdateQuery {
@@ -289,6 +308,7 @@ impl UpdateQuery {
             audience: None,
             backend: None,
             reserve: None,
+            tags: None,
         }
     }
 
@@ -308,6 +328,14 @@ impl UpdateQuery {
     pub(crate) fn reserve(self, value: Option<i32>) -> Self {
         Self {
             reserve: Some(value),
+            ..self
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tags(self, value: JsonValue) -> Self {
+        Self {
+            tags: Some(value),
             ..self
         }
     }

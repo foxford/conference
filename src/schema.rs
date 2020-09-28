@@ -76,6 +76,7 @@ table! {
         created_at -> Timestamptz,
         backend -> Room_backend,
         reserve -> Nullable<Int4>,
+        tags -> Json,
     }
 }
 
