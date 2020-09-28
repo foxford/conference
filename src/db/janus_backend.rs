@@ -12,6 +12,7 @@ pub(crate) type AllColumns = (
     janus_backend::session_id,
     janus_backend::created_at,
     janus_backend::capacity,
+    janus_backend::balancer_capacity,
 );
 
 pub(crate) const ALL_COLUMNS: AllColumns = (
@@ -20,6 +21,7 @@ pub(crate) const ALL_COLUMNS: AllColumns = (
     janus_backend::session_id,
     janus_backend::created_at,
     janus_backend::capacity,
+    janus_backend::balancer_capacity,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -32,6 +34,7 @@ pub(crate) struct Object {
     session_id: i64,
     created_at: DateTime<Utc>,
     capacity: Option<i32>,
+    balancer_capacity: Option<i32>,
 }
 
 impl Object {
@@ -125,6 +128,7 @@ pub(crate) struct UpsertQuery<'a> {
     handle_id: i64,
     session_id: i64,
     capacity: Option<i32>,
+    balancer_capacity: Option<i32>,
 }
 
 impl<'a> UpsertQuery<'a> {
@@ -134,12 +138,20 @@ impl<'a> UpsertQuery<'a> {
             handle_id,
             session_id,
             capacity: None,
+            balancer_capacity: None,
         }
     }
 
     pub(crate) fn capacity(self, capacity: i32) -> Self {
         Self {
             capacity: Some(capacity),
+            ..self
+        }
+    }
+
+    pub(crate) fn balancer_capacity(self, balancer_capacity: i32) -> Self {
+        Self {
+            balancer_capacity: Some(balancer_capacity),
             ..self
         }
     }
@@ -226,8 +238,8 @@ const LEAST_LOADED_SQL: &str = r#"
     LEFT JOIN room AS r2
     ON 1 = 1
     WHERE r2.id = $1
-    AND   COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.load, 0) > COALESCE(r2.reserve, 0)
-    ORDER BY COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC
+    AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) > COALESCE(r2.reserve, 0)
+    ORDER BY COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC
     LIMIT 1
 "#;
 
