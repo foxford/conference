@@ -15,7 +15,6 @@ use svc_error::Error as SvcError;
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::app::handle_id::HandleId;
-use crate::app::janus;
 use crate::db;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -74,20 +73,21 @@ impl RequestHandler for CreateHandler {
                     // Authorization
                     let authz_time = authorize(context, &payload, reqp, "read").await?;
 
-                    janus::read_stream_request(
-                        reqp.clone(),
-                        payload.handle_id.janus_session_id(),
-                        payload.handle_id.janus_handle_id(),
-                        payload.handle_id.rtc_id(),
-                        payload.jsep.clone(),
-                        payload.handle_id.backend_id(),
-                        context.agent_id(),
-                        start_timestamp,
-                        authz_time,
-                    )
-                    .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
-                    .map_err(|err| format!("error creating a backend request: {}", err))
-                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
+                    context
+                        .janus_client()
+                        .read_stream_request(
+                            reqp.clone(),
+                            payload.handle_id.janus_session_id(),
+                            payload.handle_id.janus_handle_id(),
+                            payload.handle_id.rtc_id(),
+                            payload.jsep.clone(),
+                            payload.handle_id.backend_id(),
+                            start_timestamp,
+                            authz_time,
+                        )
+                        .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
+                        .map_err(|err| format!("error creating a backend request: {}", err))
+                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
                 } else {
                     // Authorization
                     let authz_time = authorize(context, &payload, reqp, "update").await?;
@@ -113,20 +113,21 @@ impl RequestHandler for CreateHandler {
                         .execute(&conn)?;
                     }
 
-                    janus::create_stream_request(
-                        reqp.clone(),
-                        payload.handle_id.janus_session_id(),
-                        payload.handle_id.janus_handle_id(),
-                        payload.handle_id.rtc_id(),
-                        payload.jsep.clone(),
-                        payload.handle_id.backend_id(),
-                        context.agent_id(),
-                        start_timestamp,
-                        authz_time,
-                    )
-                    .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
-                    .map_err(|err| format!("error creating a backend request: {}", err))
-                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
+                    context
+                        .janus_client()
+                        .create_stream_request(
+                            reqp.clone(),
+                            payload.handle_id.janus_session_id(),
+                            payload.handle_id.janus_handle_id(),
+                            payload.handle_id.rtc_id(),
+                            payload.jsep.clone(),
+                            payload.handle_id.backend_id(),
+                            start_timestamp,
+                            authz_time,
+                        )
+                        .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
+                        .map_err(|err| format!("error creating a backend request: {}", err))
+                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
                 }
             }
             SdpType::Answer => {
@@ -136,19 +137,20 @@ impl RequestHandler for CreateHandler {
                 // Authorization
                 let authz_time = authorize(context, &payload, reqp, "read").await?;
 
-                crate::app::janus::trickle_request(
-                    reqp.clone(),
-                    payload.handle_id.janus_session_id(),
-                    payload.handle_id.janus_handle_id(),
-                    payload.jsep.clone(),
-                    payload.handle_id.backend_id(),
-                    context.agent_id(),
-                    start_timestamp,
-                    authz_time,
-                )
-                .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
-                .map_err(|err| format!("error creating a backend request: {}", err))
-                .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
+                context
+                    .janus_client()
+                    .trickle_request(
+                        reqp.clone(),
+                        payload.handle_id.janus_session_id(),
+                        payload.handle_id.janus_handle_id(),
+                        payload.jsep.clone(),
+                        payload.handle_id.backend_id(),
+                        start_timestamp,
+                        authz_time,
+                    )
+                    .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
+                    .map_err(|err| format!("error creating a backend request: {}", err))
+                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
             }
         };
 

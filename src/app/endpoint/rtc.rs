@@ -12,7 +12,6 @@ use uuid::Uuid;
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::app::handle_id::HandleId;
-use crate::app::janus;
 use crate::db;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -344,13 +343,12 @@ impl RequestHandler for ConnectHandler {
         };
 
         // Send janus handle creation request.
-        let janus_request_result = janus::create_rtc_handle_request(
+        let janus_request_result = context.janus_client().create_rtc_handle_request(
             reqp.clone(),
             Uuid::new_v4(),
             payload.id,
             backend.session_id(),
             backend.id(),
-            context.agent_id(),
             start_timestamp,
             authz_time,
         );

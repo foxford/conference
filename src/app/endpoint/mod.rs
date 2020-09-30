@@ -10,11 +10,11 @@ use svc_agent::mqtt::{
 use svc_error::Error as SvcError;
 
 use crate::app::context::Context;
-use crate::app::janus;
 pub(self) use crate::app::message_handler::MessageStream;
 use crate::app::message_handler::{
     EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler,
 };
+use crate::backend::janus;
 
 ///////////////////////////////////////////////////////////////////////////////
 

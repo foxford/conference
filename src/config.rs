@@ -10,10 +10,10 @@ pub(crate) struct Config {
     pub(crate) id_token: JwtConfig,
     pub(crate) agent_label: String,
     pub(crate) broker_id: AccountId,
-    pub(crate) backend_id: AccountId,
     pub(crate) authz: Authz,
     pub(crate) mqtt: AgentConfig,
     pub(crate) sentry: Option<SentryConfig>,
+    pub(crate) backend: BackendConfig,
     #[serde(default)]
     pub(crate) telemetry: TelemetryConfig,
     #[serde(default)]
@@ -33,6 +33,14 @@ pub(crate) fn load() -> Result<Config, config::ConfigError> {
     parser.merge(config::File::with_name("App"))?;
     parser.merge(config::Environment::with_prefix("APP").separator("__"))?;
     parser.try_into::<Config>()
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct BackendConfig {
+    pub(crate) id: AccountId,
+    pub(crate) default_timeout: u64,
+    pub(crate) stream_upload_timeout: u64,
+    pub(crate) transaction_watchdog_check_period: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

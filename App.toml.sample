@@ -1,7 +1,6 @@
 id = "conference.svc.example.org"
 agent_label = "alpha"
 broker_id = "mqtt-gateway.svc.example.org"
-backend_id = "janus-gateway.svc.example.org"
 
 [id_token]
 algorithm = "ES256"
@@ -20,3 +19,9 @@ trusted = ["cron.svc.example.org"]
 [mqtt]
 uri = "mqtt://192.168.99.100:1883"
 clean_session = false
+
+[backend]
+id = "janus-gateway.svc.example.org"
+default_timeout = 5
+stream_upload_timeout = 600
+transaction_watchdog_check_period = 1

@@ -22,6 +22,7 @@ use svc_error::{extension::sentry, Error as SvcError};
 
 use crate::app::context::Context;
 use crate::app::metrics::DbPoolStatsCollector;
+use crate::backend::janus::Client as JanusClient;
 use crate::config::{self, Config, KruonisConfig};
 use crate::db::ConnectionPool;
 use context::{AppContext, JanusTopics};
@@ -87,9 +88,15 @@ pub(crate) async fn run(
     let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
 
     // Context
-    let context = AppContext::new(config.clone(), authz, db.clone(), janus_topics)
-        .add_queue_counter(agent.get_queue_counter())
-        .db_pool_stats(db_pool_stats);
+    let context = AppContext::new(
+        config.clone(),
+        authz,
+        db.clone(),
+        JanusClient::start(&config.backend, agent_id)?,
+        janus_topics,
+    )
+    .add_queue_counter(agent.get_queue_counter())
+    .db_pool_stats(db_pool_stats);
 
     let context = match redis_pool {
         Some(pool) => context.add_redis_pool(pool),
@@ -156,7 +163,7 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
         .context("Error subscribing to unicast requests")?;
 
     // Janus status events
-    let subscription = Subscription::broadcast_events(&config.backend_id, API_VERSION, "status");
+    let subscription = Subscription::broadcast_events(&config.backend.id, API_VERSION, "status");
 
     agent
         .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
@@ -167,7 +174,7 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
         .context("Error building janus events subscription topic")?;
 
     // Janus events
-    let subscription = Subscription::broadcast_events(&config.backend_id, API_VERSION, "events");
+    let subscription = Subscription::broadcast_events(&config.backend.id, API_VERSION, "events");
 
     agent
         .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
@@ -178,7 +185,7 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
         .context("Error building janus events subscription topic")?;
 
     // Janus responses
-    let subscription = Subscription::unicast_responses_from(&config.backend_id);
+    let subscription = Subscription::unicast_responses_from(&config.backend.id);
 
     agent
         .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
@@ -237,6 +244,5 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
 pub(crate) mod context;
 pub(crate) mod endpoint;
 pub(crate) mod handle_id;
-mod janus;
 pub(crate) mod message_handler;
 pub(crate) mod metrics;

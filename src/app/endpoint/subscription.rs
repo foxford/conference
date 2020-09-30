@@ -16,7 +16,6 @@ use uuid::Uuid;
 
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
-use crate::app::janus;
 use crate::db;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -185,13 +184,12 @@ impl EventHandler for DeleteHandler {
                 .execute(&conn)?;
 
             for backend in backends {
-                let result = janus::agent_leave_request(
+                let result = context.janus_client().agent_leave_request(
                     evp.to_owned(),
                     backend.session_id(),
                     backend.handle_id(),
                     &payload.subject,
                     backend.id(),
-                    context.agent_id(),
                     evp.tracking(),
                 );
 
