@@ -1,22 +1,16 @@
-use std::collections::HashMap;
 use std::str::FromStr;
-use std::thread;
-use std::time::Duration as StdDuration;
 
-use anyhow::{Context as AnyhowContext, Result};
+use anyhow::Result;
 use async_std::stream;
-use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use log::{error, info, warn};
-use serde_derive::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
 use std::ops::Bound;
 use svc_agent::mqtt::{
     IncomingEvent as MQTTIncomingEvent, IncomingEventProperties, IncomingRequestProperties,
-    IncomingResponse as MQTTIncomingResponse, IncomingResponseProperties, IntoPublishableMessage,
-    OutgoingMessage, OutgoingRequest, OutgoingRequestProperties, OutgoingResponse, ResponseStatus,
-    ShortTermTimingProperties, SubscriptionTopic, TrackingProperties,
+    IncomingResponse as MQTTIncomingResponse, IntoPublishableMessage, OutgoingResponse,
+    ResponseStatus, ShortTermTimingProperties,
 };
-use svc_agent::{Addressable, AgentId, Subscription};
+use svc_agent::Addressable;
 use svc_error::{extension::sentry, Error as SvcError};
 use uuid::Uuid;
 
@@ -25,749 +19,21 @@ use crate::app::endpoint;
 use crate::app::handle_id::HandleId;
 use crate::app::message_handler::{MessageStream, SvcErrorSugar};
 use crate::app::API_VERSION;
-use crate::backend::janus::{
-    CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingEvent, IncomingResponse,
-    MessageRequest, OpaqueId, StatusEvent, TrickleRequest, JANUS_API_VERSION,
-};
-use crate::config::BackendConfig;
 use crate::db::{agent, janus_backend, janus_rtc_stream, recording, room, rtc};
 use crate::diesel::Connection;
-use crate::util::{from_base64, generate_correlation_data, to_base64};
+use crate::util::from_base64;
+
+use self::events::{IncomingEvent, StatusEvent};
+use self::responses::{ErrorResponse, IncomingResponse};
+use self::transactions::Transaction;
 
 ////////////////////////////////////////////////////////////////////////////////
 
 const STREAM_UPLOAD_METHOD: &str = "stream.upload";
+pub(crate) const JANUS_API_VERSION: &str = "v1";
 
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug)]
-struct RequestInfo {
-    timeout: Duration,
-    to: AgentId,
-    start_timestamp: DateTime<Utc>,
-    payload: JsonValue,
-}
-
-enum TransactionWatchdogMessage {
-    Halt,
-    Insert(String, RequestInfo),
-    Remove(String),
-}
-
-pub(crate) struct Client {
-    me: AgentId,
-    transaction_watchdog_tx: crossbeam_channel::Sender<TransactionWatchdogMessage>,
-    default_timeout: Duration,
-    stream_upload_timeout: Duration,
-}
-
-impl Client {
-    pub(crate) fn start(config: &BackendConfig, me: AgentId) -> Result<Self> {
-        let period = StdDuration::from_secs(config.transaction_watchdog_check_period);
-        let (tx, rx) = crossbeam_channel::unbounded();
-
-        let thread_builder = thread::Builder::new().name("janus_transaction_watchdog".into());
-
-        thread_builder
-            .spawn(move || {
-                let mut state: HashMap<String, RequestInfo> = HashMap::new();
-
-                loop {
-                    if let Ok(message) = rx.recv_timeout(period) {
-                        match message {
-                            TransactionWatchdogMessage::Halt => break,
-                            TransactionWatchdogMessage::Insert(corr_data, info) => {
-                                state.insert(corr_data, info);
-                            }
-                            TransactionWatchdogMessage::Remove(ref corr_data) => {
-                                state.remove(corr_data);
-                            }
-                        }
-                    }
-
-                    state = state
-                        .into_iter()
-                        .filter(|(corr_data, info)| {
-                            if info.start_timestamp + info.timeout > Utc::now() {
-                                let msg =
-                                    format!("Janus request timed out ({}): {:?}", corr_data, info);
-
-                                error!("{}", msg);
-
-                                let svc_error = SvcError::builder()
-                                    .status(ResponseStatus::GATEWAY_TIMEOUT)
-                                    .kind("janus_request_timed_out", "Janus request timed out")
-                                    .detail(&msg)
-                                    .build();
-
-                                sentry::send(svc_error).unwrap_or_else(|err| {
-                                    warn!("Error sending error to Sentry: {}", err)
-                                });
-
-                                false
-                            } else {
-                                true
-                            }
-                        })
-                        .collect();
-                }
-            })
-            .context("Failed to spawn janus transaction watchdog thread")?;
-
-        Ok(Self {
-            me,
-            transaction_watchdog_tx: tx,
-            default_timeout: Duration::seconds(config.default_timeout as i64),
-            stream_upload_timeout: Duration::seconds(config.stream_upload_timeout as i64),
-        })
-    }
-
-    fn register_transaction<P: serde::Serialize>(
-        &self,
-        to: &AgentId,
-        start_timestamp: DateTime<Utc>,
-        reqp: &OutgoingRequestProperties,
-        payload: &P,
-        timeout: Duration,
-    ) {
-        let request_info = RequestInfo {
-            timeout,
-            to: to.to_owned(),
-            start_timestamp,
-            payload: json!(payload),
-        };
-
-        self.transaction_watchdog_tx
-            .send(TransactionWatchdogMessage::Insert(
-                reqp.correlation_data().to_owned(),
-                request_info,
-            ))
-            .unwrap_or_else(|err| error!("Failed to register janus client transaction: {}", err));
-    }
-
-    fn finish_transaction(&self, respp: &IncomingResponseProperties) {
-        let corr_data = respp.correlation_data().to_owned();
-
-        self.transaction_watchdog_tx
-            .send(TransactionWatchdogMessage::Remove(corr_data))
-            .unwrap_or_else(|err| error!("Failed to remove janus client transaction: {}", err));
-    }
-
-    fn response_topic(&self, to: &AgentId) -> Result<String> {
-        Subscription::unicast_responses_from(to)
-            .subscription_topic(&self.me, JANUS_API_VERSION)
-            .context("Failed to build subscription topic")
-    }
-}
-
-impl Drop for Client {
-    fn drop(&mut self) {
-        self.transaction_watchdog_tx
-            .send(TransactionWatchdogMessage::Halt)
-            .unwrap_or_else(|err| {
-                error!("Failed to stop janus client transaction watchdog: {}", err)
-            });
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) enum Transaction {
-    CreateSession(CreateSessionTransaction),
-    CreateHandle(CreateHandleTransaction),
-    CreateRtcHandle(CreateRtcHandleTransaction),
-    CreateStream(CreateStreamTransaction),
-    ReadStream(ReadStreamTransaction),
-    UploadStream(UploadStreamTransaction),
-    Trickle(TrickleTransaction),
-    AgentLeave(AgentLeaveTransaction),
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CreateSessionTransaction {
-    capacity: Option<i32>,
-    balancer_capacity: Option<i32>,
-}
-
-impl CreateSessionTransaction {
-    pub(crate) fn new() -> Self {
-        Self {
-            capacity: None,
-            balancer_capacity: None,
-        }
-    }
-
-    pub(crate) fn capacity(&self) -> Option<i32> {
-        self.capacity
-    }
-
-    pub(crate) fn balancer_capacity(&self) -> Option<i32> {
-        self.balancer_capacity
-    }
-
-    pub(crate) fn set_capacity(&mut self, capacity: i32) -> &mut Self {
-        self.capacity = Some(capacity);
-        self
-    }
-
-    pub(crate) fn set_balancer_capacity(&mut self, balancer_capacity: i32) -> &mut Self {
-        self.balancer_capacity = Some(balancer_capacity);
-        self
-    }
-}
-
-impl Client {
-    pub(crate) fn create_session_request(
-        &self,
-        payload: &StatusEvent,
-        evp: &IncomingEventProperties,
-        start_timestamp: DateTime<Utc>,
-    ) -> Result<OutgoingMessage<CreateSessionRequest>> {
-        let to = evp.as_agent_id();
-        let mut tn_data = CreateSessionTransaction::new();
-
-        if let Some(capacity) = payload.capacity() {
-            tn_data.set_capacity(capacity);
-        }
-
-        if let Some(balancer_capacity) = payload.balancer_capacity() {
-            tn_data.set_balancer_capacity(balancer_capacity);
-        }
-
-        let transaction = Transaction::CreateSession(tn_data);
-        let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
-
-        let mut props = OutgoingRequestProperties::new(
-            "janus_session.create",
-            &self.response_topic(to)?,
-            &generate_correlation_data(),
-            ShortTermTimingProperties::until_now(start_timestamp),
-        );
-
-        props.set_tracking(evp.tracking().to_owned());
-        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
-
-        Ok(OutgoingRequest::unicast(
-            payload,
-            props,
-            to,
-            JANUS_API_VERSION,
-        ))
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CreateHandleTransaction {
-    session_id: i64,
-    capacity: Option<i32>,
-    balancer_capacity: Option<i32>,
-}
-
-impl CreateHandleTransaction {
-    pub(crate) fn new(session_id: i64) -> Self {
-        Self {
-            session_id,
-            capacity: None,
-            balancer_capacity: None,
-        }
-    }
-
-    pub(crate) fn capacity(&self) -> Option<i32> {
-        self.capacity
-    }
-
-    pub(crate) fn balancer_capacity(&self) -> Option<i32> {
-        self.balancer_capacity
-    }
-
-    pub(crate) fn set_capacity(&mut self, capacity: i32) -> &mut Self {
-        self.capacity = Some(capacity);
-        self
-    }
-
-    pub(crate) fn set_balancer_capacity(&mut self, balancer_capacity: i32) -> &mut Self {
-        self.balancer_capacity = Some(balancer_capacity);
-        self
-    }
-}
-
-impl Client {
-    pub(crate) fn create_handle_request(
-        &self,
-        respp: &IncomingResponseProperties,
-        session_id: i64,
-        capacity: Option<i32>,
-        balancer_capacity: Option<i32>,
-        start_timestamp: DateTime<Utc>,
-    ) -> Result<OutgoingMessage<CreateHandleRequest>> {
-        let to = respp.as_agent_id();
-        let mut tn_data = CreateHandleTransaction::new(session_id);
-
-        if let Some(capacity) = capacity {
-            tn_data.set_capacity(capacity);
-        }
-
-        if let Some(balancer_capacity) = balancer_capacity {
-            tn_data.set_balancer_capacity(balancer_capacity);
-        }
-
-        let transaction = Transaction::CreateHandle(tn_data);
-
-        let payload = CreateHandleRequest::new(
-            &to_base64(&transaction)?,
-            session_id,
-            "janus.plugin.conference",
-            None,
-        );
-
-        let mut props = OutgoingRequestProperties::new(
-            "janus_handle.create",
-            &self.response_topic(to)?,
-            &generate_correlation_data(),
-            ShortTermTimingProperties::until_now(start_timestamp),
-        );
-
-        props.set_tracking(respp.tracking().to_owned());
-        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
-
-        Ok(OutgoingRequest::unicast(
-            payload,
-            props,
-            to,
-            JANUS_API_VERSION,
-        ))
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CreateRtcHandleTransaction {
-    reqp: IncomingRequestProperties,
-    rtc_stream_id: Uuid,
-    rtc_id: Uuid,
-    session_id: i64,
-}
-
-impl CreateRtcHandleTransaction {
-    pub(crate) fn new(
-        reqp: IncomingRequestProperties,
-        rtc_stream_id: Uuid,
-        rtc_id: Uuid,
-        session_id: i64,
-    ) -> Self {
-        Self {
-            reqp,
-            rtc_stream_id,
-            rtc_id,
-            session_id,
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-impl Client {
-    pub(crate) fn create_rtc_handle_request(
-        &self,
-        reqp: IncomingRequestProperties,
-        rtc_stream_id: Uuid,
-        rtc_id: Uuid,
-        session_id: i64,
-        to: &AgentId,
-        start_timestamp: DateTime<Utc>,
-        authz_time: Duration,
-    ) -> Result<OutgoingMessage<CreateHandleRequest>> {
-        let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-        short_term_timing.set_authorization_time(authz_time);
-
-        let props = reqp.to_request(
-            "janus_handle.create",
-            &self.response_topic(to)?,
-            &generate_correlation_data(),
-            short_term_timing,
-        );
-
-        let transaction = Transaction::CreateRtcHandle(CreateRtcHandleTransaction::new(
-            reqp,
-            rtc_stream_id,
-            rtc_id,
-            session_id,
-        ));
-
-        let payload = CreateHandleRequest::new(
-            &to_base64(&transaction)?,
-            session_id,
-            "janus.plugin.conference",
-            Some(&rtc_stream_id.to_string()),
-        );
-
-        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
-
-        Ok(OutgoingRequest::unicast(
-            payload,
-            props,
-            to,
-            JANUS_API_VERSION,
-        ))
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CreateStreamTransaction {
-    reqp: IncomingRequestProperties,
-}
-
-impl CreateStreamTransaction {
-    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
-        Self { reqp }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CreateStreamRequestBody {
-    method: &'static str,
-    id: Uuid,
-    agent_id: AgentId,
-}
-
-impl CreateStreamRequestBody {
-    pub(crate) fn new(id: Uuid, agent_id: AgentId) -> Self {
-        Self {
-            method: "stream.create",
-            id,
-            agent_id,
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-impl Client {
-    pub(crate) fn create_stream_request(
-        &self,
-        reqp: IncomingRequestProperties,
-        session_id: i64,
-        handle_id: i64,
-        rtc_id: Uuid,
-        jsep: JsonValue,
-        to: &AgentId,
-        start_timestamp: DateTime<Utc>,
-        authz_time: Duration,
-    ) -> Result<OutgoingMessage<MessageRequest>> {
-        let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-        short_term_timing.set_authorization_time(authz_time);
-
-        let props = reqp.to_request(
-            "janus_conference_stream.create",
-            &self.response_topic(to)?,
-            &generate_correlation_data(),
-            short_term_timing,
-        );
-
-        let agent_id = reqp.as_agent_id().to_owned();
-        let body = CreateStreamRequestBody::new(rtc_id, agent_id);
-        let transaction = Transaction::CreateStream(CreateStreamTransaction::new(reqp));
-
-        let payload = MessageRequest::new(
-            &to_base64(&transaction)?,
-            session_id,
-            handle_id,
-            serde_json::to_value(&body)?,
-            Some(jsep),
-        );
-
-        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
-
-        Ok(OutgoingRequest::unicast(
-            payload,
-            props,
-            to,
-            JANUS_API_VERSION,
-        ))
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct ReadStreamTransaction {
-    reqp: IncomingRequestProperties,
-}
-
-impl ReadStreamTransaction {
-    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
-        Self { reqp }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct ReadStreamRequestBody {
-    method: &'static str,
-    id: Uuid,
-    agent_id: AgentId,
-}
-
-impl ReadStreamRequestBody {
-    pub(crate) fn new(id: Uuid, agent_id: AgentId) -> Self {
-        Self {
-            method: "stream.read",
-            id,
-            agent_id,
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-impl Client {
-    pub(crate) fn read_stream_request(
-        &self,
-        reqp: IncomingRequestProperties,
-        session_id: i64,
-        handle_id: i64,
-        rtc_id: Uuid,
-        jsep: JsonValue,
-        to: &AgentId,
-        start_timestamp: DateTime<Utc>,
-        authz_time: Duration,
-    ) -> Result<OutgoingMessage<MessageRequest>> {
-        let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-        short_term_timing.set_authorization_time(authz_time);
-
-        let props = reqp.to_request(
-            "janus_conference_stream.create",
-            &self.response_topic(to)?,
-            &generate_correlation_data(),
-            short_term_timing,
-        );
-
-        let agent_id = reqp.as_agent_id().to_owned();
-        let body = ReadStreamRequestBody::new(rtc_id, agent_id);
-        let transaction = Transaction::ReadStream(ReadStreamTransaction::new(reqp));
-
-        let payload = MessageRequest::new(
-            &to_base64(&transaction)?,
-            session_id,
-            handle_id,
-            serde_json::to_value(&body)?,
-            Some(jsep),
-        );
-
-        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
-
-        Ok(OutgoingRequest::unicast(
-            payload,
-            props,
-            to,
-            JANUS_API_VERSION,
-        ))
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct UploadStreamTransaction {
-    rtc_id: Uuid,
-}
-
-impl UploadStreamTransaction {
-    pub(crate) fn new(rtc_id: Uuid) -> Self {
-        Self { rtc_id }
-    }
-
-    pub(crate) fn method(&self) -> &str {
-        STREAM_UPLOAD_METHOD
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct UploadStreamRequestBody {
-    method: &'static str,
-    id: Uuid,
-    bucket: String,
-    object: String,
-}
-
-impl UploadStreamRequestBody {
-    pub(crate) fn new(id: Uuid, bucket: &str, object: &str) -> Self {
-        Self {
-            method: STREAM_UPLOAD_METHOD,
-            id,
-            bucket: bucket.to_owned(),
-            object: object.to_owned(),
-        }
-    }
-}
-
-impl Client {
-    pub(crate) fn upload_stream_request(
-        &self,
-        reqp: &IncomingRequestProperties,
-        session_id: i64,
-        handle_id: i64,
-        body: UploadStreamRequestBody,
-        to: &AgentId,
-        start_timestamp: DateTime<Utc>,
-    ) -> Result<OutgoingMessage<MessageRequest>> {
-        let transaction = Transaction::UploadStream(UploadStreamTransaction::new(body.id));
-
-        let payload = MessageRequest::new(
-            &to_base64(&transaction)?,
-            session_id,
-            handle_id,
-            serde_json::to_value(&body)?,
-            None,
-        );
-
-        let mut props = OutgoingRequestProperties::new(
-            "janus_conference_stream.upload",
-            &self.response_topic(to)?,
-            &generate_correlation_data(),
-            ShortTermTimingProperties::until_now(start_timestamp),
-        );
-
-        props.set_tracking(reqp.tracking().to_owned());
-        self.register_transaction(
-            to,
-            start_timestamp,
-            &props,
-            &payload,
-            self.stream_upload_timeout,
-        );
-
-        Ok(OutgoingRequest::unicast(
-            payload,
-            props,
-            to,
-            JANUS_API_VERSION,
-        ))
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct TrickleTransaction {
-    reqp: IncomingRequestProperties,
-}
-
-impl TrickleTransaction {
-    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
-        Self { reqp }
-    }
-}
-
-impl Client {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn trickle_request(
-        &self,
-        reqp: IncomingRequestProperties,
-        session_id: i64,
-        handle_id: i64,
-        jsep: JsonValue,
-        to: &AgentId,
-        start_timestamp: DateTime<Utc>,
-        authz_time: Duration,
-    ) -> Result<OutgoingMessage<TrickleRequest>> {
-        let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-        short_term_timing.set_authorization_time(authz_time);
-
-        let props = reqp.to_request(
-            "janus_trickle.create",
-            &self.response_topic(to)?,
-            &generate_correlation_data(),
-            short_term_timing,
-        );
-
-        let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
-        let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
-        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
-
-        Ok(OutgoingRequest::unicast(
-            payload,
-            props,
-            to,
-            JANUS_API_VERSION,
-        ))
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct AgentLeaveTransaction {
-    evp: IncomingEventProperties,
-}
-
-impl AgentLeaveTransaction {
-    pub(crate) fn new(evp: IncomingEventProperties) -> Self {
-        Self { evp }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct AgentLeaveRequestBody {
-    method: &'static str,
-    agent_id: AgentId,
-}
-
-impl AgentLeaveRequestBody {
-    pub(crate) fn new(agent_id: AgentId) -> Self {
-        Self {
-            method: "agent.leave",
-            agent_id,
-        }
-    }
-}
-
-impl Client {
-    pub(crate) fn agent_leave_request(
-        &self,
-        evp: IncomingEventProperties,
-        session_id: i64,
-        handle_id: i64,
-        agent_id: &AgentId,
-        to: &AgentId,
-        tracking: &TrackingProperties,
-    ) -> Result<OutgoingMessage<MessageRequest>> {
-        let start_timestamp = Utc::now();
-
-        let mut props = OutgoingRequestProperties::new(
-            "janus_conference_agent.leave",
-            &self.response_topic(to)?,
-            &generate_correlation_data(),
-            ShortTermTimingProperties::new(start_timestamp),
-        );
-
-        props.set_tracking(tracking.to_owned());
-
-        let transaction = Transaction::AgentLeave(AgentLeaveTransaction::new(evp));
-        let body = AgentLeaveRequestBody::new(agent_id.to_owned());
-
-        let payload = MessageRequest::new(
-            &to_base64(&transaction)?,
-            session_id,
-            handle_id,
-            serde_json::to_value(&body)?,
-            None,
-        );
-
-        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
-
-        Ok(OutgoingRequest::unicast(
-            payload,
-            props,
-            to,
-            JANUS_API_VERSION,
-        ))
-    }
+pub(crate) trait OpaqueId {
+    fn opaque_id(&self) -> &str;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -830,7 +96,7 @@ async fn handle_response_impl<C: Context>(
                     let conn = context.db().get()?;
 
                     let mut q =
-                        janus_backend::UpsertQuery::new(backend_id, handle_id, tn.session_id);
+                        janus_backend::UpsertQuery::new(backend_id, handle_id, tn.session_id());
 
                     if let Some(capacity) = tn.capacity() {
                         q = q.capacity(capacity);
@@ -846,22 +112,22 @@ async fn handle_response_impl<C: Context>(
                 // Rtc Handle has been created
                 Transaction::CreateRtcHandle(tn) => {
                     let agent_id = respp.as_agent_id();
-                    let reqp = tn.reqp;
+                    let reqp = tn.reqp();
 
                     // Returning Real-Time connection handle
                     let resp = endpoint::rtc::ConnectResponse::unicast(
                         endpoint::rtc::ConnectResponseData::new(HandleId::new(
-                            tn.rtc_stream_id,
-                            tn.rtc_id,
+                            tn.rtc_stream_id(),
+                            tn.rtc_id(),
                             inresp.data().id(),
-                            tn.session_id,
+                            tn.session_id(),
                             agent_id.clone(),
                         )),
                         reqp.to_response(
                             ResponseStatus::OK,
                             ShortTermTimingProperties::until_now(start_timestamp),
                         ),
-                        &reqp,
+                        reqp,
                         JANUS_API_VERSION,
                     );
 
@@ -884,11 +150,11 @@ async fn handle_response_impl<C: Context>(
                 Transaction::Trickle(tn) => {
                     let resp = endpoint::rtc_signal::CreateResponse::unicast(
                         endpoint::rtc_signal::CreateResponseData::new(None),
-                        tn.reqp.to_response(
+                        tn.reqp().to_response(
                             ResponseStatus::OK,
                             ShortTermTimingProperties::until_now(start_timestamp),
                         ),
-                        tn.reqp.as_agent_id(),
+                        tn.reqp().as_agent_id(),
                         JANUS_API_VERSION,
                     );
 
@@ -914,7 +180,7 @@ async fn handle_response_impl<C: Context>(
                         // We fail if response doesn't contain a status
                         format!(
                             "missing 'status' in a response on method = '{}', transaction = '{}'",
-                            tn.reqp.method(),
+                            tn.reqp().method(),
                             inresp.transaction()
                         )
                     })
@@ -925,7 +191,7 @@ async fn handle_response_impl<C: Context>(
                         status => {
                             let err = format!(
                                 "error received on method = '{}', transaction = '{}', status = '{}'",
-                                tn.reqp.method(),
+                                tn.reqp().method(),
                                 inresp.transaction(),
                                 status,
                             );
@@ -939,15 +205,15 @@ async fn handle_response_impl<C: Context>(
                             .jsep()
                             .ok_or_else(|| format!(
                                 "missing 'jsep' in a response on method = '{}', transaction = '{}'",
-                                tn.reqp.method(),
+                                tn.reqp().method(),
                                 inresp.transaction(),
                             ))
                             .status(ResponseStatus::FAILED_DEPENDENCY)?;
 
                         let resp = endpoint::rtc_signal::CreateResponse::unicast(
                             endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                            tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
-                            tn.reqp.as_agent_id(),
+                            tn.reqp().to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
+                            tn.reqp().as_agent_id(),
                             JANUS_API_VERSION,
                         );
 
@@ -958,7 +224,7 @@ async fn handle_response_impl<C: Context>(
                         Ok(handle_response_error(
                             "janus_stream.create",
                             "Error creating a Janus Conference Stream",
-                            &tn.reqp,
+                            &tn.reqp(),
                             err,
                             start_timestamp,
                         ))
@@ -972,7 +238,7 @@ async fn handle_response_impl<C: Context>(
                         // We fail if response doesn't contain a status
                         format!(
                             "missing 'status' in a response on method = '{}', transaction = '{}'",
-                            tn.reqp.method(),
+                            tn.reqp().method(),
                             inresp.transaction()
                         )
                     })
@@ -983,7 +249,7 @@ async fn handle_response_impl<C: Context>(
                         _ => {
                             let err = format!(
                                 "error received on method = '{}', transaction = '{}'",
-                                tn.reqp.method(),
+                                tn.reqp().method(),
                                 inresp.transaction()
                             );
 
@@ -996,15 +262,15 @@ async fn handle_response_impl<C: Context>(
                             .jsep()
                             .ok_or_else(|| format!(
                                 "missing 'jsep' in a response on method = '{}', transaction = '{}'",
-                                tn.reqp.method(),
+                                tn.reqp().method(),
                                 inresp.transaction()
                             ))
                             .status(ResponseStatus::FAILED_DEPENDENCY)?;
 
                         let resp = endpoint::rtc_signal::CreateResponse::unicast(
                             endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                            tn.reqp.to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
-                            tn.reqp.as_agent_id(),
+                            tn.reqp().to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
+                            tn.reqp().as_agent_id(),
                             JANUS_API_VERSION,
                         );
 
@@ -1015,7 +281,7 @@ async fn handle_response_impl<C: Context>(
                         Ok(handle_response_error(
                             "janus_stream.read",
                             "Error reading a Janus Conference Stream",
-                            &tn.reqp,
+                            &tn.reqp(),
                             err,
                             start_timestamp,
                         ))
@@ -1042,13 +308,13 @@ async fn handle_response_impl<C: Context>(
                             val if val == "404" => {
                                 let conn = context.db().get()?;
 
-                                recording::UpdateQuery::new(tn.rtc_id)
+                                recording::UpdateQuery::new(tn.rtc_id())
                                     .status(recording::Status::Missing)
                                     .execute(&conn)?;
 
                                 let err = format!(
                                     "janus is missing recording for rtc = '{}', method = '{}', transaction = '{}'",
-                                    tn.rtc_id,
+                                    tn.rtc_id(),
                                     tn.method(),
                                     inresp.transaction(),
                                 );
@@ -1439,3 +705,13 @@ async fn handle_status_event_impl<C: Context>(
         Ok(Box::new(stream::from_iter(events)))
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+mod client;
+mod events;
+pub(crate) mod requests;
+mod responses;
+mod transactions;
+
+pub(crate) use client::Client;

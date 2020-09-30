@@ -6,8 +6,8 @@ use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
 use crate::app::context::{Context, JanusTopics};
-use crate::app::janus::Client as JanusClient;
 use crate::app::metrics::{DbPoolStatsCollector, DynamicStatsCollector};
+use crate::backend::janus::Client as JanusClient;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
 

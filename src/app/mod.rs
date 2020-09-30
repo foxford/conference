@@ -21,8 +21,8 @@ use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPoo
 use svc_error::{extension::sentry, Error as SvcError};
 
 use crate::app::context::Context;
-use crate::app::janus::Client as JanusClient;
 use crate::app::metrics::DbPoolStatsCollector;
+use crate::backend::janus::Client as JanusClient;
 use crate::config::{self, Config, KruonisConfig};
 use crate::db::ConnectionPool;
 use context::{AppContext, JanusTopics};
@@ -244,6 +244,5 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
 pub(crate) mod context;
 pub(crate) mod endpoint;
 pub(crate) mod handle_id;
-pub(crate) mod janus;
 pub(crate) mod message_handler;
 pub(crate) mod metrics;

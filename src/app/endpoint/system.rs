@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
-use crate::app::janus;
+use crate::backend::janus::requests::UploadStreamRequestBody;
 use crate::db;
 use crate::db::recording::Status as RecordingStatus;
 
@@ -88,7 +88,7 @@ impl RequestHandler for VacuumHandler {
                     reqp,
                     backend.session_id(),
                     backend.handle_id(),
-                    janus::UploadStreamRequestBody::new(
+                    UploadStreamRequestBody::new(
                         recording.rtc_id(),
                         &bucket_name(&room),
                         &record_name(&recording),
