@@ -54,19 +54,32 @@ pub(crate) enum Transaction {
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateSessionTransaction {
     capacity: Option<i32>,
+    balancer_capacity: Option<i32>,
 }
 
 impl CreateSessionTransaction {
     pub(crate) fn new() -> Self {
-        Self { capacity: None }
+        Self {
+            capacity: None,
+            balancer_capacity: None,
+        }
     }
 
     pub(crate) fn capacity(&self) -> Option<i32> {
         self.capacity
     }
 
+    pub(crate) fn balancer_capacity(&self) -> Option<i32> {
+        self.balancer_capacity
+    }
+
     pub(crate) fn set_capacity(&mut self, capacity: i32) -> &mut Self {
         self.capacity = Some(capacity);
+        self
+    }
+
+    pub(crate) fn set_balancer_capacity(&mut self, balancer_capacity: i32) -> &mut Self {
+        self.balancer_capacity = Some(balancer_capacity);
         self
     }
 }
@@ -85,6 +98,10 @@ where
 
     if let Some(capacity) = payload.capacity() {
         tn_data.set_capacity(capacity);
+    }
+
+    if let Some(balancer_capacity) = payload.balancer_capacity() {
+        tn_data.set_balancer_capacity(balancer_capacity);
     }
 
     let transaction = Transaction::CreateSession(tn_data);
@@ -112,6 +129,7 @@ where
 pub(crate) struct CreateHandleTransaction {
     session_id: i64,
     capacity: Option<i32>,
+    balancer_capacity: Option<i32>,
 }
 
 impl CreateHandleTransaction {
@@ -119,6 +137,7 @@ impl CreateHandleTransaction {
         Self {
             session_id,
             capacity: None,
+            balancer_capacity: None,
         }
     }
 
@@ -126,8 +145,17 @@ impl CreateHandleTransaction {
         self.capacity
     }
 
+    pub(crate) fn balancer_capacity(&self) -> Option<i32> {
+        self.balancer_capacity
+    }
+
     pub(crate) fn set_capacity(&mut self, capacity: i32) -> &mut Self {
         self.capacity = Some(capacity);
+        self
+    }
+
+    pub(crate) fn set_balancer_capacity(&mut self, balancer_capacity: i32) -> &mut Self {
+        self.balancer_capacity = Some(balancer_capacity);
         self
     }
 }
@@ -136,6 +164,7 @@ pub(crate) fn create_handle_request<M>(
     respp: &IncomingResponseProperties,
     session_id: i64,
     capacity: Option<i32>,
+    balancer_capacity: Option<i32>,
     me: &M,
     start_timestamp: DateTime<Utc>,
 ) -> Result<OutgoingMessage<CreateHandleRequest>>
@@ -147,6 +176,10 @@ where
 
     if let Some(capacity) = capacity {
         tn_data.set_capacity(capacity);
+    }
+
+    if let Some(balancer_capacity) = balancer_capacity {
+        tn_data.set_balancer_capacity(balancer_capacity);
     }
 
     let transaction = Transaction::CreateHandle(tn_data);
@@ -644,6 +677,7 @@ async fn handle_response_impl<C: Context>(
                         respp,
                         inresp.data().id(),
                         tn.capacity(),
+                        tn.balancer_capacity(),
                         context.agent_id(),
                         start_timestamp,
                     )
@@ -664,6 +698,10 @@ async fn handle_response_impl<C: Context>(
 
                     if let Some(capacity) = tn.capacity() {
                         q = q.capacity(capacity);
+                    }
+
+                    if let Some(balancer_capacity) = tn.balancer_capacity() {
+                        q = q.balancer_capacity(balancer_capacity);
                     }
 
                     q.execute(&conn)?;

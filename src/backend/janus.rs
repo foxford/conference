@@ -413,6 +413,7 @@ impl OpaqueId for DetachedEvent {
 pub(crate) struct StatusEvent {
     online: bool,
     capacity: Option<i32>,
+    balancer_capacity: Option<i32>,
 }
 
 impl StatusEvent {
@@ -422,5 +423,9 @@ impl StatusEvent {
 
     pub(crate) fn capacity(&self) -> Option<i32> {
         self.capacity
+    }
+
+    pub(crate) fn balancer_capacity(&self) -> Option<i32> {
+        self.balancer_capacity
     }
 }
