@@ -26,7 +26,6 @@ fn build_config() -> Config {
         "id": id,
         "agent_label": "alpha",
         "broker_id": broker_id,
-        "backend_id": backend_id,
         "id_token": {
             "algorithm": "ES256",
             "key": "data/keys/svc.private_key.p8.der.sample",
@@ -35,6 +34,12 @@ fn build_config() -> Config {
         "mqtt": {
             "uri": "mqtt://0.0.0.0:1883",
             "clean_session": false,
+        },
+        "backend": {
+            "id": backend_id,
+            "default_timeout": 5,
+            "stream_upload_timeout": 600,
+            "transaction_watchdog_check_period": 1,
         }
     });
 
@@ -58,8 +63,8 @@ impl TestContext {
         let config = build_config();
         let agent_id = AgentId::new(&config.agent_label, config.id.clone());
 
-        let janus_client =
-            JanusClient::start(agent_id.clone()).expect("Failed to start janus client");
+        let janus_client = JanusClient::start(&config.backend, agent_id.clone())
+            .expect("Failed to start janus client");
 
         Self {
             config,

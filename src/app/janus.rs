@@ -29,6 +29,7 @@ use crate::backend::janus::{
     CreateHandleRequest, CreateSessionRequest, ErrorResponse, IncomingEvent, IncomingResponse,
     MessageRequest, OpaqueId, StatusEvent, TrickleRequest, JANUS_API_VERSION,
 };
+use crate::config::BackendConfig;
 use crate::db::{agent, janus_backend, janus_rtc_stream, recording, room, rtc};
 use crate::diesel::Connection;
 use crate::util::{from_base64, generate_correlation_data, to_base64};
@@ -36,12 +37,6 @@ use crate::util::{from_base64, generate_correlation_data, to_base64};
 ////////////////////////////////////////////////////////////////////////////////
 
 const STREAM_UPLOAD_METHOD: &str = "stream.upload";
-
-lazy_static! {
-    static ref DEFAULT_TIMEOUT: Duration = Duration::seconds(5);
-    static ref STREAM_UPLOAD_TIMEOUT: Duration = Duration::minutes(10);
-    static ref TRANSACTION_WATCHDOG_CHECK_PERIOD: StdDuration = StdDuration::from_secs(1);
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -62,21 +57,23 @@ enum TransactionWatchdogMessage {
 pub(crate) struct Client {
     me: AgentId,
     transaction_watchdog_tx: crossbeam_channel::Sender<TransactionWatchdogMessage>,
+    default_timeout: Duration,
+    stream_upload_timeout: Duration,
 }
 
 impl Client {
-    pub(crate) fn start(me: AgentId) -> Result<Self> {
+    pub(crate) fn start(config: &BackendConfig, me: AgentId) -> Result<Self> {
+        let period = StdDuration::from_secs(config.transaction_watchdog_check_period);
         let (tx, rx) = crossbeam_channel::unbounded();
 
-        let thread_builder = thread::Builder::new()
-            .name("janus_transaction_watchdog".into());
+        let thread_builder = thread::Builder::new().name("janus_transaction_watchdog".into());
 
         thread_builder
             .spawn(move || {
                 let mut state: HashMap<String, RequestInfo> = HashMap::new();
 
                 loop {
-                    if let Ok(message) = rx.recv_timeout(*TRANSACTION_WATCHDOG_CHECK_PERIOD) {
+                    if let Ok(message) = rx.recv_timeout(period) {
                         match message {
                             TransactionWatchdogMessage::Halt => break,
                             TransactionWatchdogMessage::Insert(corr_data, info) => {
@@ -120,6 +117,8 @@ impl Client {
         Ok(Self {
             me,
             transaction_watchdog_tx: tx,
+            default_timeout: Duration::seconds(config.default_timeout as i64),
+            stream_upload_timeout: Duration::seconds(config.stream_upload_timeout as i64),
         })
     }
 
@@ -250,7 +249,7 @@ impl Client {
         );
 
         props.set_tracking(evp.tracking().to_owned());
-        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
+        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
 
         Ok(OutgoingRequest::unicast(
             payload,
@@ -335,7 +334,7 @@ impl Client {
         );
 
         props.set_tracking(respp.tracking().to_owned());
-        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
+        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
 
         Ok(OutgoingRequest::unicast(
             payload,
@@ -408,7 +407,7 @@ impl Client {
             Some(&rtc_stream_id.to_string()),
         );
 
-        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
+        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
 
         Ok(OutgoingRequest::unicast(
             payload,
@@ -484,7 +483,7 @@ impl Client {
             Some(jsep),
         );
 
-        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
+        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
 
         Ok(OutgoingRequest::unicast(
             payload,
@@ -560,7 +559,7 @@ impl Client {
             Some(jsep),
         );
 
-        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
+        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
 
         Ok(OutgoingRequest::unicast(
             payload,
@@ -640,7 +639,7 @@ impl Client {
             start_timestamp,
             &props,
             &payload,
-            *STREAM_UPLOAD_TIMEOUT,
+            self.stream_upload_timeout,
         );
 
         Ok(OutgoingRequest::unicast(
@@ -689,7 +688,7 @@ impl Client {
 
         let transaction = Transaction::Trickle(TrickleTransaction::new(reqp));
         let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
-        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
+        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
 
         Ok(OutgoingRequest::unicast(
             payload,
@@ -760,7 +759,7 @@ impl Client {
             None,
         );
 
-        self.register_transaction(to, start_timestamp, &props, &payload, *DEFAULT_TIMEOUT);
+        self.register_transaction(to, start_timestamp, &props, &payload, self.default_timeout);
 
         Ok(OutgoingRequest::unicast(
             payload,
