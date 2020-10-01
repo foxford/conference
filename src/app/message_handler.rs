@@ -5,7 +5,6 @@ use async_std::prelude::*;
 use async_std::stream::{self, Stream};
 use chrono::{DateTime, Utc};
 use futures_util::pin_mut;
-use log::{error, warn};
 use svc_agent::mqtt::{
     Agent, IncomingEvent, IncomingMessage, IncomingRequest, IncomingRequestProperties,
     IncomingResponse, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
@@ -13,27 +12,31 @@ use svc_agent::mqtt::{
 };
 use svc_error::{extension::sentry, Error as SvcError};
 
-use crate::app::{context::Context, endpoint, API_VERSION};
+use crate::app::context::{AppMessageContext, Context, GlobalContext, MessageContext};
+use crate::app::{endpoint, API_VERSION};
 
 pub(crate) type MessageStream =
     Box<dyn Stream<Item = Box<dyn IntoPublishableMessage + Send>> + Send + Unpin>;
 
-pub(crate) struct MessageHandler<C: Context> {
+pub(crate) struct MessageHandler<C: GlobalContext> {
     agent: Agent,
-    context: C,
+    global_context: C,
 }
 
-impl<C: Context + Sync> MessageHandler<C> {
-    pub(crate) fn new(agent: Agent, context: C) -> Self {
-        Self { agent, context }
+impl<C: GlobalContext + Sync> MessageHandler<C> {
+    pub(crate) fn new(agent: Agent, global_context: C) -> Self {
+        Self {
+            agent,
+            global_context,
+        }
     }
 
     pub(crate) fn agent(&self) -> &Agent {
         &self.agent
     }
 
-    pub(crate) fn context(&self) -> &C {
-        &self.context
+    pub(crate) fn global_context(&self) -> &C {
+        &self.global_context
     }
 
     pub(crate) async fn handle(
@@ -41,20 +44,29 @@ impl<C: Context + Sync> MessageHandler<C> {
         message: &Result<IncomingMessage<String>, String>,
         topic: &str,
     ) {
+        let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
+
         match message {
             Ok(ref msg) => {
-                if let Err(err) = self.handle_message(msg, topic).await {
-                    self.report_error(message, &err.to_string()).await;
+                if let Err(err) = self.handle_message(&mut msg_context, msg, topic).await {
+                    Self::report_error(&mut msg_context, message, &err.to_string()).await;
                 }
             }
             Err(e) => {
-                self.report_error(message, e).await;
+                Self::report_error(&mut msg_context, message, e).await;
             }
         }
     }
 
-    async fn report_error(&self, message: &Result<IncomingMessage<String>, String>, err: &str) {
-        error!("Error processing a message = '{:?}': {}", message, err);
+    async fn report_error(
+        msg_context: &mut AppMessageContext<'_, C>,
+        message: &Result<IncomingMessage<String>, String>,
+        err: &str,
+    ) {
+        error!(
+            msg_context.logger(),
+            "Error processing a message = '{:?}': {}", message, err
+        );
 
         let svc_error = SvcError::builder()
             .status(ResponseStatus::UNPROCESSABLE_ENTITY)
@@ -62,45 +74,45 @@ impl<C: Context + Sync> MessageHandler<C> {
             .detail(&err.to_string())
             .build();
 
-        sentry::send(svc_error)
-            .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+        sentry::send(svc_error).unwrap_or_else(|err| {
+            warn!(
+                msg_context.logger(),
+                "Error sending error to Sentry: {}", err
+            )
+        });
     }
 
     async fn handle_message(
         &self,
+        msg_context: &mut AppMessageContext<'_, C>,
         message: &IncomingMessage<String>,
         topic: &str,
     ) -> Result<(), SvcError> {
-        let start_timestamp = Utc::now();
-
         match message {
-            IncomingMessage::Request(req) => self.handle_request(req, topic, start_timestamp).await,
-            IncomingMessage::Response(resp) => {
-                self.handle_response(resp, topic, start_timestamp).await
-            }
-            IncomingMessage::Event(event) => self.handle_event(event, topic, start_timestamp).await,
+            IncomingMessage::Request(req) => self.handle_request(msg_context, req, topic).await,
+            IncomingMessage::Response(resp) => self.handle_response(msg_context, resp, topic).await,
+            IncomingMessage::Event(event) => self.handle_event(msg_context, event, topic).await,
         }
     }
 
     async fn handle_request(
         &self,
+        msg_context: &mut AppMessageContext<'_, C>,
         req: &IncomingRequest<String>,
         topic: &str,
-        start_timestamp: DateTime<Utc>,
     ) -> Result<(), SvcError> {
-        let outgoing_message_stream =
-            endpoint::route_request(&self.context, req, topic, start_timestamp)
-                .await
-                .unwrap_or_else(|| {
-                    error_response(
-                        ResponseStatus::METHOD_NOT_ALLOWED,
-                        "about:blank",
-                        "Unknown method",
-                        &format!("Unknown method '{}'", req.properties().method()),
-                        req.properties(),
-                        start_timestamp,
-                    )
-                });
+        let outgoing_message_stream = endpoint::route_request(msg_context, req, topic)
+            .await
+            .unwrap_or_else(|| {
+                error_response(
+                    ResponseStatus::METHOD_NOT_ALLOWED,
+                    "about:blank",
+                    "Unknown method",
+                    &format!("Unknown method '{}'", req.properties().method()),
+                    req.properties(),
+                    msg_context.start_timestamp(),
+                )
+            });
 
         self.publish_outgoing_messages(outgoing_message_stream)
             .await
@@ -108,17 +120,16 @@ impl<C: Context + Sync> MessageHandler<C> {
 
     async fn handle_response(
         &self,
+        msg_context: &mut AppMessageContext<'_, C>,
         envelope: &IncomingResponse<String>,
         topic: &str,
-        start_timestamp: DateTime<Utc>,
     ) -> Result<(), SvcError> {
-        let outgoing_message_stream =
-            endpoint::route_response(&self.context, envelope, topic, start_timestamp)
-                .await
-                .unwrap_or_else(|| {
-                    warn!("Unhandled response");
-                    Box::new(stream::empty())
-                });
+        let outgoing_message_stream = endpoint::route_response(msg_context, envelope, topic)
+            .await
+            .unwrap_or_else(|| {
+                warn!(msg_context.logger(), "Unhandled response");
+                Box::new(stream::empty())
+            });
 
         self.publish_outgoing_messages(outgoing_message_stream)
             .await
@@ -126,18 +137,17 @@ impl<C: Context + Sync> MessageHandler<C> {
 
     async fn handle_event(
         &self,
+        msg_context: &mut AppMessageContext<'_, C>,
         event: &IncomingEvent<String>,
         topic: &str,
-        start_timestamp: DateTime<Utc>,
     ) -> Result<(), SvcError> {
-        let outgoing_message_stream =
-            endpoint::route_event(&self.context, event, topic, start_timestamp)
-                .await
-                .unwrap_or_else(|| {
-                    let label = event.properties().label().unwrap_or("none");
-                    warn!("Unexpected event with label = '{}'", label);
-                    Box::new(stream::empty())
-                });
+        let outgoing_message_stream = endpoint::route_event(msg_context, event, topic)
+            .await
+            .unwrap_or_else(|| {
+                let label = event.properties().label().unwrap_or("none");
+                warn!(msg_context.logger(), "Unexpected event label"; "label" => label);
+                Box::new(stream::empty())
+            });
 
         self.publish_outgoing_messages(outgoing_message_stream)
             .await
@@ -198,9 +208,8 @@ pub(crate) fn publish_message(
 
 pub(crate) trait RequestEnvelopeHandler<'async_trait> {
     fn handle_envelope<C: Context>(
-        context: &'async_trait C,
+        context: &'async_trait mut C,
         req: &'async_trait IncomingRequest<String>,
-        start_timestamp: DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>>;
 }
 
@@ -211,44 +220,45 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
     RequestEnvelopeHandler<'async_trait> for H
 {
     fn handle_envelope<C: Context>(
-        context: &'async_trait C,
+        context: &'async_trait mut C,
         req: &'async_trait IncomingRequest<String>,
-        start_timestamp: DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>>
     where
         Self: Sync + 'async_trait,
     {
         // The actual implementation.
         async fn handle_envelope<H: endpoint::RequestHandler, C: Context>(
-            context: &C,
+            context: &mut C,
             req: &IncomingRequest<String>,
-            start_timestamp: DateTime<Utc>,
         ) -> MessageStream {
             // Parse the envelope with the payload type specified in the handler.
             let payload = IncomingRequest::convert_payload::<H::Payload>(req);
             let reqp = req.properties();
             match payload {
                 // Call handler.
-                Ok(payload) => H::handle(context, payload, reqp, start_timestamp)
-                    .await
-                    .unwrap_or_else(|mut svc_error| {
-                        if svc_error.kind() == "about:blank" {
-                            svc_error.set_kind(reqp.method(), H::ERROR_TITLE);
-                        }
+                Ok(payload) => {
+                    H::handle(context, payload, reqp)
+                        .await
+                        .unwrap_or_else(|mut svc_error| {
+                            if svc_error.kind() == "about:blank" {
+                                svc_error.set_kind(reqp.method(), H::ERROR_TITLE);
+                            }
 
-                        sentry::send(svc_error.clone())
-                            .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+                            sentry::send(svc_error.clone()).unwrap_or_else(|err| {
+                                warn!(context.logger(), "Error sending error to Sentry: {}", err)
+                            });
 
-                        // Handler returned an error => 422.
-                        error_response(
-                            svc_error.status_code(),
-                            svc_error.kind(),
-                            svc_error.title(),
-                            &svc_error.to_string(),
-                            &reqp,
-                            start_timestamp,
-                        )
-                    }),
+                            // Handler returned an error => 422.
+                            error_response(
+                                svc_error.status_code(),
+                                svc_error.kind(),
+                                svc_error.title(),
+                                &svc_error.to_string(),
+                                &reqp,
+                                context.start_timestamp(),
+                            )
+                        })
+                }
                 // Bad envelope or payload format => 400.
                 Err(err) => error_response(
                     ResponseStatus::BAD_REQUEST,
@@ -256,20 +266,19 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
                     H::ERROR_TITLE,
                     &err.to_string(),
                     reqp,
-                    start_timestamp,
+                    context.start_timestamp(),
                 ),
             }
         }
 
-        Box::pin(handle_envelope::<H, C>(context, req, start_timestamp))
+        Box::pin(handle_envelope::<H, C>(context, req))
     }
 }
 
 pub(crate) trait ResponseEnvelopeHandler<'async_trait> {
     fn handle_envelope<C: Context>(
-        context: &'async_trait C,
+        context: &'async_trait mut C,
         resp: &'async_trait IncomingResponse<String>,
-        start_timestamp: DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>>;
 }
 
@@ -278,53 +287,58 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
     ResponseEnvelopeHandler<'async_trait> for H
 {
     fn handle_envelope<C: Context>(
-        context: &'async_trait C,
+        context: &'async_trait mut C,
         resp: &'async_trait IncomingResponse<String>,
-        start_timestamp: DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>> {
         // The actual implementation.
         async fn handle_envelope<H: endpoint::ResponseHandler, C: Context>(
-            context: &C,
+            context: &mut C,
             resp: &IncomingResponse<String>,
-            start_timestamp: DateTime<Utc>,
         ) -> MessageStream {
             // Parse response envelope with the payload from the handler.
             let payload = IncomingResponse::convert_payload::<H::Payload>(resp);
             let resp = resp.properties();
             match payload {
                 // Call handler.
-                Ok(payload) => H::handle(context, payload, resp, start_timestamp)
-                    .await
-                    .unwrap_or_else(|mut svc_error| {
-                        // Handler returned an error.
-                        if svc_error.kind() == "about:blank" {
-                            svc_error.set_kind("response", "Failed to handle response");
-                        }
+                Ok(payload) => {
+                    H::handle(context, payload, resp)
+                        .await
+                        .unwrap_or_else(|mut svc_error| {
+                            // Handler returned an error.
+                            if svc_error.kind() == "about:blank" {
+                                svc_error.set_kind("response", "Failed to handle response");
+                            }
 
-                        error!("Failed to handle response: {}", svc_error);
+                            error!(
+                                context.logger(),
+                                "Failed to handle response: {}",
+                                svc_error.detail().unwrap_or("no detail");
+                                "kind" => svc_error.kind(),
+                            );
 
-                        sentry::send(svc_error)
-                            .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+                            sentry::send(svc_error).unwrap_or_else(|err| {
+                                warn!(context.logger(), "Error sending error to Sentry: {}", err)
+                            });
 
-                        Box::new(stream::empty())
-                    }),
+                            Box::new(stream::empty())
+                        })
+                }
                 Err(err) => {
                     // Bad envelope or payload format.
-                    error!("Failed to parse response: {}", err);
+                    error!(context.logger(), "Failed to parse response: {}", err);
                     Box::new(stream::empty())
                 }
             }
         }
 
-        Box::pin(handle_envelope::<H, C>(context, resp, start_timestamp))
+        Box::pin(handle_envelope::<H, C>(context, resp))
     }
 }
 
 pub(crate) trait EventEnvelopeHandler<'async_trait> {
     fn handle_envelope<C: Context>(
-        context: &'async_trait C,
+        context: &'async_trait mut C,
         event: &'async_trait IncomingEvent<String>,
-        start_timestamp: DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>>;
 }
 
@@ -333,47 +347,57 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
     for H
 {
     fn handle_envelope<C: Context>(
-        context: &'async_trait C,
+        context: &'async_trait mut C,
         event: &'async_trait IncomingEvent<String>,
-        start_timestamp: DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>> {
         // The actual implementation.
         async fn handle_envelope<H: endpoint::EventHandler, C: Context>(
-            context: &C,
+            context: &mut C,
             event: &IncomingEvent<String>,
-            start_timestamp: DateTime<Utc>,
         ) -> MessageStream {
             let payload = IncomingEvent::convert_payload::<H::Payload>(event);
             let evp = event.properties();
             // Parse event envelope with the payload from the handler.
             match payload {
                 // Call handler.
-                Ok(payload) => H::handle(context, payload, evp, start_timestamp)
-                    .await
-                    .unwrap_or_else(|mut svc_error| {
-                        // Handler returned an error.
-                        if let Some(label) = evp.label() {
-                            if svc_error.kind() == "about:blank" {
-                                let error_title = format!("Failed to handle event '{}'", label);
-                                svc_error.set_kind(label, &error_title);
+                Ok(payload) => {
+                    H::handle(context, payload, evp)
+                        .await
+                        .unwrap_or_else(|mut svc_error| {
+                            // Handler returned an error.
+                            if let Some(label) = evp.label() {
+                                if svc_error.kind() == "about:blank" {
+                                    let error_title = format!("Failed to handle event '{}'", label);
+                                    svc_error.set_kind(label, &error_title);
+                                }
+
+                                error!(
+                                    context.logger(),
+                                    "Failed to handle event: {}",
+                                    svc_error.detail().unwrap_or("no detail");
+                                    "label" => label,
+                                    "kind" => svc_error.kind(),
+                                );
+
+                                sentry::send(svc_error).unwrap_or_else(|err| {
+                                    warn!(
+                                        context.logger(),
+                                        "Error sending error to Sentry: {}", err
+                                    )
+                                });
                             }
 
-                            error!(
-                                "Failed to handle event with label = '{}': {}",
-                                label, svc_error
-                            );
-
-                            sentry::send(svc_error).unwrap_or_else(|err| {
-                                warn!("Error sending error to Sentry: {}", err)
-                            });
-                        }
-
-                        Box::new(stream::empty())
-                    }),
+                            Box::new(stream::empty())
+                        })
+                }
                 Err(err) => {
                     // Bad envelope or payload format.
                     if let Some(label) = evp.label() {
-                        error!("Failed to parse event with label = '{}': {}", label, err);
+                        error!(
+                            context.logger(),
+                            "Failed to parse event: {}", err;
+                            "label" => label,
+                        );
                     }
 
                     Box::new(stream::empty())
@@ -381,7 +405,7 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
             }
         }
 
-        Box::pin(handle_envelope::<H, C>(context, event, start_timestamp))
+        Box::pin(handle_envelope::<H, C>(context, event))
     }
 }
 

@@ -1,17 +1,31 @@
 #[macro_use]
+extern crate anyhow;
+#[macro_use]
 extern crate diesel;
 #[macro_use]
 extern crate diesel_derive_enum;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate slog;
 
 use std::env::var;
 
 use anyhow::Result;
+use slog::Drain;
 use svc_authz::cache::{create_pool, Cache};
+
+lazy_static! {
+    static ref LOG: slog::Logger = {
+        let drain = slog_json::Json::default(std::io::stdout()).fuse();
+        let drain = slog_envlogger::new(drain).fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        slog::Logger::root(drain, o!("version" => env!("CARGO_PKG_VERSION")))
+    };
+}
 
 #[async_std::main]
 async fn main() -> Result<()> {
-    env_logger::init();
-
     let (db, db_pool_stats) = {
         let url = var("DATABASE_URL").expect("DATABASE_URL must be specified");
         let size = var("DATABASE_POOL_SIZE")

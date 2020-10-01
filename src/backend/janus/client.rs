@@ -4,7 +4,6 @@ use std::time::Duration as StdDuration;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
-use log::{error, warn};
 use serde_json::{json, Value as JsonValue};
 use svc_agent::{
     mqtt::{
@@ -69,7 +68,7 @@ impl Client {
                             let msg =
                                 format!("Janus request timed out ({}): {:?}", corr_data, info);
 
-                            error!("{}", msg);
+                            error!(crate::LOG, "{}", msg);
 
                             let svc_error = SvcError::builder()
                                 .status(ResponseStatus::GATEWAY_TIMEOUT)
@@ -78,7 +77,7 @@ impl Client {
                                 .build();
 
                             sentry::send(svc_error).unwrap_or_else(|err| {
-                                warn!("Error sending error to Sentry: {}", err)
+                                warn!(crate::LOG, "Error sending error to Sentry: {}", err)
                             });
 
                             false
@@ -118,7 +117,12 @@ impl Client {
                 reqp.correlation_data().to_owned(),
                 request_info,
             ))
-            .unwrap_or_else(|err| error!("Failed to register janus client transaction: {}", err));
+            .unwrap_or_else(|err| {
+                error!(
+                    crate::LOG,
+                    "Failed to register janus client transaction: {}", err
+                )
+            });
     }
 
     pub(super) fn finish_transaction(&self, respp: &IncomingResponseProperties) {
@@ -126,7 +130,12 @@ impl Client {
 
         self.transaction_watchdog_tx
             .send(TransactionWatchdogMessage::Remove(corr_data))
-            .unwrap_or_else(|err| error!("Failed to remove janus client transaction: {}", err));
+            .unwrap_or_else(|err| {
+                error!(
+                    crate::LOG,
+                    "Failed to remove janus client transaction: {}", err
+                )
+            });
     }
 
     pub(super) fn timeout(&self, method: &str) -> Duration {
@@ -148,7 +157,10 @@ impl Drop for Client {
         self.transaction_watchdog_tx
             .send(TransactionWatchdogMessage::Halt)
             .unwrap_or_else(|err| {
-                error!("Failed to stop janus client transaction watchdog: {}", err)
+                error!(
+                    crate::LOG,
+                    "Failed to stop janus client transaction watchdog: {}", err
+                )
             });
     }
 }

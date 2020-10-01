@@ -2,7 +2,6 @@ use std::result::Result as StdResult;
 
 use async_std::stream;
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use serde_derive::Deserialize;
 use serde_json::{json, Value as JsonValue};
@@ -38,10 +37,9 @@ impl RequestHandler for UnicastHandler {
     const ERROR_TITLE: &'static str = "Failed to send unicast message";
 
     async fn handle<C: Context>(
-        context: &C,
+        context: &mut C,
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
-        start_timestamp: DateTime<Utc>,
     ) -> Result {
         {
             let conn = context.db().get()?;
@@ -64,7 +62,7 @@ impl RequestHandler for UnicastHandler {
             reqp.method(),
             &response_topic,
             &correlation_data,
-            ShortTermTimingProperties::until_now(start_timestamp),
+            ShortTermTimingProperties::until_now(context.start_timestamp()),
         );
 
         let req = OutgoingRequest::unicast(
@@ -96,10 +94,9 @@ impl RequestHandler for BroadcastHandler {
     const ERROR_TITLE: &'static str = "Failed to send broadcast message";
 
     async fn handle<C: Context>(
-        context: &C,
+        context: &mut C,
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
-        start_timestamp: DateTime<Utc>,
     ) -> Result {
         let room = {
             let conn = context.db().get()?;
@@ -115,15 +112,20 @@ impl RequestHandler for BroadcastHandler {
         }
 
         // Respond and broadcast to the room topic.
-        let response =
-            shared::build_response(ResponseStatus::OK, json!({}), reqp, start_timestamp, None);
+        let response = shared::build_response(
+            ResponseStatus::OK,
+            json!({}),
+            reqp,
+            context.start_timestamp(),
+            None,
+        );
 
         let notification = shared::build_notification(
             "message.broadcast",
             &format!("rooms/{}/events", room.id()),
             payload.data,
             reqp,
-            start_timestamp,
+            context.start_timestamp(),
         );
 
         Ok(Box::new(stream::from_iter(vec![response, notification])))
@@ -139,16 +141,15 @@ impl ResponseHandler for CallbackHandler {
     type Payload = JsonValue;
 
     async fn handle<C: Context>(
-        _context: &C,
+        context: &mut C,
         payload: Self::Payload,
         respp: &IncomingResponseProperties,
-        start_timestamp: DateTime<Utc>,
     ) -> Result {
         let reqp = from_base64::<IncomingRequestProperties>(respp.correlation_data())
             .map_err(|err| err.to_string())
             .status(ResponseStatus::BAD_REQUEST)?;
 
-        let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+        let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
 
         let long_term_timing = respp
             .long_term_timing()
@@ -245,7 +246,7 @@ mod test {
                     .expect("Failed to insert room");
 
                 // Make message.unicast request.
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
 
                 let payload = UnicastRequest {
                     agent_id: receiver.agent_id().to_owned(),
@@ -253,7 +254,7 @@ mod test {
                     data: json!({ "key": "value" }),
                 };
 
-                let messages = handle_request::<UnicastHandler>(&context, &sender, payload)
+                let messages = handle_request::<UnicastHandler>(&mut context, &sender, payload)
                     .await
                     .expect("Unicast message sending failed");
 
@@ -276,7 +277,7 @@ mod test {
         fn unicast_message_to_missing_room() {
             async_std::task::block_on(async {
                 let db = TestDb::new();
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
                 let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
                 let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -286,7 +287,7 @@ mod test {
                     data: json!({ "key": "value" }),
                 };
 
-                let err = handle_request::<UnicastHandler>(&context, &sender, payload)
+                let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
                     .await
                     .expect_err("Unexpected success on unicast message sending");
 
@@ -318,7 +319,7 @@ mod test {
                     .expect("Failed to insert room");
 
                 // Make message.unicast request.
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
 
                 let payload = UnicastRequest {
                     agent_id: receiver.agent_id().to_owned(),
@@ -326,7 +327,7 @@ mod test {
                     data: json!({ "key": "value" }),
                 };
 
-                let err = handle_request::<UnicastHandler>(&context, &sender, payload)
+                let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
                     .await
                     .expect_err("Unexpected success on unicast message sending");
 
@@ -358,7 +359,7 @@ mod test {
                     .expect("Failed to insert room");
 
                 // Make message.unicast request.
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
 
                 let payload = UnicastRequest {
                     agent_id: receiver.agent_id().to_owned(),
@@ -366,7 +367,7 @@ mod test {
                     data: json!({ "key": "value" }),
                 };
 
-                let err = handle_request::<UnicastHandler>(&context, &sender, payload)
+                let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
                     .await
                     .expect_err("Unexpected success on unicast message sending");
 
@@ -402,7 +403,7 @@ mod test {
                     .expect("Failed to insert room");
 
                 // Make message.broadcast request.
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
 
                 let payload = BroadcastRequest {
                     room_id: room.id(),
@@ -410,7 +411,7 @@ mod test {
                     label: None,
                 };
 
-                let messages = handle_request::<BroadcastHandler>(&context, &sender, payload)
+                let messages = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
                     .await
                     .expect("Broadcast message sending failed");
 
@@ -437,7 +438,7 @@ mod test {
         fn broadcast_message_to_missing_room() {
             async_std::task::block_on(async {
                 let db = TestDb::new();
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
                 let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
                 let payload = BroadcastRequest {
@@ -446,7 +447,7 @@ mod test {
                     label: None,
                 };
 
-                let err = handle_request::<BroadcastHandler>(&context, &sender, payload)
+                let err = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
                     .await
                     .expect_err("Unexpected success on unicast message sending");
 
@@ -468,7 +469,7 @@ mod test {
                     .expect("Failed to insert room");
 
                 // Make message.broadcast request.
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
 
                 let payload = BroadcastRequest {
                     room_id: room.id(),
@@ -476,7 +477,7 @@ mod test {
                     label: None,
                 };
 
-                let err = handle_request::<BroadcastHandler>(&context, &sender, payload)
+                let err = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
                     .await
                     .expect_err("Unexpected success on unicast message sending");
 

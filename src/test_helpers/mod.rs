@@ -21,7 +21,7 @@ pub(crate) const SVC_AUDIENCE: &'static str = "dev.svc.example.org";
 pub(crate) const USR_AUDIENCE: &'static str = "dev.usr.example.org";
 
 pub(crate) async fn handle_request<H: RequestHandler>(
-    context: &TestContext,
+    context: &mut TestContext,
     agent: &TestAgent,
     payload: H::Payload,
 ) -> Result<Vec<OutgoingEnvelope>, SvcError> {
@@ -47,12 +47,12 @@ pub(crate) async fn handle_request<H: RequestHandler>(
     let reqp = serde_json::from_value::<IncomingRequestProperties>(reqp_json)
         .expect("Failed to parse reqp");
 
-    let messages = H::handle(context, payload, &reqp, Utc::now()).await?;
+    let messages = H::handle(context, payload, &reqp).await?;
     Ok(parse_messages(messages).await)
 }
 
 pub(crate) async fn handle_event<H: EventHandler>(
-    context: &TestContext,
+    context: &mut TestContext,
     agent: &TestAgent,
     payload: H::Payload,
 ) -> Result<Vec<OutgoingEnvelope>, SvcError> {
@@ -76,7 +76,7 @@ pub(crate) async fn handle_event<H: EventHandler>(
     let evp =
         serde_json::from_value::<IncomingEventProperties>(evp_json).expect("Failed to parse evp");
 
-    let messages = H::handle(context, payload, &evp, Utc::now()).await?;
+    let messages = H::handle(context, payload, &evp).await?;
     Ok(parse_messages(messages).await)
 }
 
@@ -142,6 +142,9 @@ where
 ///////////////////////////////////////////////////////////////////////////////
 
 pub(crate) mod prelude {
+    #[allow(unused_imports)]
+    pub(crate) use crate::app::context::GlobalContext;
+
     #[allow(unused_imports)]
     pub(crate) use super::{
         agent::TestAgent, authz::TestAuthz, context::TestContext, db::TestDb, factory, find_event,
