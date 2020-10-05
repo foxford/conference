@@ -1,6 +1,5 @@
 use async_std::stream;
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus},
@@ -44,10 +43,9 @@ impl RequestHandler for CreateHandler {
     const ERROR_TITLE: &'static str = "Failed to create rtc";
 
     async fn handle<C: Context>(
-        context: &C,
+        context: &mut C,
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
-        start_timestamp: DateTime<Utc>,
     ) -> Result {
         let room = {
             let conn = context.db().get()?;
@@ -80,7 +78,7 @@ impl RequestHandler for CreateHandler {
             ResponseStatus::CREATED,
             rtc.clone(),
             reqp,
-            start_timestamp,
+            context.start_timestamp(),
             Some(authz_time),
         );
 
@@ -89,7 +87,7 @@ impl RequestHandler for CreateHandler {
             &format!("rooms/{}/events", room.id()),
             rtc,
             reqp,
-            start_timestamp,
+            context.start_timestamp(),
         );
 
         Ok(Box::new(stream::from_iter(vec![response, notification])))
@@ -111,10 +109,9 @@ impl RequestHandler for ReadHandler {
     const ERROR_TITLE: &'static str = "Failed to read rtc";
 
     async fn handle<C: Context>(
-        context: &C,
+        context: &mut C,
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
-        start_timestamp: DateTime<Utc>,
     ) -> Result {
         let room = {
             let conn = context.db().get()?;
@@ -152,7 +149,7 @@ impl RequestHandler for ReadHandler {
             ResponseStatus::OK,
             rtc,
             reqp,
-            start_timestamp,
+            context.start_timestamp(),
             Some(authz_time),
         ))))
     }
@@ -177,10 +174,9 @@ impl RequestHandler for ListHandler {
     const ERROR_TITLE: &'static str = "Failed to list rtcs";
 
     async fn handle<C: Context>(
-        context: &C,
+        context: &mut C,
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
-        start_timestamp: DateTime<Utc>,
     ) -> Result {
         let room = {
             let conn = context.db().get()?;
@@ -221,7 +217,7 @@ impl RequestHandler for ListHandler {
             ResponseStatus::OK,
             rtcs,
             reqp,
-            start_timestamp,
+            context.start_timestamp(),
             Some(authz_time),
         ))))
     }
@@ -257,10 +253,9 @@ impl RequestHandler for ConnectHandler {
     const ERROR_TITLE: &'static str = "Failed to connect to rtc";
 
     async fn handle<C: Context>(
-        context: &C,
+        context: &mut C,
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
-        start_timestamp: DateTime<Utc>,
     ) -> Result {
         let room = {
             let conn = context.db().get()?;
@@ -349,7 +344,7 @@ impl RequestHandler for ConnectHandler {
             payload.id,
             backend.session_id(),
             backend.id(),
-            start_timestamp,
+            context.start_timestamp(),
             authz_time,
         );
 
@@ -400,10 +395,10 @@ mod test {
                 authz.allow(agent.account_id(), object, "create");
 
                 // Make rtc.create request.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
                 let payload = CreateRequest { room_id: room.id() };
 
-                let messages = handle_request::<CreateHandler>(&context, &agent, payload)
+                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
                     .await
                     .expect("Rtc creation failed");
 
@@ -424,12 +419,12 @@ mod test {
         fn create_rtc_missing_room() {
             async_std::task::block_on(async {
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let context = TestContext::new(TestDb::new(), TestAuthz::new());
+                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
                 let payload = CreateRequest {
                     room_id: Uuid::new_v4(),
                 };
 
-                let err = handle_request::<CreateHandler>(&context, &agent, payload)
+                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc creation");
 
@@ -451,10 +446,10 @@ mod test {
                     .unwrap();
 
                 // Make rtc.create request.
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
                 let payload = CreateRequest { room_id: room.id() };
 
-                let err = handle_request::<CreateHandler>(&context, &agent, payload)
+                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc creation");
 
@@ -493,10 +488,10 @@ mod test {
                 authz.allow(agent.account_id(), object, "read");
 
                 // Make rtc.read request.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
                 let payload = ReadRequest { id: rtc.id() };
 
-                let messages = handle_request::<ReadHandler>(&context, &agent, payload)
+                let messages = handle_request::<ReadHandler>(&mut context, &agent, payload)
                     .await
                     .expect("RTC reading failed");
 
@@ -522,10 +517,10 @@ mod test {
                     shared_helpers::insert_rtc(&conn)
                 };
 
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
                 let payload = ReadRequest { id: rtc.id() };
 
-                let err = handle_request::<ReadHandler>(&context, &agent, payload)
+                let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc reading");
 
@@ -537,10 +532,10 @@ mod test {
         fn read_rtc_missing() {
             async_std::task::block_on(async {
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let context = TestContext::new(TestDb::new(), TestAuthz::new());
+                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
                 let payload = ReadRequest { id: Uuid::new_v4() };
 
-                let err = handle_request::<ReadHandler>(&context, &agent, payload)
+                let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc reading");
 
@@ -578,7 +573,7 @@ mod test {
                 authz.allow(agent.account_id(), object, "list");
 
                 // Make rtc.list request.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
 
                 let payload = ListRequest {
                     room_id: rtc.room_id(),
@@ -586,7 +581,7 @@ mod test {
                     limit: None,
                 };
 
-                let messages = handle_request::<ListHandler>(&context, &agent, payload)
+                let messages = handle_request::<ListHandler>(&mut context, &agent, payload)
                     .await
                     .expect("Rtc listing failed");
 
@@ -614,7 +609,7 @@ mod test {
                     shared_helpers::insert_room(&conn)
                 };
 
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
 
                 let payload = ListRequest {
                     room_id: room.id(),
@@ -622,7 +617,7 @@ mod test {
                     limit: None,
                 };
 
-                let err = handle_request::<ListHandler>(&context, &agent, payload)
+                let err = handle_request::<ListHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc listing");
 
@@ -634,7 +629,7 @@ mod test {
         fn list_rtcs_missing_room() {
             async_std::task::block_on(async {
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let context = TestContext::new(TestDb::new(), TestAuthz::new());
+                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
 
                 let payload = ListRequest {
                     room_id: Uuid::new_v4(),
@@ -642,7 +637,7 @@ mod test {
                     limit: None,
                 };
 
-                let err = handle_request::<ListHandler>(&context, &agent, payload)
+                let err = handle_request::<ListHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc listing");
 
@@ -770,14 +765,14 @@ mod test {
                 authz.allow(agent.account_id(), object, "read");
 
                 // Make rtc.connect request.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
                     intent: ConnectIntent::Read,
                 };
 
-                let messages = handle_request::<ConnectHandler>(&context, &agent, payload)
+                let messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
                     .await
                     .expect("RTC connect failed");
 
@@ -857,14 +852,14 @@ mod test {
                 authz.allow(agent.account_id(), object, "read");
 
                 // Make rtc.connect request.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
                     intent: ConnectIntent::Read,
                 };
 
-                let messages = handle_request::<ConnectHandler>(&context, &agent, payload)
+                let messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
                     .await
                     .expect("RTC connect failed");
 
@@ -966,14 +961,14 @@ mod test {
                 authz.allow(agent.account_id(), object, "read");
 
                 // Make rtc.connect request.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
                     intent: ConnectIntent::Read,
                 };
 
-                let messages = handle_request::<ConnectHandler>(&context, &agent, payload)
+                let messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
                     .await
                     .expect("RTC connect failed");
 
@@ -1086,7 +1081,7 @@ mod test {
                 }
 
                 // Connect to the rtc in the room without reserve.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
 
                 let payload = ConnectRequest {
                     id: rtc2.id(),
@@ -1094,7 +1089,7 @@ mod test {
                 };
 
                 // Expect failure.
-                let err = handle_request::<ConnectHandler>(&context, &reader1, payload)
+                let err = handle_request::<ConnectHandler>(&mut context, &reader1, payload)
                     .await
                     .expect_err("Connected to RTC while expected capacity exceeded error");
 
@@ -1108,7 +1103,7 @@ mod test {
                 };
 
                 // Expect success.
-                handle_request::<ConnectHandler>(&context, &reader1, payload)
+                handle_request::<ConnectHandler>(&mut context, &reader1, payload)
                     .await
                     .expect("RTC connect failed");
             });
@@ -1171,14 +1166,14 @@ mod test {
                 authz.allow(reader.account_id(), object, "read");
 
                 // Make rtc.connect request.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
                     intent: ConnectIntent::Read,
                 };
 
-                handle_request::<ConnectHandler>(&context, &reader, payload)
+                handle_request::<ConnectHandler>(&mut context, &reader, payload)
                     .await
                     .expect("RTC connect failed");
             });
@@ -1245,14 +1240,14 @@ mod test {
                 authz.allow(reader2.account_id(), object, "read");
 
                 // Make rtc.connect request.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
                     intent: ConnectIntent::Read,
                 };
 
-                let err = handle_request::<ConnectHandler>(&context, &reader2, payload)
+                let err = handle_request::<ConnectHandler>(&mut context, &reader2, payload)
                     .await
                     .expect_err("Unexpected success on rtc connecting");
 
@@ -1318,14 +1313,14 @@ mod test {
                 authz.allow(writer.account_id(), object, "update");
 
                 // Make rtc.connect request.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
                     intent: ConnectIntent::Write,
                 };
 
-                handle_request::<ConnectHandler>(&context, &writer, payload)
+                handle_request::<ConnectHandler>(&mut context, &writer, payload)
                     .await
                     .expect("RTC connect failed");
             });
@@ -1407,14 +1402,14 @@ mod test {
                 // Make an rtc.connect request.
                 // The reserve of the first room must be taken into account despited of the
                 // stream has been already stopped.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
                     intent: ConnectIntent::Write,
                 };
 
-                let err = handle_request::<ConnectHandler>(&context, &writer, payload)
+                let err = handle_request::<ConnectHandler>(&mut context, &writer, payload)
                     .await
                     .expect_err("Unexpected success on rtc connecting");
 
@@ -1437,14 +1432,14 @@ mod test {
                     shared_helpers::insert_rtc(&conn)
                 };
 
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
                     intent: ConnectIntent::Read,
                 };
 
-                let err = handle_request::<ConnectHandler>(&context, &agent, payload)
+                let err = handle_request::<ConnectHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc connecting");
 
@@ -1456,14 +1451,14 @@ mod test {
         fn connect_to_rtc_missing() {
             async_std::task::block_on(async {
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let context = TestContext::new(TestDb::new(), TestAuthz::new());
+                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
 
                 let payload = ConnectRequest {
                     id: Uuid::new_v4(),
                     intent: ConnectIntent::Read,
                 };
 
-                let err = handle_request::<ConnectHandler>(&context, &agent, payload)
+                let err = handle_request::<ConnectHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc connecting");
 

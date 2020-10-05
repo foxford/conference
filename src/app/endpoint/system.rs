@@ -1,6 +1,5 @@
 use std::ops::Bound;
 
-use anyhow::bail;
 use async_std::stream;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -59,10 +58,9 @@ impl RequestHandler for VacuumHandler {
     const ERROR_TITLE: &'static str = "Failed to vacuum system";
 
     async fn handle<C: Context>(
-        context: &C,
+        context: &mut C,
         _payload: Self::Payload,
         reqp: &IncomingRequestProperties,
-        start_timestamp: DateTime<Utc>,
     ) -> Result {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         let audience = context.agent_id().as_account_id().audience();
@@ -94,7 +92,7 @@ impl RequestHandler for VacuumHandler {
                         &record_name(&recording),
                     ),
                     backend.id(),
-                    start_timestamp,
+                    context.start_timestamp(),
                 )
                 .map_err(|err| format!("error creating a backend request: {}", err))
                 .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
@@ -238,10 +236,10 @@ mod test {
                 authz.allow(agent.account_id(), vec!["system"], "update");
 
                 // Make system.vacuum request.
-                let context = TestContext::new(TestDb::new(), authz);
+                let mut context = TestContext::new(TestDb::new(), authz);
                 let payload = VacuumRequest {};
 
-                let messages = handle_request::<VacuumHandler>(&context, &agent, payload)
+                let messages = handle_request::<VacuumHandler>(&mut context, &agent, payload)
                     .await
                     .expect("System vacuum failed");
 
@@ -305,10 +303,10 @@ mod test {
 
                 // Make system.vacuum request.
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
                 let payload = VacuumRequest {};
 
-                let err = handle_request::<VacuumHandler>(&context, &agent, payload)
+                let err = handle_request::<VacuumHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on system vacuum");
 

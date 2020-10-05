@@ -3,7 +3,7 @@ use std::result::Result as StdResult;
 use anyhow::format_err;
 use async_std::stream;
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use chrono::Duration;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::mqtt::{
@@ -50,10 +50,9 @@ impl RequestHandler for CreateHandler {
     const ERROR_TITLE: &'static str = "Failed to create rtc";
 
     async fn handle<C: Context>(
-        context: &C,
+        context: &mut C,
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
-        start_timestamp: DateTime<Utc>,
     ) -> Result {
         let sdp_type = match parse_sdp_type(&payload.jsep) {
             Ok(sdp_type) => sdp_type,
@@ -82,7 +81,7 @@ impl RequestHandler for CreateHandler {
                             payload.handle_id.rtc_id(),
                             payload.jsep.clone(),
                             payload.handle_id.backend_id(),
-                            start_timestamp,
+                            context.start_timestamp(),
                             authz_time,
                         )
                         .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
@@ -122,7 +121,7 @@ impl RequestHandler for CreateHandler {
                             payload.handle_id.rtc_id(),
                             payload.jsep.clone(),
                             payload.handle_id.backend_id(),
-                            start_timestamp,
+                            context.start_timestamp(),
                             authz_time,
                         )
                         .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
@@ -145,7 +144,7 @@ impl RequestHandler for CreateHandler {
                         payload.handle_id.janus_handle_id(),
                         payload.jsep.clone(),
                         payload.handle_id.backend_id(),
-                        start_timestamp,
+                        context.start_timestamp(),
                         authz_time,
                     )
                     .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
@@ -159,7 +158,7 @@ impl RequestHandler for CreateHandler {
 }
 
 async fn authorize<C: Context>(
-    context: &C,
+    context: &mut C,
     payload: &CreateRequest,
     reqp: &IncomingRequestProperties,
     action: &str,
@@ -363,7 +362,7 @@ mod test {
                 authz.allow(agent.account_id(), object, "update");
 
                 // Make rtc_signal.create request.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
                 let rtc_stream_id = Uuid::new_v4();
 
                 let handle_id = HandleId::new(
@@ -380,7 +379,7 @@ mod test {
                     label: Some(String::from("whatever")),
                 };
 
-                let messages = handle_request::<CreateHandler>(&context, &agent, payload)
+                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
                     .await
                     .expect("Rtc signal creation failed");
 
@@ -438,7 +437,7 @@ mod test {
 
                 // Make rtc_signal.create request.
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
                 let rtc_stream_id = Uuid::new_v4();
 
                 let handle_id = HandleId::new(
@@ -455,7 +454,7 @@ mod test {
                     label: Some(String::from("whatever")),
                 };
 
-                let err = handle_request::<CreateHandler>(&context, &agent, payload)
+                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc creation");
 
@@ -511,7 +510,7 @@ mod test {
                     .unwrap();
 
                 // Make rtc_signal.create request.
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
                 let handle_id = HandleId::new(
@@ -528,7 +527,7 @@ mod test {
                     label: Some(String::from("whatever")),
                 };
 
-                let err = handle_request::<CreateHandler>(&context, &agent, payload)
+                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc creation");
 
@@ -582,7 +581,7 @@ mod test {
                 authz.allow(agent.account_id(), object, "read");
 
                 // Make rtc_signal.create request.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
                 let rtc_stream_id = Uuid::new_v4();
 
                 let handle_id = HandleId::new(
@@ -599,7 +598,7 @@ mod test {
                     label: None,
                 };
 
-                let messages = handle_request::<CreateHandler>(&context, &agent, payload)
+                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
                     .await
                     .expect("Rtc signal creation failed");
 
@@ -643,7 +642,7 @@ mod test {
 
                 // Make rtc_signal.create request.
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
                 let rtc_stream_id = Uuid::new_v4();
 
                 let handle_id = HandleId::new(
@@ -660,7 +659,7 @@ mod test {
                     label: None,
                 };
 
-                let err = handle_request::<CreateHandler>(&context, &agent, payload)
+                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc creation");
 

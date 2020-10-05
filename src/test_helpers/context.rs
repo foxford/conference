@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use serde_json::json;
+use slog::{Logger, OwnedKV, SendSyncRefUnwindSafeKV};
 use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
-use crate::app::context::{Context, JanusTopics};
+use crate::app::context::{Context, GlobalContext, JanusTopics, MessageContext};
 use crate::app::metrics::{DbPoolStatsCollector, DynamicStatsCollector};
 use crate::backend::janus::Client as JanusClient;
 use crate::config::Config;
@@ -56,6 +58,8 @@ pub(crate) struct TestContext {
     agent_id: AgentId,
     janus_client: Arc<JanusClient>,
     janus_topics: JanusTopics,
+    logger: Logger,
+    start_timestamp: DateTime<Utc>,
 }
 
 impl TestContext {
@@ -73,11 +77,13 @@ impl TestContext {
             agent_id,
             janus_client: Arc::new(janus_client),
             janus_topics: JanusTopics::new("ignore", "ignore", "ignore"),
+            logger: crate::LOG.new(o!()),
+            start_timestamp: Utc::now(),
         }
     }
 }
 
-impl Context for TestContext {
+impl GlobalContext for TestContext {
     fn authz(&self) -> &Authz {
         &self.authz
     }
@@ -118,3 +124,22 @@ impl Context for TestContext {
         None
     }
 }
+
+impl MessageContext for TestContext {
+    fn start_timestamp(&self) -> DateTime<Utc> {
+        self.start_timestamp
+    }
+
+    fn logger(&self) -> &Logger {
+        &self.logger
+    }
+
+    fn add_logger_tags<T>(&mut self, tags: OwnedKV<T>)
+    where
+        T: SendSyncRefUnwindSafeKV + Sized + 'static,
+    {
+        self.logger = self.logger.new(tags);
+    }
+}
+
+impl Context for TestContext {}

@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::thread;
 
 use anyhow::{Context, Result};
-use log::warn;
 
 enum Message {
     Register {
@@ -40,7 +39,10 @@ impl DynamicStatsCollector {
                         let report = data.into_iter().collect::<Vec<(String, usize)>>();
 
                         if let Err(err) = tx.send(report) {
-                            warn!("Failed to send dynamic stats collector report: {:?}", err);
+                            warn!(
+                                crate::LOG,
+                                "Failed to send dynamic stats collector report: {:?}", err
+                            );
                         }
 
                         data = BTreeMap::new();
@@ -61,8 +63,8 @@ impl DynamicStatsCollector {
 
         if let Err(err) = self.tx.send(message) {
             warn!(
-                "Failed to register dynamic stats collector value: {:?}",
-                err
+                crate::LOG,
+                "Failed to register dynamic stats collector value: {:?}", err
             );
         }
     }
@@ -82,7 +84,10 @@ impl DynamicStatsCollector {
 impl Drop for DynamicStatsCollector {
     fn drop(&mut self) {
         if let Err(err) = self.tx.send(Message::Stop) {
-            warn!("Failed to stop dynamic stats collector: {:?}", err);
+            warn!(
+                crate::LOG,
+                "Failed to stop dynamic stats collector: {:?}", err
+            );
         }
     }
 }

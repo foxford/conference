@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use diesel::r2d2::event::*;
-use log::error;
 
 #[derive(Debug, Default)]
 struct Stat {
@@ -148,8 +147,8 @@ impl diesel::r2d2::HandleEvent for StatsTransmitter {
         let inner = self.inner.lock().expect("Lock failed, poisoned mutex?");
         if let Err(e) = inner.0.send(Update::Checkin(micros)) {
             error!(
-                "Failed to send checkin micros in StatsTransmiiter, reason = {}",
-                e
+                crate::LOG,
+                "Failed to send checkin micros in StatsTransmiiter, reason = {}", e
             );
         }
     }
@@ -160,8 +159,8 @@ impl diesel::r2d2::HandleEvent for StatsTransmitter {
         let inner = self.inner.lock().expect("Lock failed, poisoned mutex?");
         if let Err(e) = inner.0.send(Update::Checkout(micros)) {
             error!(
-                "Failed to send checkout micros in StatsTransmiiter, reason = {}",
-                e
+                crate::LOG,
+                "Failed to send checkout micros in StatsTransmiiter, reason = {}", e
             );
         }
     }
@@ -172,8 +171,8 @@ impl diesel::r2d2::HandleEvent for StatsTransmitter {
         let inner = self.inner.lock().expect("Lock failed, poisoned mutex?");
         if let Err(e) = inner.0.send(Update::Release(micros)) {
             error!(
-                "Failed to send checkout micros in StatsTransmiiter, reason = {}",
-                e
+                crate::LOG,
+                "Failed to send checkout micros in StatsTransmiiter, reason = {}", e
             );
         }
     }
@@ -184,8 +183,8 @@ impl diesel::r2d2::HandleEvent for StatsTransmitter {
         let inner = self.inner.lock().expect("Lock failed, poisoned mutex?");
         if let Err(e) = inner.0.send(Update::Timeout(micros)) {
             error!(
-                "Failed to send checkout micros in StatsTransmiiter, reason = {}",
-                e
+                crate::LOG,
+                "Failed to send checkout micros in StatsTransmiiter, reason = {}", e
             );
         }
     }

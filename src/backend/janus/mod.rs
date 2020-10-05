@@ -3,7 +3,6 @@ use std::str::FromStr;
 use anyhow::Result;
 use async_std::stream;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use log::{error, info, warn};
 use std::ops::Bound;
 use svc_agent::mqtt::{
     IncomingEvent as MQTTIncomingEvent, IncomingEventProperties, IncomingRequestProperties,
@@ -41,13 +40,19 @@ pub(crate) trait OpaqueId {
 pub(crate) async fn handle_response<C: Context>(
     context: &C,
     resp: &MQTTIncomingResponse<String>,
-    start_timestamp: DateTime<Utc>,
 ) -> MessageStream {
-    handle_response_impl(context, resp, start_timestamp)
+    handle_response_impl(context, resp)
         .await
         .unwrap_or_else(|err| {
-            error!("Failed to handle a response from janus: {}", err);
-            sentry::send(err).unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+            error!(
+                context.logger(),
+                "Failed to handle a response from janus: {}", err
+            );
+
+            sentry::send(err).unwrap_or_else(|err| {
+                warn!(context.logger(), "Error sending error to Sentry: {}", err)
+            });
+
             Box::new(stream::empty())
         })
 }
@@ -55,7 +60,6 @@ pub(crate) async fn handle_response<C: Context>(
 async fn handle_response_impl<C: Context>(
     context: &C,
     resp: &MQTTIncomingResponse<String>,
-    start_timestamp: DateTime<Utc>,
 ) -> Result<MessageStream, SvcError> {
     let respp = resp.properties();
     context.janus_client().finish_transaction(respp);
@@ -81,7 +85,7 @@ async fn handle_response_impl<C: Context>(
                             inresp.data().id(),
                             tn.capacity(),
                             tn.balancer_capacity(),
-                            start_timestamp,
+                            context.start_timestamp(),
                         )
                         .map_err(|err| err.to_string())
                         .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
@@ -125,7 +129,7 @@ async fn handle_response_impl<C: Context>(
                         )),
                         reqp.to_response(
                             ResponseStatus::OK,
-                            ShortTermTimingProperties::until_now(start_timestamp),
+                            ShortTermTimingProperties::until_now(context.start_timestamp()),
                         ),
                         reqp,
                         JANUS_API_VERSION,
@@ -152,7 +156,7 @@ async fn handle_response_impl<C: Context>(
                         endpoint::rtc_signal::CreateResponseData::new(None),
                         tn.reqp().to_response(
                             ResponseStatus::OK,
-                            ShortTermTimingProperties::until_now(start_timestamp),
+                            ShortTermTimingProperties::until_now(context.start_timestamp()),
                         ),
                         tn.reqp().as_agent_id(),
                         JANUS_API_VERSION,
@@ -210,9 +214,12 @@ async fn handle_response_impl<C: Context>(
                             ))
                             .status(ResponseStatus::FAILED_DEPENDENCY)?;
 
+                        let timing =
+                            ShortTermTimingProperties::until_now(context.start_timestamp());
+
                         let resp = endpoint::rtc_signal::CreateResponse::unicast(
                             endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                            tn.reqp().to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
+                            tn.reqp().to_response(ResponseStatus::OK, timing),
                             tn.reqp().as_agent_id(),
                             JANUS_API_VERSION,
                         );
@@ -222,11 +229,11 @@ async fn handle_response_impl<C: Context>(
                     })
                     .or_else(|err| {
                         Ok(handle_response_error(
+                            context,
                             "janus_stream.create",
                             "Error creating a Janus Conference Stream",
                             &tn.reqp(),
                             err,
-                            start_timestamp,
                         ))
                     }),
                 // Conference Stream has been read (an answer received)
@@ -267,9 +274,12 @@ async fn handle_response_impl<C: Context>(
                             ))
                             .status(ResponseStatus::FAILED_DEPENDENCY)?;
 
+                        let timing =
+                            ShortTermTimingProperties::until_now(context.start_timestamp());
+
                         let resp = endpoint::rtc_signal::CreateResponse::unicast(
                             endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                            tn.reqp().to_response(ResponseStatus::OK, ShortTermTimingProperties::until_now(start_timestamp)),
+                            tn.reqp().to_response(ResponseStatus::OK, timing),
                             tn.reqp().as_agent_id(),
                             JANUS_API_VERSION,
                         );
@@ -279,11 +289,11 @@ async fn handle_response_impl<C: Context>(
                     })
                     .or_else(|err| {
                         Ok(handle_response_error(
+                            context,
                             "janus_stream.read",
                             "Error reading a Janus Conference Stream",
                             &tn.reqp(),
                             err,
-                            start_timestamp,
                         ))
                     }),
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
@@ -435,8 +445,9 @@ async fn handle_response_impl<C: Context>(
                             for rtc in rtcs {
                                 if !rtc_ids_with_recs.contains(&rtc.id()) {
                                     info!(
-                                        "postpone 'room.upload' event because still waiting for rtcs being uploaded for the room = '{}'",
-                                        room.id(),
+                                        context.logger(),
+                                        "postpone 'room.upload' event because still waiting for rtcs being uploaded";
+                                        "room_id" => room.id().to_string(),
                                     );
 
                                     return Ok(Box::new(stream::empty()) as MessageStream);
@@ -447,7 +458,7 @@ async fn handle_response_impl<C: Context>(
                             let event = endpoint::system::upload_event(
                                 &room,
                                 recs.into_iter(),
-                                start_timestamp,
+                                context.start_timestamp(),
                                 respp.tracking(),
                             )
                             .map_err(|e| format!("error creating a system event, {}", e))
@@ -478,24 +489,26 @@ async fn handle_response_impl<C: Context>(
     }
 }
 
-fn handle_response_error(
+fn handle_response_error<C: Context>(
+    context: &C,
     kind: &str,
     title: &str,
     reqp: &IncomingRequestProperties,
     mut err: SvcError,
-    start_timestamp: DateTime<Utc>,
 ) -> MessageStream {
     err.set_kind(kind, title);
     let status = err.status_code();
 
     error!(
-        "Failed to handle a response from janus, kind = '{}': {}",
-        kind, err
+        context.logger(),
+        "Failed to handle a response from janus: {}", err;
+        "kind" => kind,
     );
 
-    sentry::send(err.clone()).unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+    sentry::send(err.clone())
+        .unwrap_or_else(|err| warn!(context.logger(), "Error sending error to Sentry: {}", err));
 
-    let timing = ShortTermTimingProperties::until_now(start_timestamp);
+    let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
     let resp = OutgoingResponse::unicast(err, reqp.to_response(status, timing), reqp, API_VERSION);
     let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
     Box::new(stream::once(boxed_resp))
@@ -504,18 +517,20 @@ fn handle_response_error(
 pub(crate) async fn handle_event<C: Context>(
     context: &C,
     event: &MQTTIncomingEvent<String>,
-    start_timestamp: DateTime<Utc>,
 ) -> MessageStream {
-    handle_event_impl(context, event, start_timestamp)
+    handle_event_impl(context, event)
         .await
         .unwrap_or_else(|err| {
             error!(
-                "Failed to handle an event from janus, label = '{}': {}",
-                event.properties().label().unwrap_or("none"),
-                err,
+                context.logger(),
+                "Failed to handle an event from janus: {}", err;
+                "label" => event.properties().label().unwrap_or("none"),
             );
 
-            sentry::send(err).unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+            sentry::send(err).unwrap_or_else(|err| {
+                warn!(context.logger(), "Error sending error to Sentry: {}", err)
+            });
+
             Box::new(stream::empty())
         })
 }
@@ -523,7 +538,6 @@ pub(crate) async fn handle_event<C: Context>(
 async fn handle_event_impl<C: Context>(
     context: &C,
     event: &MQTTIncomingEvent<String>,
-    start_timestamp: DateTime<Utc>,
 ) -> Result<MessageStream, SvcError> {
     let payload = MQTTIncomingEvent::convert_payload::<IncomingEvent>(&event)
         .map_err(|err| format!("failed to parse event: {}", err))
@@ -554,7 +568,7 @@ async fn handle_event_impl<C: Context>(
                 let event = endpoint::rtc_stream::update_event(
                     room.id(),
                     rtc_stream,
-                    start_timestamp,
+                    context.start_timestamp(),
                     evp.tracking(),
                 )?;
 
@@ -565,12 +579,8 @@ async fn handle_event_impl<C: Context>(
                 Ok(Box::new(stream::empty()))
             }
         }
-        IncomingEvent::HangUp(ref inev) => {
-            handle_hangup_detach(context, start_timestamp, inev, evp)
-        }
-        IncomingEvent::Detached(ref inev) => {
-            handle_hangup_detach(context, start_timestamp, inev, evp)
-        }
+        IncomingEvent::HangUp(ref inev) => handle_hangup_detach(context, inev, evp),
+        IncomingEvent::Detached(ref inev) => handle_hangup_detach(context, inev, evp),
         IncomingEvent::Media(_) | IncomingEvent::Timeout(_) | IncomingEvent::SlowLink(_) => {
             // Ignore these kinds of events.
             Ok(Box::new(stream::empty()))
@@ -580,7 +590,6 @@ async fn handle_event_impl<C: Context>(
 
 fn handle_hangup_detach<C: Context, E: OpaqueId>(
     context: &C,
-    start_timestamp: DateTime<Utc>,
     inev: &E,
     evp: &IncomingEventProperties,
 ) -> Result<MessageStream, SvcError> {
@@ -617,7 +626,7 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
             let event = endpoint::rtc_stream::update_event(
                 room.id(),
                 rtc_stream,
-                start_timestamp,
+                context.start_timestamp(),
                 evp.tracking(),
             )?;
 
@@ -632,18 +641,20 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
 pub(crate) async fn handle_status_event<C: Context>(
     context: &C,
     event: &MQTTIncomingEvent<String>,
-    start_timestamp: DateTime<Utc>,
 ) -> MessageStream {
-    handle_status_event_impl(context, event, start_timestamp)
+    handle_status_event_impl(context, event)
         .await
         .unwrap_or_else(|err| {
             error!(
-                "Failed to handle a status event from janus, label = '{}': {}",
-                event.properties().label().unwrap_or("none"),
-                err,
+                context.logger(),
+                "Failed to handle a status event from janus: {}", err;
+                "label" => event.properties().label().unwrap_or("none"),
             );
 
-            sentry::send(err).unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+            sentry::send(err).unwrap_or_else(|err| {
+                warn!(context.logger(), "Error sending error to Sentry: {}", err)
+            });
+
             Box::new(stream::empty())
         })
 }
@@ -651,7 +662,6 @@ pub(crate) async fn handle_status_event<C: Context>(
 async fn handle_status_event_impl<C: Context>(
     context: &C,
     event: &MQTTIncomingEvent<String>,
-    start_timestamp: DateTime<Utc>,
 ) -> Result<MessageStream, SvcError> {
     let evp = event.properties();
 
@@ -662,7 +672,7 @@ async fn handle_status_event_impl<C: Context>(
     if payload.online() {
         let event = context
             .janus_client()
-            .create_session_request(&payload, evp, start_timestamp)
+            .create_session_request(&payload, evp, context.start_timestamp())
             .map_err(|err| err.to_string())
             .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
@@ -695,7 +705,7 @@ async fn handle_status_event_impl<C: Context>(
             let event = endpoint::rtc_stream::update_event(
                 rtc.room_id(),
                 stream,
-                start_timestamp,
+                context.start_timestamp(),
                 evp.tracking(),
             )?;
 

@@ -7,7 +7,6 @@ use anyhow::{Context as AnyhowContext, Result};
 use async_std::task;
 use chrono::Utc;
 use futures::StreamExt;
-use log::{error, info, warn};
 use serde_json::json;
 use svc_agent::{
     mqtt::{
@@ -20,7 +19,7 @@ use svc_authn::token::jws_compact;
 use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
 use svc_error::{extension::sentry, Error as SvcError};
 
-use crate::app::context::Context;
+use crate::app::context::GlobalContext;
 use crate::app::metrics::DbPoolStatsCollector;
 use crate::backend::janus::Client as JanusClient;
 use crate::config::{self, Config, KruonisConfig};
@@ -40,11 +39,11 @@ pub(crate) async fn run(
 ) -> Result<()> {
     // Config
     let config = config::load().expect("Failed to load config");
-    info!("App config: {:?}", config);
+    info!(crate::LOG, "App config: {:?}", config);
 
     // Agent
     let agent_id = AgentId::new(&config.agent_label, config.id.clone());
-    info!("Agent id: {:?}", &agent_id);
+    info!(crate::LOG, "Agent id: {}", &agent_id);
 
     let token = jws_compact::TokenBuilder::new()
         .issuer(&agent_id.as_account_id().audience().to_string())
@@ -69,7 +68,7 @@ pub(crate) async fn run(
         .spawn(move || {
             for message in rx {
                 if mq_tx.unbounded_send(message).is_err() {
-                    error!("Error sending message to the internal channel");
+                    error!(crate::LOG, "Error sending message to the internal channel");
                 }
             }
         })
@@ -122,14 +121,14 @@ pub(crate) async fn run(
                 AgentNotification::Message(message, metadata) => {
                     async_std::task::block_on(message_handler.handle(&message, &metadata.topic));
                 }
-                AgentNotification::Disconnection => error!("Disconnected from broker"),
+                AgentNotification::Disconnection => error!(crate::LOG, "Disconnected from broker"),
                 AgentNotification::Reconnection => {
-                    error!("Reconnected to broker");
+                    error!(crate::LOG, "Reconnected to broker");
 
                     resubscribe(
                         &mut message_handler.agent().to_owned(),
-                        message_handler.context().agent_id(),
-                        message_handler.context().config(),
+                        message_handler.global_context().agent_id(),
+                        message_handler.global_context().config(),
                     );
                 }
                 AgentNotification::Puback(_) => (),
@@ -137,7 +136,7 @@ pub(crate) async fn run(
                 AgentNotification::Pubcomp(_) => (),
                 AgentNotification::Suback(_) => (),
                 AgentNotification::Unsuback(_) => (),
-                AgentNotification::Abort(err) => error!("MQTT client aborted: {}", err),
+                AgentNotification::Abort(err) => error!(crate::LOG, "MQTT client aborted: {}", err),
             });
         }
     }
@@ -229,7 +228,7 @@ fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()>
 fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
     if let Err(err) = subscribe(agent, agent_id, config) {
         let err = format!("Failed to resubscribe after reconnection: {}", err);
-        error!("{}", err);
+        error!(crate::LOG, "{}", err);
 
         let svc_error = SvcError::builder()
             .kind("resubscription_error", "Resubscription error")
@@ -237,7 +236,7 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
             .build();
 
         sentry::send(svc_error)
-            .unwrap_or_else(|err| warn!("Error sending error to Sentry: {}", err));
+            .unwrap_or_else(|err| warn!(crate::LOG, "Error sending error to Sentry: {}", err));
     }
 }
 

@@ -30,10 +30,9 @@ impl EventHandler for PullHandler {
     type Payload = PullPayload;
 
     async fn handle<C: Context>(
-        context: &C,
+        context: &mut C,
         payload: Self::Payload,
         evp: &IncomingEventProperties,
-        start_timestamp: DateTime<Utc>,
     ) -> Result {
         match context.config().telemetry {
             TelemetryConfig {
@@ -110,7 +109,9 @@ impl EventHandler for PullHandler {
                     .map(|m| m.into())
                     .collect::<Vec<Metric2>>();
 
-                let short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
+                let short_term_timing =
+                    ShortTermTimingProperties::until_now(context.start_timestamp());
+
                 let props = evp.to_event("metric.create", short_term_timing.clone());
                 let props2 = evp.to_event("metric.create", short_term_timing);
 
@@ -129,7 +130,7 @@ impl EventHandler for PullHandler {
     }
 }
 
-fn append_db_pool_stats(metrics: &mut Vec<Metric>, context: &dyn Context, now: DateTime<Utc>) {
+fn append_db_pool_stats<C: Context>(metrics: &mut Vec<Metric>, context: &C, now: DateTime<Utc>) {
     if let Some(db_pool_stats) = context.db_pool_stats() {
         let stats = db_pool_stats.get_stats();
 
@@ -148,9 +149,9 @@ fn append_db_pool_stats(metrics: &mut Vec<Metric>, context: &dyn Context, now: D
     }
 }
 
-fn append_dynamic_stats(
+fn append_dynamic_stats<C: Context>(
     metrics: &mut Vec<Metric>,
-    context: &dyn Context,
+    context: &C,
     now: DateTime<Utc>,
 ) -> anyhow::Result<()> {
     if let Some(dynamic_stats) = context.dynamic_stats() {
@@ -165,9 +166,9 @@ fn append_dynamic_stats(
     Ok(())
 }
 
-fn append_janus_stats(
+fn append_janus_stats<C: Context>(
     metrics: &mut Vec<Metric>,
-    context: &dyn Context,
+    context: &C,
     now: DateTime<Utc>,
 ) -> anyhow::Result<()> {
     use anyhow::Context;

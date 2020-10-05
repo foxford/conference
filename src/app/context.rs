@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
+use slog::{Logger, OwnedKV, SendSyncRefUnwindSafeKV};
 use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
@@ -8,6 +10,32 @@ use crate::app::metrics::{DbPoolStatsCollector, DynamicStatsCollector};
 use crate::backend::janus::Client as JanusClient;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) trait Context: GlobalContext + MessageContext {}
+
+pub(crate) trait GlobalContext: Sync {
+    fn authz(&self) -> &Authz;
+    fn config(&self) -> &Config;
+    fn db(&self) -> &Db;
+    fn agent_id(&self) -> &AgentId;
+    fn janus_client(&self) -> Arc<JanusClient>;
+    fn janus_topics(&self) -> &JanusTopics;
+    fn queue_counter(&self) -> &Option<QueueCounterHandle>;
+    fn redis_pool(&self) -> &Option<RedisConnectionPool>;
+    fn db_pool_stats(&self) -> &Option<DbPoolStatsCollector>;
+    fn dynamic_stats(&self) -> Option<&DynamicStatsCollector>;
+}
+
+pub(crate) trait MessageContext: Send {
+    fn start_timestamp(&self) -> DateTime<Utc>;
+    fn logger(&self) -> &Logger;
+
+    fn add_logger_tags<T>(&mut self, tags: OwnedKV<T>)
+    where
+        T: SendSyncRefUnwindSafeKV + Sized + 'static;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -71,20 +99,7 @@ impl AppContext {
     }
 }
 
-pub(crate) trait Context: Sync {
-    fn authz(&self) -> &Authz;
-    fn config(&self) -> &Config;
-    fn db(&self) -> &Db;
-    fn agent_id(&self) -> &AgentId;
-    fn janus_client(&self) -> Arc<JanusClient>;
-    fn janus_topics(&self) -> &JanusTopics;
-    fn queue_counter(&self) -> &Option<QueueCounterHandle>;
-    fn redis_pool(&self) -> &Option<RedisConnectionPool>;
-    fn db_pool_stats(&self) -> &Option<DbPoolStatsCollector>;
-    fn dynamic_stats(&self) -> Option<&DynamicStatsCollector>;
-}
-
-impl Context for AppContext {
+impl GlobalContext for AppContext {
     fn authz(&self) -> &Authz {
         &self.authz
     }
@@ -125,6 +140,85 @@ impl Context for AppContext {
         self.dynamic_stats.as_deref()
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct AppMessageContext<'a, C: GlobalContext> {
+    global_context: &'a C,
+    start_timestamp: DateTime<Utc>,
+    logger: Logger,
+}
+
+impl<'a, C: GlobalContext> AppMessageContext<'a, C> {
+    pub(crate) fn new(global_context: &'a C, start_timestamp: DateTime<Utc>) -> Self {
+        Self {
+            global_context,
+            start_timestamp,
+            logger: crate::LOG.new(o!()),
+        }
+    }
+}
+
+impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
+    fn authz(&self) -> &Authz {
+        self.global_context.authz()
+    }
+
+    fn config(&self) -> &Config {
+        self.global_context.config()
+    }
+
+    fn db(&self) -> &Db {
+        self.global_context.db()
+    }
+
+    fn agent_id(&self) -> &AgentId {
+        self.global_context.agent_id()
+    }
+
+    fn janus_client(&self) -> Arc<JanusClient> {
+        self.global_context.janus_client()
+    }
+
+    fn janus_topics(&self) -> &JanusTopics {
+        self.global_context.janus_topics()
+    }
+
+    fn queue_counter(&self) -> &Option<QueueCounterHandle> {
+        self.global_context.queue_counter()
+    }
+
+    fn redis_pool(&self) -> &Option<RedisConnectionPool> {
+        self.global_context.redis_pool()
+    }
+
+    fn db_pool_stats(&self) -> &Option<DbPoolStatsCollector> {
+        self.global_context.db_pool_stats()
+    }
+
+    fn dynamic_stats(&self) -> Option<&DynamicStatsCollector> {
+        self.global_context.dynamic_stats()
+    }
+}
+
+impl<'a, C: GlobalContext> MessageContext for AppMessageContext<'a, C> {
+    fn start_timestamp(&self) -> DateTime<Utc> {
+        self.start_timestamp
+    }
+
+    fn logger(&self) -> &Logger {
+        &self.logger
+    }
+
+    fn add_logger_tags<T>(&mut self, tags: OwnedKV<T>)
+    where
+        T: SendSyncRefUnwindSafeKV + Sized + 'static,
+    {
+        self.logger = self.logger.new(tags);
+    }
+}
+
+impl<'a, C: GlobalContext> Context for AppMessageContext<'a, C> {}
 
 ///////////////////////////////////////////////////////////////////////////////
 

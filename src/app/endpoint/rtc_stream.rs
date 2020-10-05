@@ -38,10 +38,9 @@ impl RequestHandler for ListHandler {
     const ERROR_TITLE: &'static str = "Failed to list rtc streams";
 
     async fn handle<C: Context>(
-        context: &C,
+        context: &mut C,
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
-        start_timestamp: DateTime<Utc>,
     ) -> Result {
         let room = {
             let conn = context.db().get()?;
@@ -96,7 +95,7 @@ impl RequestHandler for ListHandler {
             ResponseStatus::OK,
             rtc_streams,
             reqp,
-            start_timestamp,
+            context.start_timestamp(),
             Some(authz_time),
         ))))
     }
@@ -175,7 +174,7 @@ mod test {
                 authz.allow(agent.account_id(), object, "list");
 
                 // Make rtc_stream.list request.
-                let context = TestContext::new(db, authz);
+                let mut context = TestContext::new(db, authz);
 
                 let payload = ListRequest {
                     room_id: rtc.room_id(),
@@ -185,7 +184,7 @@ mod test {
                     limit: None,
                 };
 
-                let messages = handle_request::<ListHandler>(&context, &agent, payload)
+                let messages = handle_request::<ListHandler>(&mut context, &agent, payload)
                     .await
                     .expect("Rtc streams listing failed");
 
@@ -227,7 +226,7 @@ mod test {
                     shared_helpers::insert_room(&conn)
                 };
 
-                let context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
 
                 let payload = ListRequest {
                     room_id: room.id(),
@@ -237,7 +236,7 @@ mod test {
                     limit: None,
                 };
 
-                let err = handle_request::<ListHandler>(&context, &agent, payload)
+                let err = handle_request::<ListHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc listing");
 
@@ -249,7 +248,7 @@ mod test {
         fn list_rtc_streams_missing_room() {
             async_std::task::block_on(async {
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let context = TestContext::new(TestDb::new(), TestAuthz::new());
+                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
 
                 let payload = ListRequest {
                     room_id: Uuid::new_v4(),
@@ -259,7 +258,7 @@ mod test {
                     limit: None,
                 };
 
-                let err = handle_request::<ListHandler>(&context, &agent, payload)
+                let err = handle_request::<ListHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Unexpected success on rtc listing");
 
