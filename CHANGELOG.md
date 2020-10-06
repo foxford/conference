@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.11 (October 6, 2020)
+
+### Changes
+- Change balancing method to greedy ([f311681](https://github.com/netology-group/conference/commit/f31168121e3c9d7626b7f345e39823ce6cb0de56))
+
+
 ## v0.5.10 (October 6, 2020)
 
 ### Features
