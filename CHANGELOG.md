@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.5.10 (October 6, 2020)
+
+### Features
+- Add balancer capacity ([2b601a9](https://github.com/netology-group/conference/commit/2b601a95ab02ed96b3c96accf6e9f92534b6d958))
+- Add janus request timeout ([183eb7a](https://github.com/netology-group/conference/commit/183eb7a9bb32c9f7e0f8cf4cbfb6d62c03c3bbe7))
+- Add room.close notification ([cc1af9a](https://github.com/netology-group/conference/commit/cc1af9a6ab8c609b29f32996e2a6c9014bbd60ac))
+
+
 ## v0.5.9 (September 29, 2020)
 
 ### Features
