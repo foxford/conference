@@ -5,10 +5,13 @@ use async_std::prelude::*;
 use async_std::stream::{self, Stream};
 use chrono::{DateTime, Utc};
 use futures_util::pin_mut;
-use svc_agent::mqtt::{
-    Agent, IncomingEvent, IncomingMessage, IncomingRequest, IncomingRequestProperties,
-    IncomingResponse, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
-    ShortTermTimingProperties,
+use svc_agent::{
+    mqtt::{
+        Agent, IncomingEvent, IncomingMessage, IncomingRequest, IncomingRequestProperties,
+        IncomingResponse, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
+        ShortTermTimingProperties,
+    },
+    Addressable,
 };
 use svc_error::{extension::sentry, Error as SvcError};
 
@@ -65,7 +68,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
     ) {
         error!(
             msg_context.logger(),
-            "Error processing a message = '{:?}': {}", message, err
+            "Error processing a message: {:?}: {}", message, err
         );
 
         let svc_error = SvcError::builder()
@@ -78,7 +81,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
             warn!(
                 msg_context.logger(),
                 "Error sending error to Sentry: {}", err
-            )
+            );
         });
     }
 
@@ -98,18 +101,25 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
     async fn handle_request(
         &self,
         msg_context: &mut AppMessageContext<'_, C>,
-        req: &IncomingRequest<String>,
+        request: &IncomingRequest<String>,
         topic: &str,
     ) -> Result<(), SvcError> {
-        let outgoing_message_stream = endpoint::route_request(msg_context, req, topic)
+        let agent_id = request.properties().as_agent_id();
+
+        msg_context.add_logger_tags(o!(
+            "agent_id" => agent_id.to_string(),
+            "method" => request.properties().method().to_owned()
+        ));
+
+        let outgoing_message_stream = endpoint::route_request(msg_context, request, topic)
             .await
             .unwrap_or_else(|| {
                 error_response(
                     ResponseStatus::METHOD_NOT_ALLOWED,
                     "about:blank",
                     "Unknown method",
-                    &format!("Unknown method '{}'", req.properties().method()),
-                    req.properties(),
+                    "Unknown method",
+                    request.properties(),
                     msg_context.start_timestamp(),
                 )
             });
@@ -121,10 +131,13 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
     async fn handle_response(
         &self,
         msg_context: &mut AppMessageContext<'_, C>,
-        envelope: &IncomingResponse<String>,
+        response: &IncomingResponse<String>,
         topic: &str,
     ) -> Result<(), SvcError> {
-        let outgoing_message_stream = endpoint::route_response(msg_context, envelope, topic)
+        let agent_id = response.properties().as_agent_id();
+        msg_context.add_logger_tags(o!("agent_id" => agent_id.to_string()));
+
+        let outgoing_message_stream = endpoint::route_response(msg_context, response, topic)
             .await
             .unwrap_or_else(|| {
                 warn!(msg_context.logger(), "Unhandled response");
@@ -141,11 +154,17 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         event: &IncomingEvent<String>,
         topic: &str,
     ) -> Result<(), SvcError> {
+        let agent_id = event.properties().as_agent_id();
+        msg_context.add_logger_tags(o!("agent_id" => agent_id.to_string()));
+
+        if let Some(label) = event.properties().label() {
+            msg_context.add_logger_tags(o!("label" => label.to_owned()));
+        }
+
         let outgoing_message_stream = endpoint::route_event(msg_context, event, topic)
             .await
             .unwrap_or_else(|| {
-                let label = event.properties().label().unwrap_or("none");
-                warn!(msg_context.logger(), "Unexpected event label"; "label" => label);
+                warn!(msg_context.logger(), "Unexpected event label");
                 Box::new(stream::empty())
             });
 
@@ -195,7 +214,7 @@ pub(crate) fn publish_message(
 ) -> Result<(), SvcError> {
     agent
         .publish_publishable(message)
-        .map_err(|err| format!("Failed to publish message: {}", err))
+        .map_err(|err| anyhow!("Failed to publish message: {}", err))
         .status(ResponseStatus::UNPROCESSABLE_ENTITY)
 }
 
@@ -234,6 +253,7 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
             // Parse the envelope with the payload type specified in the handler.
             let payload = IncomingRequest::convert_payload::<H::Payload>(req);
             let reqp = req.properties();
+
             match payload {
                 // Call handler.
                 Ok(payload) => {
@@ -244,8 +264,19 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
                                 svc_error.set_kind(reqp.method(), H::ERROR_TITLE);
                             }
 
+                            context.add_logger_tags(o!(
+                                "status" => svc_error.status_code().as_u16(),
+                                "kind" => svc_error.kind().to_owned(),
+                            ));
+
+                            error!(
+                                context.logger(),
+                                "Failed to handle request: {}",
+                                svc_error.to_string(),
+                            );
+
                             sentry::send(svc_error.clone()).unwrap_or_else(|err| {
-                                warn!(context.logger(), "Error sending error to Sentry: {}", err)
+                                warn!(context.logger(), "Error sending error to Sentry: {}", err);
                             });
 
                             // Handler returned an error => 422.
@@ -298,6 +329,7 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
             // Parse response envelope with the payload from the handler.
             let payload = IncomingResponse::convert_payload::<H::Payload>(resp);
             let resp = resp.properties();
+
             match payload {
                 // Call handler.
                 Ok(payload) => {
@@ -309,15 +341,19 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
                                 svc_error.set_kind("response", "Failed to handle response");
                             }
 
+                            context.add_logger_tags(o!(
+                                "status" => svc_error.status_code().as_u16(),
+                                "kind" => svc_error.kind().to_owned(),
+                            ));
+
                             error!(
                                 context.logger(),
                                 "Failed to handle response: {}",
-                                svc_error.detail().unwrap_or("no detail");
-                                "kind" => svc_error.kind(),
+                                svc_error.detail().unwrap_or("No detail"),
                             );
 
                             sentry::send(svc_error).unwrap_or_else(|err| {
-                                warn!(context.logger(), "Error sending error to Sentry: {}", err)
+                                warn!(context.logger(), "Error sending error to Sentry: {}", err);
                             });
 
                             Box::new(stream::empty())
@@ -357,6 +393,7 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
         ) -> MessageStream {
             let payload = IncomingEvent::convert_payload::<H::Payload>(event);
             let evp = event.properties();
+
             // Parse event envelope with the payload from the handler.
             match payload {
                 // Call handler.
@@ -365,6 +402,11 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
                         .await
                         .unwrap_or_else(|mut svc_error| {
                             // Handler returned an error.
+                            context.add_logger_tags(o!(
+                                "status" => svc_error.status_code().as_u16(),
+                                "kind" => svc_error.kind().to_owned(),
+                            ));
+
                             if let Some(label) = evp.label() {
                                 if svc_error.kind() == "about:blank" {
                                     let error_title = format!("Failed to handle event '{}'", label);
@@ -374,16 +416,14 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
                                 error!(
                                     context.logger(),
                                     "Failed to handle event: {}",
-                                    svc_error.detail().unwrap_or("no detail");
-                                    "label" => label,
-                                    "kind" => svc_error.kind(),
+                                    svc_error.detail().unwrap_or("No detail"),
                                 );
 
                                 sentry::send(svc_error).unwrap_or_else(|err| {
                                     warn!(
                                         context.logger(),
                                         "Error sending error to Sentry: {}", err
-                                    )
+                                    );
                                 });
                             }
 
@@ -392,14 +432,7 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
                 }
                 Err(err) => {
                     // Bad envelope or payload format.
-                    if let Some(label) = evp.label() {
-                        error!(
-                            context.logger(),
-                            "Failed to parse event: {}", err;
-                            "label" => label,
-                        );
-                    }
-
+                    error!(context.logger(), "Failed to parse event: {}", err);
                     Box::new(stream::empty())
                 }
             }
@@ -415,12 +448,12 @@ pub(crate) trait SvcErrorSugar<T> {
     fn status(self, status: ResponseStatus) -> Result<T, SvcError>;
 }
 
-impl<T, E: AsRef<str>> SvcErrorSugar<T> for Result<T, E> {
+impl<T> SvcErrorSugar<T> for Result<T, anyhow::Error> {
     fn status(self, status: ResponseStatus) -> Result<T, SvcError> {
         self.map_err(|err| {
             SvcError::builder()
                 .status(status)
-                .detail(err.as_ref())
+                .detail(&err.to_string())
                 .build()
         })
     }

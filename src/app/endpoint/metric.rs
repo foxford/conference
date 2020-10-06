@@ -43,6 +43,7 @@ impl EventHandler for PullHandler {
                 let mut metrics = if let Some(qc) = context.queue_counter() {
                     let stats = qc
                         .get_stats(payload.duration)
+                        .map_err(|err| anyhow!("Failed to get stats: {}", err))
                         .status(ResponseStatus::BAD_REQUEST)?;
 
                     vec![
@@ -96,11 +97,9 @@ impl EventHandler for PullHandler {
                 append_db_pool_stats(&mut metrics, context, now);
 
                 append_dynamic_stats(&mut metrics, context, now)
-                    .map_err(|err| err.to_string())
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
                 append_janus_stats(&mut metrics, context, now)
-                    .map_err(|err| err.to_string())
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
                 let metrics2 = metrics

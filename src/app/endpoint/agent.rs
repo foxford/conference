@@ -39,9 +39,11 @@ impl RequestHandler for ListHandler {
                 .id(payload.room_id)
                 .time(db::room::now())
                 .execute(&conn)?
-                .ok_or_else(|| format!("the room = '{}' is not found or closed", payload.room_id))
+                .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
+
+        context.add_logger_tags(o!("room_id" => room.id().to_string()));
 
         // Authorize agents listing in the room.
         let room_id = room.id().to_string();

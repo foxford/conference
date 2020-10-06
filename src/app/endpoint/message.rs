@@ -41,6 +41,8 @@ impl RequestHandler for UnicastHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
+
         {
             let conn = context.db().get()?;
             let room = find_room(payload.room_id, &conn)?;
@@ -51,11 +53,11 @@ impl RequestHandler for UnicastHandler {
         let response_topic =
             Subscription::multicast_requests_from(&payload.agent_id, Some(API_VERSION))
                 .subscription_topic(context.agent_id(), API_VERSION)
-                .map_err(|err| format!("error building responses subscription topic: {}", err))
+                .map_err(|err| anyhow!("Error building responses subscription topic: {}", err))
                 .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
         let correlation_data = to_base64(reqp)
-            .map_err(|err| format!("error encoding incoming request properties: {}", err))
+            .map_err(|err| err.context("Error encoding incoming request properties"))
             .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
         let props = reqp.to_request(
@@ -98,6 +100,8 @@ impl RequestHandler for BroadcastHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
+
         let room = {
             let conn = context.db().get()?;
             let room = find_room(payload.room_id, &conn)?;
@@ -146,7 +150,6 @@ impl ResponseHandler for CallbackHandler {
         respp: &IncomingResponseProperties,
     ) -> Result {
         let reqp = from_base64::<IncomingRequestProperties>(respp.correlation_data())
-            .map_err(|err| err.to_string())
             .status(ResponseStatus::BAD_REQUEST)?;
 
         let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
@@ -178,7 +181,7 @@ fn find_room(id: Uuid, conn: &PgConnection) -> StdResult<Room, SvcError> {
         .time(db::room::now())
         .id(id)
         .execute(&conn)?
-        .ok_or_else(|| format!("the room = '{}' is not found", id))
+        .ok_or_else(|| anyhow!("Room not found or closed"))
         .status(ResponseStatus::NOT_FOUND)
 }
 
@@ -193,13 +196,7 @@ fn check_room_presence(
         .execute(conn)?;
 
     if results.is_empty() {
-        let err = format!(
-            "agent = '{}' is not online in the room = '{}'",
-            agent_id,
-            room.id()
-        );
-
-        Err(err).status(ResponseStatus::NOT_FOUND)
+        Err(anyhow!("Agent is not online in the room")).status(ResponseStatus::NOT_FOUND)
     } else {
         Ok(())
     }

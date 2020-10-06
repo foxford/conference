@@ -38,18 +38,19 @@ pub(crate) trait OpaqueId {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) async fn handle_response<C: Context>(
-    context: &C,
+    context: &mut C,
     resp: &MQTTIncomingResponse<String>,
 ) -> MessageStream {
     handle_response_impl(context, resp)
         .await
-        .unwrap_or_else(|err| {
+        .unwrap_or_else(|svc_error| {
             error!(
                 context.logger(),
-                "Failed to handle a response from janus: {}", err
+                "Failed to handle a response from janus: {}",
+                svc_error.detail().unwrap_or(""),
             );
 
-            sentry::send(err).unwrap_or_else(|err| {
+            sentry::send(svc_error).unwrap_or_else(|err| {
                 warn!(context.logger(), "Error sending error to Sentry: {}", err)
             });
 
@@ -58,20 +59,20 @@ pub(crate) async fn handle_response<C: Context>(
 }
 
 async fn handle_response_impl<C: Context>(
-    context: &C,
+    context: &mut C,
     resp: &MQTTIncomingResponse<String>,
 ) -> Result<MessageStream, SvcError> {
     let respp = resp.properties();
     context.janus_client().finish_transaction(respp);
 
     let payload = MQTTIncomingResponse::convert_payload::<IncomingResponse>(&resp)
-        .map_err(|err| format!("failed to parse response: {}", err))
+        .map_err(|err| anyhow!("Failed to parse response: {}", err))
         .status(ResponseStatus::BAD_REQUEST)?;
 
     match payload {
         IncomingResponse::Success(ref inresp) => {
             let txn = from_base64::<Transaction>(&inresp.transaction())
-                .map_err(|err| format!("failed to parse transaction: {}", err))
+                .map_err(|err| err.context("Failed to parse transaction"))
                 .status(ResponseStatus::BAD_REQUEST)?;
 
             match txn {
@@ -87,7 +88,6 @@ async fn handle_response_impl<C: Context>(
                             tn.balancer_capacity(),
                             context.start_timestamp(),
                         )
-                        .map_err(|err| err.to_string())
                         .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
                     let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>;
@@ -144,7 +144,7 @@ async fn handle_response_impl<C: Context>(
         }
         IncomingResponse::Ack(ref inresp) => {
             let txn = from_base64::<Transaction>(&inresp.transaction())
-                .map_err(|err| format!("failed to parse transaction: {}", err))
+                .map_err(|err| err.context("Failed to parse transaction"))
                 .status(ResponseStatus::BAD_REQUEST)?;
 
             match txn {
@@ -170,204 +170,168 @@ async fn handle_response_impl<C: Context>(
             }
         }
         IncomingResponse::Event(ref inresp) => {
+            context.add_logger_tags(o!("transaction" => inresp.transaction().to_string()));
+
             let txn = from_base64::<Transaction>(&inresp.transaction())
-                .map_err(|err| format!("failed to parse transaction: {}", err))
+                .map_err(|err| err.context("Failed to parse transaction"))
                 .status(ResponseStatus::BAD_REQUEST)?;
 
             match txn {
                 // Conference Stream has been created (an answer received)
-                Transaction::CreateStream(ref tn) => inresp
-                    .plugin()
-                    .data()
-                    .get("status")
-                    .ok_or_else(|| {
-                        // We fail if response doesn't contain a status
-                        format!(
-                            "missing 'status' in a response on method = '{}', transaction = '{}'",
-                            tn.reqp().method(),
-                            inresp.transaction()
-                        )
-                    })
-                    .status(ResponseStatus::FAILED_DEPENDENCY)
-                    .and_then(|status| match status {
-                        // We fail if the status isn't equal to 200
-                        val if val == "200" => Ok(()),
-                        status => {
-                            let err = format!(
-                                "error received on method = '{}', transaction = '{}', status = '{}'",
-                                tn.reqp().method(),
-                                inresp.transaction(),
-                                status,
+                Transaction::CreateStream(ref tn) => {
+                    context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
+
+                    inresp
+                        .plugin()
+                        .data()
+                        .get("status")
+                        .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                        .status(ResponseStatus::FAILED_DEPENDENCY)
+                        .and_then(|status| {
+                            context.add_logger_tags(o!("status" => status.as_u64()));
+
+                            if status == "200" {
+                                Ok(())
+                            } else {
+                                Err(anyhow!("Received error status"))
+                                    .status(ResponseStatus::FAILED_DEPENDENCY)
+                            }
+                        })
+                        .and_then(|_| {
+                            // Getting answer (as JSEP)
+                            let jsep = inresp
+                                .jsep()
+                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                                .status(ResponseStatus::FAILED_DEPENDENCY)?;
+
+                            let timing =
+                                ShortTermTimingProperties::until_now(context.start_timestamp());
+
+                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                                tn.reqp().to_response(ResponseStatus::OK, timing),
+                                tn.reqp().as_agent_id(),
+                                JANUS_API_VERSION,
                             );
 
-                            Err(err).status(ResponseStatus::FAILED_DEPENDENCY)
-                        }
-                    })
-                    .and_then(|_| {
-                        // Getting answer (as JSEP)
-                        let jsep = inresp
-                            .jsep()
-                            .ok_or_else(|| format!(
-                                "missing 'jsep' in a response on method = '{}', transaction = '{}'",
-                                tn.reqp().method(),
-                                inresp.transaction(),
+                            let boxed_resp =
+                                Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                        })
+                        .or_else(|err| {
+                            Ok(handle_response_error(
+                                context,
+                                "janus_stream.create",
+                                "Error creating a Janus Conference Stream",
+                                &tn.reqp(),
+                                err,
                             ))
-                            .status(ResponseStatus::FAILED_DEPENDENCY)?;
-
-                        let timing =
-                            ShortTermTimingProperties::until_now(context.start_timestamp());
-
-                        let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                            endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                            tn.reqp().to_response(ResponseStatus::OK, timing),
-                            tn.reqp().as_agent_id(),
-                            JANUS_API_VERSION,
-                        );
-
-                        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-                        Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
-                    })
-                    .or_else(|err| {
-                        Ok(handle_response_error(
-                            context,
-                            "janus_stream.create",
-                            "Error creating a Janus Conference Stream",
-                            &tn.reqp(),
-                            err,
-                        ))
-                    }),
+                        })
+                }
                 // Conference Stream has been read (an answer received)
-                Transaction::ReadStream(ref tn) => inresp
-                    .plugin()
-                    .data()
-                    .get("status")
-                    .ok_or_else(|| {
-                        // We fail if response doesn't contain a status
-                        format!(
-                            "missing 'status' in a response on method = '{}', transaction = '{}'",
-                            tn.reqp().method(),
-                            inresp.transaction()
-                        )
-                    })
-                    .status(ResponseStatus::FAILED_DEPENDENCY)
-                    // We fail if the status isn't equal to 200
-                    .and_then(|status| match status {
-                        val if val == "200" => Ok(()),
-                        _ => {
-                            let err = format!(
-                                "error received on method = '{}', transaction = '{}'",
-                                tn.reqp().method(),
-                                inresp.transaction()
+                Transaction::ReadStream(ref tn) => {
+                    context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
+
+                    inresp
+                        .plugin()
+                        .data()
+                        .get("status")
+                        .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                        .status(ResponseStatus::FAILED_DEPENDENCY)
+                        // We fail if the status isn't equal to 200
+                        .and_then(|status| {
+                            context.add_logger_tags(o!("status" => status.as_u64()));
+
+                            if status == "200" {
+                                Ok(())
+                            } else {
+                                Err(anyhow!("Received error status"))
+                                    .status(ResponseStatus::FAILED_DEPENDENCY)
+                            }
+                        })
+                        .and_then(|_| {
+                            // Getting answer (as JSEP)
+                            let jsep = inresp
+                                .jsep()
+                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                                .status(ResponseStatus::FAILED_DEPENDENCY)?;
+
+                            let timing =
+                                ShortTermTimingProperties::until_now(context.start_timestamp());
+
+                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                                tn.reqp().to_response(ResponseStatus::OK, timing),
+                                tn.reqp().as_agent_id(),
+                                JANUS_API_VERSION,
                             );
 
-                            Err(err).status(ResponseStatus::FAILED_DEPENDENCY)
-                        }
-                    })
-                    .and_then(|_| {
-                        // Getting answer (as JSEP)
-                        let jsep = inresp
-                            .jsep()
-                            .ok_or_else(|| format!(
-                                "missing 'jsep' in a response on method = '{}', transaction = '{}'",
-                                tn.reqp().method(),
-                                inresp.transaction()
+                            let boxed_resp =
+                                Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                        })
+                        .or_else(|err| {
+                            Ok(handle_response_error(
+                                context,
+                                "janus_stream.read",
+                                "Error reading a Janus Conference Stream",
+                                &tn.reqp(),
+                                err,
                             ))
-                            .status(ResponseStatus::FAILED_DEPENDENCY)?;
-
-                        let timing =
-                            ShortTermTimingProperties::until_now(context.start_timestamp());
-
-                        let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                            endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                            tn.reqp().to_response(ResponseStatus::OK, timing),
-                            tn.reqp().as_agent_id(),
-                            JANUS_API_VERSION,
-                        );
-
-                        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-                        Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
-                    })
-                    .or_else(|err| {
-                        Ok(handle_response_error(
-                            context,
-                            "janus_stream.read",
-                            "Error reading a Janus Conference Stream",
-                            &tn.reqp(),
-                            err,
-                        ))
-                    }),
+                        })
+                }
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
                 Transaction::UploadStream(ref tn) => {
+                    context.add_logger_tags(o!(
+                        "method" => tn.method().to_string(),
+                        "rtc_id" => tn.rtc_id().to_string(),
+                    ));
+
                     // TODO: improve error handling
                     let plugin_data = inresp.plugin().data();
 
                     plugin_data
                         .get("status")
-                        .ok_or_else(|| {
-                            // We fail if response doesn't contain a status
-                            format!(
-                                "missing 'status' in a response on method = '{}', transaction = '{}'",
-                                tn.method(),
-                                inresp.transaction(),
-                            )
-                        })
+                        .ok_or_else(|| anyhow!("Missing 'status' in the response"))
                         .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                         // We fail if the status isn't equal to 200
-                        .and_then(|status| match status {
-                            val if val == "200" => Ok(()),
-                            val if val == "404" => {
-                                let conn = context.db().get()?;
+                        .and_then(|status| {
+                            context.add_logger_tags(o!("status" => status.as_u64()));
 
-                                recording::UpdateQuery::new(tn.rtc_id())
-                                    .status(recording::Status::Missing)
-                                    .execute(&conn)?;
+                            match status {
+                                val if val == "200" => Ok(()),
+                                val if val == "404" => {
+                                    let conn = context.db().get()?;
 
-                                let err = format!(
-                                    "janus is missing recording for rtc = '{}', method = '{}', transaction = '{}'",
-                                    tn.rtc_id(),
-                                    tn.method(),
-                                    inresp.transaction(),
-                                );
+                                    recording::UpdateQuery::new(tn.rtc_id())
+                                        .status(recording::Status::Missing)
+                                        .execute(&conn)?;
 
-                                Err(err).status(ResponseStatus::UNPROCESSABLE_ENTITY)
-                            }
-                            _ => {
-                                let err = format!(
-                                    "error with status code = '{}' received in a response on method = '{}', transaction = '{}'",
-                                    status,
-                                    tn.method(),
-                                    inresp.transaction(),
-                                );
-
-                                Err(err).status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                                    Err(anyhow!("Janus is missing recording"))
+                                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                                }
+                                _ => Err(anyhow!("Received error status"))
+                                    .status(ResponseStatus::FAILED_DEPENDENCY),
                             }
                         })
                         .and_then(|_| {
                             let rtc_id = plugin_data
                                 .get("id")
-                                .ok_or_else(|| format!(
-                                    "Missing 'id' in response on method = '{}', transaction = '{}'",
-                                    tn.method(),
-                                    inresp.transaction()
-                                ))
+                                .ok_or_else(|| anyhow!("Missing 'id' in response"))
                                 .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                                 .and_then(|val| {
                                     serde_json::from_value::<Uuid>(val.clone())
-                                        .map_err(|_| String::from("invalid value for 'id'"))
+                                        .map_err(|err| anyhow!("Invalid value for 'id': {}", err))
                                         .status(ResponseStatus::BAD_REQUEST)
                                 })?;
 
                             let started_at = plugin_data
                                 .get("started_at")
-                                .ok_or_else(|| format!(
-                                    "Missing 'started_at' in response on method = '{}', transaction = '{}'",
-                                    tn.method(),
-                                    inresp.transaction()
-                                ))
+                                .ok_or_else(|| anyhow!("Missing 'started_at' in response"))
                                 .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                                 .and_then(|val| {
                                     let unix_ts = serde_json::from_value::<u64>(val.clone())
-                                        .map_err(|_| String::from("invalid value for 'started_at'"))
+                                        .map_err(|err| anyhow!("Invalid value for 'started_at': {}", err))
                                         .status(ResponseStatus::BAD_REQUEST)?;
 
                                     let naive_datetime = NaiveDateTime::from_timestamp(
@@ -380,15 +344,11 @@ async fn handle_response_impl<C: Context>(
 
                             let segments = plugin_data
                                 .get("time")
-                                .ok_or_else(|| format!(
-                                    "missing 'time' in a response on method = '{}', transaction = '{}'",
-                                    tn.method(),
-                                    inresp.transaction(),
-                                ))
+                                .ok_or_else(|| anyhow!("Missing time"))
                                 .status(ResponseStatus::UNPROCESSABLE_ENTITY)
                                 .and_then(|segments| {
                                     Ok(serde_json::from_value::<Vec<(i64, i64)>>(segments.clone())
-                                        .map_err(|_| "invalid value for 'time'")
+                                        .map_err(|err| anyhow!("Invalid value for 'time': {}", err))
                                         .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
                                         .into_iter()
                                         .map(|(start, end)| {
@@ -409,24 +369,14 @@ async fn handle_response_impl<C: Context>(
                                 let rtc = rtc::FindQuery::new()
                                     .id(rtc_id)
                                     .execute(&conn)?
-                                    .ok_or_else(|| format!(
-                                        "the rtc = '{}' is not found on method = '{}', transaction = '{}'",
-                                        rtc_id,
-                                        tn.method(),
-                                        inresp.transaction(),
-                                    ))
-                                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+                                    .ok_or_else(|| anyhow!("RTC not found"))
+                                    .status(ResponseStatus::NOT_FOUND)?;
 
                                 let room = room::FindQuery::new()
                                     .id(rtc.room_id())
                                     .execute(&conn)?
-                                    .ok_or_else(|| format!(
-                                        "the room = '{}' is not found on method = '{}', transaction = '{}'",
-                                        rtc.room_id(),
-                                        tn.method(),
-                                        inresp.transaction(),
-                                    ))
-                                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+                                    .ok_or_else(|| anyhow!("Room not found"))
+                                    .status(ResponseStatus::NOT_FOUND)?;
 
                                 // TODO: move to db module
                                 use diesel::prelude::*;
@@ -448,6 +398,7 @@ async fn handle_response_impl<C: Context>(
                                         context.logger(),
                                         "postpone 'room.upload' event because still waiting for rtcs being uploaded";
                                         "room_id" => room.id().to_string(),
+                                        "rtc_id" => rtc.id().to_string(),
                                     );
 
                                     return Ok(Box::new(stream::empty()) as MessageStream);
@@ -461,7 +412,7 @@ async fn handle_response_impl<C: Context>(
                                 context.start_timestamp(),
                                 respp.tracking(),
                             )
-                            .map_err(|e| format!("error creating a system event, {}", e))
+                            .map_err(|err| err.context("Error creating a system event"))
                             .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
                             let event_box = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
@@ -473,14 +424,14 @@ async fn handle_response_impl<C: Context>(
             }
         }
         IncomingResponse::Error(ErrorResponse::Session(ref inresp)) => {
-            let err = format!(
+            let err = anyhow!(
                 "received an unexpected Error message (session): {:?}",
                 inresp
             );
             Err(err).status(ResponseStatus::BAD_REQUEST)
         }
         IncomingResponse::Error(ErrorResponse::Handle(ref inresp)) => {
-            let err = format!(
+            let err = anyhow!(
                 "received an unexpected Error message (handle): {:?}",
                 inresp
             );
@@ -490,7 +441,7 @@ async fn handle_response_impl<C: Context>(
 }
 
 fn handle_response_error<C: Context>(
-    context: &C,
+    context: &mut C,
     kind: &str,
     title: &str,
     reqp: &IncomingRequestProperties,
@@ -498,15 +449,16 @@ fn handle_response_error<C: Context>(
 ) -> MessageStream {
     err.set_kind(kind, title);
     let status = err.status_code();
+    context.add_logger_tags(o!("kind" => kind.to_owned(), "status" => status.as_u16()));
 
     error!(
         context.logger(),
-        "Failed to handle a response from janus: {}", err;
-        "kind" => kind,
+        "Failed to handle a response from janus: {}", err
     );
 
-    sentry::send(err.clone())
-        .unwrap_or_else(|err| warn!(context.logger(), "Error sending error to Sentry: {}", err));
+    sentry::send(err.clone()).unwrap_or_else(|err| {
+        warn!(context.logger(), "Error sending error to Sentry: {}", err);
+    });
 
     let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
     let resp = OutgoingResponse::unicast(err, reqp.to_response(status, timing), reqp, API_VERSION);
@@ -515,7 +467,7 @@ fn handle_response_error<C: Context>(
 }
 
 pub(crate) async fn handle_event<C: Context>(
-    context: &C,
+    context: &mut C,
     event: &MQTTIncomingEvent<String>,
 ) -> MessageStream {
     handle_event_impl(context, event)
@@ -523,12 +475,11 @@ pub(crate) async fn handle_event<C: Context>(
         .unwrap_or_else(|err| {
             error!(
                 context.logger(),
-                "Failed to handle an event from janus: {}", err;
-                "label" => event.properties().label().unwrap_or("none"),
+                "Failed to handle an event from janus: {}", err
             );
 
             sentry::send(err).unwrap_or_else(|err| {
-                warn!(context.logger(), "Error sending error to Sentry: {}", err)
+                warn!(context.logger(), "Error sending error to Sentry: {}", err);
             });
 
             Box::new(stream::empty())
@@ -536,18 +487,22 @@ pub(crate) async fn handle_event<C: Context>(
 }
 
 async fn handle_event_impl<C: Context>(
-    context: &C,
+    context: &mut C,
     event: &MQTTIncomingEvent<String>,
 ) -> Result<MessageStream, SvcError> {
+    context.add_logger_tags(o!("label" => event.properties().label().unwrap_or("").to_string()));
+
     let payload = MQTTIncomingEvent::convert_payload::<IncomingEvent>(&event)
-        .map_err(|err| format!("failed to parse event: {}", err))
+        .map_err(|err| anyhow!("Failed to parse event: {}", err))
         .status(ResponseStatus::BAD_REQUEST)?;
 
     let evp = event.properties();
     match payload {
         IncomingEvent::WebRtcUp(ref inev) => {
+            context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
+
             let rtc_stream_id = Uuid::from_str(inev.opaque_id())
-                .map_err(|err| format!("Failed to parse opaque id as uuid: {}", err))
+                .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
                 .status(ResponseStatus::BAD_REQUEST)?;
 
             let conn = context.db().get()?;
@@ -557,13 +512,16 @@ async fn handle_event_impl<C: Context>(
             // to the room's topic.
             if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
                 let rtc_id = rtc_stream.rtc_id();
+                context.add_logger_tags(o!("rtc_id" => rtc_id.to_string()));
 
                 let room = room::FindQuery::new()
                     .time(room::now())
                     .rtc_id(rtc_id)
                     .execute(&conn)?
-                    .ok_or_else(|| format!("a room for rtc = '{}' is not found", &rtc_id))
+                    .ok_or_else(|| anyhow!("Room not found or closed"))
                     .status(ResponseStatus::NOT_FOUND)?;
+
+                context.add_logger_tags(o!("room_id" => room.id().to_string()));
 
                 let event = endpoint::rtc_stream::update_event(
                     room.id(),
@@ -589,12 +547,14 @@ async fn handle_event_impl<C: Context>(
 }
 
 fn handle_hangup_detach<C: Context, E: OpaqueId>(
-    context: &C,
+    context: &mut C,
     inev: &E,
     evp: &IncomingEventProperties,
 ) -> Result<MessageStream, SvcError> {
+    context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_owned()));
+
     let rtc_stream_id = Uuid::from_str(inev.opaque_id())
-        .map_err(|err| format!("Failed to parse opaque id as uuid: {}", err))
+        .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
         .status(ResponseStatus::BAD_REQUEST)?;
 
     let conn = context.db().get()?;
@@ -604,13 +564,16 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
     // to the room's topic.
     if let Some(rtc_stream) = janus_rtc_stream::stop(rtc_stream_id, &conn)? {
         let rtc_id = rtc_stream.rtc_id();
+        context.add_logger_tags(o!("rtc_id" => rtc_id.to_string()));
 
         let room = room::FindQuery::new()
             .time(room::now())
             .rtc_id(rtc_id)
             .execute(&conn)?
-            .ok_or_else(|| format!("a room for rtc = '{}' is not found", &rtc_id))
+            .ok_or_else(|| anyhow!("Room not found or closed"))
             .status(ResponseStatus::NOT_FOUND)?;
+
+        context.add_logger_tags(o!("room_id" => room.id().to_string()));
 
         // Publish the update event only if the stream object has been changed.
         // If there's no actual media stream, the object wouldn't contain its start time.
@@ -639,7 +602,7 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
 }
 
 pub(crate) async fn handle_status_event<C: Context>(
-    context: &C,
+    context: &mut C,
     event: &MQTTIncomingEvent<String>,
 ) -> MessageStream {
     handle_status_event_impl(context, event)
@@ -647,12 +610,11 @@ pub(crate) async fn handle_status_event<C: Context>(
         .unwrap_or_else(|err| {
             error!(
                 context.logger(),
-                "Failed to handle a status event from janus: {}", err;
-                "label" => event.properties().label().unwrap_or("none"),
+                "Failed to handle a status event from janus: {}", err
             );
 
             sentry::send(err).unwrap_or_else(|err| {
-                warn!(context.logger(), "Error sending error to Sentry: {}", err)
+                warn!(context.logger(), "Error sending error to Sentry: {}", err);
             });
 
             Box::new(stream::empty())
@@ -660,20 +622,20 @@ pub(crate) async fn handle_status_event<C: Context>(
 }
 
 async fn handle_status_event_impl<C: Context>(
-    context: &C,
+    context: &mut C,
     event: &MQTTIncomingEvent<String>,
 ) -> Result<MessageStream, SvcError> {
     let evp = event.properties();
+    context.add_logger_tags(o!("room_id" => evp.label().unwrap_or("").to_string()));
 
     let payload = MQTTIncomingEvent::convert_payload::<StatusEvent>(&event)
-        .map_err(|err| format!("failed to parse event: {}", err))
+        .map_err(|err| anyhow!("Failed to parse event: {}", err))
         .status(ResponseStatus::BAD_REQUEST)?;
 
     if payload.online() {
         let event = context
             .janus_client()
             .create_session_request(&payload, evp, context.start_timestamp())
-            .map_err(|err| err.to_string())
             .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
         let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;

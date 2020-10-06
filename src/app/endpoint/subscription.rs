@@ -31,9 +31,9 @@ impl SubscriptionEvent {
 
         match object.as_slice() {
             ["rooms", room_id, "events"] => {
-                Uuid::parse_str(room_id).map_err(|err| format!("UUID parse error: {}", err))
+                Uuid::parse_str(room_id).map_err(|err| anyhow!("UUID parse error: {}", err))
             }
-            _ => Err(String::from(
+            _ => Err(anyhow!(
                 "Bad 'object' format; expected [\"room\", <ROOM_ID>, \"events\"]",
             )),
         }
@@ -62,15 +62,20 @@ impl EventHandler for CreateHandler {
     ) -> Result {
         // Check if the event is sent by the broker.
         if evp.as_account_id() != &context.config().broker_id {
-            return Err(format!(
-                "Expected subscription.create event to be sent from the broker account '{}', got '{}'",
+            return Err(anyhow!(
+                "Expected subscription.create event to be sent from the broker account '{}'",
                 context.config().broker_id,
-                evp.as_account_id()
-            )).status(ResponseStatus::FORBIDDEN);
+            ))
+            .status(ResponseStatus::FORBIDDEN);
         }
 
         // Find room.
         let room_id = payload.try_room_id()?;
+
+        context.add_logger_tags(o!(
+            "room_id" => room_id.to_string(),
+            "agent_id" => evp.as_account_id().to_string(),
+        ));
 
         {
             let conn = context.db().get()?;
@@ -79,7 +84,7 @@ impl EventHandler for CreateHandler {
                 .id(room_id)
                 .time(db::room::now())
                 .execute(&conn)?
-                .ok_or_else(|| format!("the room = '{}' is not found or closed", room_id))
+                .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?;
 
             // Update agent state to `ready`.
@@ -118,15 +123,16 @@ impl EventHandler for DeleteHandler {
     ) -> Result {
         // Check if the event is sent by the broker.
         if evp.as_account_id() != &context.config().broker_id {
-            return Err(format!(
-                "Expected subscription.delete event to be sent from the broker account '{}', got '{}'",
-                context.config().broker_id,
-                evp.as_account_id()
-            )).status(ResponseStatus::FORBIDDEN);
+            return Err(anyhow!(
+                "Expected subscription.delete event to be sent from the broker account '{}'",
+                context.config().broker_id
+            ))
+            .status(ResponseStatus::FORBIDDEN);
         }
 
         // Delete agent from the DB.
         let room_id = payload.try_room_id()?;
+        context.add_logger_tags(o!("room_id" => room_id.to_string()));
         let conn = context.db().get()?;
 
         let row_count = db::agent::DeleteQuery::new()
@@ -193,20 +199,15 @@ impl EventHandler for DeleteHandler {
                 match result {
                     Ok(req) => messages.push(Box::new(req)),
                     Err(err) => {
-                        let err = format!("error creating a backend request: {}", err);
-                        return Err(err).status(ResponseStatus::UNPROCESSABLE_ENTITY);
+                        return Err(err.context("Error creating a backend request"))
+                            .status(ResponseStatus::UNPROCESSABLE_ENTITY);
                     }
                 }
             }
 
             Ok(Box::new(stream::from_iter(messages)))
         } else {
-            let err = format!(
-                "the agent is not found for agent_id = '{}', room = '{}'",
-                payload.subject, room_id
-            );
-
-            Err(err).status(ResponseStatus::NOT_FOUND)
+            Err(anyhow!("The agent is not found")).status(ResponseStatus::NOT_FOUND)
         }
     }
 }

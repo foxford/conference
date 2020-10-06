@@ -99,7 +99,7 @@ impl RequestHandler for VacuumHandler {
                     backend.id(),
                     context.start_timestamp(),
                 )
-                .map_err(|err| format!("error creating a backend request: {}", err))
+                .map_err(|err| err.context("Error creating a backend request"))
                 .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
 
             requests.push(Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>);
