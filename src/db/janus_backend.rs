@@ -253,6 +253,64 @@ pub(crate) fn most_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<O
         .optional()
 }
 
+// The same as above but finds the least loaded backend instead without considering the reserve.
+const LEAST_LOADED_SQL: &str = r#"
+    WITH
+        room_load AS (
+            SELECT
+                room_id,
+                COUNT(id) AS taken
+            FROM agent
+            WHERE status = 'connected'
+            GROUP BY room_id
+        ),
+        active_room AS (
+            SELECT *
+            FROM room
+            WHERE backend = 'janus'
+            AND   NOW() < UPPER(time)
+        ),
+        janus_backend_load AS (
+            SELECT
+                backend_id,
+                SUM(taken) AS load
+            FROM (
+                SELECT DISTINCT ON(backend_id, room_id)
+                    jrs.backend_id,
+                    rtc.room_id,
+                    COALESCE(rl.taken, 0) AS taken
+                FROM janus_rtc_stream AS jrs
+                INNER JOIN rtc
+                ON rtc.id = jrs.rtc_id
+                LEFT JOIN active_room AS ar
+                ON ar.id = rtc.room_id
+                LEFT JOIN room_load AS rl
+                ON rl.room_id = rtc.room_id
+                WHERE LOWER(jrs.time) IS NOT NULL
+            ) AS sub
+            GROUP BY backend_id
+        )
+    SELECT jb.*
+    FROM janus_backend AS jb
+    LEFT JOIN janus_backend_load AS jbl
+    ON jbl.backend_id = jb.id
+    LEFT JOIN room AS r2
+    ON 1 = 1
+    WHERE r2.id = $1
+    ORDER BY COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0)
+    LIMIT 1
+"#;
+
+pub(crate) fn least_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    use diesel::prelude::*;
+    use diesel::sql_types::Uuid;
+
+    diesel::sql_query(LEAST_LOADED_SQL)
+        .bind::<Uuid, _>(room_id)
+        .get_result(conn)
+        .optional()
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // Similar to the previous one but returns the number of free slots for the room on the backend
