@@ -64,7 +64,7 @@ impl Client {
                 state = state
                     .into_iter()
                     .filter(|(corr_data, info)| {
-                        if info.start_timestamp + info.timeout > Utc::now() {
+                        if info.start_timestamp + info.timeout < Utc::now() {
                             let msg =
                                 format!("Janus request timed out ({}): {:?}", corr_data, info);
 
