@@ -8,7 +8,7 @@ use svc_agent::{
         IncomingEventProperties, IntoPublishableMessage, OutgoingEvent, ResponseStatus,
         ShortTermTimingProperties,
     },
-    AgentId, Authenticable,
+    Addressable, AgentId, Authenticable,
 };
 use svc_error::Error as SvcError;
 use uuid::Uuid;
@@ -74,7 +74,9 @@ impl EventHandler for CreateHandler {
 
         context.add_logger_tags(o!(
             "room_id" => room_id.to_string(),
-            "agent_id" => evp.as_account_id().to_string(),
+            "agent_label" => evp.as_agent_id().label().to_owned(),
+            "account_label" => evp.as_account_id().label().to_owned(),
+            "audience" => evp.as_account_id().audience().to_owned(),
         ));
 
         {

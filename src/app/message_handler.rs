@@ -11,7 +11,7 @@ use svc_agent::{
         IncomingResponse, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
         ShortTermTimingProperties,
     },
-    Addressable,
+    Addressable, Authenticable,
 };
 use svc_error::{extension::sentry, Error as SvcError};
 
@@ -107,7 +107,9 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         let agent_id = request.properties().as_agent_id();
 
         msg_context.add_logger_tags(o!(
-            "agent_id" => agent_id.to_string(),
+            "agent_label" => agent_id.label().to_owned(),
+            "account_id" => agent_id.as_account_id().label().to_owned(),
+            "audience" => agent_id.as_account_id().audience().to_owned(),
             "method" => request.properties().method().to_owned()
         ));
 
@@ -135,7 +137,12 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         topic: &str,
     ) -> Result<(), SvcError> {
         let agent_id = response.properties().as_agent_id();
-        msg_context.add_logger_tags(o!("agent_id" => agent_id.to_string()));
+
+        msg_context.add_logger_tags(o!(
+            "agent_label" => agent_id.label().to_owned(),
+            "account_id" => agent_id.as_account_id().label().to_owned(),
+            "audience" => agent_id.as_account_id().audience().to_owned(),
+        ));
 
         let outgoing_message_stream = endpoint::route_response(msg_context, response, topic)
             .await
@@ -155,7 +162,12 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         topic: &str,
     ) -> Result<(), SvcError> {
         let agent_id = event.properties().as_agent_id();
-        msg_context.add_logger_tags(o!("agent_id" => agent_id.to_string()));
+
+        msg_context.add_logger_tags(o!(
+            "agent_label" => agent_id.label().to_owned(),
+            "account_id" => agent_id.as_account_id().label().to_owned(),
+            "audience" => agent_id.as_account_id().audience().to_owned(),
+        ));
 
         if let Some(label) = event.properties().label() {
             msg_context.add_logger_tags(o!("label" => label.to_owned()));
