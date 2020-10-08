@@ -62,6 +62,8 @@ impl RequestHandler for CreateHandler {
                 .status(ResponseStatus::NOT_FOUND)?
         };
 
+        shared::add_room_logger_tags(context, &room);
+
         // Authorize room creation.
         let room_id = room.id().to_string();
         let object = vec!["rooms", &room_id, "rtcs"];
@@ -132,7 +134,7 @@ impl RequestHandler for ReadHandler {
                 .status(ResponseStatus::NOT_FOUND)?
         };
 
-        context.add_logger_tags(o!("room_id" => room.id().to_string()));
+        shared::add_room_logger_tags(context, &room);
 
         // Authorize rtc reading.
         let rtc_id = payload.id.to_string();
@@ -294,7 +296,7 @@ impl RequestHandler for ConnectHandler {
                 .status(ResponseStatus::NOT_FOUND)?
         };
 
-        context.add_logger_tags(o!("room_id" => room.id().to_string()));
+        shared::add_room_logger_tags(context, &room);
 
         // Authorize connecting to the rtc.
         if room.backend() != db::room::RoomBackend::Janus {

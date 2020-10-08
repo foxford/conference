@@ -89,7 +89,7 @@ impl RequestHandler for CreateHandler {
             q.execute(&conn)?
         };
 
-        context.add_logger_tags(o!("room_id" => room.id().to_string()));
+        shared::add_room_logger_tags(context, &room);
 
         // Respond and broadcast to the audience topic.
         let response = shared::build_response(
@@ -143,6 +143,8 @@ impl RequestHandler for ReadHandler {
                 .ok_or_else(|| anyhow!("Room not found"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
+
+        shared::add_room_logger_tags(context, &room);
 
         // Authorize room reading on the tenant.
         let room_id = room.id().to_string();
@@ -200,6 +202,8 @@ impl RequestHandler for UpdateHandler {
                 .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
+
+        shared::add_room_logger_tags(context, &room);
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
@@ -302,6 +306,8 @@ impl RequestHandler for DeleteHandler {
                 .status(ResponseStatus::NOT_FOUND)?
         };
 
+        shared::add_room_logger_tags(context, &room);
+
         // Authorize room deletion on the tenant.
         let room_id = room.id().to_string();
         let object = vec!["rooms", &room_id];
@@ -366,6 +372,8 @@ impl RequestHandler for EnterHandler {
                 .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
+
+        shared::add_room_logger_tags(context, &room);
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();
@@ -435,6 +443,8 @@ impl RequestHandler for LeaveHandler {
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found"))
                 .status(ResponseStatus::NOT_FOUND)?;
+
+            shared::add_room_logger_tags(context, &room);
 
             // Check room presence.
             let presence = db::agent::ListQuery::new()

@@ -80,12 +80,14 @@ impl EventHandler for CreateHandler {
         {
             let conn = context.db().get()?;
 
-            db::room::FindQuery::new()
+            let room = db::room::FindQuery::new()
                 .id(room_id)
                 .time(db::room::now())
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?;
+
+            shared::add_room_logger_tags(context, &room);
 
             // Update agent state to `ready`.
             db::agent::UpdateQuery::new(&payload.subject, room_id)

@@ -59,6 +59,8 @@ impl RequestHandler for ListHandler {
                 .status(ResponseStatus::NOT_FOUND)?
         };
 
+        shared::add_room_logger_tags(context, &room);
+
         if room.backend() != db::room::RoomBackend::Janus {
             let err = anyhow!(
                 "'rtc_stream.list' is not implemented for '{}' backend",

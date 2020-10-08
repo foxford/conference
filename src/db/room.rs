@@ -125,7 +125,6 @@ impl Object {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn tags(&self) -> &JsonValue {
         &self.tags
     }

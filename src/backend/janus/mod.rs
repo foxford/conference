@@ -394,11 +394,18 @@ async fn handle_response_impl<C: Context>(
 
                             for rtc in rtcs {
                                 if !rtc_ids_with_recs.contains(&rtc.id()) {
-                                    info!(
-                                        context.logger(),
-                                        "postpone 'room.upload' event because still waiting for rtcs being uploaded";
+                                    let mut logger = context.logger().new(o!(
                                         "room_id" => room.id().to_string(),
                                         "rtc_id" => rtc.id().to_string(),
+                                    ));
+
+                                    if let Some(scope) = room.tags().get("scope") {
+                                        logger = logger.new(o!("scope" => scope.to_string()));
+                                    }
+
+                                    info!(
+                                        logger,
+                                        "postpone 'room.upload' event because still waiting for rtcs being uploaded";
                                     );
 
                                     return Ok(Box::new(stream::empty()) as MessageStream);
@@ -521,7 +528,7 @@ async fn handle_event_impl<C: Context>(
                     .ok_or_else(|| anyhow!("Room not found or closed"))
                     .status(ResponseStatus::NOT_FOUND)?;
 
-                context.add_logger_tags(o!("room_id" => room.id().to_string()));
+                endpoint::shared::add_room_logger_tags(context, &room);
 
                 let event = endpoint::rtc_stream::update_event(
                     room.id(),
@@ -573,7 +580,7 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
             .ok_or_else(|| anyhow!("Room not found or closed"))
             .status(ResponseStatus::NOT_FOUND)?;
 
-        context.add_logger_tags(o!("room_id" => room.id().to_string()));
+        endpoint::shared::add_room_logger_tags(context, &room);
 
         // Publish the update event only if the stream object has been changed.
         // If there's no actual media stream, the object wouldn't contain its start time.
@@ -626,7 +633,7 @@ async fn handle_status_event_impl<C: Context>(
     event: &MQTTIncomingEvent<String>,
 ) -> Result<MessageStream, SvcError> {
     let evp = event.properties();
-    context.add_logger_tags(o!("room_id" => evp.label().unwrap_or("").to_string()));
+    context.add_logger_tags(o!("label" => evp.label().unwrap_or("").to_string()));
 
     let payload = MQTTIncomingEvent::convert_payload::<StatusEvent>(&event)
         .map_err(|err| anyhow!("Failed to parse event: {}", err))

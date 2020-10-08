@@ -146,7 +146,7 @@ mod room;
 pub(crate) mod rtc;
 pub(crate) mod rtc_signal;
 pub(crate) mod rtc_stream;
-pub(self) mod shared;
+pub(crate) mod shared;
 mod subscription;
 pub(crate) mod system;
 

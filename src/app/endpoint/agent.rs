@@ -43,7 +43,7 @@ impl RequestHandler for ListHandler {
                 .status(ResponseStatus::NOT_FOUND)?
         };
 
-        context.add_logger_tags(o!("room_id" => room.id().to_string()));
+        shared::add_room_logger_tags(context, &room);
 
         // Authorize agents listing in the room.
         let room_id = room.id().to_string();

@@ -46,6 +46,7 @@ impl RequestHandler for UnicastHandler {
         {
             let conn = context.db().get()?;
             let room = find_room(payload.room_id, &conn)?;
+            shared::add_room_logger_tags(context, &room);
             check_room_presence(&room, reqp.as_agent_id(), &conn)?;
             check_room_presence(&room, &payload.agent_id, &conn)?;
         }
@@ -105,6 +106,7 @@ impl RequestHandler for BroadcastHandler {
         let room = {
             let conn = context.db().get()?;
             let room = find_room(payload.room_id, &conn)?;
+            shared::add_room_logger_tags(context, &room);
             check_room_presence(&room, &reqp.as_agent_id(), &conn)?;
             room
         };
