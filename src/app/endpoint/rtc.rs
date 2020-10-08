@@ -298,6 +298,9 @@ impl RequestHandler for ConnectHandler {
             // There are 3 cases:
             // 1. Connecting as writer for the first time. There's no recording in that case.
             //    Select the most loaded backend that is capable to host the room's reservation.
+            //    If there's no capable backend then select the least loaded and send a warning
+            //    to Sentry. If there are no backends at all then return `no available backends`
+            //    error and also send it to Sentry.
             // 2. Connecting as reader with existing recording. Choose the backend of the active
             //    recording because Janus doesn't support clustering and it must be the same server
             //    that the writer is connected to.
@@ -311,9 +314,34 @@ impl RequestHandler for ConnectHandler {
                     .execute(&conn)?
                     .ok_or("no backend found for stream")
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?,
-                None => db::janus_backend::most_loaded(room.id(), &conn)?
-                    .ok_or("no available backends")
-                    .status(ResponseStatus::SERVICE_UNAVAILABLE)?,
+                None => match db::janus_backend::most_loaded(room.id(), &conn)? {
+                    Some(backend) => backend,
+                    None => db::janus_backend::least_loaded(room.id(), &conn)?
+                        .map(|backend| {
+                            use sentry::protocol::{value::Value, Event, Level};
+
+                            let mut extra = std::collections::BTreeMap::new();
+                            extra.insert(String::from("room_id"), Value::from(room_id));
+                            extra.insert(String::from("rtc_id"), Value::from(rtc_id));
+                            let backend_id = backend.id().to_string();
+                            extra.insert(String::from("backend_id"), Value::from(backend_id));
+
+                            if let Some(reserve) = room.reserve() {
+                                extra.insert(String::from("reserve"), Value::from(reserve));
+                            }
+
+                            sentry::capture_event(Event {
+                                message: Some(String::from("No capable backends to host the reserve; falling back to the least loaded backend")),
+                                level: Level::Warning,
+                                extra,
+                                ..Default::default()
+                            });
+
+                            backend
+                        })
+                        .ok_or("no available backends")
+                        .status(ResponseStatus::SERVICE_UNAVAILABLE)?,
+                },
             };
 
             // Create recording if a writer connects for the first time.
@@ -1326,20 +1354,21 @@ mod test {
         }
 
         #[test]
-        fn connect_to_rtc_reservation_with_stopped_stream() {
+        fn connect_to_rtc_too_big_reserve() {
             async_std::task::block_on(async {
                 let mut rng = rand::thread_rng();
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
-                let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
+                let writer1 = TestAgent::new("web", "writer1", USR_AUDIENCE);
+                let writer2 = TestAgent::new("web", "writer2", USR_AUDIENCE);
 
-                let rtc = db
+                let (rtc, backend) = db
                     .connection_pool()
                     .get()
                     .map(|conn| {
                         let now = Utc::now();
 
-                        // Insert rooms with reserves.
+                        // Insert room with big reserve and another one for load.
                         let room1 = factory::Room::new()
                             .audience(USR_AUDIENCE)
                             .time((
@@ -1347,7 +1376,7 @@ mod test {
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
                             .backend(RoomBackend::Janus)
-                            .reserve(15)
+                            .reserve(100)
                             .insert(&conn);
 
                         let room2 = factory::Room::new()
@@ -1357,38 +1386,43 @@ mod test {
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
                             .backend(RoomBackend::Janus)
-                            .reserve(15)
                             .insert(&conn);
 
                         // Insert rtcs.
                         let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
-                        let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
+                        let _rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
 
-                        // Insert a backend with capacity less than the sum of reserves.
-                        let backend_id = {
+                        // Insert backends with low balancer capacity.
+                        let backend_id1 = {
                             let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
                             agent.agent_id().to_owned()
                         };
 
-                        let backend = factory::JanusBackend::new(backend_id, rng.gen(), rng.gen())
-                            .capacity(20)
+                        let backend1 =
+                            factory::JanusBackend::new(backend_id1, rng.gen(), rng.gen())
+                                .balancer_capacity(20)
+                                .capacity(200)
+                                .insert(&conn);
+
+                        let backend_id2 = {
+                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                            agent.agent_id().to_owned()
+                        };
+
+                        let _backend2 =
+                            factory::JanusBackend::new(backend_id2, rng.gen(), rng.gen())
+                                .balancer_capacity(50)
+                                .capacity(200)
+                                .insert(&conn);
+
+                        // Add some load on the biggest one.
+                        factory::Agent::new()
+                            .agent_id(writer2.agent_id())
+                            .room_id(room2.id())
+                            .status(AgentStatus::Ready)
                             .insert(&conn);
 
-                        // Insert a stopped stream in the first room.
-                        let stream = factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .backend(&backend)
-                            .rtc(&rtc1)
-                            .insert(&conn);
-
-                        crate::db::janus_rtc_stream::start(stream.id(), &conn).unwrap();
-                        crate::db::janus_rtc_stream::stop(stream.id(), &conn).unwrap();
-
-                        factory::Recording::new()
-                            .rtc(&rtc1)
-                            .backend(&backend)
-                            .insert(&conn);
-
-                        rtc2
+                        (rtc1, backend1)
                     })
                     .unwrap();
 
@@ -1396,11 +1430,11 @@ mod test {
                 let room_id = rtc.room_id().to_string();
                 let rtc_id = rtc.id().to_string();
                 let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(writer.account_id(), object, "update");
+                authz.allow(writer1.account_id(), object, "update");
 
                 // Make an rtc.connect request.
-                // The reserve of the first room must be taken into account despited of the
-                // stream has been already stopped.
+                // Despite of none of the backends are capable to host the reserve it should
+                // select the least loaded one.
                 let mut context = TestContext::new(db, authz);
 
                 let payload = ConnectRequest {
@@ -1408,11 +1442,21 @@ mod test {
                     intent: ConnectIntent::Write,
                 };
 
-                let err = handle_request::<ConnectHandler>(&mut context, &writer, payload)
+                let messages = handle_request::<ConnectHandler>(&mut context, &writer1, payload)
                     .await
-                    .expect_err("Unexpected success on rtc connecting");
+                    .expect("RTC connect failed");
 
-                assert_eq!(err.status_code(), ResponseStatus::SERVICE_UNAVAILABLE);
+                // Assert outgoing request goes to the expected backend.
+                let (_req, _reqp, topic) = find_request::<JanusAttachRequest>(messages.as_slice());
+
+                let expected_topic = format!(
+                    "agents/{}/api/{}/in/{}",
+                    backend.id(),
+                    janus::JANUS_API_VERSION,
+                    context.config().id,
+                );
+
+                assert_eq!(topic, &expected_topic);
             });
         }
 
