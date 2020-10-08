@@ -779,18 +779,15 @@ mod test {
                             .backend(&backend1)
                             .insert(&conn);
 
-                        let stream1 = factory::JanusRtcStream::new(USR_AUDIENCE)
+                        factory::JanusRtcStream::new(USR_AUDIENCE)
                             .rtc(&rtc1)
                             .backend(&backend1)
                             .insert(&conn);
 
-                        crate::db::janus_rtc_stream::start(stream1.id(), &conn).unwrap();
-
                         let s1a1 = TestAgent::new("web", "s1a1", USR_AUDIENCE);
                         shared_helpers::insert_agent(&conn, s1a1.agent_id(), rtc1.room_id());
 
-                        // The second backend has 1 stream with 2 agents but it's not started
-                        // so it doesn't make any load on the backend.
+                        // The second backend has 1 stream with 2 agents.
                         let rtc2 = shared_helpers::insert_rtc(&conn);
 
                         factory::Recording::new()
@@ -798,7 +795,7 @@ mod test {
                             .backend(&backend2)
                             .insert(&conn);
 
-                        let _stream2 = factory::JanusRtcStream::new(USR_AUDIENCE)
+                        factory::JanusRtcStream::new(USR_AUDIENCE)
                             .rtc(&rtc2)
                             .backend(&backend2)
                             .insert(&conn);
@@ -812,7 +809,7 @@ mod test {
                         // The new rtc for which we will balance the stream.
                         let rtc3 = shared_helpers::insert_rtc(&conn);
 
-                        (rtc3, backend1)
+                        (rtc3, backend2)
                     })
                     .unwrap();
 

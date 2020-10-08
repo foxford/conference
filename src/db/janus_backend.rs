@@ -208,7 +208,7 @@ const MOST_LOADED_SQL: &str = r#"
             SELECT *
             FROM room
             WHERE backend = 'janus'
-            AND   NOW() < UPPER(time)
+            AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
         ),
         janus_backend_load AS (
             SELECT
@@ -216,18 +216,18 @@ const MOST_LOADED_SQL: &str = r#"
                 SUM(GREATEST(taken, reserve)) AS load
             FROM (
                 SELECT DISTINCT ON(backend_id, room_id)
-                    jrs.backend_id,
+                    rec.backend_id,
                     rtc.room_id,
                     COALESCE(rl.taken, 0)   AS taken,
                     COALESCE(ar.reserve, 0) AS reserve
-                FROM janus_rtc_stream AS jrs
+                FROM recording AS rec
                 INNER JOIN rtc
-                ON rtc.id = jrs.rtc_id
+                ON rtc.id = rec.rtc_id
                 LEFT JOIN active_room AS ar
                 ON ar.id = rtc.room_id
                 LEFT JOIN room_load AS rl
                 ON rl.room_id = rtc.room_id
-                WHERE LOWER(jrs.time) IS NOT NULL
+                WHERE rec.status = 'in_progress'
             ) AS sub
             GROUP BY backend_id
         )
@@ -268,7 +268,7 @@ const LEAST_LOADED_SQL: &str = r#"
             SELECT *
             FROM room
             WHERE backend = 'janus'
-            AND   NOW() < UPPER(time)
+            AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
         ),
         janus_backend_load AS (
             SELECT
@@ -276,17 +276,17 @@ const LEAST_LOADED_SQL: &str = r#"
                 SUM(taken) AS load
             FROM (
                 SELECT DISTINCT ON(backend_id, room_id)
-                    jrs.backend_id,
+                    rec.backend_id,
                     rtc.room_id,
                     COALESCE(rl.taken, 0) AS taken
-                FROM janus_rtc_stream AS jrs
+                FROM recording AS rec
                 INNER JOIN rtc
-                ON rtc.id = jrs.rtc_id
+                ON rtc.id = rec.rtc_id
                 LEFT JOIN active_room AS ar
                 ON ar.id = rtc.room_id
                 LEFT JOIN room_load AS rl
                 ON rl.room_id = rtc.room_id
-                WHERE LOWER(jrs.time) IS NOT NULL
+                WHERE rec.status = 'in_progress'
             ) AS sub
             GROUP BY backend_id
         )
@@ -332,7 +332,7 @@ const FREE_CAPACITY_SQL: &str = r#"
             SELECT *
             FROM room
             WHERE backend = 'janus'
-            AND   NOW() < UPPER(time)
+            AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
         ),
         janus_backend_load AS (
             SELECT
@@ -340,18 +340,18 @@ const FREE_CAPACITY_SQL: &str = r#"
                 SUM(GREATEST(taken, reserve)) AS load
             FROM (
                 SELECT DISTINCT ON(backend_id, room_id)
-                    jrs.backend_id,
+                    rec.backend_id,
                     rtc.room_id,
                     COALESCE(rl.taken, 0)   AS taken,
                     COALESCE(ar.reserve, 0) AS reserve
-                FROM janus_rtc_stream AS jrs
+                FROM recording AS rec
                 INNER JOIN rtc
-                ON rtc.id = jrs.rtc_id
+                ON rtc.id = rec.rtc_id
                 LEFT JOIN active_room AS ar
                 ON ar.id = rtc.room_id
                 LEFT JOIN room_load AS rl
                 ON rl.room_id = rtc.room_id
-                WHERE LOWER(jrs.time) IS NOT NULL
+                WHERE rec.status = 'in_progress'
             ) AS sub
             GROUP BY backend_id
         )
@@ -365,11 +365,11 @@ const FREE_CAPACITY_SQL: &str = r#"
     FROM rtc
     LEFT JOIN room_load as rl
     ON rl.room_id = rtc.room_id
-    LEFT JOIN janus_rtc_stream AS jrs
-    ON  jrs.rtc_id = rtc.id
-    AND LOWER(jrs.time) IS NOT NULL AND UPPER(jrs.time) IS NULL
+    LEFT JOIN recording AS rec
+    ON  rec.rtc_id = rtc.id
+    AND rec.status = 'in_progress'
     LEFT JOIN janus_backend AS jb
-    ON jb.id = jrs.backend_id
+    ON jb.id = rec.backend_id
     LEFT JOIN janus_backend_load AS jbl
     ON jbl.backend_id = jb.id
     WHERE rtc.id = $1
