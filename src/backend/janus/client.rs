@@ -77,7 +77,7 @@ impl Client {
                                 .build();
 
                             sentry::send(svc_error).unwrap_or_else(|err| {
-                                warn!(crate::LOG, "Error sending error to Sentry: {}", err)
+                                warn!(crate::LOG, "Error sending error to Sentry: {}", err);
                             });
 
                             false
@@ -121,7 +121,7 @@ impl Client {
                 error!(
                     crate::LOG,
                     "Failed to register janus client transaction: {}", err
-                )
+                );
             });
     }
 
@@ -134,7 +134,7 @@ impl Client {
                 error!(
                     crate::LOG,
                     "Failed to remove janus client transaction: {}", err
-                )
+                );
             });
     }
 
@@ -160,7 +160,7 @@ impl Drop for Client {
                 error!(
                     crate::LOG,
                     "Failed to stop janus client transaction watchdog: {}", err
-                )
+                );
             });
     }
 }

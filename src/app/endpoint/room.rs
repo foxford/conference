@@ -89,7 +89,7 @@ impl RequestHandler for CreateHandler {
             q.execute(&conn)?
         };
 
-        context.add_logger_tags(o!("room_id" => room.id().to_string()));
+        shared::add_room_logger_tags(context, &room);
 
         // Respond and broadcast to the audience topic.
         let response = shared::build_response(
@@ -140,9 +140,11 @@ impl RequestHandler for ReadHandler {
             db::room::FindQuery::new()
                 .id(payload.id)
                 .execute(&conn)?
-                .ok_or_else(|| format!("Room not found, id = '{}'", payload.id))
+                .ok_or_else(|| anyhow!("Room not found"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
+
+        shared::add_room_logger_tags(context, &room);
 
         // Authorize room reading on the tenant.
         let room_id = room.id().to_string();
@@ -197,9 +199,11 @@ impl RequestHandler for UpdateHandler {
                 .time(db::room::since_now())
                 .id(payload.id)
                 .execute(&conn)?
-                .ok_or_else(|| format!("Room not found, id = '{}' or closed", payload.id))
+                .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
+
+        shared::add_room_logger_tags(context, &room);
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
@@ -298,9 +302,11 @@ impl RequestHandler for DeleteHandler {
                 .time(db::room::since_now())
                 .id(payload.id)
                 .execute(&conn)?
-                .ok_or_else(|| format!("Room not found, id = '{}' or closed", payload.id))
+                .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
+
+        shared::add_room_logger_tags(context, &room);
 
         // Authorize room deletion on the tenant.
         let room_id = room.id().to_string();
@@ -363,9 +369,11 @@ impl RequestHandler for EnterHandler {
                 .id(payload.id)
                 .time(db::room::now())
                 .execute(&conn)?
-                .ok_or_else(|| format!("Room not found or closed, id = '{}'", payload.id))
+                .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
+
+        shared::add_room_logger_tags(context, &room);
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();
@@ -433,8 +441,10 @@ impl RequestHandler for LeaveHandler {
             let room = db::room::FindQuery::new()
                 .id(payload.id)
                 .execute(&conn)?
-                .ok_or_else(|| format!("Room not found, id = '{}'", payload.id))
+                .ok_or_else(|| anyhow!("Room not found"))
                 .status(ResponseStatus::NOT_FOUND)?;
+
+            shared::add_room_logger_tags(context, &room);
 
             // Check room presence.
             let presence = db::agent::ListQuery::new()
@@ -446,12 +456,8 @@ impl RequestHandler for LeaveHandler {
         };
 
         if presence.is_empty() {
-            return Err(format!(
-                "agent = '{}' is not online in the room = '{}'",
-                reqp.as_agent_id(),
-                room.id()
-            ))
-            .status(ResponseStatus::NOT_FOUND);
+            return Err(anyhow!("Agent is not online in the room"))
+                .status(ResponseStatus::NOT_FOUND);
         }
 
         // Send dynamic subscription deletion request to the broker.

@@ -1,7 +1,6 @@
 use std::fmt;
 use std::str::FromStr;
 
-use anyhow::{format_err, Error};
 use svc_agent::AgentId;
 use uuid::Uuid;
 
@@ -69,7 +68,7 @@ impl fmt::Display for HandleId {
 }
 
 impl FromStr for HandleId {
-    type Err = Error;
+    type Err = anyhow::Error;
 
     fn from_str(val: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = val.splitn(5, '.').collect();
@@ -83,7 +82,7 @@ impl FromStr for HandleId {
                     rest.parse::<AgentId>()?,
                 ))
             }
-            _ => Err(format_err!("invalid value for the agent id: {}", val)),
+            _ => Err(anyhow!("Invalid handle id: {}", val)),
         }
     }
 }

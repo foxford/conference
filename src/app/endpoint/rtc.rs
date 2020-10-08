@@ -1,3 +1,5 @@
+use std::fmt;
+
 use async_std::stream;
 use async_trait::async_trait;
 use serde_derive::{Deserialize, Serialize};
@@ -47,6 +49,8 @@ impl RequestHandler for CreateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
+
         let room = {
             let conn = context.db().get()?;
 
@@ -54,9 +58,11 @@ impl RequestHandler for CreateHandler {
                 .time(db::room::now())
                 .id(payload.room_id)
                 .execute(&conn)?
-                .ok_or_else(|| format!("the room = '{}' is not found", payload.room_id))
+                .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
+
+        shared::add_room_logger_tags(context, &room);
 
         // Authorize room creation.
         let room_id = room.id().to_string();
@@ -72,6 +78,8 @@ impl RequestHandler for CreateHandler {
             let conn = context.db().get()?;
             db::rtc::InsertQuery::new(room.id()).execute(&conn)?
         };
+
+        context.add_logger_tags(o!("rtc_id" => rtc.id().to_string()));
 
         // Respond and broadcast to the room topic.
         let response = shared::build_response(
@@ -113,6 +121,8 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        context.add_logger_tags(o!("rtc_id" => payload.id.to_string()));
+
         let room = {
             let conn = context.db().get()?;
 
@@ -120,9 +130,11 @@ impl RequestHandler for ReadHandler {
                 .time(db::room::now())
                 .rtc_id(payload.id)
                 .execute(&conn)?
-                .ok_or_else(|| format!("a room for the rtc = '{}' is not found", payload.id))
+                .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
+
+        shared::add_room_logger_tags(context, &room);
 
         // Authorize rtc reading.
         let rtc_id = payload.id.to_string();
@@ -141,7 +153,7 @@ impl RequestHandler for ReadHandler {
             db::rtc::FindQuery::new()
                 .id(payload.id)
                 .execute(&conn)?
-                .ok_or_else(|| format!("RTC not found, id = '{}'", payload.id))
+                .ok_or_else(|| anyhow!("RTC not found"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
 
@@ -178,6 +190,8 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
+
         let room = {
             let conn = context.db().get()?;
 
@@ -185,7 +199,7 @@ impl RequestHandler for ListHandler {
                 .time(db::room::now())
                 .id(payload.room_id)
                 .execute(&conn)?
-                .ok_or_else(|| format!("the room = '{}' is not found", payload.room_id))
+                .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
 
@@ -232,6 +246,15 @@ pub(crate) enum ConnectIntent {
     Write,
 }
 
+impl fmt::Display for ConnectIntent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Read => write!(f, "read"),
+            Self::Write => write!(f, "write"),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct ConnectRequest {
     id: Uuid,
@@ -257,6 +280,11 @@ impl RequestHandler for ConnectHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        context.add_logger_tags(o!(
+            "rtc_id" => payload.id.to_string(),
+            "intent" => payload.intent.to_string(),
+        ));
+
         let room = {
             let conn = context.db().get()?;
 
@@ -264,14 +292,16 @@ impl RequestHandler for ConnectHandler {
                 .time(db::room::now())
                 .rtc_id(payload.id)
                 .execute(&conn)?
-                .ok_or_else(|| format!("a room for the rtc = '{}' is not found", payload.id))
+                .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
 
+        shared::add_room_logger_tags(context, &room);
+
         // Authorize connecting to the rtc.
         if room.backend() != db::room::RoomBackend::Janus {
-            return Err(format!(
-                "'rtc.connect' is not implemented for the backend = '{}'.",
+            return Err(anyhow!(
+                "'rtc.connect' is not implemented for '{}' backend",
                 room.backend(),
             ))
             .status(ResponseStatus::NOT_IMPLEMENTED);
@@ -312,7 +342,7 @@ impl RequestHandler for ConnectHandler {
                 Some(ref recording) => db::janus_backend::FindQuery::new()
                     .id(recording.backend_id().to_owned())
                     .execute(&conn)?
-                    .ok_or("no backend found for stream")
+                    .ok_or_else(|| anyhow!("No backend found for stream"))
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?,
                 None => match db::janus_backend::most_loaded(room.id(), &conn)? {
                     Some(backend) => backend,
@@ -339,7 +369,7 @@ impl RequestHandler for ConnectHandler {
 
                             backend
                         })
-                        .ok_or("no available backends")
+                        .ok_or_else(|| anyhow!("No available backends"))
                         .status(ResponseStatus::SERVICE_UNAVAILABLE)?,
                 },
             };
@@ -365,6 +395,8 @@ impl RequestHandler for ConnectHandler {
             backend
         };
 
+        context.add_logger_tags(o!("backend_id" => backend.id().to_string()));
+
         // Send janus handle creation request.
         let janus_request_result = context.janus_client().create_rtc_handle_request(
             reqp.clone(),
@@ -387,7 +419,7 @@ impl RequestHandler for ConnectHandler {
                 let boxed_request = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
                 Ok(Box::new(stream::once(boxed_request)))
             }
-            Err(err) => Err(format!("error creating a backend request: {}", err))
+            Err(err) => Err(err.context("Error creating a backend request"))
                 .status(ResponseStatus::UNPROCESSABLE_ENTITY),
         }
     }

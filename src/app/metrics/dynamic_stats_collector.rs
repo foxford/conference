@@ -41,7 +41,7 @@ impl DynamicStatsCollector {
                         if let Err(err) = tx.send(report) {
                             warn!(
                                 crate::LOG,
-                                "Failed to send dynamic stats collector report: {:?}", err
+                                "Failed to send dynamic stats collector report: {}", err,
                             );
                         }
 
@@ -64,7 +64,7 @@ impl DynamicStatsCollector {
         if let Err(err) = self.tx.send(message) {
             warn!(
                 crate::LOG,
-                "Failed to register dynamic stats collector value: {:?}", err
+                "Failed to register dynamic stats collector value: {}", err
             );
         }
     }
@@ -86,7 +86,7 @@ impl Drop for DynamicStatsCollector {
         if let Err(err) = self.tx.send(Message::Stop) {
             warn!(
                 crate::LOG,
-                "Failed to stop dynamic stats collector: {:?}", err
+                "Failed to stop dynamic stats collector: {}", err
             );
         }
     }

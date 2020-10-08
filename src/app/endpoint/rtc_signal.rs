@@ -1,6 +1,6 @@
 use std::result::Result as StdResult;
 
-use anyhow::format_err;
+use anyhow::Context as AnyhowContext;
 use async_std::stream;
 use async_trait::async_trait;
 use chrono::Duration;
@@ -54,21 +54,34 @@ impl RequestHandler for CreateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        context.add_logger_tags(o!(
+            "rtc_id" => payload.handle_id.rtc_id().to_string(),
+            "rtc_stream_id" => payload.handle_id.rtc_stream_id().to_string(),
+            "janus_session_id" => payload.handle_id.janus_session_id(),
+            "janus_handle_id" => payload.handle_id.janus_handle_id(),
+            "backend_id" => payload.handle_id.backend_id().to_string(),
+        ));
+
+        if let Some(ref label) = payload.label {
+            context.add_logger_tags(o!("rtc_stream_label" => label.to_owned()));
+        }
+
         let sdp_type = match parse_sdp_type(&payload.jsep) {
             Ok(sdp_type) => sdp_type,
             Err(err) => {
-                return Err(format!("invalid jsep format, {}", err))
-                    .status(ResponseStatus::BAD_REQUEST)
+                return Err(err.context("Invalid JSEP format")).status(ResponseStatus::BAD_REQUEST)
             }
         };
 
         let req = match sdp_type {
             SdpType::Offer => {
                 let is_recvonly = is_sdp_recvonly(&payload.jsep)
-                    .map_err(|err| format!("invalid jsep format, {}", err))
+                    .context("Invalid JSEP format")
                     .status(ResponseStatus::BAD_REQUEST)?;
 
                 if is_recvonly {
+                    context.add_logger_tags(o!("sdp_type" => "offer", "intent" => "read"));
+
                     // Authorization
                     let authz_time = authorize(context, &payload, reqp, "read").await?;
 
@@ -85,9 +98,11 @@ impl RequestHandler for CreateHandler {
                             authz_time,
                         )
                         .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
-                        .map_err(|err| format!("error creating a backend request: {}", err))
+                        .context("Error creating a backend request")
                         .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
                 } else {
+                    context.add_logger_tags(o!("sdp_type" => "offer", "intent" => "update"));
+
                     // Authorization
                     let authz_time = authorize(context, &payload, reqp, "update").await?;
 
@@ -96,7 +111,7 @@ impl RequestHandler for CreateHandler {
                         let label = payload
                             .label
                             .as_ref()
-                            .ok_or_else(|| String::from("missing label"))
+                            .ok_or_else(|| anyhow!("Missing label"))
                             .status(ResponseStatus::BAD_REQUEST)?;
 
                         let conn = context.db().get()?;
@@ -125,14 +140,15 @@ impl RequestHandler for CreateHandler {
                             authz_time,
                         )
                         .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
-                        .map_err(|err| format!("error creating a backend request: {}", err))
+                        .context("Error creating a backend request")
                         .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
                 }
             }
-            SdpType::Answer => {
-                Err("sdp_type = 'answer' is not allowed").status(ResponseStatus::BAD_REQUEST)?
-            }
+            SdpType::Answer => Err(anyhow!("sdp_type = 'answer' is not allowed"))
+                .status(ResponseStatus::BAD_REQUEST)?,
             SdpType::IceCandidate => {
+                context.add_logger_tags(o!("sdp_type" => "ice_candidate", "intent" => "read"));
+
                 // Authorization
                 let authz_time = authorize(context, &payload, reqp, "read").await?;
 
@@ -148,7 +164,7 @@ impl RequestHandler for CreateHandler {
                         authz_time,
                     )
                     .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
-                    .map_err(|err| format!("error creating a backend request: {}", err))
+                    .context("Error creating a backend request")
                     .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
             }
         };
@@ -172,12 +188,12 @@ async fn authorize<C: Context>(
             .time(db::room::now())
             .rtc_id(rtc_id)
             .execute(&conn)?
-            .ok_or_else(|| format!("a room for the rtc = '{}' is not found", &rtc_id))
+            .context("Room not found or closed")
             .status(ResponseStatus::NOT_FOUND)?
     };
 
     if room.backend() != db::room::RoomBackend::Janus {
-        let err = format!(
+        let err = anyhow!(
             "'rtc_signal.create' is not implemented for the backend = '{}'.",
             room.backend()
         );
@@ -206,6 +222,7 @@ enum SdpType {
 fn parse_sdp_type(jsep: &JsonValue) -> anyhow::Result<SdpType> {
     // '{"type": "offer", "sdp": _}' or '{"type": "answer", "sdp": _}'
     let sdp_type = jsep.get("type");
+
     // '{"sdpMid": _, "sdpMLineIndex": _, "candidate": _}' or '{"completed": true}' or 'null'
     let is_candidate = {
         let candidate = jsep.get("candidate");
@@ -218,32 +235,34 @@ fn parse_sdp_type(jsep: &JsonValue) -> anyhow::Result<SdpType> {
                 .unwrap_or_else(|| false)
             || jsep.is_null()
     };
+
     match (sdp_type, is_candidate) {
         (Some(JsonValue::String(ref val)), false) if val == "offer" => Ok(SdpType::Offer),
         // {"type": "answer", "sdp": _}
         (Some(JsonValue::String(ref val)), false) if val == "answer" => Ok(SdpType::Answer),
         // {"completed": true} or {"sdpMid": _, "sdpMLineIndex": _, "candidate": _}
         (None, true) => Ok(SdpType::IceCandidate),
-        _ => Err(format_err!("invalid jsep = '{}'", jsep)),
+        _ => Err(anyhow!("invalid jsep = '{}'", jsep)),
     }
 }
 
 fn is_sdp_recvonly(jsep: &JsonValue) -> anyhow::Result<bool> {
     use webrtc_sdp::{attribute_type::SdpAttributeType, parse_sdp};
 
-    let sdp = jsep.get("sdp").ok_or_else(|| format_err!("missing sdp"))?;
+    let sdp = jsep.get("sdp").ok_or_else(|| anyhow!("Missing SDP"))?;
 
     let sdp = sdp
         .as_str()
-        .ok_or_else(|| format_err!("invalid sdp = '{}'", sdp))?;
+        .ok_or_else(|| anyhow!("Invalid SDP: '{}'", sdp))?;
 
-    let sdp = parse_sdp(sdp, false).map_err(|_| format_err!("invalid sdp"))?;
+    let sdp = parse_sdp(sdp, false).context("Invalid SDP")?;
 
     // Returning true if all media section contains 'recvonly' attribute
     Ok(sdp.media.iter().all(|item| {
         let recvonly = item.get_attribute(SdpAttributeType::Recvonly).is_some();
         let sendonly = item.get_attribute(SdpAttributeType::Sendonly).is_some();
         let sendrecv = item.get_attribute(SdpAttributeType::Sendrecv).is_some();
+
         match (recvonly, sendonly, sendrecv) {
             (true, false, false) => true,
             _ => false,

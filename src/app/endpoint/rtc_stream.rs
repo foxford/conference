@@ -42,6 +42,12 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
+
+        if let Some(rtc_id) = payload.rtc_id {
+            context.add_logger_tags(o!("rtc_id" => rtc_id.to_string()));
+        }
+
         let room = {
             let conn = context.db().get()?;
 
@@ -49,13 +55,15 @@ impl RequestHandler for ListHandler {
                 .time(db::room::now())
                 .id(payload.room_id)
                 .execute(&conn)?
-                .ok_or_else(|| format!("the room = '{}' is not found", payload.room_id))
+                .ok_or_else(|| anyhow!("Room not found or closed"))
                 .status(ResponseStatus::NOT_FOUND)?
         };
 
+        shared::add_room_logger_tags(context, &room);
+
         if room.backend() != db::room::RoomBackend::Janus {
-            let err = format!(
-                "'rtc_stream.list' is not implemented for the backend = '{}'",
+            let err = anyhow!(
+                "'rtc_stream.list' is not implemented for '{}' backend",
                 room.backend()
             );
 
