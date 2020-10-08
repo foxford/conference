@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.12 (October 8, 2020)
+
+### Features
+- Add falling back to the least loaded backend ([f797bbf](https://github.com/netology-group/conference/commit/f797bbf243f23f4ba9f183425ed26296ef7ab24a))
+- Add logger tags ([e052bd1](https://github.com/netology-group/conference/commit/e052bd18dbe83ae0535a2903fc0c4b95de6cbb90))
+
+### Changes
+- Replace janus_rtc_stream with recording in balancer queries ([5e604b3](https://github.com/netology-group/conference/commit/5e604b375e782fbe986f0fdf2b7d83f92e144bfe))
+
+### Fixes
+- Minor fixes ([7a47280](https://github.com/netology-group/conference/commit/7a472803cdd0c021addcfe9c81f5ea5d40a8eac3), [f2b841a](https://github.com/netology-group/conference/commit/f2b841a2ec2fb539a61fcf2cfb804092abc45caf))
+
+
 ## v0.5.11 (October 6, 2020)
 
 ### Changes
