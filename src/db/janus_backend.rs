@@ -238,7 +238,7 @@ const MOST_LOADED_SQL: &str = r#"
     LEFT JOIN room AS r2
     ON 1 = 1
     WHERE r2.id = $1
-    AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) > COALESCE(r2.reserve, 0)
+    AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) >= COALESCE(r2.reserve, 0)
     ORDER BY COALESCE(jbl.load, 0) DESC
     LIMIT 1
 "#;
