@@ -6,9 +6,9 @@ use svc_agent::mqtt::{
     IncomingEvent, IncomingEventProperties, IncomingRequest, IncomingRequestProperties,
     IncomingResponse, IncomingResponseProperties,
 };
-use svc_error::Error as SvcError;
 
 use crate::app::context::Context;
+use crate::app::error::Error as AppError;
 pub(self) use crate::app::message_handler::MessageStream;
 use crate::app::message_handler::{
     EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler,
@@ -17,7 +17,7 @@ use crate::backend::janus;
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type Result = StdResult<MessageStream, SvcError>;
+pub(crate) type Result = StdResult<MessageStream, AppError>;
 
 #[async_trait]
 pub(crate) trait RequestHandler {
@@ -152,5 +152,5 @@ pub(crate) mod system;
 
 pub(self) mod prelude {
     pub(super) use super::{shared, EventHandler, RequestHandler, ResponseHandler, Result};
-    pub(super) use crate::app::message_handler::SvcErrorSugar;
+    pub(super) use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 }

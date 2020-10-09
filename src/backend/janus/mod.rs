@@ -15,8 +15,9 @@ use uuid::Uuid;
 
 use crate::app::context::Context;
 use crate::app::endpoint;
+use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 use crate::app::handle_id::HandleId;
-use crate::app::message_handler::{MessageStream, SvcErrorSugar};
+use crate::app::message_handler::MessageStream;
 use crate::app::API_VERSION;
 use crate::db::{agent, janus_backend, janus_rtc_stream, recording, room, rtc};
 use crate::diesel::Connection;
@@ -43,12 +44,13 @@ pub(crate) async fn handle_response<C: Context>(
 ) -> MessageStream {
     handle_response_impl(context, resp)
         .await
-        .unwrap_or_else(|svc_error| {
+        .unwrap_or_else(|app_error| {
             error!(
                 context.logger(),
-                "Failed to handle a response from janus: {}",
-                svc_error.detail().unwrap_or(""),
+                "Failed to handle a response from janus: {}", app_error,
             );
+
+            let svc_error: SvcError = app_error.into();
 
             sentry::send(svc_error).unwrap_or_else(|err| {
                 warn!(context.logger(), "Error sending error to Sentry: {}", err)
@@ -61,19 +63,19 @@ pub(crate) async fn handle_response<C: Context>(
 async fn handle_response_impl<C: Context>(
     context: &mut C,
     resp: &MQTTIncomingResponse<String>,
-) -> Result<MessageStream, SvcError> {
+) -> Result<MessageStream, AppError> {
     let respp = resp.properties();
     context.janus_client().finish_transaction(respp);
 
     let payload = MQTTIncomingResponse::convert_payload::<IncomingResponse>(&resp)
         .map_err(|err| anyhow!("Failed to parse response: {}", err))
-        .status(ResponseStatus::BAD_REQUEST)?;
+        .error(AppErrorKind::MessageParsingFailed)?;
 
     match payload {
         IncomingResponse::Success(ref inresp) => {
             let txn = from_base64::<Transaction>(&inresp.transaction())
                 .map_err(|err| err.context("Failed to parse transaction"))
-                .status(ResponseStatus::BAD_REQUEST)?;
+                .error(AppErrorKind::MessageParsingFailed)?;
 
             match txn {
                 // Session has been created
@@ -88,7 +90,7 @@ async fn handle_response_impl<C: Context>(
                             tn.balancer_capacity(),
                             context.start_timestamp(),
                         )
-                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+                        .error(AppErrorKind::MessageBuildingFailed)?;
 
                     let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>;
                     Ok(Box::new(stream::once(boxed_backreq)))
@@ -97,7 +99,7 @@ async fn handle_response_impl<C: Context>(
                 Transaction::CreateHandle(tn) => {
                     let backend_id = respp.as_agent_id();
                     let handle_id = inresp.data().id();
-                    let conn = context.db().get()?;
+                    let conn = context.get_conn()?;
 
                     let mut q =
                         janus_backend::UpsertQuery::new(backend_id, handle_id, tn.session_id());
@@ -145,7 +147,7 @@ async fn handle_response_impl<C: Context>(
         IncomingResponse::Ack(ref inresp) => {
             let txn = from_base64::<Transaction>(&inresp.transaction())
                 .map_err(|err| err.context("Failed to parse transaction"))
-                .status(ResponseStatus::BAD_REQUEST)?;
+                .error(AppErrorKind::MessageParsingFailed)?;
 
             match txn {
                 // Conference Stream is being created
@@ -174,7 +176,7 @@ async fn handle_response_impl<C: Context>(
 
             let txn = from_base64::<Transaction>(&inresp.transaction())
                 .map_err(|err| err.context("Failed to parse transaction"))
-                .status(ResponseStatus::BAD_REQUEST)?;
+                .error(AppErrorKind::MessageParsingFailed)?;
 
             match txn {
                 // Conference Stream has been created (an answer received)
@@ -186,7 +188,7 @@ async fn handle_response_impl<C: Context>(
                         .data()
                         .get("status")
                         .ok_or_else(|| anyhow!("Missing 'status' in the response"))
-                        .status(ResponseStatus::FAILED_DEPENDENCY)
+                        .error(AppErrorKind::MessageParsingFailed)
                         .and_then(|status| {
                             context.add_logger_tags(o!("status" => status.as_u64()));
 
@@ -194,7 +196,7 @@ async fn handle_response_impl<C: Context>(
                                 Ok(())
                             } else {
                                 Err(anyhow!("Received error status"))
-                                    .status(ResponseStatus::FAILED_DEPENDENCY)
+                                    .error(AppErrorKind::BackendRequestFailed)
                             }
                         })
                         .and_then(|_| {
@@ -202,7 +204,7 @@ async fn handle_response_impl<C: Context>(
                             let jsep = inresp
                                 .jsep()
                                 .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                .status(ResponseStatus::FAILED_DEPENDENCY)?;
+                                .error(AppErrorKind::MessageParsingFailed)?;
 
                             let timing =
                                 ShortTermTimingProperties::until_now(context.start_timestamp());
@@ -218,15 +220,7 @@ async fn handle_response_impl<C: Context>(
                                 Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
                             Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
                         })
-                        .or_else(|err| {
-                            Ok(handle_response_error(
-                                context,
-                                "janus_stream.create",
-                                "Error creating a Janus Conference Stream",
-                                &tn.reqp(),
-                                err,
-                            ))
-                        })
+                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
                 }
                 // Conference Stream has been read (an answer received)
                 Transaction::ReadStream(ref tn) => {
@@ -237,7 +231,7 @@ async fn handle_response_impl<C: Context>(
                         .data()
                         .get("status")
                         .ok_or_else(|| anyhow!("Missing 'status' in the response"))
-                        .status(ResponseStatus::FAILED_DEPENDENCY)
+                        .error(AppErrorKind::MessageParsingFailed)
                         // We fail if the status isn't equal to 200
                         .and_then(|status| {
                             context.add_logger_tags(o!("status" => status.as_u64()));
@@ -246,7 +240,7 @@ async fn handle_response_impl<C: Context>(
                                 Ok(())
                             } else {
                                 Err(anyhow!("Received error status"))
-                                    .status(ResponseStatus::FAILED_DEPENDENCY)
+                                    .error(AppErrorKind::BackendRequestFailed)
                             }
                         })
                         .and_then(|_| {
@@ -254,7 +248,7 @@ async fn handle_response_impl<C: Context>(
                             let jsep = inresp
                                 .jsep()
                                 .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                .status(ResponseStatus::FAILED_DEPENDENCY)?;
+                                .error(AppErrorKind::MessageParsingFailed)?;
 
                             let timing =
                                 ShortTermTimingProperties::until_now(context.start_timestamp());
@@ -270,15 +264,7 @@ async fn handle_response_impl<C: Context>(
                                 Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
                             Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
                         })
-                        .or_else(|err| {
-                            Ok(handle_response_error(
-                                context,
-                                "janus_stream.read",
-                                "Error reading a Janus Conference Stream",
-                                &tn.reqp(),
-                                err,
-                            ))
-                        })
+                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
                 }
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
                 Transaction::UploadStream(ref tn) => {
@@ -293,7 +279,7 @@ async fn handle_response_impl<C: Context>(
                     plugin_data
                         .get("status")
                         .ok_or_else(|| anyhow!("Missing 'status' in the response"))
-                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                        .error(AppErrorKind::MessageParsingFailed)
                         // We fail if the status isn't equal to 200
                         .and_then(|status| {
                             context.add_logger_tags(o!("status" => status.as_u64()));
@@ -301,38 +287,38 @@ async fn handle_response_impl<C: Context>(
                             match status {
                                 val if val == "200" => Ok(()),
                                 val if val == "404" => {
-                                    let conn = context.db().get()?;
+                                    let conn = context.get_conn()?;
 
                                     recording::UpdateQuery::new(tn.rtc_id())
                                         .status(recording::Status::Missing)
                                         .execute(&conn)?;
 
                                     Err(anyhow!("Janus is missing recording"))
-                                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                                        .error(AppErrorKind::BackendRecordingMissing)
                                 }
                                 _ => Err(anyhow!("Received error status"))
-                                    .status(ResponseStatus::FAILED_DEPENDENCY),
+                                    .error(AppErrorKind::BackendRequestFailed),
                             }
                         })
                         .and_then(|_| {
                             let rtc_id = plugin_data
                                 .get("id")
                                 .ok_or_else(|| anyhow!("Missing 'id' in response"))
-                                .status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                                .error(AppErrorKind::MessageParsingFailed)
                                 .and_then(|val| {
                                     serde_json::from_value::<Uuid>(val.clone())
                                         .map_err(|err| anyhow!("Invalid value for 'id': {}", err))
-                                        .status(ResponseStatus::BAD_REQUEST)
+                                        .error(AppErrorKind::MessageParsingFailed)
                                 })?;
 
                             let started_at = plugin_data
                                 .get("started_at")
                                 .ok_or_else(|| anyhow!("Missing 'started_at' in response"))
-                                .status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                                .error(AppErrorKind::MessageParsingFailed)
                                 .and_then(|val| {
                                     let unix_ts = serde_json::from_value::<u64>(val.clone())
                                         .map_err(|err| anyhow!("Invalid value for 'started_at': {}", err))
-                                        .status(ResponseStatus::BAD_REQUEST)?;
+                                        .error(AppErrorKind::MessageParsingFailed)?;
 
                                     let naive_datetime = NaiveDateTime::from_timestamp(
                                         unix_ts as i64 / 1000,
@@ -345,11 +331,11 @@ async fn handle_response_impl<C: Context>(
                             let segments = plugin_data
                                 .get("time")
                                 .ok_or_else(|| anyhow!("Missing time"))
-                                .status(ResponseStatus::UNPROCESSABLE_ENTITY)
+                                .error(AppErrorKind::MessageParsingFailed)
                                 .and_then(|segments| {
                                     Ok(serde_json::from_value::<Vec<(i64, i64)>>(segments.clone())
                                         .map_err(|err| anyhow!("Invalid value for 'time': {}", err))
-                                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
+                                        .error(AppErrorKind::MessageParsingFailed)?
                                         .into_iter()
                                         .map(|(start, end)| {
                                             (Bound::Included(start), Bound::Excluded(end))
@@ -358,7 +344,7 @@ async fn handle_response_impl<C: Context>(
                                 })?;
 
                             let (room, rtcs, recs): (room::Object, Vec<rtc::Object>, Vec<recording::Object>) = {
-                                let conn = context.db().get()?;
+                                let conn = context.get_conn()?;
 
                                 recording::UpdateQuery::new(rtc_id)
                                     .status(recording::Status::Ready)
@@ -370,13 +356,13 @@ async fn handle_response_impl<C: Context>(
                                     .id(rtc_id)
                                     .execute(&conn)?
                                     .ok_or_else(|| anyhow!("RTC not found"))
-                                    .status(ResponseStatus::NOT_FOUND)?;
+                                    .error(AppErrorKind::RtcNotFound)?;
 
                                 let room = room::FindQuery::new()
                                     .id(rtc.room_id())
                                     .execute(&conn)?
                                     .ok_or_else(|| anyhow!("Room not found"))
-                                    .status(ResponseStatus::NOT_FOUND)?;
+                                    .error(AppErrorKind::RoomNotFound)?;
 
                                 // TODO: move to db module
                                 use diesel::prelude::*;
@@ -420,7 +406,7 @@ async fn handle_response_impl<C: Context>(
                                 respp.tracking(),
                             )
                             .map_err(|err| err.context("Error creating a system event"))
-                            .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+                            .error(AppErrorKind::MessageBuildingFailed)?;
 
                             let event_box = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
                             Ok(Box::new(stream::once(event_box)) as MessageStream)
@@ -435,40 +421,43 @@ async fn handle_response_impl<C: Context>(
                 "received an unexpected Error message (session): {:?}",
                 inresp
             );
-            Err(err).status(ResponseStatus::BAD_REQUEST)
+            Err(err).error(AppErrorKind::MessageParsingFailed)
         }
         IncomingResponse::Error(ErrorResponse::Handle(ref inresp)) => {
             let err = anyhow!(
                 "received an unexpected Error message (handle): {:?}",
                 inresp
             );
-            Err(err).status(ResponseStatus::BAD_REQUEST)
+            Err(err).error(AppErrorKind::MessageParsingFailed)
         }
     }
 }
 
 fn handle_response_error<C: Context>(
     context: &mut C,
-    kind: &str,
-    title: &str,
     reqp: &IncomingRequestProperties,
-    mut err: SvcError,
+    app_error: AppError,
 ) -> MessageStream {
-    err.set_kind(kind, title);
-    let status = err.status_code();
-    context.add_logger_tags(o!("kind" => kind.to_owned(), "status" => status.as_u16()));
+    let svc_error: SvcError = app_error.into();
+
+    context.add_logger_tags(o!(
+        "kind" => svc_error.kind().to_owned(),
+        "status" => svc_error.status_code().as_u16(),
+    ));
 
     error!(
         context.logger(),
-        "Failed to handle a response from janus: {}", err
+        "Failed to handle a response from janus: {}",
+        svc_error.detail().unwrap_or(""),
     );
 
-    sentry::send(err.clone()).unwrap_or_else(|err| {
+    sentry::send(svc_error.clone()).unwrap_or_else(|err| {
         warn!(context.logger(), "Error sending error to Sentry: {}", err);
     });
 
     let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
-    let resp = OutgoingResponse::unicast(err, reqp.to_response(status, timing), reqp, API_VERSION);
+    let respp = reqp.to_response(svc_error.status_code(), timing);
+    let resp = OutgoingResponse::unicast(svc_error, respp, reqp, API_VERSION);
     let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
     Box::new(stream::once(boxed_resp))
 }
@@ -479,13 +468,15 @@ pub(crate) async fn handle_event<C: Context>(
 ) -> MessageStream {
     handle_event_impl(context, event)
         .await
-        .unwrap_or_else(|err| {
+        .unwrap_or_else(|app_error| {
             error!(
                 context.logger(),
-                "Failed to handle an event from janus: {}", err
+                "Failed to handle an event from janus: {}", app_error
             );
 
-            sentry::send(err).unwrap_or_else(|err| {
+            let svc_error: SvcError = app_error.into();
+
+            sentry::send(svc_error).unwrap_or_else(|err| {
                 warn!(context.logger(), "Error sending error to Sentry: {}", err);
             });
 
@@ -496,12 +487,12 @@ pub(crate) async fn handle_event<C: Context>(
 async fn handle_event_impl<C: Context>(
     context: &mut C,
     event: &MQTTIncomingEvent<String>,
-) -> Result<MessageStream, SvcError> {
+) -> Result<MessageStream, AppError> {
     context.add_logger_tags(o!("label" => event.properties().label().unwrap_or("").to_string()));
 
     let payload = MQTTIncomingEvent::convert_payload::<IncomingEvent>(&event)
         .map_err(|err| anyhow!("Failed to parse event: {}", err))
-        .status(ResponseStatus::BAD_REQUEST)?;
+        .error(AppErrorKind::MessageParsingFailed)?;
 
     let evp = event.properties();
     match payload {
@@ -510,9 +501,9 @@ async fn handle_event_impl<C: Context>(
 
             let rtc_stream_id = Uuid::from_str(inev.opaque_id())
                 .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
-                .status(ResponseStatus::BAD_REQUEST)?;
+                .error(AppErrorKind::MessageParsingFailed)?;
 
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             // If the event relates to a publisher's handle,
             // we will find the corresponding stream and send event w/ updated stream object
@@ -526,7 +517,7 @@ async fn handle_event_impl<C: Context>(
                     .rtc_id(rtc_id)
                     .execute(&conn)?
                     .ok_or_else(|| anyhow!("Room not found or closed"))
-                    .status(ResponseStatus::NOT_FOUND)?;
+                    .error(AppErrorKind::RoomNotFound)?;
 
                 endpoint::shared::add_room_logger_tags(context, &room);
 
@@ -557,14 +548,14 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
     context: &mut C,
     inev: &E,
     evp: &IncomingEventProperties,
-) -> Result<MessageStream, SvcError> {
+) -> Result<MessageStream, AppError> {
     context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_owned()));
 
     let rtc_stream_id = Uuid::from_str(inev.opaque_id())
         .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
-        .status(ResponseStatus::BAD_REQUEST)?;
+        .error(AppErrorKind::MessageParsingFailed)?;
 
-    let conn = context.db().get()?;
+    let conn = context.get_conn()?;
 
     // If the event relates to the publisher's handle,
     // we will find the corresponding stream and send an event w/ updated stream object
@@ -578,7 +569,7 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
             .rtc_id(rtc_id)
             .execute(&conn)?
             .ok_or_else(|| anyhow!("Room not found or closed"))
-            .status(ResponseStatus::NOT_FOUND)?;
+            .error(AppErrorKind::RoomNotFound)?;
 
         endpoint::shared::add_room_logger_tags(context, &room);
 
@@ -614,13 +605,15 @@ pub(crate) async fn handle_status_event<C: Context>(
 ) -> MessageStream {
     handle_status_event_impl(context, event)
         .await
-        .unwrap_or_else(|err| {
+        .unwrap_or_else(|app_error| {
             error!(
                 context.logger(),
-                "Failed to handle a status event from janus: {}", err
+                "Failed to handle a status event from janus: {}", app_error
             );
 
-            sentry::send(err).unwrap_or_else(|err| {
+            let svc_error: SvcError = app_error.into();
+
+            sentry::send(svc_error).unwrap_or_else(|err| {
                 warn!(context.logger(), "Error sending error to Sentry: {}", err);
             });
 
@@ -631,26 +624,26 @@ pub(crate) async fn handle_status_event<C: Context>(
 async fn handle_status_event_impl<C: Context>(
     context: &mut C,
     event: &MQTTIncomingEvent<String>,
-) -> Result<MessageStream, SvcError> {
+) -> Result<MessageStream, AppError> {
     let evp = event.properties();
     context.add_logger_tags(o!("label" => evp.label().unwrap_or("").to_string()));
 
     let payload = MQTTIncomingEvent::convert_payload::<StatusEvent>(&event)
         .map_err(|err| anyhow!("Failed to parse event: {}", err))
-        .status(ResponseStatus::BAD_REQUEST)?;
+        .error(AppErrorKind::MessageParsingFailed)?;
 
     if payload.online() {
         let event = context
             .janus_client()
             .create_session_request(&payload, evp, context.start_timestamp())
-            .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+            .error(AppErrorKind::MessageBuildingFailed)?;
 
         let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_event)))
     } else {
-        let conn = context.db().get()?;
+        let conn = context.get_conn()?;
 
-        let streams_with_rtc = conn.transaction::<_, SvcError, _>(|| {
+        let streams_with_rtc = conn.transaction::<_, AppError, _>(|| {
             let streams_with_rtc = janus_rtc_stream::ListWithRtcQuery::new()
                 .active(true)
                 .backend_id(evp.as_agent_id())

@@ -85,7 +85,7 @@ impl RequestHandler for CreateHandler {
                 q = q.tags(tags);
             }
 
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
             q.execute(&conn)?
         };
 
@@ -135,13 +135,13 @@ impl RequestHandler for ReadHandler {
         context.add_logger_tags(o!("room_id" => payload.id.to_string()));
 
         let room = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             db::room::FindQuery::new()
                 .id(payload.id)
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found"))
-                .status(ResponseStatus::NOT_FOUND)?
+                .error(AppErrorKind::RoomNotFound)?
         };
 
         shared::add_room_logger_tags(context, &room);
@@ -193,14 +193,14 @@ impl RequestHandler for UpdateHandler {
         context.add_logger_tags(o!("room_id" => payload.id.to_string()));
 
         let room = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             db::room::FindQuery::new()
                 .time(db::room::since_now())
                 .id(payload.id)
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found or closed"))
-                .status(ResponseStatus::NOT_FOUND)?
+                .error(AppErrorKind::RoomNotFound)?
         };
 
         shared::add_room_logger_tags(context, &room);
@@ -225,7 +225,7 @@ impl RequestHandler for UpdateHandler {
                 .reserve(payload.reserve)
                 .tags(payload.tags);
 
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
             query.execute(&conn)?
         };
 
@@ -296,14 +296,14 @@ impl RequestHandler for DeleteHandler {
         context.add_logger_tags(o!("room_id" => payload.id.to_string()));
 
         let room = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             db::room::FindQuery::new()
                 .time(db::room::since_now())
                 .id(payload.id)
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found or closed"))
-                .status(ResponseStatus::NOT_FOUND)?
+                .error(AppErrorKind::RoomNotFound)?
         };
 
         shared::add_room_logger_tags(context, &room);
@@ -319,7 +319,7 @@ impl RequestHandler for DeleteHandler {
 
         // Delete room.
         {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
             db::room::DeleteQuery::new(room.id()).execute(&conn)?;
         }
 
@@ -362,7 +362,7 @@ impl RequestHandler for EnterHandler {
         context.add_logger_tags(o!("room_id" => payload.id.to_string()));
 
         let room = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             // Find opened room.
             db::room::FindQuery::new()
@@ -370,7 +370,7 @@ impl RequestHandler for EnterHandler {
                 .time(db::room::now())
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found or closed"))
-                .status(ResponseStatus::NOT_FOUND)?
+                .error(AppErrorKind::RoomNotFound)?
         };
 
         shared::add_room_logger_tags(context, &room);
@@ -386,7 +386,7 @@ impl RequestHandler for EnterHandler {
 
         // Register agent in `in_progress` state.
         {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
             db::agent::InsertQuery::new(reqp.as_agent_id(), room.id()).execute(&conn)?;
         }
 
@@ -436,13 +436,13 @@ impl RequestHandler for LeaveHandler {
         context.add_logger_tags(o!("room_id" => payload.id.to_string()));
 
         let (room, presence) = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             let room = db::room::FindQuery::new()
                 .id(payload.id)
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found"))
-                .status(ResponseStatus::NOT_FOUND)?;
+                .error(AppErrorKind::RoomNotFound)?;
 
             shared::add_room_logger_tags(context, &room);
 
@@ -457,7 +457,7 @@ impl RequestHandler for LeaveHandler {
 
         if presence.is_empty() {
             return Err(anyhow!("Agent is not online in the room"))
-                .status(ResponseStatus::NOT_FOUND);
+                .error(AppErrorKind::AgentNotEnteredTheRoom);
         }
 
         // Send dynamic subscription deletion request to the broker.
@@ -902,7 +902,7 @@ mod test {
                 assert_eq!(resp_room.backend(), room.backend());
 
                 // Assert room absence in the DB.
-                let conn = context.db().get().unwrap();
+                let conn = context.get_conn().unwrap();
                 let query = crate::schema::room::table.find(room.id());
                 assert_eq!(query.execute(&conn).unwrap(), 0);
             });

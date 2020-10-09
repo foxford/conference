@@ -5,12 +5,10 @@ use async_trait::async_trait;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{
-        IncomingEventProperties, IntoPublishableMessage, OutgoingEvent, ResponseStatus,
-        ShortTermTimingProperties,
+        IncomingEventProperties, IntoPublishableMessage, OutgoingEvent, ShortTermTimingProperties,
     },
     Addressable, AgentId, Authenticable,
 };
-use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::context::Context;
@@ -26,7 +24,7 @@ pub(crate) struct SubscriptionEvent {
 }
 
 impl SubscriptionEvent {
-    fn try_room_id(&self) -> StdResult<Uuid, SvcError> {
+    fn try_room_id(&self) -> StdResult<Uuid, AppError> {
         let object: Vec<&str> = self.object.iter().map(AsRef::as_ref).collect();
 
         match object.as_slice() {
@@ -37,7 +35,7 @@ impl SubscriptionEvent {
                 "Bad 'object' format; expected [\"room\", <ROOM_ID>, \"events\"]",
             )),
         }
-        .status(ResponseStatus::BAD_REQUEST)
+        .error(AppErrorKind::InvalidSubscriptionObject)
     }
 }
 
@@ -66,7 +64,7 @@ impl EventHandler for CreateHandler {
                 "Expected subscription.create event to be sent from the broker account '{}'",
                 context.config().broker_id,
             ))
-            .status(ResponseStatus::FORBIDDEN);
+            .error(AppErrorKind::AccessDenied);
         }
 
         // Find room.
@@ -80,14 +78,14 @@ impl EventHandler for CreateHandler {
         ));
 
         {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             let room = db::room::FindQuery::new()
                 .id(room_id)
                 .time(db::room::now())
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found or closed"))
-                .status(ResponseStatus::NOT_FOUND)?;
+                .error(AppErrorKind::RoomNotFound)?;
 
             shared::add_room_logger_tags(context, &room);
 
@@ -131,13 +129,13 @@ impl EventHandler for DeleteHandler {
                 "Expected subscription.delete event to be sent from the broker account '{}'",
                 context.config().broker_id
             ))
-            .status(ResponseStatus::FORBIDDEN);
+            .error(AppErrorKind::AccessDenied);
         }
 
         // Delete agent from the DB.
         let room_id = payload.try_room_id()?;
         context.add_logger_tags(o!("room_id" => room_id.to_string()));
-        let conn = context.db().get()?;
+        let conn = context.get_conn()?;
 
         let row_count = db::agent::DeleteQuery::new()
             .agent_id(&payload.subject)
@@ -204,14 +202,14 @@ impl EventHandler for DeleteHandler {
                     Ok(req) => messages.push(Box::new(req)),
                     Err(err) => {
                         return Err(err.context("Error creating a backend request"))
-                            .status(ResponseStatus::UNPROCESSABLE_ENTITY);
+                            .error(AppErrorKind::MessageBuildingFailed);
                     }
                 }
             }
 
             Ok(Box::new(stream::from_iter(messages)))
         } else {
-            Err(anyhow!("The agent is not found")).status(ResponseStatus::NOT_FOUND)
+            Err(anyhow!("The agent is not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
         }
     }
 }
@@ -221,6 +219,8 @@ impl EventHandler for DeleteHandler {
 #[cfg(test)]
 mod tests {
     use std::ops::Bound;
+
+    use svc_agent::mqtt::ResponseStatus;
 
     use crate::db::agent::{ListQuery as AgentListQuery, Status as AgentStatus};
     use crate::db::janus_rtc_stream::Object as JanusRtcStream;

@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::mqtt::{
     IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
-    OutgoingMessage, ResponseStatus, ShortTermTimingProperties, TrackingProperties,
+    OutgoingMessage, ShortTermTimingProperties, TrackingProperties,
 };
 use svc_authn::Authenticable;
 use uuid::Uuid;
@@ -76,7 +76,7 @@ impl RequestHandler for VacuumHandler {
             .await?;
 
         let mut requests = Vec::new();
-        let conn = context.db().get()?;
+        let conn = context.get_conn()?;
         let rooms = db::room::finished_with_in_progress_recordings(&conn)?;
 
         for (room, recording, backend) in rooms.into_iter() {
@@ -100,7 +100,7 @@ impl RequestHandler for VacuumHandler {
                     context.start_timestamp(),
                 )
                 .map_err(|err| err.context("Error creating a backend request"))
-                .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+                .error(AppErrorKind::MessageBuildingFailed)?;
 
             requests.push(Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>);
 
@@ -186,6 +186,7 @@ mod test {
         use chrono::{Duration, Utc};
         use diesel::prelude::*;
         use serde_json::Value as JsonValue;
+        use svc_agent::mqtt::ResponseStatus;
 
         use crate::backend::janus::JANUS_API_VERSION;
         use crate::db;
@@ -263,7 +264,7 @@ mod test {
 
                 assert!(messages.len() > 0);
 
-                let conn = context.db().get().unwrap();
+                let conn = context.get_conn().unwrap();
 
                 for rtc in rtcs {
                     // Assert outgoing Janus stream.upload requests.

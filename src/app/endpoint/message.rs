@@ -11,7 +11,6 @@ use svc_agent::mqtt::{
     SubscriptionTopic,
 };
 use svc_agent::{Addressable, AgentId, Subscription};
-use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::context::Context;
@@ -44,7 +43,7 @@ impl RequestHandler for UnicastHandler {
         context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
 
         {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
             let room = find_room(payload.room_id, &conn)?;
             shared::add_room_logger_tags(context, &room);
             check_room_presence(&room, reqp.as_agent_id(), &conn)?;
@@ -55,11 +54,11 @@ impl RequestHandler for UnicastHandler {
             Subscription::multicast_requests_from(&payload.agent_id, Some(API_VERSION))
                 .subscription_topic(context.agent_id(), API_VERSION)
                 .map_err(|err| anyhow!("Error building responses subscription topic: {}", err))
-                .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+                .error(AppErrorKind::MessageBuildingFailed)?;
 
         let correlation_data = to_base64(reqp)
             .map_err(|err| err.context("Error encoding incoming request properties"))
-            .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+            .error(AppErrorKind::MessageBuildingFailed)?;
 
         let props = reqp.to_request(
             reqp.method(),
@@ -104,7 +103,7 @@ impl RequestHandler for BroadcastHandler {
         context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
 
         let room = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
             let room = find_room(payload.room_id, &conn)?;
             shared::add_room_logger_tags(context, &room);
             check_room_presence(&room, &reqp.as_agent_id(), &conn)?;
@@ -152,7 +151,7 @@ impl ResponseHandler for CallbackHandler {
         respp: &IncomingResponseProperties,
     ) -> Result {
         let reqp = from_base64::<IncomingRequestProperties>(respp.correlation_data())
-            .status(ResponseStatus::BAD_REQUEST)?;
+            .error(AppErrorKind::MessageParsingFailed)?;
 
         let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
 
@@ -178,27 +177,27 @@ impl ResponseHandler for CallbackHandler {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-fn find_room(id: Uuid, conn: &PgConnection) -> StdResult<Room, SvcError> {
+fn find_room(id: Uuid, conn: &PgConnection) -> StdResult<Room, AppError> {
     db::room::FindQuery::new()
         .time(db::room::now())
         .id(id)
         .execute(&conn)?
         .ok_or_else(|| anyhow!("Room not found or closed"))
-        .status(ResponseStatus::NOT_FOUND)
+        .error(AppErrorKind::RoomNotFound)
 }
 
 fn check_room_presence(
     room: &Room,
     agent_id: &AgentId,
     conn: &PgConnection,
-) -> StdResult<(), SvcError> {
+) -> StdResult<(), AppError> {
     let results = db::agent::ListQuery::new()
         .room_id(room.id())
         .agent_id(agent_id)
         .execute(conn)?;
 
     if results.is_empty() {
-        Err(anyhow!("Agent is not online in the room")).status(ResponseStatus::NOT_FOUND)
+        Err(anyhow!("Agent is not online in the room")).error(AppErrorKind::AgentNotEnteredTheRoom)
     } else {
         Ok(())
     }

@@ -7,7 +7,6 @@ use svc_agent::{
     mqtt::{IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus},
     Addressable,
 };
-use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::context::Context;
@@ -52,14 +51,14 @@ impl RequestHandler for CreateHandler {
         context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
 
         let room = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             db::room::FindQuery::new()
                 .time(db::room::now())
                 .id(payload.room_id)
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found or closed"))
-                .status(ResponseStatus::NOT_FOUND)?
+                .error(AppErrorKind::RoomNotFound)?
         };
 
         shared::add_room_logger_tags(context, &room);
@@ -75,7 +74,7 @@ impl RequestHandler for CreateHandler {
 
         // Create an rtc.
         let rtc = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
             db::rtc::InsertQuery::new(room.id()).execute(&conn)?
         };
 
@@ -124,14 +123,14 @@ impl RequestHandler for ReadHandler {
         context.add_logger_tags(o!("rtc_id" => payload.id.to_string()));
 
         let room = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             db::room::FindQuery::new()
                 .time(db::room::now())
                 .rtc_id(payload.id)
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found or closed"))
-                .status(ResponseStatus::NOT_FOUND)?
+                .error(AppErrorKind::RoomNotFound)?
         };
 
         shared::add_room_logger_tags(context, &room);
@@ -148,13 +147,13 @@ impl RequestHandler for ReadHandler {
 
         // Return rtc.
         let rtc = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             db::rtc::FindQuery::new()
                 .id(payload.id)
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("RTC not found"))
-                .status(ResponseStatus::NOT_FOUND)?
+                .error(AppErrorKind::RtcNotFound)?
         };
 
         Ok(Box::new(stream::once(shared::build_response(
@@ -193,14 +192,14 @@ impl RequestHandler for ListHandler {
         context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
 
         let room = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             db::room::FindQuery::new()
                 .time(db::room::now())
                 .id(payload.room_id)
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found or closed"))
-                .status(ResponseStatus::NOT_FOUND)?
+                .error(AppErrorKind::RoomNotFound)?
         };
 
         // Authorize rtc listing.
@@ -223,7 +222,7 @@ impl RequestHandler for ListHandler {
         query = query.limit(limit);
 
         let rtcs = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
             query.execute(&conn)?
         };
 
@@ -286,14 +285,14 @@ impl RequestHandler for ConnectHandler {
         ));
 
         let room = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             db::room::FindQuery::new()
                 .time(db::room::now())
                 .rtc_id(payload.id)
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found or closed"))
-                .status(ResponseStatus::NOT_FOUND)?
+                .error(AppErrorKind::RoomNotFound)?
         };
 
         shared::add_room_logger_tags(context, &room);
@@ -304,7 +303,7 @@ impl RequestHandler for ConnectHandler {
                 "'rtc.connect' is not implemented for '{}' backend",
                 room.backend(),
             ))
-            .status(ResponseStatus::NOT_IMPLEMENTED);
+            .error(AppErrorKind::NotImplemented);
         }
 
         let rtc_id = payload.id.to_string();
@@ -323,7 +322,7 @@ impl RequestHandler for ConnectHandler {
 
         // Choose backend to connect.
         let backend = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             // There are 3 cases:
             // 1. Connecting as writer for the first time. There's no recording in that case.
@@ -343,7 +342,7 @@ impl RequestHandler for ConnectHandler {
                     .id(recording.backend_id().to_owned())
                     .execute(&conn)?
                     .ok_or_else(|| anyhow!("No backend found for stream"))
-                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?,
+                    .error(AppErrorKind::BackendNotFound)?,
                 None => match db::janus_backend::most_loaded(room.id(), &conn)? {
                     Some(backend) => backend,
                     None => db::janus_backend::least_loaded(room.id(), &conn)?
@@ -370,7 +369,7 @@ impl RequestHandler for ConnectHandler {
                             backend
                         })
                         .ok_or_else(|| anyhow!("No available backends"))
-                        .status(ResponseStatus::SERVICE_UNAVAILABLE)?,
+                        .error(AppErrorKind::NoAvailableBackends)?,
                 },
             };
 
@@ -383,13 +382,10 @@ impl RequestHandler for ConnectHandler {
             if payload.intent == ConnectIntent::Read
                 && db::janus_backend::free_capacity(payload.id, &conn)? == 0
             {
-                let err = SvcError::builder()
-                    .status(ResponseStatus::SERVICE_UNAVAILABLE)
-                    .kind("capacity_exceeded", "Capacity exceeded")
-                    .detail("active agents number on the backend exceeded its capacity")
-                    .build();
-
-                return Err(err);
+                return Err(anyhow!(
+                    "Active agents number on the backend exceeded its capacity"
+                ))
+                .error(AppErrorKind::CapacityExceeded);
             }
 
             backend
@@ -410,7 +406,7 @@ impl RequestHandler for ConnectHandler {
 
         match janus_request_result {
             Ok(req) => {
-                let conn = context.db().get()?;
+                let conn = context.get_conn()?;
 
                 db::agent::UpdateQuery::new(reqp.as_agent_id(), room.id())
                     .status(db::agent::Status::Connected)
@@ -420,7 +416,7 @@ impl RequestHandler for ConnectHandler {
                 Ok(Box::new(stream::once(boxed_request)))
             }
             Err(err) => Err(err.context("Error creating a backend request"))
-                .status(ResponseStatus::UNPROCESSABLE_ENTITY),
+                .error(AppErrorKind::MessageBuildingFailed),
         }
     }
 }

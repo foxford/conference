@@ -33,14 +33,14 @@ impl RequestHandler for ListHandler {
     ) -> Result {
         // Check whether the room exists and open.
         let room = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             db::room::FindQuery::new()
                 .id(payload.room_id)
                 .time(db::room::now())
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found or closed"))
-                .status(ResponseStatus::NOT_FOUND)?
+                .error(AppErrorKind::RoomNotFound)?
         };
 
         shared::add_room_logger_tags(context, &room);
@@ -56,7 +56,7 @@ impl RequestHandler for ListHandler {
 
         // Get agents list in the room.
         let agents = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             db::agent::ListQuery::new()
                 .room_id(payload.room_id)

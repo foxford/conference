@@ -25,3 +25,4 @@
         - [List](api/rtc_stream/list.md)
     - [Agent](api/agent.md)
         - [List](api/agent/list.md)
+    - [Errors](api/errors.md)
