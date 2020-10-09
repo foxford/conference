@@ -41,24 +41,12 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
-
         if let Some(rtc_id) = payload.rtc_id {
             context.add_logger_tags(o!("rtc_id" => rtc_id.to_string()));
         }
 
-        let room = {
-            let conn = context.get_conn()?;
-
-            db::room::FindQuery::new()
-                .time(db::room::now())
-                .id(payload.room_id)
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("Room not found or closed"))
-                .error(AppErrorKind::RoomNotFound)?
-        };
-
-        shared::add_room_logger_tags(context, &room);
+        let room =
+            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
 
         if room.backend() != db::room::RoomBackend::Janus {
             let err = anyhow!(
@@ -98,7 +86,7 @@ impl RequestHandler for ListHandler {
             query.execute(&conn)?
         };
 
-        Ok(Box::new(stream::once(shared::build_response(
+        Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
             rtc_streams,
             reqp,
@@ -248,6 +236,7 @@ mod test {
                     .expect_err("Unexpected success on rtc listing");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             });
         }
 
@@ -270,6 +259,7 @@ mod test {
                     .expect_err("Unexpected success on rtc listing");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
     }

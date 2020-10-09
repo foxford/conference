@@ -66,8 +66,8 @@ impl RequestHandler for CreateHandler {
         let sdp_type = match parse_sdp_type(&payload.jsep) {
             Ok(sdp_type) => sdp_type,
             Err(err) => {
-                return Err(err.context("Invalid JSEP format"))
-                    .error(AppErrorKind::InvalidJsepFormat)
+                return Err(err.context("Failed to parse SDP type"))
+                    .error(AppErrorKind::InvalidSdpType)
             }
         };
 
@@ -178,17 +178,7 @@ async fn authorize<C: Context>(
     action: &str,
 ) -> StdResult<Duration, AppError> {
     let rtc_id = payload.handle_id.rtc_id();
-
-    let room = {
-        let conn = context.get_conn()?;
-
-        db::room::FindQuery::new()
-            .time(db::room::now())
-            .rtc_id(rtc_id)
-            .execute(&conn)?
-            .ok_or_else(|| anyhow!("Room not found or closed"))
-            .error(AppErrorKind::RoomNotFound)?
-    };
+    let room = helpers::find_room_by_rtc_id(context, rtc_id, helpers::RoomTimeRequirement::Open)?;
 
     if room.backend() != db::room::RoomBackend::Janus {
         let err = anyhow!(
@@ -477,6 +467,7 @@ mod test {
                     .expect_err("Unexpected success on rtc creation");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             });
         }
 
@@ -550,6 +541,7 @@ mod test {
                     .expect_err("Unexpected success on rtc creation");
 
                 assert_eq!(err.status_code(), ResponseStatus::BAD_REQUEST);
+                assert_eq!(err.kind(), "invalid_sdp_type");
             });
         }
 
@@ -682,6 +674,7 @@ mod test {
                     .expect_err("Unexpected success on rtc creation");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             });
         }
     }

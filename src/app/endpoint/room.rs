@@ -89,10 +89,10 @@ impl RequestHandler for CreateHandler {
             q.execute(&conn)?
         };
 
-        shared::add_room_logger_tags(context, &room);
+        helpers::add_room_logger_tags(context, &room);
 
         // Respond and broadcast to the audience topic.
-        let response = shared::build_response(
+        let response = helpers::build_response(
             // TODO: Change to `ResponseStatus::CREATED` (breaking).
             ResponseStatus::OK,
             room.clone(),
@@ -101,7 +101,7 @@ impl RequestHandler for CreateHandler {
             Some(authz_time),
         );
 
-        let notification = shared::build_notification(
+        let notification = helpers::build_notification(
             "room.create",
             &format!("audiences/{}/events", payload.audience),
             room,
@@ -132,19 +132,8 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!("room_id" => payload.id.to_string()));
-
-        let room = {
-            let conn = context.get_conn()?;
-
-            db::room::FindQuery::new()
-                .id(payload.id)
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("Room not found"))
-                .error(AppErrorKind::RoomNotFound)?
-        };
-
-        shared::add_room_logger_tags(context, &room);
+        let room =
+            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::Any)?;
 
         // Authorize room reading on the tenant.
         let room_id = room.id().to_string();
@@ -155,7 +144,7 @@ impl RequestHandler for ReadHandler {
             .authorize(room.audience(), reqp, object, "read")
             .await?;
 
-        Ok(Box::new(stream::once(shared::build_response(
+        Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
             room,
             reqp,
@@ -190,20 +179,8 @@ impl RequestHandler for UpdateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!("room_id" => payload.id.to_string()));
-
-        let room = {
-            let conn = context.get_conn()?;
-
-            db::room::FindQuery::new()
-                .time(db::room::since_now())
-                .id(payload.id)
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("Room not found or closed"))
-                .error(AppErrorKind::RoomNotFound)?
-        };
-
-        shared::add_room_logger_tags(context, &room);
+        let room =
+            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::NotClosed)?;
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
@@ -230,7 +207,7 @@ impl RequestHandler for UpdateHandler {
         };
 
         // Respond and broadcast to the audience topic.
-        let response = shared::build_response(
+        let response = helpers::build_response(
             ResponseStatus::OK,
             room.clone(),
             reqp,
@@ -238,7 +215,7 @@ impl RequestHandler for UpdateHandler {
             Some(authz_time),
         );
 
-        let notification = shared::build_notification(
+        let notification = helpers::build_notification(
             "room.update",
             &format!("audiences/{}/events", room.audience()),
             room.clone(),
@@ -249,7 +226,7 @@ impl RequestHandler for UpdateHandler {
         let mut responses = vec![response, notification];
 
         let append_closed_notification = || {
-            let closed_notification = shared::build_notification(
+            let closed_notification = helpers::build_notification(
                 "room.close",
                 &format!("rooms/{}/events", room.id()),
                 room,
@@ -293,20 +270,8 @@ impl RequestHandler for DeleteHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!("room_id" => payload.id.to_string()));
-
-        let room = {
-            let conn = context.get_conn()?;
-
-            db::room::FindQuery::new()
-                .time(db::room::since_now())
-                .id(payload.id)
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("Room not found or closed"))
-                .error(AppErrorKind::RoomNotFound)?
-        };
-
-        shared::add_room_logger_tags(context, &room);
+        let room =
+            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::NotClosed)?;
 
         // Authorize room deletion on the tenant.
         let room_id = room.id().to_string();
@@ -324,7 +289,7 @@ impl RequestHandler for DeleteHandler {
         }
 
         // Respond and broadcast to the audience topic.
-        let response = shared::build_response(
+        let response = helpers::build_response(
             ResponseStatus::OK,
             room.clone(),
             reqp,
@@ -332,7 +297,7 @@ impl RequestHandler for DeleteHandler {
             Some(authz_time),
         );
 
-        let notification = shared::build_notification(
+        let notification = helpers::build_notification(
             "room.update",
             &format!("audiences/{}/events", room.audience()),
             room,
@@ -359,21 +324,8 @@ impl RequestHandler for EnterHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!("room_id" => payload.id.to_string()));
-
-        let room = {
-            let conn = context.get_conn()?;
-
-            // Find opened room.
-            db::room::FindQuery::new()
-                .id(payload.id)
-                .time(db::room::now())
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("Room not found or closed"))
-                .error(AppErrorKind::RoomNotFound)?
-        };
-
-        shared::add_room_logger_tags(context, &room);
+        let room =
+            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::Open)?;
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();
@@ -433,18 +385,11 @@ impl RequestHandler for LeaveHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!("room_id" => payload.id.to_string()));
-
         let (room, presence) = {
+            let room =
+                helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::Any)?;
+
             let conn = context.get_conn()?;
-
-            let room = db::room::FindQuery::new()
-                .id(payload.id)
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("Room not found"))
-                .error(AppErrorKind::RoomNotFound)?;
-
-            shared::add_room_logger_tags(context, &room);
 
             // Check room presence.
             let presence = db::agent::ListQuery::new()
@@ -581,6 +526,7 @@ mod test {
                     .expect_err("Unexpected success on room creation");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             });
         }
     }
@@ -652,6 +598,7 @@ mod test {
                     .expect_err("Unexpected success on room reading");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             });
         }
 
@@ -667,6 +614,7 @@ mod test {
                     .expect_err("Unexpected success on room reading");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
     }
@@ -796,11 +744,13 @@ mod test {
                     .expect("Room update failed");
 
                 assert_eq!(messages.len(), 3);
+
                 let (closed_notification, _, _) =
                     find_event_by_predicate::<JsonValue, _>(messages.as_slice(), |evp, _| {
                         evp.label() == "room.close"
                     })
                     .expect("Failed to find room.close event");
+
                 assert_eq!(
                     closed_notification.get("id").and_then(|v| v.as_str()),
                     Some(room.id().to_string()).as_deref()
@@ -813,6 +763,7 @@ mod test {
             async_std::task::block_on(async {
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+
                 let payload = UpdateRequest {
                     id: Uuid::new_v4(),
                     ..Default::default()
@@ -823,6 +774,7 @@ mod test {
                     .expect_err("Unexpected success on room update");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
 
@@ -842,7 +794,8 @@ mod test {
                     shared_helpers::insert_closed_room(&conn)
                 };
 
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+                let mut context = TestContext::new(db, TestAuthz::new());
+
                 let payload = UpdateRequest {
                     id: room.id(),
                     ..Default::default()
@@ -853,6 +806,7 @@ mod test {
                     .expect_err("Unexpected success on room update");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_closed");
             });
         }
     }
@@ -931,6 +885,7 @@ mod test {
                     .expect_err("Unexpected success on room deletion");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             });
         }
 
@@ -946,6 +901,7 @@ mod test {
                     .expect_err("Unexpected success on room deletion");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
     }
@@ -1030,6 +986,7 @@ mod test {
                     .expect_err("Unexpected success on room entering");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             });
         }
 
@@ -1045,6 +1002,7 @@ mod test {
                     .expect_err("Unexpected success on room entering");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
 
@@ -1083,6 +1041,7 @@ mod test {
                     .expect_err("Unexpected success on room entering");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_closed");
             });
         }
     }
@@ -1163,6 +1122,7 @@ mod test {
                     .expect_err("Unexpected success on room leaving");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "agent_not_entered_the_room");
             });
         }
 
@@ -1178,6 +1138,7 @@ mod test {
                     .expect_err("Unexpected success on room leaving");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
     }

@@ -71,23 +71,15 @@ impl EventHandler for CreateHandler {
         let room_id = payload.try_room_id()?;
 
         context.add_logger_tags(o!(
-            "room_id" => room_id.to_string(),
             "agent_label" => evp.as_agent_id().label().to_owned(),
             "account_label" => evp.as_account_id().label().to_owned(),
             "audience" => evp.as_account_id().audience().to_owned(),
         ));
 
+        helpers::find_room_by_id(context, room_id, helpers::RoomTimeRequirement::Open)?;
+
         {
             let conn = context.get_conn()?;
-
-            let room = db::room::FindQuery::new()
-                .id(room_id)
-                .time(db::room::now())
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("Room not found or closed"))
-                .error(AppErrorKind::RoomNotFound)?;
-
-            shared::add_room_logger_tags(context, &room);
 
             // Update agent state to `ready`.
             db::agent::UpdateQuery::new(&payload.subject, room_id)
@@ -315,6 +307,7 @@ mod tests {
                 .expect_err("Unexpected success on subscription creation");
 
             assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         });
     }
 
@@ -349,6 +342,7 @@ mod tests {
                 .expect_err("Unexpected success on subscription creation");
 
             assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_closed");
         });
     }
 
@@ -522,6 +516,7 @@ mod tests {
                 .expect_err("Unexpected success on subscription deletion");
 
             assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
         });
     }
 
@@ -546,6 +541,7 @@ mod tests {
                 .expect_err("Unexpected success on subscription deletion");
 
             assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
         });
     }
 }

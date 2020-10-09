@@ -48,20 +48,8 @@ impl RequestHandler for CreateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
-
-        let room = {
-            let conn = context.get_conn()?;
-
-            db::room::FindQuery::new()
-                .time(db::room::now())
-                .id(payload.room_id)
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("Room not found or closed"))
-                .error(AppErrorKind::RoomNotFound)?
-        };
-
-        shared::add_room_logger_tags(context, &room);
+        let room =
+            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
 
         // Authorize room creation.
         let room_id = room.id().to_string();
@@ -81,7 +69,7 @@ impl RequestHandler for CreateHandler {
         context.add_logger_tags(o!("rtc_id" => rtc.id().to_string()));
 
         // Respond and broadcast to the room topic.
-        let response = shared::build_response(
+        let response = helpers::build_response(
             ResponseStatus::CREATED,
             rtc.clone(),
             reqp,
@@ -89,7 +77,7 @@ impl RequestHandler for CreateHandler {
             Some(authz_time),
         );
 
-        let notification = shared::build_notification(
+        let notification = helpers::build_notification(
             "room.create",
             &format!("rooms/{}/events", room.id()),
             rtc,
@@ -120,20 +108,8 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!("rtc_id" => payload.id.to_string()));
-
-        let room = {
-            let conn = context.get_conn()?;
-
-            db::room::FindQuery::new()
-                .time(db::room::now())
-                .rtc_id(payload.id)
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("Room not found or closed"))
-                .error(AppErrorKind::RoomNotFound)?
-        };
-
-        shared::add_room_logger_tags(context, &room);
+        let room =
+            helpers::find_room_by_rtc_id(context, payload.id, helpers::RoomTimeRequirement::Open)?;
 
         // Authorize rtc reading.
         let rtc_id = payload.id.to_string();
@@ -156,7 +132,7 @@ impl RequestHandler for ReadHandler {
                 .error(AppErrorKind::RtcNotFound)?
         };
 
-        Ok(Box::new(stream::once(shared::build_response(
+        Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
             rtc,
             reqp,
@@ -189,18 +165,8 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
-
-        let room = {
-            let conn = context.get_conn()?;
-
-            db::room::FindQuery::new()
-                .time(db::room::now())
-                .id(payload.room_id)
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("Room not found or closed"))
-                .error(AppErrorKind::RoomNotFound)?
-        };
+        let room =
+            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
 
         // Authorize rtc listing.
         let room_id = room.id().to_string();
@@ -226,7 +192,7 @@ impl RequestHandler for ListHandler {
             query.execute(&conn)?
         };
 
-        Ok(Box::new(stream::once(shared::build_response(
+        Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
             rtcs,
             reqp,
@@ -284,18 +250,8 @@ impl RequestHandler for ConnectHandler {
             "intent" => payload.intent.to_string(),
         ));
 
-        let room = {
-            let conn = context.get_conn()?;
-
-            db::room::FindQuery::new()
-                .time(db::room::now())
-                .rtc_id(payload.id)
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("Room not found or closed"))
-                .error(AppErrorKind::RoomNotFound)?
-        };
-
-        shared::add_room_logger_tags(context, &room);
+        let room =
+            helpers::find_room_by_rtc_id(context, payload.id, helpers::RoomTimeRequirement::Open)?;
 
         // Authorize connecting to the rtc.
         if room.backend() != db::room::RoomBackend::Janus {
@@ -485,6 +441,7 @@ mod test {
                     .expect_err("Unexpected success on rtc creation");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
 
@@ -510,6 +467,7 @@ mod test {
                     .expect_err("Unexpected success on rtc creation");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             });
         }
     }
@@ -581,6 +539,7 @@ mod test {
                     .expect_err("Unexpected success on rtc reading");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             });
         }
 
@@ -596,6 +555,7 @@ mod test {
                     .expect_err("Unexpected success on rtc reading");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
     }
@@ -678,6 +638,7 @@ mod test {
                     .expect_err("Unexpected success on rtc listing");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             });
         }
 
@@ -698,6 +659,7 @@ mod test {
                     .expect_err("Unexpected success on rtc listing");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
     }
@@ -1512,6 +1474,7 @@ mod test {
                     .expect_err("Unexpected success on rtc connecting");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             });
         }
 
@@ -1531,6 +1494,7 @@ mod test {
                     .expect_err("Unexpected success on rtc connecting");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
     }
