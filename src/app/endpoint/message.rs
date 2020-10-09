@@ -40,12 +40,14 @@ impl RequestHandler for UnicastHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
-
         {
+            let room = helpers::find_room_by_id(
+                context,
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+            )?;
+
             let conn = context.get_conn()?;
-            let room = find_room(payload.room_id, &conn)?;
-            shared::add_room_logger_tags(context, &room);
             check_room_presence(&room, reqp.as_agent_id(), &conn)?;
             check_room_presence(&room, &payload.agent_id, &conn)?;
         }
@@ -100,12 +102,14 @@ impl RequestHandler for BroadcastHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!("room_id" => payload.room_id.to_string()));
-
         let room = {
+            let room = helpers::find_room_by_id(
+                context,
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+            )?;
+
             let conn = context.get_conn()?;
-            let room = find_room(payload.room_id, &conn)?;
-            shared::add_room_logger_tags(context, &room);
             check_room_presence(&room, &reqp.as_agent_id(), &conn)?;
             room
         };
@@ -117,7 +121,7 @@ impl RequestHandler for BroadcastHandler {
         }
 
         // Respond and broadcast to the room topic.
-        let response = shared::build_response(
+        let response = helpers::build_response(
             ResponseStatus::OK,
             json!({}),
             reqp,
@@ -125,7 +129,7 @@ impl RequestHandler for BroadcastHandler {
             None,
         );
 
-        let notification = shared::build_notification(
+        let notification = helpers::build_notification(
             "message.broadcast",
             &format!("rooms/{}/events", room.id()),
             payload.data,
@@ -176,15 +180,6 @@ impl ResponseHandler for CallbackHandler {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-
-fn find_room(id: Uuid, conn: &PgConnection) -> StdResult<Room, AppError> {
-    db::room::FindQuery::new()
-        .time(db::room::now())
-        .id(id)
-        .execute(&conn)?
-        .ok_or_else(|| anyhow!("Room not found or closed"))
-        .error(AppErrorKind::RoomNotFound)
-}
 
 fn check_room_presence(
     room: &Room,
@@ -290,6 +285,7 @@ mod test {
                     .expect_err("Unexpected success on unicast message sending");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
 
@@ -330,6 +326,7 @@ mod test {
                     .expect_err("Unexpected success on unicast message sending");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "agent_not_entered_the_room");
             });
         }
 
@@ -370,6 +367,7 @@ mod test {
                     .expect_err("Unexpected success on unicast message sending");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "agent_not_entered_the_room");
             });
         }
     }
@@ -450,6 +448,7 @@ mod test {
                     .expect_err("Unexpected success on unicast message sending");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
 
@@ -480,6 +479,7 @@ mod test {
                     .expect_err("Unexpected success on unicast message sending");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "agent_not_entered_the_room");
             });
         }
     }

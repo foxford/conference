@@ -358,11 +358,11 @@ async fn handle_response_impl<C: Context>(
                                     .ok_or_else(|| anyhow!("RTC not found"))
                                     .error(AppErrorKind::RtcNotFound)?;
 
-                                let room = room::FindQuery::new()
-                                    .id(rtc.room_id())
-                                    .execute(&conn)?
-                                    .ok_or_else(|| anyhow!("Room not found"))
-                                    .error(AppErrorKind::RoomNotFound)?;
+                                let room = endpoint::helpers::find_room_by_rtc_id(
+                                    context,
+                                    rtc.room_id(),
+                                    endpoint::helpers::RoomTimeRequirement::Any,
+                                )?;
 
                                 // TODO: move to db module
                                 use diesel::prelude::*;
@@ -509,17 +509,11 @@ async fn handle_event_impl<C: Context>(
             // we will find the corresponding stream and send event w/ updated stream object
             // to the room's topic.
             if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
-                let rtc_id = rtc_stream.rtc_id();
-                context.add_logger_tags(o!("rtc_id" => rtc_id.to_string()));
-
-                let room = room::FindQuery::new()
-                    .time(room::now())
-                    .rtc_id(rtc_id)
-                    .execute(&conn)?
-                    .ok_or_else(|| anyhow!("Room not found or closed"))
-                    .error(AppErrorKind::RoomNotFound)?;
-
-                endpoint::shared::add_room_logger_tags(context, &room);
+                let room = endpoint::helpers::find_room_by_rtc_id(
+                    context,
+                    rtc_stream.rtc_id(),
+                    endpoint::helpers::RoomTimeRequirement::Open,
+                )?;
 
                 let event = endpoint::rtc_stream::update_event(
                     room.id(),
@@ -561,17 +555,11 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
     // we will find the corresponding stream and send an event w/ updated stream object
     // to the room's topic.
     if let Some(rtc_stream) = janus_rtc_stream::stop(rtc_stream_id, &conn)? {
-        let rtc_id = rtc_stream.rtc_id();
-        context.add_logger_tags(o!("rtc_id" => rtc_id.to_string()));
-
-        let room = room::FindQuery::new()
-            .time(room::now())
-            .rtc_id(rtc_id)
-            .execute(&conn)?
-            .ok_or_else(|| anyhow!("Room not found or closed"))
-            .error(AppErrorKind::RoomNotFound)?;
-
-        endpoint::shared::add_room_logger_tags(context, &room);
+        let room = endpoint::helpers::find_room_by_rtc_id(
+            context,
+            rtc_stream.rtc_id(),
+            endpoint::helpers::RoomTimeRequirement::Open,
+        )?;
 
         // Publish the update event only if the stream object has been changed.
         // If there's no actual media stream, the object wouldn't contain its start time.

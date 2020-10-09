@@ -17,29 +17,6 @@ use crate::schema::{room, rtc};
 
 pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
-/// Use to filter by not expired room allowing time before room opening.
-///
-///    [-----room.time-----]
-/// [---------------------------- OK
-///              [--------------- OK
-///                           [-- NOT OK
-pub(crate) fn since_now() -> Time {
-    (Bound::Included(Utc::now()), Bound::Unbounded)
-}
-
-/// Use to filter strictly by room time range.
-///
-///    [-----room.time-----]
-///  |                            NOT OK
-///              |                OK
-///                          |    NOT OK
-pub(crate) fn now() -> Time {
-    let now = Utc::now();
-    (Bound::Included(now), Bound::Included(now))
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 type AllColumns = (
     room::id,
     room::time,
@@ -104,7 +81,6 @@ impl Object {
         self.id
     }
 
-    #[cfg(test)]
     pub(crate) fn time(&self) -> &Time {
         &self.time
     }
@@ -132,62 +108,53 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+pub(crate) trait FindQueryable {
+    fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error>;
+}
+
+#[derive(Debug)]
 pub(crate) struct FindQuery {
-    id: Option<Uuid>,
-    rtc_id: Option<Uuid>,
-    time: Option<Time>,
+    id: Uuid,
 }
 
 impl FindQuery {
-    pub(crate) fn new() -> Self {
-        Self {
-            id: None,
-            rtc_id: None,
-            time: None,
-        }
+    pub(crate) fn new(id: Uuid) -> Self {
+        Self { id }
     }
+}
 
-    pub(crate) fn id(self, id: Uuid) -> Self {
-        Self {
-            id: Some(id),
-            ..self
-        }
-    }
-
-    pub(crate) fn rtc_id(self, rtc_id: Uuid) -> Self {
-        Self {
-            rtc_id: Some(rtc_id),
-            ..self
-        }
-    }
-
-    pub(crate) fn time(self, time: Time) -> Self {
-        Self {
-            time: Some(time),
-            ..self
-        }
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+impl FindQueryable for FindQuery {
+    fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
-        use diesel::{dsl::sql, sql_types::Tstzrange};
 
-        let mut q = room::table.into_boxed();
+        room::table
+            .filter(room::id.eq(self.id))
+            .get_result(conn)
+            .optional()
+    }
+}
 
-        if let Some(time) = self.time {
-            q = q.filter(sql("room.time && ").bind::<Tstzrange, _>(time));
-        }
+#[derive(Debug)]
+pub(crate) struct FindByRtcIdQuery {
+    rtc_id: Uuid,
+}
 
-        match (self.id, self.rtc_id) {
-            (Some(id), None) => q.filter(room::id.eq(id)).get_result(conn).optional(),
-            (None, Some(rtc_id)) => q
-                .inner_join(rtc::table)
-                .filter(rtc::id.eq(rtc_id))
-                .select(ALL_COLUMNS)
-                .get_result(conn)
-                .optional(),
-            _ => Err(Error::QueryBuilderError("id either rtc_id required".into())),
-        }
+impl FindByRtcIdQuery {
+    pub(crate) fn new(rtc_id: Uuid) -> Self {
+        Self { rtc_id }
+    }
+}
+
+impl FindQueryable for FindByRtcIdQuery {
+    fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+        use diesel::prelude::*;
+
+        room::table
+            .inner_join(rtc::table)
+            .filter(rtc::id.eq(self.rtc_id))
+            .select(ALL_COLUMNS)
+            .get_result(conn)
+            .optional()
     }
 }
 

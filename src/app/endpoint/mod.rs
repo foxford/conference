@@ -140,17 +140,17 @@ event_routes!(
 ///////////////////////////////////////////////////////////////////////////////
 
 mod agent;
+pub(crate) mod helpers;
 mod message;
 mod metric;
 mod room;
 pub(crate) mod rtc;
 pub(crate) mod rtc_signal;
 pub(crate) mod rtc_stream;
-pub(crate) mod shared;
 mod subscription;
 pub(crate) mod system;
 
 pub(self) mod prelude {
-    pub(super) use super::{shared, EventHandler, RequestHandler, ResponseHandler, Result};
+    pub(super) use super::{helpers, EventHandler, RequestHandler, ResponseHandler, Result};
     pub(super) use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 }

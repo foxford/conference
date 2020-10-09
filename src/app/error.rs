@@ -26,11 +26,12 @@ pub(crate) enum ErrorKind {
     MessageParsingFailed,
     NoAvailableBackends,
     NotImplemented,
-    StatsCollectionFailed,
     PublishFailed,
     ResubscriptionFailed,
+    RoomClosed,
     RoomNotFound,
     RtcNotFound,
+    StatsCollectionFailed,
 }
 
 impl Into<(ResponseStatus, &'static str, &'static str)> for ErrorKind {
@@ -122,27 +123,28 @@ impl Into<(ResponseStatus, &'static str, &'static str)> for ErrorKind {
                 "not_implemented",
                 "Not implemented",
             ),
-            Self::ResubscriptionFailed => (
-                ResponseStatus::INTERNAL_SERVER_ERROR,
-                "resubscription_failed",
-                "Resubscription failed",
-            ),
-            Self::StatsCollectionFailed => (
-                ResponseStatus::UNPROCESSABLE_ENTITY,
-                "stats_collection_failed",
-                "Stats collection failed",
-            ),
             Self::PublishFailed => (
                 ResponseStatus::UNPROCESSABLE_ENTITY,
                 "publish_failed",
                 "Publish failed",
             ),
+            Self::ResubscriptionFailed => (
+                ResponseStatus::INTERNAL_SERVER_ERROR,
+                "resubscription_failed",
+                "Resubscription failed",
+            ),
+            Self::RoomClosed => (ResponseStatus::NOT_FOUND, "room_closed", "Room closed"),
             Self::RoomNotFound => (
                 ResponseStatus::NOT_FOUND,
                 "room_not_found",
                 "Room not found",
             ),
             Self::RtcNotFound => (ResponseStatus::NOT_FOUND, "rtc_not_found", "RTC not found"),
+            Self::StatsCollectionFailed => (
+                ResponseStatus::UNPROCESSABLE_ENTITY,
+                "stats_collection_failed",
+                "Stats collection failed",
+            ),
         }
     }
 }

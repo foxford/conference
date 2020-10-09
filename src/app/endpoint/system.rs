@@ -105,7 +105,7 @@ impl RequestHandler for VacuumHandler {
             requests.push(Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>);
 
             // Publish room closed notification
-            let closed_notification = shared::build_notification(
+            let closed_notification = helpers::build_notification(
                 "room.close",
                 &format!("rooms/{}/events", room.id()),
                 room,
@@ -340,6 +340,7 @@ mod test {
                     .expect_err("Unexpected success on system vacuum");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             })
         }
     }

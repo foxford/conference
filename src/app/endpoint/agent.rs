@@ -31,19 +31,8 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        // Check whether the room exists and open.
-        let room = {
-            let conn = context.get_conn()?;
-
-            db::room::FindQuery::new()
-                .id(payload.room_id)
-                .time(db::room::now())
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("Room not found or closed"))
-                .error(AppErrorKind::RoomNotFound)?
-        };
-
-        shared::add_room_logger_tags(context, &room);
+        let room =
+            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
 
         // Authorize agents listing in the room.
         let room_id = room.id().to_string();
@@ -69,7 +58,7 @@ impl RequestHandler for ListHandler {
         };
 
         // Respond with agents list.
-        Ok(Box::new(stream::once(shared::build_response(
+        Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
             agents,
             reqp,
@@ -178,6 +167,7 @@ mod tests {
                     .expect_err("Unexpected success on agents listing");
 
                 assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
             });
         }
 
@@ -221,6 +211,7 @@ mod tests {
                     .expect_err("Unexpected success on agents listing");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_closed");
             });
         }
 
@@ -241,6 +232,7 @@ mod tests {
                     .expect_err("Unexpected success on agents listing");
 
                 assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_not_found");
             });
         }
     }

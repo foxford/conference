@@ -35,15 +35,18 @@ The following types are a part of the service's API and are guaranteed to mainta
 - `capacity_exceeded` – There's no free capacity left on the backend to connect to.
 - `database_connection_acquisition_failed` – The service couldn't obtain a DB connection from the pool.
 - `database_query_failed` – The database returned an error while executing a query.
+- `invalid_jsep_format` – Failed to determine whether the SDP is recvonly.
+- `invalid_sdp_type` – Failed to parse SDP type or an SDP answer is received.
 - `invalid_subscription_object` – An object for dynamic subscription is not of format `["rooms", UUID, "events"]`.
 - `message_building_failed` – An error occurred while building a message to another service.
 - `message_handling_failed` – An incoming message is likely to have non-valid JSON payload or missing required properties.
 - `message_parsing_failed` – Failed to parse a message from another service.
 - `no_available_backends` – No backends found to host the RTC.
 - `not_implemented` – The requested feature is not supported.
-- `resubscription_failed` – The services has failed to resubscribe to topics after reconnect.
-- `stats_collection_failed` – Couldn't collect metrics from one of the sources.
 - `publish_failed` – Failed to publish an MQTT message.
-- `room_not_found` – A [room](room.md#Room) is missing or closed.
+- `resubscription_failed` – The services has failed to resubscribe to topics after reconnect.
+- `room_closed` - The [room](room.md#Room) exists but already closed.
+- `room_not_found` – The [room](room.md#Room) is missing.
 - `rtc_not_found` – An [RTC](rtc.md#Real-time_Connection) is missing or closed.
+- `stats_collection_failed` – Couldn't collect metrics from one of the sources.
 - `unknown_method` – An unsupported value in `method` property of the request message.
