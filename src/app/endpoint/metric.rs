@@ -1,10 +1,10 @@
 use async_std::stream;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use diesel::pg::PgConnection;
 use serde_derive::Deserialize;
 use svc_agent::mqtt::{
-    IncomingEventProperties, IntoPublishableMessage, OutgoingEvent, ResponseStatus,
-    ShortTermTimingProperties,
+    IncomingEventProperties, IntoPublishableMessage, OutgoingEvent, ShortTermTimingProperties,
 };
 
 use crate::app::context::Context;
@@ -44,7 +44,7 @@ impl EventHandler for PullHandler {
                     let stats = qc
                         .get_stats(payload.duration)
                         .map_err(|err| anyhow!("Failed to get stats: {}", err))
-                        .status(ResponseStatus::BAD_REQUEST)?;
+                        .error(AppErrorKind::StatsCollectionFailed)?;
 
                     vec![
                         Metric::IncomingQueueRequests(MetricValue::new(
@@ -97,10 +97,14 @@ impl EventHandler for PullHandler {
                 append_db_pool_stats(&mut metrics, context, now);
 
                 append_dynamic_stats(&mut metrics, context, now)
-                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+                    .error(AppErrorKind::StatsCollectionFailed)?;
 
-                append_janus_stats(&mut metrics, context, now)
-                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?;
+                {
+                    let conn = context.get_conn()?;
+
+                    append_janus_stats(&mut metrics, &conn, now)
+                        .error(AppErrorKind::StatsCollectionFailed)?;
+                }
 
                 let metrics2 = metrics
                     .clone()
@@ -165,14 +169,12 @@ fn append_dynamic_stats<C: Context>(
     Ok(())
 }
 
-fn append_janus_stats<C: Context>(
+fn append_janus_stats(
     metrics: &mut Vec<Metric>,
-    context: &C,
+    conn: &PgConnection,
     now: DateTime<Utc>,
 ) -> anyhow::Result<()> {
     use anyhow::Context;
-
-    let conn = context.db().get()?;
 
     // The number of online janus backends.
     let online_backends_count =

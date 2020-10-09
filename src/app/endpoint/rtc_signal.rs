@@ -6,11 +6,8 @@ use async_trait::async_trait;
 use chrono::Duration;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
-};
+use svc_agent::mqtt::{IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse};
 use svc_agent::Addressable;
-use svc_error::Error as SvcError;
 
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
@@ -69,7 +66,8 @@ impl RequestHandler for CreateHandler {
         let sdp_type = match parse_sdp_type(&payload.jsep) {
             Ok(sdp_type) => sdp_type,
             Err(err) => {
-                return Err(err.context("Invalid JSEP format")).status(ResponseStatus::BAD_REQUEST)
+                return Err(err.context("Invalid JSEP format"))
+                    .error(AppErrorKind::InvalidJsepFormat)
             }
         };
 
@@ -77,7 +75,7 @@ impl RequestHandler for CreateHandler {
             SdpType::Offer => {
                 let is_recvonly = is_sdp_recvonly(&payload.jsep)
                     .context("Invalid JSEP format")
-                    .status(ResponseStatus::BAD_REQUEST)?;
+                    .error(AppErrorKind::InvalidJsepFormat)?;
 
                 if is_recvonly {
                     context.add_logger_tags(o!("sdp_type" => "offer", "intent" => "read"));
@@ -99,7 +97,7 @@ impl RequestHandler for CreateHandler {
                         )
                         .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
                         .context("Error creating a backend request")
-                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
+                        .error(AppErrorKind::MessageBuildingFailed)?
                 } else {
                     context.add_logger_tags(o!("sdp_type" => "offer", "intent" => "update"));
 
@@ -112,9 +110,9 @@ impl RequestHandler for CreateHandler {
                             .label
                             .as_ref()
                             .ok_or_else(|| anyhow!("Missing label"))
-                            .status(ResponseStatus::BAD_REQUEST)?;
+                            .error(AppErrorKind::MessageParsingFailed)?;
 
-                        let conn = context.db().get()?;
+                        let conn = context.get_conn()?;
 
                         db::janus_rtc_stream::InsertQuery::new(
                             payload.handle_id.rtc_stream_id(),
@@ -141,11 +139,11 @@ impl RequestHandler for CreateHandler {
                         )
                         .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
                         .context("Error creating a backend request")
-                        .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
+                        .error(AppErrorKind::MessageBuildingFailed)?
                 }
             }
             SdpType::Answer => Err(anyhow!("sdp_type = 'answer' is not allowed"))
-                .status(ResponseStatus::BAD_REQUEST)?,
+                .error(AppErrorKind::InvalidSdpType)?,
             SdpType::IceCandidate => {
                 context.add_logger_tags(o!("sdp_type" => "ice_candidate", "intent" => "read"));
 
@@ -165,7 +163,7 @@ impl RequestHandler for CreateHandler {
                     )
                     .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
                     .context("Error creating a backend request")
-                    .status(ResponseStatus::UNPROCESSABLE_ENTITY)?
+                    .error(AppErrorKind::MessageBuildingFailed)?
             }
         };
 
@@ -178,18 +176,18 @@ async fn authorize<C: Context>(
     payload: &CreateRequest,
     reqp: &IncomingRequestProperties,
     action: &str,
-) -> StdResult<Duration, SvcError> {
+) -> StdResult<Duration, AppError> {
     let rtc_id = payload.handle_id.rtc_id();
 
     let room = {
-        let conn = context.db().get()?;
+        let conn = context.get_conn()?;
 
         db::room::FindQuery::new()
             .time(db::room::now())
             .rtc_id(rtc_id)
             .execute(&conn)?
-            .context("Room not found or closed")
-            .status(ResponseStatus::NOT_FOUND)?
+            .ok_or_else(|| anyhow!("Room not found or closed"))
+            .error(AppErrorKind::RoomNotFound)?
     };
 
     if room.backend() != db::room::RoomBackend::Janus {
@@ -198,7 +196,7 @@ async fn authorize<C: Context>(
             room.backend()
         );
 
-        return Err(err).status(ResponseStatus::NOT_IMPLEMENTED);
+        return Err(err).error(AppErrorKind::NotImplemented);
     }
 
     let room_id = room.id().to_string();
@@ -209,7 +207,7 @@ async fn authorize<C: Context>(
         .authz()
         .authorize(room.audience(), reqp, object, action)
         .await
-        .map_err(SvcError::from)
+        .map_err(AppError::from)
 }
 
 #[derive(Debug)]
@@ -278,6 +276,7 @@ mod test {
         use diesel::prelude::*;
         use serde::Deserialize;
         use serde_json::json;
+        use svc_agent::mqtt::ResponseStatus;
         use uuid::Uuid;
 
         use crate::app::handle_id::HandleId;
@@ -423,7 +422,7 @@ mod test {
                 assert_eq!(payload.jsep.sdp, SDP_OFFER);
 
                 // Assert rtc stream presence in the DB.
-                let conn = context.db().get().unwrap();
+                let conn = context.get_conn().unwrap();
                 let query = crate::schema::janus_rtc_stream::table.find(rtc_stream_id);
 
                 let rtc_stream: crate::db::janus_rtc_stream::Object =

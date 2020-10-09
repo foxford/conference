@@ -16,6 +16,7 @@ use svc_agent::{
 use svc_error::{extension::sentry, Error as SvcError};
 
 use crate::app::context::{AppMessageContext, Context, GlobalContext, MessageContext};
+use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 use crate::app::{endpoint, API_VERSION};
 
 pub(crate) type MessageStream =
@@ -71,11 +72,12 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
             "Error processing a message: {:?}: {}", message, err
         );
 
-        let svc_error = SvcError::builder()
-            .status(ResponseStatus::UNPROCESSABLE_ENTITY)
-            .kind("message_handler", "Message handling error")
-            .detail(&err.to_string())
-            .build();
+        let app_error = AppError::new(
+            AppErrorKind::MessageHandlingFailed,
+            anyhow!(err.to_string()),
+        );
+
+        let svc_error: SvcError = app_error.into();
 
         sentry::send(svc_error).unwrap_or_else(|err| {
             warn!(
@@ -90,7 +92,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         msg_context: &mut AppMessageContext<'_, C>,
         message: &IncomingMessage<String>,
         topic: &str,
-    ) -> Result<(), SvcError> {
+    ) -> Result<(), AppError> {
         match message {
             IncomingMessage::Request(req) => self.handle_request(msg_context, req, topic).await,
             IncomingMessage::Response(resp) => self.handle_response(msg_context, resp, topic).await,
@@ -103,7 +105,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         msg_context: &mut AppMessageContext<'_, C>,
         request: &IncomingRequest<String>,
         topic: &str,
-    ) -> Result<(), SvcError> {
+    ) -> Result<(), AppError> {
         let agent_id = request.properties().as_agent_id();
 
         msg_context.add_logger_tags(o!(
@@ -135,7 +137,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         msg_context: &mut AppMessageContext<'_, C>,
         response: &IncomingResponse<String>,
         topic: &str,
-    ) -> Result<(), SvcError> {
+    ) -> Result<(), AppError> {
         let agent_id = response.properties().as_agent_id();
 
         msg_context.add_logger_tags(o!(
@@ -160,7 +162,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         msg_context: &mut AppMessageContext<'_, C>,
         event: &IncomingEvent<String>,
         topic: &str,
-    ) -> Result<(), SvcError> {
+    ) -> Result<(), AppError> {
         let agent_id = event.properties().as_agent_id();
 
         msg_context.add_logger_tags(o!(
@@ -187,7 +189,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
     async fn publish_outgoing_messages(
         &self,
         message_stream: MessageStream,
-    ) -> Result<(), SvcError> {
+    ) -> Result<(), AppError> {
         let mut agent = self.agent.clone();
         pin_mut!(message_stream);
 
@@ -223,11 +225,11 @@ fn error_response(
 pub(crate) fn publish_message(
     agent: &mut Agent,
     message: Box<dyn IntoPublishableMessage>,
-) -> Result<(), SvcError> {
+) -> Result<(), AppError> {
     agent
         .publish_publishable(message)
         .map_err(|err| anyhow!("Failed to publish message: {}", err))
-        .status(ResponseStatus::UNPROCESSABLE_ENTITY)
+        .error(AppErrorKind::PublishFailed)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -271,10 +273,8 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
                 Ok(payload) => {
                     H::handle(context, payload, reqp)
                         .await
-                        .unwrap_or_else(|mut svc_error| {
-                            if svc_error.kind() == "about:blank" {
-                                svc_error.set_kind(reqp.method(), H::ERROR_TITLE);
-                            }
+                        .unwrap_or_else(|app_error| {
+                            let svc_error: SvcError = app_error.into();
 
                             context.add_logger_tags(o!(
                                 "status" => svc_error.status_code().as_u16(),
@@ -347,11 +347,9 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
                 Ok(payload) => {
                     H::handle(context, payload, resp)
                         .await
-                        .unwrap_or_else(|mut svc_error| {
+                        .unwrap_or_else(|app_error| {
                             // Handler returned an error.
-                            if svc_error.kind() == "about:blank" {
-                                svc_error.set_kind("response", "Failed to handle response");
-                            }
+                            let svc_error: SvcError = app_error.into();
 
                             context.add_logger_tags(o!(
                                 "status" => svc_error.status_code().as_u16(),
@@ -412,32 +410,24 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
                 Ok(payload) => {
                     H::handle(context, payload, evp)
                         .await
-                        .unwrap_or_else(|mut svc_error| {
+                        .unwrap_or_else(|app_error| {
                             // Handler returned an error.
+                            let svc_error: SvcError = app_error.into();
+
                             context.add_logger_tags(o!(
                                 "status" => svc_error.status_code().as_u16(),
                                 "kind" => svc_error.kind().to_owned(),
                             ));
 
-                            if let Some(label) = evp.label() {
-                                if svc_error.kind() == "about:blank" {
-                                    let error_title = format!("Failed to handle event '{}'", label);
-                                    svc_error.set_kind(label, &error_title);
-                                }
+                            error!(
+                                context.logger(),
+                                "Failed to handle event: {}",
+                                svc_error.detail().unwrap_or("No detail")
+                            );
 
-                                error!(
-                                    context.logger(),
-                                    "Failed to handle event: {}",
-                                    svc_error.detail().unwrap_or("No detail"),
-                                );
-
-                                sentry::send(svc_error).unwrap_or_else(|err| {
-                                    warn!(
-                                        context.logger(),
-                                        "Error sending error to Sentry: {}", err
-                                    );
-                                });
-                            }
+                            sentry::send(svc_error).unwrap_or_else(|err| {
+                                warn!(context.logger(), "Error sending error to Sentry: {}", err);
+                            });
 
                             Box::new(stream::empty())
                         })
@@ -451,22 +441,5 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
         }
 
         Box::pin(handle_envelope::<H, C>(context, event))
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-pub(crate) trait SvcErrorSugar<T> {
-    fn status(self, status: ResponseStatus) -> Result<T, SvcError>;
-}
-
-impl<T> SvcErrorSugar<T> for Result<T, anyhow::Error> {
-    fn status(self, status: ResponseStatus) -> Result<T, SvcError> {
-        self.map_err(|err| {
-            SvcError::builder()
-                .status(status)
-                .detail(&err.to_string())
-                .build()
-        })
     }
 }

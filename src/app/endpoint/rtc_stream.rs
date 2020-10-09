@@ -8,7 +8,6 @@ use svc_agent::mqtt::{
     IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
     ResponseStatus, ShortTermTimingProperties, TrackingProperties,
 };
-use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::context::Context;
@@ -49,14 +48,14 @@ impl RequestHandler for ListHandler {
         }
 
         let room = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
 
             db::room::FindQuery::new()
                 .time(db::room::now())
                 .id(payload.room_id)
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Room not found or closed"))
-                .status(ResponseStatus::NOT_FOUND)?
+                .error(AppErrorKind::RoomNotFound)?
         };
 
         shared::add_room_logger_tags(context, &room);
@@ -67,7 +66,7 @@ impl RequestHandler for ListHandler {
                 room.backend()
             );
 
-            return Err(err).status(ResponseStatus::NOT_IMPLEMENTED)?;
+            return Err(err).error(AppErrorKind::NotImplemented)?;
         }
 
         let room_id = room.id().to_string();
@@ -95,7 +94,7 @@ impl RequestHandler for ListHandler {
         query = query.limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT));
 
         let rtc_streams = {
-            let conn = context.db().get()?;
+            let conn = context.get_conn()?;
             query.execute(&conn)?
         };
 
@@ -118,7 +117,7 @@ pub(crate) fn update_event(
     object: db::janus_rtc_stream::Object,
     start_timestamp: DateTime<Utc>,
     tracking: &TrackingProperties,
-) -> StdResult<ObjectUpdateEvent, SvcError> {
+) -> StdResult<ObjectUpdateEvent, AppError> {
     let uri = format!("rooms/{}/events", room_id);
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let mut props = OutgoingEventProperties::new("rtc_stream.update", timing);

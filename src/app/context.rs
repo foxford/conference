@@ -1,11 +1,14 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use diesel::pg::PgConnection;
+use diesel::r2d2::{ConnectionManager, PooledConnection};
 use slog::{Logger, OwnedKV, SendSyncRefUnwindSafeKV};
 use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
+use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 use crate::app::metrics::{DbPoolStatsCollector, DynamicStatsCollector};
 use crate::backend::janus::Client as JanusClient;
 use crate::config::Config;
@@ -26,6 +29,13 @@ pub(crate) trait GlobalContext: Sync {
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
     fn db_pool_stats(&self) -> &Option<DbPoolStatsCollector>;
     fn dynamic_stats(&self) -> Option<&DynamicStatsCollector>;
+
+    fn get_conn(&self) -> Result<PooledConnection<ConnectionManager<PgConnection>>, AppError> {
+        self.db()
+            .get()
+            .map_err(|err| anyhow::Error::from(err).context("Failed to acquire DB connection"))
+            .error(AppErrorKind::DbConnAcquisitionFailed)
+    }
 }
 
 pub(crate) trait MessageContext: Send {

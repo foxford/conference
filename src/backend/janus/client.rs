@@ -6,13 +6,12 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use serde_json::{json, Value as JsonValue};
 use svc_agent::{
-    mqtt::{
-        IncomingResponseProperties, OutgoingRequestProperties, ResponseStatus, SubscriptionTopic,
-    },
+    mqtt::{IncomingResponseProperties, OutgoingRequestProperties, SubscriptionTopic},
     AgentId, Subscription,
 };
 use svc_error::{extension::sentry, Error as SvcError};
 
+use crate::app::error::{Error as AppError, ErrorKind as AppErrorKind};
 use crate::config::BackendConfig;
 
 use super::{JANUS_API_VERSION, STREAM_UPLOAD_METHOD};
@@ -65,16 +64,13 @@ impl Client {
                     .into_iter()
                     .filter(|(corr_data, info)| {
                         if info.start_timestamp + info.timeout < Utc::now() {
-                            let msg =
-                                format!("Janus request timed out ({}): {:?}", corr_data, info);
+                            let err =
+                                anyhow!("Janus request timed out ({}): {:?}", corr_data, info);
 
-                            error!(crate::LOG, "{}", msg);
-
-                            let svc_error = SvcError::builder()
-                                .status(ResponseStatus::GATEWAY_TIMEOUT)
-                                .kind("janus_request_timed_out", "Janus request timed out")
-                                .detail(&msg)
-                                .build();
+                            error!(crate::LOG, "{}", err);
+                            let app_error =
+                                AppError::new(AppErrorKind::BackendRequestTimedOut, err);
+                            let svc_error: SvcError = app_error.into();
 
                             sentry::send(svc_error).unwrap_or_else(|err| {
                                 warn!(crate::LOG, "Error sending error to Sentry: {}", err);

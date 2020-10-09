@@ -20,6 +20,7 @@ use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPoo
 use svc_error::{extension::sentry, Error as SvcError};
 
 use crate::app::context::GlobalContext;
+use crate::app::error::{Error as AppError, ErrorKind as AppErrorKind};
 use crate::app::metrics::DbPoolStatsCollector;
 use crate::backend::janus::Client as JanusClient;
 use crate::config::{self, Config, KruonisConfig};
@@ -232,10 +233,8 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
         let err = err.context("Failed to resubscribe after reconnection");
         error!(crate::LOG, "{}", err);
 
-        let svc_error = SvcError::builder()
-            .kind("resubscription_error", "Resubscription error")
-            .detail(&err.to_string())
-            .build();
+        let app_error = AppError::new(AppErrorKind::ResubscriptionFailed, err);
+        let svc_error: SvcError = app_error.into();
 
         sentry::send(svc_error).unwrap_or_else(|err| {
             warn!(crate::LOG, "Error sending error to Sentry: {}", err);
@@ -245,6 +244,7 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
 
 pub(crate) mod context;
 pub(crate) mod endpoint;
+pub(crate) mod error;
 pub(crate) mod handle_id;
 pub(crate) mod message_handler;
 pub(crate) mod metrics;
