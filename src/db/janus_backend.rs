@@ -337,6 +337,8 @@ const FREE_CAPACITY_SQL: &str = r#"
         janus_backend_load AS (
             SELECT
                 backend_id,
+                SUM(taken) AS total_taken,
+                SUM(reserve) AS total_reserve,
                 SUM(GREATEST(taken, reserve)) AS load
             FROM (
                 SELECT DISTINCT ON(backend_id, room_id)
@@ -356,13 +358,25 @@ const FREE_CAPACITY_SQL: &str = r#"
             GROUP BY backend_id
         )
     SELECT
-        GREATEST(
-            COALESCE(jb.capacity, 2147483647)
-                - COALESCE(jbl.load, 0)
-                + GREATEST(COALESCE(rl.reserve, 0) - COALESCE(rl.taken, 0), 0),
-            0
+        (
+            CASE
+                WHEN COALESCE(jb.capacity, 2147483647) <= COALESCE(jbl.total_taken, 0) THEN 0
+                ELSE (
+                    CASE
+                        WHEN COALESCE(ar.reserve, 0) > COALESCE(rl.taken, 0)
+                            THEN LEAST(
+                                COALESCE(ar.reserve, 0) - COALESCE(rl.taken, 0),
+                                COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.total_taken, 0)
+                            )
+                        ELSE
+                            GREATEST(COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.load, 0), 0)
+                    END
+                )
+            END
         )::INT AS free_capacity
     FROM rtc
+    LEFT JOIN active_room AS ar
+    ON ar.id = rtc.room_id
     LEFT JOIN room_load as rl
     ON rl.room_id = rtc.room_id
     LEFT JOIN recording AS rec
