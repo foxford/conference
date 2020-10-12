@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.13 (October 12, 2020)
+
+### Changes
+- Added typed errors ([0c6946e](https://github.com/netology-group/conference/commit/0c6946eef167a5823a9c667341b9f638fcce8af7)
+- Separated missing from closed room errors ([cb6c9ae](https://github.com/netology-group/conference/commit/cb6c9ae68c026ddeadb2d363aee915af6c0ce8f7)
+
+### Fixes
+- Fixed ordering in least loaded query ([ccf06a9](https://github.com/netology-group/conference/commit/ccf06a97ffe495f8d1ddacea9603648fefcf7df2)
+- Fixed free capacity query not allowing users to connect even if there are free slots ([6795504](https://github.com/netology-group/conference/commit/67955045d3c672838fa9e6233cf7714e403fcb37)
+
 ## v0.5.12 (October 8, 2020)
 
 ### Features
