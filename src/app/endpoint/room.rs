@@ -192,11 +192,36 @@ impl RequestHandler for UpdateHandler {
             .await?;
 
         let room_was_open = !room.is_closed();
+        let mut room_closed_by_update = false;
+
+        let mut time = payload.time;
+        if let Some(new_time) = time {
+            match new_time {
+                (Bound::Included(new_opened_at), Bound::Excluded(new_closed_at))
+                    if new_closed_at > new_opened_at =>
+                {
+                    if let (Bound::Included(opened_at), _) = room.time() {
+                        if *opened_at <= Utc::now() {
+                            let new_closed_at = if new_closed_at <= Utc::now() {
+                                room_closed_by_update = true;
+                                Utc::now()
+                            } else {
+                                new_closed_at
+                            };
+
+                            time =
+                                Some((Bound::Included(*opened_at), Bound::Excluded(new_closed_at)));
+                        }
+                    }
+                }
+                _ => return Err(anyhow!("Invalid room time")).error(AppErrorKind::InvalidRoomTime),
+            }
+        }
 
         // Update room.
         let room = {
             let query = db::room::UpdateQuery::new(room.id())
-                .time(payload.time)
+                .time(time)
                 .audience(payload.audience)
                 .backend(payload.backend)
                 .reserve(payload.reserve)
@@ -237,18 +262,8 @@ impl RequestHandler for UpdateHandler {
         };
 
         // Publish room closed notification
-        if room_was_open {
-            if let Some(time) = payload.time {
-                match time.1 {
-                    Bound::Included(t) if Utc::now() > t => {
-                        append_closed_notification();
-                    }
-                    Bound::Excluded(t) if Utc::now() >= t => {
-                        append_closed_notification();
-                    }
-                    _ => {}
-                }
-            }
+        if room_was_open && room_closed_by_update {
+            append_closed_notification();
         }
 
         Ok(Box::new(stream::from_iter(responses)))
@@ -690,6 +705,58 @@ mod test {
                 assert_eq!(resp_room.backend(), db::room::RoomBackend::Janus);
                 assert_eq!(resp_room.reserve(), Some(123));
                 assert_eq!(resp_room.tags(), &json!({"foo": "bar"}));
+            });
+        }
+
+        #[test]
+        fn update_room_with_wrong_time() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let now = Utc::now().trunc_subsecs(0);
+
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    // Create room.
+                    factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(now - Duration::hours(1)),
+                            Bound::Excluded(now + Duration::hours(2)),
+                        ))
+                        .backend(db::room::RoomBackend::Janus)
+                        .insert(&conn)
+                };
+
+                // Allow agent to update the room.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let mut authz = TestAuthz::new();
+                let room_id = room.id().to_string();
+                authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+
+                // Make room.update request.
+                let mut context = TestContext::new(db, authz);
+
+                let time = (
+                    Bound::Included(now + Duration::hours(3)),
+                    Bound::Excluded(now - Duration::hours(2)),
+                );
+
+                let payload = UpdateRequest {
+                    id: room.id(),
+                    time: Some(time),
+                    reserve: Some(Some(123)),
+                    tags: Some(json!({"foo": "bar"})),
+                    audience: None,
+                    backend: None,
+                };
+
+                handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect_err("Room update succeeded when it should've failed");
             });
         }
 
