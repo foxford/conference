@@ -21,7 +21,7 @@ use svc_error::{extension::sentry, Error as SvcError};
 
 use crate::app::context::GlobalContext;
 use crate::app::error::{Error as AppError, ErrorKind as AppErrorKind};
-use crate::app::metrics::DbPoolStatsCollector;
+use crate::app::metrics::StatsRoute;
 use crate::backend::janus::Client as JanusClient;
 use crate::config::{self, Config, KruonisConfig};
 use crate::db::ConnectionPool;
@@ -36,7 +36,6 @@ pub(crate) async fn run(
     db: &ConnectionPool,
     redis_pool: Option<RedisConnectionPool>,
     authz_cache: Option<AuthzCache>,
-    db_pool_stats: DbPoolStatsCollector,
 ) -> Result<()> {
     // Config
     let config = config::load().expect("Failed to load config");
@@ -95,8 +94,7 @@ pub(crate) async fn run(
         JanusClient::start(&config.backend, agent_id)?,
         janus_topics,
     )
-    .add_queue_counter(agent.get_queue_counter())
-    .db_pool_stats(db_pool_stats);
+    .add_queue_counter(agent.get_queue_counter());
 
     let context = match redis_pool {
         Some(pool) => context.add_redis_pool(pool),
@@ -105,6 +103,7 @@ pub(crate) async fn run(
 
     // Message handler
     let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
+    StatsRoute::start(config, message_handler.clone());
 
     // Message loop
     let term_check_period = Duration::from_secs(1);
