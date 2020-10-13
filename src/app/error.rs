@@ -19,6 +19,7 @@ pub(crate) enum ErrorKind {
     DbConnAcquisitionFailed,
     DbQueryFailed,
     InvalidJsepFormat,
+    InvalidRoomTime,
     InvalidSdpType,
     InvalidSubscriptionObject,
     MessageBuildingFailed,
@@ -87,6 +88,11 @@ impl Into<(ResponseStatus, &'static str, &'static str)> for ErrorKind {
                 ResponseStatus::BAD_REQUEST,
                 "invalid_jsep_format",
                 "Invalid JSEP format",
+            ),
+            Self::InvalidRoomTime => (
+                ResponseStatus::BAD_REQUEST,
+                "invalid_room_time",
+                "Invalid room time",
             ),
             Self::InvalidSdpType => (
                 ResponseStatus::BAD_REQUEST,
