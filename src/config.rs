@@ -18,6 +18,7 @@ pub(crate) struct Config {
     pub(crate) telemetry: TelemetryConfig,
     #[serde(default)]
     pub(crate) kruonis: KruonisConfig,
+    pub(crate) metrics: Option<MetricsConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -51,4 +52,14 @@ pub(crate) struct TelemetryConfig {
 #[derive(Clone, Debug, Deserialize, Default)]
 pub(crate) struct KruonisConfig {
     pub(crate) id: Option<AccountId>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MetricsConfig {
+    pub http: MetricsHttpConfig,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MetricsHttpConfig {
+    pub bind_address: std::net::SocketAddr,
 }

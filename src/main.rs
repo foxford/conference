@@ -24,9 +24,11 @@ lazy_static! {
     };
 }
 
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[async_std::main]
 async fn main() -> Result<()> {
-    let (db, db_pool_stats) = {
+    let db = {
         let url = var("DATABASE_URL").expect("DATABASE_URL must be specified");
         let size = var("DATABASE_POOL_SIZE")
             .map(|val| {
@@ -49,7 +51,7 @@ async fn main() -> Result<()> {
             })
             .unwrap_or_else(|_| 5);
 
-        crate::db::create_pool(&url, size, idle_size, timeout, true)
+        crate::db::create_pool(&url, size, idle_size, timeout)
     };
 
     let (redis_pool, authz_cache) = if let Some("1") = var("CACHE_ENABLED").ok().as_deref() {
@@ -83,7 +85,7 @@ async fn main() -> Result<()> {
         (None, None)
     };
 
-    app::run(&db, redis_pool, authz_cache, db_pool_stats).await
+    app::run(&db, redis_pool, authz_cache).await
 }
 
 mod app;

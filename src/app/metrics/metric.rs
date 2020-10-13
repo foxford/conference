@@ -1,179 +1,286 @@
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use serde_derive::Serialize;
+use svc_agent::{mqtt::ExtraTags, AgentId, Authenticable};
 
-#[derive(Serialize, Copy, Clone)]
-pub(crate) struct MetricValue<T: serde::Serialize> {
-    value: T,
+#[derive(Serialize, Clone)]
+pub(crate) struct Metric {
+    value: serde_json::Value,
+    #[serde(flatten)]
+    metric: MetricKey,
     #[serde(with = "ts_seconds")]
     timestamp: DateTime<Utc>,
+    tags: Tags,
 }
 
-impl<T: serde::Serialize> MetricValue<T> {
-    pub fn new(value: T, timestamp: DateTime<Utc>) -> Self {
-        Self { value, timestamp }
-    }
-}
-
-#[derive(Serialize, Clone)]
-#[serde(tag = "metric")]
-pub(crate) enum Metric {
-    #[serde(rename(serialize = "apps.conference.incoming_requests_total"))]
-    IncomingQueueRequests(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.conference.incoming_responses_total"))]
-    IncomingQueueResponses(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.conference.incoming_events_total"))]
-    IncomingQueueEvents(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.conference.outgoing_requests_total"))]
-    OutgoingQueueRequests(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.conference.outgoing_responses_total"))]
-    OutgoingQueueResponses(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.conference.outgoing_events_total"))]
-    OutgoingQueueEvents(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.conference.db_connections_total"))]
-    DbConnections(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.conference.idle_db_connections_total"))]
-    IdleDbConnections(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.conference.redis_connections_total"))]
-    RedisConnections(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.conference.idle_redis_connections_total"))]
-    IdleRedisConnections(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.conference.db_pool_checkin_average_total"))]
-    DbPoolCheckinAverage(MetricValue<f64>),
-    #[serde(rename(serialize = "apps.conference.max_db_pool_checkin_total"))]
-    MaxDbPoolCheckin(MetricValue<u128>),
-    #[serde(rename(serialize = "apps.conference.db_pool_checkout_average_total"))]
-    DbPoolCheckoutAverage(MetricValue<f64>),
-    #[serde(rename(serialize = "apps.conference.max_db_pool_checkout_total"))]
-    MaxDbPoolCheckout(MetricValue<u128>),
-    #[serde(rename(serialize = "apps.conference.db_pool_release_average_total"))]
-    DbPoolReleaseAverage(MetricValue<f64>),
-    #[serde(rename(serialize = "apps.conference.max_db_pool_release_total"))]
-    MaxDbPoolRelease(MetricValue<u128>),
-    #[serde(rename(serialize = "apps.conference.db_pool_timeout_average_total"))]
-    DbPoolTimeoutAverage(MetricValue<f64>),
-    #[serde(rename(serialize = "apps.conference.max_db_pool_timeout_total"))]
-    MaxDbPoolTimeout(MetricValue<u128>),
-    #[serde(rename(serialize = "apps.conference.online_janus_backends_total"))]
-    OnlineJanusBackendsCount(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.conference.janus_backends_capacity_total"))]
-    JanusBackendTotalCapacity(MetricValue<u64>),
-    #[serde(rename(serialize = "apps.conference.connected_agents_total"))]
-    ConnectedAgentsCount(MetricValue<u64>),
-    #[serde(serialize_with = "serialize_dynamic_metric")]
-    Dynamic {
-        key: String,
-        value: MetricValue<u64>,
-    },
-}
-#[derive(Serialize, Clone)]
-#[serde(tag = "metric")]
-pub(crate) enum Metric2 {
-    #[serde(rename(serialize = "incoming_requests_total"))]
-    IncomingQueueRequests(MetricValue<u64>),
-    #[serde(rename(serialize = "incoming_responses_total"))]
-    IncomingQueueResponses(MetricValue<u64>),
-    #[serde(rename(serialize = "incoming_events_total"))]
-    IncomingQueueEvents(MetricValue<u64>),
-    #[serde(rename(serialize = "outgoing_requests_total"))]
-    OutgoingQueueRequests(MetricValue<u64>),
-    #[serde(rename(serialize = "outgoing_responses_total"))]
-    OutgoingQueueResponses(MetricValue<u64>),
-    #[serde(rename(serialize = "outgoing_events_total"))]
-    OutgoingQueueEvents(MetricValue<u64>),
-    #[serde(rename(serialize = "db_connections_total"))]
-    DbConnections(MetricValue<u64>),
-    #[serde(rename(serialize = "idle_db_connections_total"))]
-    IdleDbConnections(MetricValue<u64>),
-    #[serde(rename(serialize = "redis_connections_total"))]
-    RedisConnections(MetricValue<u64>),
-    #[serde(rename(serialize = "idle_redis_connections_total"))]
-    IdleRedisConnections(MetricValue<u64>),
-    #[serde(rename(serialize = "db_pool_checkin_average_total"))]
-    DbPoolCheckinAverage(MetricValue<f64>),
-    #[serde(rename(serialize = "max_db_pool_checkin_total"))]
-    MaxDbPoolCheckin(MetricValue<u128>),
-    #[serde(rename(serialize = "db_pool_checkout_average_total"))]
-    DbPoolCheckoutAverage(MetricValue<f64>),
-    #[serde(rename(serialize = "max_db_pool_checkout_total"))]
-    MaxDbPoolCheckout(MetricValue<u128>),
-    #[serde(rename(serialize = "db_pool_release_average_total"))]
-    DbPoolReleaseAverage(MetricValue<f64>),
-    #[serde(rename(serialize = "max_db_pool_release_total"))]
-    MaxDbPoolRelease(MetricValue<u128>),
-    #[serde(rename(serialize = "db_pool_timeout_average_total"))]
-    DbPoolTimeoutAverage(MetricValue<f64>),
-    #[serde(rename(serialize = "max_db_pool_timeout_total"))]
-    MaxDbPoolTimeout(MetricValue<u128>),
-    #[serde(rename(serialize = "online_janus_backends_total"))]
-    OnlineJanusBackendsCount(MetricValue<u64>),
-    #[serde(rename(serialize = "janus_backends_capacity_total"))]
-    JanusBackendTotalCapacity(MetricValue<u64>),
-    #[serde(rename(serialize = "connected_agents_total"))]
-    ConnectedAgentsCount(MetricValue<u64>),
-    #[serde(serialize_with = "serialize_dynamic_metric")]
-    Dynamic {
-        key: String,
-        value: MetricValue<u64>,
-    },
-}
-
-impl From<Metric> for Metric2 {
-    fn from(m: Metric) -> Self {
-        match m {
-            Metric::IncomingQueueRequests(v) => Metric2::IncomingQueueRequests(v),
-            Metric::IncomingQueueResponses(v) => Metric2::IncomingQueueResponses(v),
-            Metric::IncomingQueueEvents(v) => Metric2::IncomingQueueEvents(v),
-            Metric::OutgoingQueueRequests(v) => Metric2::OutgoingQueueRequests(v),
-            Metric::OutgoingQueueResponses(v) => Metric2::OutgoingQueueResponses(v),
-            Metric::OutgoingQueueEvents(v) => Metric2::OutgoingQueueEvents(v),
-            Metric::DbConnections(v) => Metric2::DbConnections(v),
-            Metric::IdleDbConnections(v) => Metric2::IdleDbConnections(v),
-            Metric::RedisConnections(v) => Metric2::RedisConnections(v),
-            Metric::IdleRedisConnections(v) => Metric2::IdleRedisConnections(v),
-            Metric::DbPoolCheckinAverage(v) => Metric2::DbPoolCheckinAverage(v),
-            Metric::MaxDbPoolCheckin(v) => Metric2::MaxDbPoolCheckin(v),
-            Metric::DbPoolCheckoutAverage(v) => Metric2::DbPoolCheckoutAverage(v),
-            Metric::MaxDbPoolCheckout(v) => Metric2::MaxDbPoolCheckout(v),
-            Metric::DbPoolReleaseAverage(v) => Metric2::DbPoolReleaseAverage(v),
-            Metric::MaxDbPoolRelease(v) => Metric2::MaxDbPoolRelease(v),
-            Metric::DbPoolTimeoutAverage(v) => Metric2::DbPoolTimeoutAverage(v),
-            Metric::MaxDbPoolTimeout(v) => Metric2::MaxDbPoolTimeout(v),
-            Metric::OnlineJanusBackendsCount(v) => Metric2::OnlineJanusBackendsCount(v),
-            Metric::JanusBackendTotalCapacity(v) => Metric2::JanusBackendTotalCapacity(v),
-            Metric::ConnectedAgentsCount(v) => Metric2::ConnectedAgentsCount(v),
-            Metric::Dynamic { key, value } => Metric2::Dynamic { key, value },
+impl Metric {
+    pub fn new(
+        metric: MetricKey,
+        value: impl serde::Serialize,
+        timestamp: DateTime<Utc>,
+        tags: Tags,
+    ) -> Self {
+        Self {
+            metric,
+            timestamp,
+            tags,
+            value: serde_json::to_value(value).unwrap_or(serde_json::value::Value::Null),
         }
     }
 }
 
-fn serialize_dynamic_metric<K, V, S>(
-    key: K,
-    metric_value: &MetricValue<V>,
+#[derive(Serialize, Debug, Clone)]
+pub(crate) struct Metric2 {
+    value: serde_json::Value,
+    #[serde(flatten)]
+    metric: MetricKey2,
+    #[serde(with = "ts_seconds")]
+    timestamp: DateTime<Utc>,
+    tags: Tags,
+}
+
+impl Metric2 {
+    pub fn tags(&self) -> &Tags {
+        &self.tags
+    }
+
+    pub fn key(&self) -> &MetricKey2 {
+        &self.metric
+    }
+
+    pub fn value(&self) -> &serde_json::Value {
+        &self.value
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(untagged)]
+pub enum Tags {
+    Internal {
+        version: String,
+        agent_label: String,
+        account_label: String,
+        account_audience: String,
+    },
+    Queues {
+        version: String,
+        agent_label: String,
+        account_label: String,
+        account_audience: String,
+        #[serde(flatten)]
+        tags: ExtraTags,
+    },
+    Janus {
+        version: String,
+        agent_label: String,
+        account_label: String,
+        account_audience: String,
+        backend_label: String,
+    },
+    Empty,
+}
+
+impl Tags {
+    pub fn build_internal_tags(version: &str, agent_id: &AgentId) -> Self {
+        Tags::Internal {
+            version: version.to_owned(),
+            agent_label: agent_id.label().to_owned(),
+            account_label: agent_id.as_account_id().label().to_owned(),
+            account_audience: agent_id.as_account_id().audience().to_owned(),
+        }
+    }
+
+    pub fn build_queues_tags(version: &str, agent_id: &AgentId, tags: ExtraTags) -> Self {
+        Tags::Queues {
+            version: version.to_owned(),
+            agent_label: agent_id.label().to_owned(),
+            account_label: agent_id.as_account_id().label().to_owned(),
+            account_audience: agent_id.as_account_id().audience().to_owned(),
+            tags,
+        }
+    }
+
+    pub fn build_janus_tags(version: &str, agent_id: &AgentId, janus_id: &AgentId) -> Self {
+        Tags::Janus {
+            version: version.to_owned(),
+            agent_label: agent_id.label().to_owned(),
+            account_label: agent_id.as_account_id().label().to_owned(),
+            account_audience: agent_id.as_account_id().audience().to_owned(),
+            backend_label: janus_id.label().to_owned(),
+        }
+    }
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "metric")]
+pub(crate) enum MetricKey {
+    #[serde(rename(serialize = "apps.conference.incoming_requests_total"))]
+    IncomingQueueRequests,
+    #[serde(rename(serialize = "apps.conference.incoming_responses_total"))]
+    IncomingQueueResponses,
+    #[serde(rename(serialize = "apps.conference.incoming_events_total"))]
+    IncomingQueueEvents,
+    #[serde(rename(serialize = "apps.conference.outgoing_requests_total"))]
+    OutgoingQueueRequests,
+    #[serde(rename(serialize = "apps.conference.outgoing_responses_total"))]
+    OutgoingQueueResponses,
+    #[serde(rename(serialize = "apps.conference.outgoing_events_total"))]
+    OutgoingQueueEvents,
+    #[serde(rename(serialize = "apps.conference.db_connections_total"))]
+    DbConnections,
+    #[serde(rename(serialize = "apps.conference.idle_db_connections_total"))]
+    IdleDbConnections,
+    #[serde(rename(serialize = "apps.conference.redis_connections_total"))]
+    RedisConnections,
+    #[serde(rename(serialize = "apps.conference.idle_redis_connections_total"))]
+    IdleRedisConnections,
+    #[serde(rename(serialize = "apps.conference.online_janus_backends_total"))]
+    OnlineJanusBackendsCount,
+    #[serde(rename(serialize = "apps.conference.janus_backends_capacity_total"))]
+    JanusBackendTotalCapacity,
+    #[serde(rename(serialize = "apps.conference.connected_agents_total"))]
+    ConnectedAgentsCount,
+    #[serde(rename(serialize = "apps.conference.janus_backend_reserve_load"))]
+    JanusBackendReserveLoad,
+    #[serde(serialize_with = "serialize_dynamic_metric")]
+    Dynamic(String),
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "metric")]
+pub(crate) enum MetricKey2 {
+    #[serde(rename(serialize = "incoming_requests_total"))]
+    IncomingQueueRequests,
+    #[serde(rename(serialize = "incoming_responses_total"))]
+    IncomingQueueResponses,
+    #[serde(rename(serialize = "incoming_events_total"))]
+    IncomingQueueEvents,
+    #[serde(rename(serialize = "outgoing_requests_total"))]
+    OutgoingQueueRequests,
+    #[serde(rename(serialize = "outgoing_responses_total"))]
+    OutgoingQueueResponses,
+    #[serde(rename(serialize = "outgoing_events_total"))]
+    OutgoingQueueEvents,
+    #[serde(rename(serialize = "db_connections_total"))]
+    DbConnections,
+    #[serde(rename(serialize = "idle_db_connections_total"))]
+    IdleDbConnections,
+    #[serde(rename(serialize = "redis_connections_total"))]
+    RedisConnections,
+    #[serde(rename(serialize = "idle_redis_connections_total"))]
+    IdleRedisConnections,
+    #[serde(rename(serialize = "online_janus_backends_total"))]
+    OnlineJanusBackendsCount,
+    #[serde(rename(serialize = "janus_backends_capacity_total"))]
+    JanusBackendTotalCapacity,
+    #[serde(rename(serialize = "connected_agents_total"))]
+    ConnectedAgentsCount,
+    #[serde(rename(serialize = "janus_backend_reserve_load_total"))]
+    JanusBackendReserveLoad,
+    #[serde(serialize_with = "serialize_dynamic_metric2")]
+    Dynamic(String),
+}
+
+impl From<MetricKey> for MetricKey2 {
+    fn from(m: MetricKey) -> Self {
+        match m {
+            MetricKey::IncomingQueueRequests => MetricKey2::IncomingQueueRequests,
+            MetricKey::IncomingQueueResponses => MetricKey2::IncomingQueueResponses,
+            MetricKey::IncomingQueueEvents => MetricKey2::IncomingQueueEvents,
+            MetricKey::OutgoingQueueRequests => MetricKey2::OutgoingQueueRequests,
+            MetricKey::OutgoingQueueResponses => MetricKey2::OutgoingQueueResponses,
+            MetricKey::OutgoingQueueEvents => MetricKey2::OutgoingQueueEvents,
+            MetricKey::DbConnections => MetricKey2::DbConnections,
+            MetricKey::IdleDbConnections => MetricKey2::IdleDbConnections,
+            MetricKey::RedisConnections => MetricKey2::RedisConnections,
+            MetricKey::IdleRedisConnections => MetricKey2::IdleRedisConnections,
+            MetricKey::OnlineJanusBackendsCount => MetricKey2::OnlineJanusBackendsCount,
+            MetricKey::JanusBackendTotalCapacity => MetricKey2::JanusBackendTotalCapacity,
+            MetricKey::ConnectedAgentsCount => MetricKey2::ConnectedAgentsCount,
+            MetricKey::Dynamic(key) => MetricKey2::Dynamic(key),
+            MetricKey::JanusBackendReserveLoad => MetricKey2::JanusBackendReserveLoad,
+        }
+    }
+}
+
+impl std::fmt::Display for MetricKey2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MetricKey2::IncomingQueueRequests => write!(f, "incoming_queue_requests_total"),
+            MetricKey2::IncomingQueueResponses => write!(f, "incoming_queue_responses_total"),
+            MetricKey2::IncomingQueueEvents => write!(f, "incoming_queue_events_total"),
+            MetricKey2::OutgoingQueueRequests => write!(f, "outgoing_queue_responses_total"),
+            MetricKey2::OutgoingQueueResponses => write!(f, "outgoing_queue_responses_total"),
+            MetricKey2::OutgoingQueueEvents => write!(f, "outgoing_queue_events_total"),
+            MetricKey2::DbConnections => write!(f, "db_connections_total"),
+            MetricKey2::IdleDbConnections => write!(f, "idle_db_connections_total"),
+            MetricKey2::RedisConnections => write!(f, "redis_connections_total"),
+            MetricKey2::IdleRedisConnections => write!(f, "idle_redis_connections_total"),
+            MetricKey2::OnlineJanusBackendsCount => write!(f, "online_janus_backends_total"),
+            MetricKey2::JanusBackendTotalCapacity => write!(f, "janus_backends_capacity_total"),
+            MetricKey2::ConnectedAgentsCount => write!(f, "connected_agents_total"),
+            MetricKey2::JanusBackendReserveLoad => write!(f, "janus_backend_reserve_load_total"),
+            MetricKey2::Dynamic(key) => write!(f, "{}_total", key),
+        }
+    }
+}
+
+impl From<Metric> for Metric2 {
+    fn from(m: Metric) -> Self {
+        let Metric {
+            metric,
+            value,
+            timestamp,
+            tags,
+        } = m;
+        Self {
+            value,
+            timestamp,
+            tags,
+            metric: metric.into(),
+        }
+    }
+}
+
+fn serialize_dynamic_metric<S>(
+    metric_key: &str,
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error>
 where
-    K: std::fmt::Display,
-    V: serde::Serialize,
     S: serde::ser::Serializer,
 {
     use serde::ser::SerializeMap;
 
-    let mut map = serializer.serialize_map(Some(3))?;
-    map.serialize_entry("metric", &format!("apps.conference.{}_total", key))?;
-    map.serialize_entry("value", &metric_value.value)?;
-    map.serialize_entry("timestamp", &metric_value.timestamp)?;
+    let mut map = serializer.serialize_map(Some(1))?;
+    map.serialize_entry("metric", &format!("apps.conference.{}_total", metric_key))?;
+    map.end()
+}
+
+fn serialize_dynamic_metric2<S>(
+    metric_key: &str,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    S: serde::ser::Serializer,
+{
+    use serde::ser::SerializeMap;
+
+    let mut map = serializer.serialize_map(Some(1))?;
+    map.serialize_entry("metric", &format!("{}_total", metric_key))?;
     map.end()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::offset::TimeZone;
     use serde_derive::Deserialize;
+    use svc_agent::AccountId;
 
     #[derive(Deserialize)]
     struct DynamicMetric {
         metric: String,
         value: u64,
+        #[serde(with = "ts_seconds")]
         timestamp: DateTime<Utc>,
     }
 
@@ -181,16 +288,18 @@ mod tests {
     fn serialize_dynamic_metric() {
         let now = Utc::now();
 
-        let json = serde_json::json!(Metric::Dynamic {
-            key: String::from("example"),
-            value: MetricValue::new(123, now),
-        });
+        let json = serde_json::json!(Metric::new(
+            MetricKey::Dynamic("example".into()),
+            123,
+            now,
+            Tags::build_internal_tags("whatever", &AgentId::new("q", AccountId::new("foo", "bar")))
+        ));
 
         let parsed: DynamicMetric =
             serde_json::from_str(&json.to_string()).expect("Failed to parse json");
 
         assert_eq!(&parsed.metric, "apps.conference.example_total");
         assert_eq!(parsed.value, 123);
-        assert_eq!(parsed.timestamp, now);
+        assert_eq!(parsed.timestamp, Utc.timestamp(now.timestamp(), 0));
     }
 }

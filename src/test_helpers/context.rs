@@ -8,7 +8,7 @@ use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
 use crate::app::context::{Context, GlobalContext, JanusTopics, MessageContext};
-use crate::app::metrics::{DbPoolStatsCollector, DynamicStatsCollector};
+use crate::app::metrics::DynamicStatsCollector;
 use crate::backend::janus::Client as JanusClient;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
@@ -116,12 +116,12 @@ impl GlobalContext for TestContext {
         &None
     }
 
-    fn db_pool_stats(&self) -> &Option<DbPoolStatsCollector> {
-        &None
-    }
-
     fn dynamic_stats(&self) -> Option<&DynamicStatsCollector> {
         None
+    }
+
+    fn get_metrics(&self, _duration: u64) -> anyhow::Result<Vec<crate::app::metrics::Metric>> {
+        Ok(vec![])
     }
 }
 

@@ -407,7 +407,7 @@ pub(crate) fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Er
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn count(conn: &PgConnection) -> Result<i64, Error> {
+pub(crate) fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
     use diesel::dsl::sum;
     use diesel::prelude::*;
 
@@ -417,7 +417,7 @@ pub(crate) fn count(conn: &PgConnection) -> Result<i64, Error> {
         .map(|v| v.unwrap_or(0))
 }
 
-pub(crate) fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
+pub(crate) fn count(conn: &PgConnection) -> Result<i64, Error> {
     use diesel::dsl::count;
     use diesel::prelude::*;
 
@@ -425,3 +425,56 @@ pub(crate) fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
         .select(count(janus_backend::id))
         .get_result(conn)
 }
+
+#[derive(QueryableByName)]
+pub(crate) struct ReserveLoadQueryLoad {
+    #[sql_type = "svc_agent::sql::Agent_id"]
+    pub backend_id: AgentId,
+    #[sql_type = "diesel::sql_types::Integer"]
+    pub load: i32,
+}
+
+pub(crate) fn reserve_load_for_each_backend(
+    conn: &PgConnection,
+) -> Result<Vec<ReserveLoadQueryLoad>, Error> {
+    use diesel::prelude::*;
+
+    diesel::sql_query(LOAD_FOR_EACH_BACKEND).get_results(conn)
+}
+
+const LOAD_FOR_EACH_BACKEND: &str = r#"
+WITH
+    room_load AS (
+        SELECT
+            room_id,
+            COUNT(id) AS taken
+        FROM agent
+        WHERE status = 'connected'
+        GROUP BY room_id
+    ),
+    active_room AS (
+        SELECT *
+        FROM room
+        WHERE backend = 'janus'
+        AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
+    )
+SELECT
+    backend_id,
+    SUM(reserve) AS load
+FROM (
+    SELECT DISTINCT ON(backend_id, room_id)
+        rec.backend_id,
+        rtc.room_id,
+        COALESCE(rl.taken, 0)   AS taken,
+        COALESCE(ar.reserve, 0) AS reserve
+    FROM recording AS rec
+    INNER JOIN rtc
+    ON rtc.id = rec.rtc_id
+    LEFT JOIN active_room AS ar
+    ON ar.id = rtc.room_id
+    LEFT JOIN room_load AS rl
+    ON rl.room_id = rtc.room_id
+    WHERE rec.status = 'in_progress'
+) AS sub
+GROUP BY backend_id
+"#;

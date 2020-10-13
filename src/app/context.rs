@@ -9,7 +9,7 @@ use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
-use crate::app::metrics::{DbPoolStatsCollector, DynamicStatsCollector};
+use crate::app::metrics::{DynamicStatsCollector, Metric};
 use crate::backend::janus::Client as JanusClient;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
@@ -27,8 +27,8 @@ pub(crate) trait GlobalContext: Sync {
     fn janus_topics(&self) -> &JanusTopics;
     fn queue_counter(&self) -> &Option<QueueCounterHandle>;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
-    fn db_pool_stats(&self) -> &Option<DbPoolStatsCollector>;
     fn dynamic_stats(&self) -> Option<&DynamicStatsCollector>;
+    fn get_metrics(&self, duration: u64) -> anyhow::Result<Vec<Metric>>;
 
     fn get_conn(&self) -> Result<PooledConnection<ConnectionManager<PgConnection>>, AppError> {
         self.db()
@@ -59,7 +59,6 @@ pub(crate) struct AppContext {
     janus_topics: JanusTopics,
     queue_counter: Option<QueueCounterHandle>,
     redis_pool: Option<RedisConnectionPool>,
-    db_pool_stats: Option<DbPoolStatsCollector>,
     dynamic_stats: Option<Arc<DynamicStatsCollector>>,
 }
 
@@ -82,7 +81,6 @@ impl AppContext {
             janus_topics,
             queue_counter: None,
             redis_pool: None,
-            db_pool_stats: None,
             dynamic_stats: Some(Arc::new(DynamicStatsCollector::start())),
         }
     }
@@ -97,13 +95,6 @@ impl AppContext {
     pub(crate) fn add_redis_pool(self, pool: RedisConnectionPool) -> Self {
         Self {
             redis_pool: Some(pool),
-            ..self
-        }
-    }
-
-    pub(crate) fn db_pool_stats(self, stats: DbPoolStatsCollector) -> Self {
-        Self {
-            db_pool_stats: Some(stats),
             ..self
         }
     }
@@ -142,12 +133,12 @@ impl GlobalContext for AppContext {
         &self.redis_pool
     }
 
-    fn db_pool_stats(&self) -> &Option<DbPoolStatsCollector> {
-        &self.db_pool_stats
-    }
-
     fn dynamic_stats(&self) -> Option<&DynamicStatsCollector> {
         self.dynamic_stats.as_deref()
+    }
+
+    fn get_metrics(&self, duration: u64) -> anyhow::Result<Vec<Metric>> {
+        crate::app::metrics::Collector::new(self, duration).get()
     }
 }
 
@@ -202,12 +193,12 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.redis_pool()
     }
 
-    fn db_pool_stats(&self) -> &Option<DbPoolStatsCollector> {
-        self.global_context.db_pool_stats()
-    }
-
     fn dynamic_stats(&self) -> Option<&DynamicStatsCollector> {
         self.global_context.dynamic_stats()
+    }
+
+    fn get_metrics(&self, duration: u64) -> anyhow::Result<Vec<Metric>> {
+        self.global_context.get_metrics(duration)
     }
 }
 

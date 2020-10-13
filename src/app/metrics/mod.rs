@@ -1,7 +1,9 @@
-pub(crate) use db_pool_stats_collector::DbPoolStatsCollector;
+pub(crate) use collector::Collector;
 pub(crate) use dynamic_stats_collector::DynamicStatsCollector;
-pub(crate) use metric::{Metric, Metric2, MetricValue};
+pub(crate) use metric::{Metric, Metric2, MetricKey, Tags};
+pub(crate) use stats_route::StatsRoute;
 
-mod db_pool_stats_collector;
+mod collector;
 mod dynamic_stats_collector;
 mod metric;
+mod stats_route;
