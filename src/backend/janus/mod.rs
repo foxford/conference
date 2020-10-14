@@ -360,7 +360,7 @@ async fn handle_response_impl<C: Context>(
 
                                 let room = endpoint::helpers::find_room_by_rtc_id(
                                     context,
-                                    rtc.room_id(),
+                                    rtc.id(),
                                     endpoint::helpers::RoomTimeRequirement::Any,
                                 )?;
 
