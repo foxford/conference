@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.14 (October 15, 2020)
+
+### Fixes
+- Fixed room query in UploadStream janus transaction ([e3c5fc3](https://github.com/netology-group/conference/commit/e3c5fc378ce31f8dc80136b72782ce7913959ccd)
+- Added time validation for room update ([fe48c6e](https://github.com/netology-group/conference/commit/fe48c6e2583689c97f3c5371b4266213e9d1b050)
+
+
 ## v0.5.13 (October 12, 2020)
 
 ### Changes
