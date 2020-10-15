@@ -68,13 +68,17 @@ impl Client {
                                 anyhow!("Janus request timed out ({}): {:?}", corr_data, info);
 
                             error!(crate::LOG, "{}", err);
+
                             let app_error =
                                 AppError::new(AppErrorKind::BackendRequestTimedOut, err);
-                            let svc_error: SvcError = app_error.into();
 
-                            sentry::send(svc_error).unwrap_or_else(|err| {
-                                warn!(crate::LOG, "Error sending error to Sentry: {}", err);
-                            });
+                            if app_error.is_notify_sentry() {
+                                let svc_error: SvcError = app_error.into();
+
+                                sentry::send(svc_error).unwrap_or_else(|err| {
+                                    warn!(crate::LOG, "Error sending error to Sentry: {}", err);
+                                });
+                            }
 
                             false
                         } else {
