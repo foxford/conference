@@ -1,5 +1,12 @@
 # Changelog
 
+
+## v0.5.15 (October 16, 2020)
+
+### Changes
+- Added StatsRoute for metrics ([b2f1393](https://github.com/netology-group/conference/commit/b2f139394503b1cbf6d4ffdedadbe8280e7c2dcc)
+
+
 ## v0.5.14 (October 15, 2020)
 
 ### Fixes
