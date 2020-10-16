@@ -207,13 +207,26 @@ fn append_janus_stats(
     let backend_load = crate::db::janus_backend::reserve_load_for_each_backend(&conn)
         .context("Failed to get janus backends reserve load")?
         .into_iter()
-        .map(|load_row| {
+        .fold(vec![], |mut v, load_row| {
             let tags = Tags::build_janus_tags(
                 crate::APP_VERSION,
                 context.agent_id(),
                 &load_row.backend_id,
             );
-            Metric::new(MetricKey::JanusBackendReserveLoad, load_row.load, now, tags)
+
+            v.push(Metric::new(
+                MetricKey::JanusBackendReserveLoad,
+                load_row.load,
+                now,
+                tags.clone(),
+            ));
+            v.push(Metric::new(
+                MetricKey::JanusBackendAgentLoad,
+                load_row.taken,
+                now,
+                tags,
+            ));
+            v
         });
 
     metrics.extend(backend_load);

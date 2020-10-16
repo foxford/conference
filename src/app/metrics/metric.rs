@@ -139,8 +139,10 @@ pub(crate) enum MetricKey {
     JanusBackendTotalCapacity,
     #[serde(rename(serialize = "apps.conference.connected_agents_total"))]
     ConnectedAgentsCount,
-    #[serde(rename(serialize = "apps.conference.janus_backend_reserve_load"))]
+    #[serde(rename(serialize = "apps.conference.janus_backend_reserve_load_total"))]
     JanusBackendReserveLoad,
+    #[serde(rename(serialize = "apps.conference.janus_backend_agent_load_total"))]
+    JanusBackendAgentLoad,
     #[serde(serialize_with = "serialize_dynamic_metric")]
     Dynamic(String),
 }
@@ -176,6 +178,8 @@ pub(crate) enum MetricKey2 {
     ConnectedAgentsCount,
     #[serde(rename(serialize = "janus_backend_reserve_load_total"))]
     JanusBackendReserveLoad,
+    #[serde(rename(serialize = "janus_backend_agent_load_total"))]
+    JanusBackendAgentLoad,
     #[serde(serialize_with = "serialize_dynamic_metric2")]
     Dynamic(String),
 }
@@ -198,6 +202,7 @@ impl From<MetricKey> for MetricKey2 {
             MetricKey::ConnectedAgentsCount => MetricKey2::ConnectedAgentsCount,
             MetricKey::Dynamic(key) => MetricKey2::Dynamic(key),
             MetricKey::JanusBackendReserveLoad => MetricKey2::JanusBackendReserveLoad,
+            MetricKey::JanusBackendAgentLoad => MetricKey2::JanusBackendAgentLoad,
         }
     }
 }
@@ -219,6 +224,7 @@ impl std::fmt::Display for MetricKey2 {
             MetricKey2::JanusBackendTotalCapacity => write!(f, "janus_backends_capacity_total"),
             MetricKey2::ConnectedAgentsCount => write!(f, "connected_agents_total"),
             MetricKey2::JanusBackendReserveLoad => write!(f, "janus_backend_reserve_load_total"),
+            MetricKey2::JanusBackendAgentLoad => write!(f, "janus_backend_agent_load_total"),
             MetricKey2::Dynamic(key) => write!(f, "{}_total", key),
         }
     }
