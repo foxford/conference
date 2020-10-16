@@ -432,6 +432,8 @@ pub(crate) struct ReserveLoadQueryLoad {
     pub backend_id: AgentId,
     #[sql_type = "diesel::sql_types::BigInt"]
     pub load: i64,
+    #[sql_type = "diesel::sql_types::BigInt"]
+    pub taken: i64,
 }
 
 pub(crate) fn reserve_load_for_each_backend(
@@ -461,7 +463,8 @@ WITH
     janus_backend_load AS (
         SELECT
             backend_id,
-            SUM(reserve) AS load
+            SUM(reserve) AS load,
+            SUM(taken) AS taken
         FROM (
             SELECT DISTINCT ON(backend_id, room_id)
                 rec.backend_id,
@@ -481,7 +484,8 @@ WITH
     )
 SELECT
     jb.id AS backend_id,
-    COALESCE(jbl.load, 0) as load
+    COALESCE(jbl.load, 0) as load,
+    COALESCE(jbl.taken, 0) as taken
 FROM janus_backend jb
 LEFT OUTER JOIN janus_backend_load jbl
 ON jb.id = jbl.backend_id;
