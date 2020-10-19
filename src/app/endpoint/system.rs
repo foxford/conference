@@ -1,4 +1,5 @@
 use std::ops::Bound;
+use std::result::Result as StdResult;
 
 use async_std::stream;
 use async_trait::async_trait;
@@ -13,9 +14,12 @@ use uuid::Uuid;
 
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
+use crate::app::error::Error as AppError;
 use crate::backend::janus::requests::UploadStreamRequestBody;
+use crate::config::UploadConfig;
 use crate::db;
-use crate::db::recording::Status as RecordingStatus;
+use crate::db::recording::{Object as Recording, Status as RecordingStatus};
+use crate::db::room::Object as Room;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -84,6 +88,8 @@ impl RequestHandler for VacuumHandler {
                 .room_id(room.id())
                 .execute(&conn)?;
 
+            let config = upload_config(context, &room)?;
+
             // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
             let backreq = context
                 .janus_client()
@@ -93,7 +99,8 @@ impl RequestHandler for VacuumHandler {
                     backend.handle_id(),
                     UploadStreamRequestBody::new(
                         recording.rtc_id(),
-                        &bucket_name(&room),
+                        &config.backend,
+                        &config.bucket,
                         &record_name(&recording),
                     ),
                     backend.id(),
@@ -122,26 +129,31 @@ impl RequestHandler for VacuumHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn upload_event<I>(
+pub(crate) fn upload_event<C: Context, I>(
+    context: &C,
     room: &db::room::Object,
     recordings: I,
-    start_timestamp: DateTime<Utc>,
     tracking: &TrackingProperties,
-) -> anyhow::Result<RoomUploadEvent>
+) -> StdResult<RoomUploadEvent, AppError>
 where
     I: Iterator<Item = db::recording::Object>,
 {
     let mut event_entries = Vec::new();
+
     for recording in recordings {
         let uri = match recording.status() {
-            RecordingStatus::InProgress => bail!(
-                "Unexpected recording in in_progress status, rtc_id = '{}'",
-                recording.rtc_id()
-            ),
+            RecordingStatus::InProgress => {
+                let err = anyhow!(
+                    "Unexpected recording in in_progress status, rtc_id = '{}'",
+                    recording.rtc_id(),
+                );
+
+                return Err(err).error(AppErrorKind::MessageBuildingFailed)?;
+            }
             RecordingStatus::Missing => None,
             RecordingStatus::Ready => Some(format!(
                 "s3://{}/{}",
-                bucket_name(&room),
+                &upload_config(context, &room)?.bucket,
                 record_name(&recording)
             )),
         };
@@ -158,7 +170,7 @@ where
     }
 
     let uri = format!("audiences/{}/events", room.audience());
-    let timing = ShortTermTimingProperties::until_now(start_timestamp);
+    let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
     let mut props = OutgoingEventProperties::new("room.upload", timing);
     props.set_tracking(tracking.to_owned());
 
@@ -170,11 +182,19 @@ where
     Ok(OutgoingEvent::broadcast(event, props, &uri))
 }
 
-fn bucket_name(room: &db::room::Object) -> String {
-    format!("origin.webinar.{}", room.audience())
+fn upload_config<'a, C: Context>(
+    context: &'a C,
+    room: &Room,
+) -> StdResult<&'a UploadConfig, AppError> {
+    context
+        .config()
+        .upload
+        .get(room.audience())
+        .ok_or_else(|| anyhow!("Missing upload configuration for the room's audience"))
+        .error(AppErrorKind::ConfigKeyMissing)
 }
 
-fn record_name(recording: &db::recording::Object) -> String {
+fn record_name(recording: &Recording) -> String {
     format!("{}.source.webm", recording.rtc_id())
 }
 
@@ -207,6 +227,7 @@ mod test {
         struct VacuumJanusRequestBody {
             method: String,
             id: Uuid,
+            backend: String,
             bucket: String,
             object: String,
         }
@@ -293,6 +314,7 @@ mod test {
                             body: VacuumJanusRequestBody {
                                 method: "stream.upload".to_string(),
                                 id: rtc.id(),
+                                backend: String::from("EXAMPLE"),
                                 bucket: format!("origin.webinar.{}", USR_AUDIENCE).to_string(),
                                 object: format!("{}.source.webm", rtc.id()).to_string(),
                             }

@@ -26,5 +26,9 @@ default_timeout = 5
 stream_upload_timeout = 600
 transaction_watchdog_check_period = 1
 
+[upload."example.net"]
+backend = "EXAMPLE"
+bucket = "origin.webinars.example.net"
+
 [metrics.http]
 bind_address = "0.0.0.0:8087"

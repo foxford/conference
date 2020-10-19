@@ -400,13 +400,11 @@ async fn handle_response_impl<C: Context>(
 
                             // Send room.upload event.
                             let event = endpoint::system::upload_event(
+                                context,
                                 &room,
                                 recs.into_iter(),
-                                context.start_timestamp(),
                                 respp.tracking(),
-                            )
-                            .map_err(|err| err.context("Error creating a system event"))
-                            .error(AppErrorKind::MessageBuildingFailed)?;
+                            )?;
 
                             let event_box = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
                             Ok(Box::new(stream::once(event_box)) as MessageStream)

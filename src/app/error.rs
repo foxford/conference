@@ -16,6 +16,7 @@ pub(crate) enum ErrorKind {
     BackendRequestTimedOut,
     BackendNotFound,
     CapacityExceeded,
+    ConfigKeyMissing,
     DbConnAcquisitionFailed,
     DbQueryFailed,
     InvalidJsepFormat,
@@ -68,6 +69,11 @@ impl Into<(ResponseStatus, &'static str, &'static str)> for ErrorKind {
                 ResponseStatus::NOT_FOUND,
                 "backend_not_found",
                 "Backend not found",
+            ),
+            Self::ConfigKeyMissing => (
+                ResponseStatus::UNPROCESSABLE_ENTITY,
+                "config_key_missing",
+                "Config key missing",
             ),
             Self::CapacityExceeded => (
                 ResponseStatus::SERVICE_UNAVAILABLE,
