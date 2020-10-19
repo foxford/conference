@@ -426,12 +426,12 @@ pub(crate) fn count(conn: &PgConnection) -> Result<i64, Error> {
         .get_result(conn)
 }
 
-#[derive(QueryableByName)]
+#[derive(QueryableByName, Debug)]
 pub(crate) struct ReserveLoadQueryLoad {
     #[sql_type = "svc_agent::sql::Agent_id"]
     pub backend_id: AgentId,
-    #[sql_type = "diesel::sql_types::Integer"]
-    pub load: i32,
+    #[sql_type = "diesel::sql_types::BigInt"]
+    pub load: i64,
 }
 
 pub(crate) fn reserve_load_for_each_backend(
@@ -457,24 +457,112 @@ WITH
         FROM room
         WHERE backend = 'janus'
         AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
+    ),
+    janus_backend_load AS (
+        SELECT
+            backend_id,
+            SUM(reserve) AS load
+        FROM (
+            SELECT DISTINCT ON(backend_id, room_id)
+                rec.backend_id,
+                rtc.room_id,
+                COALESCE(rl.taken, 0)   AS taken,
+                COALESCE(ar.reserve, 0) AS reserve
+            FROM recording AS rec
+            INNER JOIN rtc
+            ON rtc.id = rec.rtc_id
+            LEFT JOIN active_room AS ar
+            ON ar.id = rtc.room_id
+            LEFT JOIN room_load AS rl
+            ON rl.room_id = rtc.room_id
+            WHERE rec.status = 'in_progress'
+        ) AS sub
+        GROUP BY backend_id
     )
 SELECT
-    backend_id,
-    SUM(reserve) AS load
-FROM (
-    SELECT DISTINCT ON(backend_id, room_id)
-        rec.backend_id,
-        rtc.room_id,
-        COALESCE(rl.taken, 0)   AS taken,
-        COALESCE(ar.reserve, 0) AS reserve
-    FROM recording AS rec
-    INNER JOIN rtc
-    ON rtc.id = rec.rtc_id
-    LEFT JOIN active_room AS ar
-    ON ar.id = rtc.room_id
-    LEFT JOIN room_load AS rl
-    ON rl.room_id = rtc.room_id
-    WHERE rec.status = 'in_progress'
-) AS sub
-GROUP BY backend_id
+    jb.id AS backend_id,
+    COALESCE(jbl.load, 0) as load
+FROM janus_backend jb
+LEFT OUTER JOIN janus_backend_load jbl
+ON jb.id = jbl.backend_id;
 "#;
+
+#[cfg(test)]
+mod tests {
+
+    use chrono::{Duration, Utc};
+    use std::ops::Bound;
+
+    use crate::db::room::RoomBackend;
+    use crate::test_helpers::prelude::*;
+
+    #[test]
+    fn reserve_load_for_each_backend() {
+        async_std::task::block_on(async {
+            // Insert an rtc and janus backend.
+            let now = Utc::now();
+
+            let conn = TestDb::new()
+                .connection_pool()
+                .get()
+                .expect("Failed to get db conn");
+            // Insert janus backends.
+            let backend1 = shared_helpers::insert_janus_backend(&conn);
+            let backend2 = shared_helpers::insert_janus_backend(&conn);
+            let backend3 = shared_helpers::insert_janus_backend(&conn);
+
+            let room1 = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(now),
+                    Bound::Excluded(now + Duration::hours(1)),
+                ))
+                .backend(RoomBackend::Janus)
+                .reserve(200)
+                .insert(&conn);
+
+            let room2 = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(now),
+                    Bound::Excluded(now + Duration::hours(1)),
+                ))
+                .reserve(300)
+                .backend(RoomBackend::Janus)
+                .insert(&conn);
+
+            let room3 = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(now),
+                    Bound::Excluded(now + Duration::hours(1)),
+                ))
+                .reserve(400)
+                .backend(RoomBackend::Janus)
+                .insert(&conn);
+
+            let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
+            let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
+            let rtc3 = factory::Rtc::new(room3.id()).insert(&conn);
+
+            shared_helpers::insert_recording(&conn, &rtc1, &backend1);
+            shared_helpers::insert_recording(&conn, &rtc2, &backend1);
+            shared_helpers::insert_recording(&conn, &rtc3, &backend2);
+
+            let loads = super::reserve_load_for_each_backend(&conn).expect("Db query failed");
+            assert_eq!(loads.len(), 3);
+
+            [backend1, backend2, backend3]
+                .iter()
+                .zip([500, 400, 0].iter())
+                .for_each(|(backend, expected_load)| {
+                    let b = loads
+                        .iter()
+                        .find(|load| load.backend_id == *backend.id())
+                        .expect("Failed to find backend in query results");
+
+                    assert_eq!(b.load, *expected_load as i64);
+                });
+        });
+    }
+}
