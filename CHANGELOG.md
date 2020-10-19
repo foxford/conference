@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.6.0 (October 20, 2020)
+
+### Changes
+- Send backend and bucket from config to stream.upload ([8cc41bf](https://github.com/netology-group/conference/commit/8cc41bf7e449c14b1dce1f6519949746b0e97a56))
+- Add selective sentry notification ([19302cd](https://github.com/netology-group/conference/commit/19302cd9ea9744b8a33511882264a10e3b7ced9f))
+
+### Fixes
+- Fix type mismatch and missing backends in reserve_load_for_each_backend query ([3d54297](https://github.com/netology-group/conference/commit/3d5429770f95d81b48df9a6d70b6ddfcf6f18322))
+
 
 ## v0.5.15 (October 16, 2020)
 
@@ -23,6 +32,7 @@
 ### Fixes
 - Fixed ordering in least loaded query ([ccf06a9](https://github.com/netology-group/conference/commit/ccf06a97ffe495f8d1ddacea9603648fefcf7df2)
 - Fixed free capacity query not allowing users to connect even if there are free slots ([6795504](https://github.com/netology-group/conference/commit/67955045d3c672838fa9e6233cf7714e403fcb37)
+
 
 ## v0.5.12 (October 8, 2020)
 
