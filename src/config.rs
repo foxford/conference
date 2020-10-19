@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde_derive::Deserialize;
 use svc_agent::{mqtt::AgentConfig, AccountId};
 use svc_authn::jose::Algorithm;
@@ -14,6 +16,7 @@ pub(crate) struct Config {
     pub(crate) mqtt: AgentConfig,
     pub(crate) sentry: Option<SentryConfig>,
     pub(crate) backend: BackendConfig,
+    pub(crate) upload: UploadConfigMap,
     #[serde(default)]
     pub(crate) telemetry: TelemetryConfig,
     #[serde(default)]
@@ -42,6 +45,14 @@ pub(crate) struct BackendConfig {
     pub(crate) default_timeout: u64,
     pub(crate) stream_upload_timeout: u64,
     pub(crate) transaction_watchdog_check_period: u64,
+}
+
+pub(crate) type UploadConfigMap = HashMap<String, UploadConfig>;
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct UploadConfig {
+    pub(crate) backend: String,
+    pub(crate) bucket: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

@@ -127,15 +127,17 @@ impl ReadStreamRequestBody {
 pub(crate) struct UploadStreamRequestBody {
     method: &'static str,
     id: Uuid,
+    backend: String,
     bucket: String,
     object: String,
 }
 
 impl UploadStreamRequestBody {
-    pub(crate) fn new(id: Uuid, bucket: &str, object: &str) -> Self {
+    pub(crate) fn new(id: Uuid, backend: &str, bucket: &str, object: &str) -> Self {
         Self {
             method: STREAM_UPLOAD_METHOD,
             id,
+            backend: backend.to_owned(),
             bucket: bucket.to_owned(),
             object: object.to_owned(),
         }

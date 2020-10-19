@@ -33,6 +33,7 @@ The following types are a part of the service's API and are guaranteed to mainta
 - `backend_request_timed_out` – The backend request didn't finished in a reasonable time.
 - `backend_not_found` – The backend that hosted the RTC went offline.
 - `capacity_exceeded` – There's no free capacity left on the backend to connect to.
+- `config_key_missing` – The service couldn't perform an operation due to misconfiguration.
 - `database_connection_acquisition_failed` – The service couldn't obtain a DB connection from the pool.
 - `database_query_failed` – The database returned an error while executing a query.
 - `invalid_jsep_format` – Failed to determine whether the SDP is recvonly.

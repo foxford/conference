@@ -15,7 +15,7 @@ use crate::db::ConnectionPool as Db;
 
 use super::authz::TestAuthz;
 use super::db::TestDb;
-use super::SVC_AUDIENCE;
+use super::{SVC_AUDIENCE, USR_AUDIENCE};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -42,6 +42,12 @@ fn build_config() -> Config {
             "default_timeout": 5,
             "stream_upload_timeout": 600,
             "transaction_watchdog_check_period": 1,
+        },
+        "upload": {
+            USR_AUDIENCE: {
+                "backend": "EXAMPLE",
+                "bucket": format!("origin.webinar.{}", USR_AUDIENCE),
+            }
         }
     });
 
