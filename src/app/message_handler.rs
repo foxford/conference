@@ -13,7 +13,7 @@ use svc_agent::{
     },
     Addressable, Authenticable,
 };
-use svc_error::{extension::sentry, Error as SvcError};
+use svc_error::Error as SvcError;
 
 use crate::app::context::{AppMessageContext, Context, GlobalContext, MessageContext};
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
@@ -77,16 +77,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
             anyhow!(err.to_string()),
         );
 
-        if app_error.is_notify_sentry() {
-            let svc_error: SvcError = app_error.into();
-
-            sentry::send(svc_error).unwrap_or_else(|err| {
-                warn!(
-                    msg_context.logger(),
-                    "Error sending error to Sentry: {}", err
-                );
-            });
-        }
+        app_error.notify_sentry(msg_context.logger());
     }
 
     async fn handle_message(
@@ -276,35 +267,25 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
                     H::handle(context, payload, reqp)
                         .await
                         .unwrap_or_else(|app_error| {
-                            let is_notify_sentry = app_error.is_notify_sentry();
-                            let svc_error: SvcError = app_error.into();
-
                             context.add_logger_tags(o!(
-                                "status" => svc_error.status_code().as_u16(),
-                                "kind" => svc_error.kind().to_owned(),
+                                "status" => app_error.status().as_u16(),
+                                "kind" => app_error.kind().to_owned(),
                             ));
 
                             error!(
                                 context.logger(),
                                 "Failed to handle request: {}",
-                                svc_error.to_string(),
+                                app_error.source(),
                             );
 
-                            if is_notify_sentry {
-                                sentry::send(svc_error.clone()).unwrap_or_else(|err| {
-                                    warn!(
-                                        context.logger(),
-                                        "Error sending error to Sentry: {}", err,
-                                    );
-                                });
-                            }
+                            app_error.notify_sentry(context.logger());
 
-                            // Handler returned an error => 422.
+                            // Handler returned an error.
                             error_response(
-                                svc_error.status_code(),
-                                svc_error.kind(),
-                                svc_error.title(),
-                                &svc_error.to_string(),
+                                app_error.status(),
+                                app_error.kind(),
+                                app_error.title(),
+                                &app_error.source().to_string(),
                                 &reqp,
                                 context.start_timestamp(),
                             )
@@ -357,29 +338,18 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
                         .await
                         .unwrap_or_else(|app_error| {
                             // Handler returned an error.
-                            let is_notify_sentry = app_error.is_notify_sentry();
-                            let svc_error: SvcError = app_error.into();
-
                             context.add_logger_tags(o!(
-                                "status" => svc_error.status_code().as_u16(),
-                                "kind" => svc_error.kind().to_owned(),
+                                "status" => app_error.status().as_u16(),
+                                "kind" => app_error.kind().to_owned(),
                             ));
 
                             error!(
                                 context.logger(),
                                 "Failed to handle response: {}",
-                                svc_error.detail().unwrap_or("No detail"),
+                                app_error.source(),
                             );
 
-                            if is_notify_sentry {
-                                sentry::send(svc_error).unwrap_or_else(|err| {
-                                    warn!(
-                                        context.logger(),
-                                        "Error sending error to Sentry: {}", err,
-                                    );
-                                });
-                            }
-
+                            app_error.notify_sentry(context.logger());
                             Box::new(stream::empty())
                         })
                 }
@@ -426,29 +396,18 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
                         .await
                         .unwrap_or_else(|app_error| {
                             // Handler returned an error.
-                            let is_notify_sentry = app_error.is_notify_sentry();
-                            let svc_error: SvcError = app_error.into();
-
                             context.add_logger_tags(o!(
-                                "status" => svc_error.status_code().as_u16(),
-                                "kind" => svc_error.kind().to_owned(),
+                                "status" => app_error.status().as_u16(),
+                                "kind" => app_error.kind().to_owned(),
                             ));
 
                             error!(
                                 context.logger(),
                                 "Failed to handle event: {}",
-                                svc_error.detail().unwrap_or("No detail")
+                                app_error.source(),
                             );
 
-                            if is_notify_sentry {
-                                sentry::send(svc_error).unwrap_or_else(|err| {
-                                    warn!(
-                                        context.logger(),
-                                        "Error sending error to Sentry: {}", err,
-                                    );
-                                });
-                            }
-
+                            app_error.notify_sentry(context.logger());
                             Box::new(stream::empty())
                         })
                 }

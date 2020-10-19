@@ -361,7 +361,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on system vacuum");
 
-                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
                 assert_eq!(err.kind(), "access_denied");
             })
         }

@@ -3,9 +3,9 @@ use chrono::Utc;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use svc_agent::mqtt::{IncomingEventProperties, IncomingRequestProperties};
-use svc_error::Error as SvcError;
 
 use crate::app::endpoint::{EventHandler, RequestHandler};
+use crate::app::error::Error as AppError;
 use crate::app::message_handler::MessageStream;
 
 use self::agent::TestAgent;
@@ -24,7 +24,7 @@ pub(crate) async fn handle_request<H: RequestHandler>(
     context: &mut TestContext,
     agent: &TestAgent,
     payload: H::Payload,
-) -> Result<Vec<OutgoingEnvelope>, SvcError> {
+) -> Result<Vec<OutgoingEnvelope>, AppError> {
     let agent_id = agent.agent_id().to_string();
     let now = Utc::now().timestamp().to_string();
 
@@ -47,11 +47,7 @@ pub(crate) async fn handle_request<H: RequestHandler>(
     let reqp = serde_json::from_value::<IncomingRequestProperties>(reqp_json)
         .expect("Failed to parse reqp");
 
-    let messages = H::handle(context, payload, &reqp).await.map_err(|err| {
-        let svc_error: SvcError = err.into();
-        svc_error
-    })?;
-
+    let messages = H::handle(context, payload, &reqp).await?;
     Ok(parse_messages(messages).await)
 }
 
@@ -59,7 +55,7 @@ pub(crate) async fn handle_event<H: EventHandler>(
     context: &mut TestContext,
     agent: &TestAgent,
     payload: H::Payload,
-) -> Result<Vec<OutgoingEnvelope>, SvcError> {
+) -> Result<Vec<OutgoingEnvelope>, AppError> {
     let agent_id = agent.agent_id().to_string();
     let now = Utc::now().timestamp().to_string();
 
@@ -80,11 +76,7 @@ pub(crate) async fn handle_event<H: EventHandler>(
     let evp =
         serde_json::from_value::<IncomingEventProperties>(evp_json).expect("Failed to parse evp");
 
-    let messages = H::handle(context, payload, &evp).await.map_err(|err| {
-        let svc_error: SvcError = err.into();
-        svc_error
-    })?;
-
+    let messages = H::handle(context, payload, &evp).await?;
     Ok(parse_messages(messages).await)
 }
 

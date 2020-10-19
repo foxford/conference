@@ -1,8 +1,9 @@
 use std::error::Error as StdError;
 use std::fmt;
 
+use slog::Logger;
 use svc_agent::mqtt::ResponseStatus;
-use svc_error::Error as SvcError;
+use svc_error::{extension::sentry, Error as SvcError};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -44,6 +45,21 @@ pub(crate) enum ErrorKind {
 }
 
 impl ErrorKind {
+    pub(crate) fn status(self) -> ResponseStatus {
+        let properties: ErrorKindProperties = self.into();
+        properties.status
+    }
+
+    pub(crate) fn kind(self) -> &'static str {
+        let properties: ErrorKindProperties = self.into();
+        properties.kind
+    }
+
+    pub(crate) fn title(self) -> &'static str {
+        let properties: ErrorKindProperties = self.into();
+        properties.title
+    }
+
     pub(crate) fn is_notify_sentry(self) -> bool {
         let properties: ErrorKindProperties = self.into();
         properties.is_notify_sentry
@@ -238,8 +254,40 @@ impl Error {
         }
     }
 
-    pub(crate) fn is_notify_sentry(&self) -> bool {
-        self.kind.is_notify_sentry()
+    pub(crate) fn status(&self) -> ResponseStatus {
+        self.kind.status()
+    }
+
+    pub(crate) fn kind(&self) -> &str {
+        self.kind.kind()
+    }
+
+    pub(crate) fn title(&self) -> &str {
+        self.kind.title()
+    }
+
+    pub(crate) fn source(&self) -> &(dyn StdError + Send + Sync + 'static) {
+        self.source.as_ref().as_ref()
+    }
+
+    pub(crate) fn to_svc_error(&self) -> SvcError {
+        let properties: ErrorKindProperties = self.kind.into();
+
+        SvcError::builder()
+            .status(properties.status)
+            .kind(properties.kind, properties.title)
+            .detail(&self.source.as_ref().as_ref().to_string())
+            .build()
+    }
+
+    pub(crate) fn notify_sentry(&self, logger: &Logger) {
+        if !self.kind.is_notify_sentry() {
+            return;
+        }
+
+        sentry::send(self.to_svc_error()).unwrap_or_else(|err| {
+            warn!(logger, "Error sending error to Sentry: {}", err);
+        });
     }
 }
 
@@ -261,18 +309,6 @@ impl fmt::Display for Error {
 impl StdError for Error {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         Some(self.source.as_ref().as_ref())
-    }
-}
-
-impl Into<SvcError> for Error {
-    fn into(self) -> SvcError {
-        let properties: ErrorKindProperties = self.kind.into();
-
-        SvcError::builder()
-            .status(properties.status)
-            .kind(properties.kind, properties.title)
-            .detail(&self.source.as_ref().as_ref().to_string())
-            .build()
     }
 }
 

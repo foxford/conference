@@ -306,7 +306,7 @@ mod tests {
                 .await
                 .expect_err("Unexpected success on subscription creation");
 
-            assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
             assert_eq!(err.kind(), "room_not_found");
         });
     }
@@ -341,7 +341,7 @@ mod tests {
                 .await
                 .expect_err("Unexpected success on subscription creation");
 
-            assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
             assert_eq!(err.kind(), "room_closed");
         });
     }
@@ -515,7 +515,7 @@ mod tests {
                 .await
                 .expect_err("Unexpected success on subscription deletion");
 
-            assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
             assert_eq!(err.kind(), "agent_not_entered_the_room");
         });
     }
@@ -540,7 +540,7 @@ mod tests {
                 .await
                 .expect_err("Unexpected success on subscription deletion");
 
-            assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
             assert_eq!(err.kind(), "agent_not_entered_the_room");
         });
     }

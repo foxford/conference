@@ -466,7 +466,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc creation");
 
-                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
                 assert_eq!(err.kind(), "access_denied");
             });
         }
@@ -540,7 +540,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc creation");
 
-                assert_eq!(err.status_code(), ResponseStatus::BAD_REQUEST);
+                assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
                 assert_eq!(err.kind(), "invalid_sdp_type");
             });
         }
@@ -673,7 +673,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc creation");
 
-                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
                 assert_eq!(err.kind(), "access_denied");
             });
         }

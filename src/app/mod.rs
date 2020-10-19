@@ -17,7 +17,6 @@ use svc_agent::{
 };
 use svc_authn::token::jws_compact;
 use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
-use svc_error::{extension::sentry, Error as SvcError};
 
 use crate::app::context::GlobalContext;
 use crate::app::error::{Error as AppError, ErrorKind as AppErrorKind};
@@ -233,14 +232,7 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
         error!(crate::LOG, "{}", err);
 
         let app_error = AppError::new(AppErrorKind::ResubscriptionFailed, err);
-
-        if app_error.is_notify_sentry() {
-            let svc_error: SvcError = app_error.into();
-
-            sentry::send(svc_error).unwrap_or_else(|err| {
-                warn!(crate::LOG, "Error sending error to Sentry: {}", err);
-            });
-        }
+        app_error.notify_sentry(&crate::LOG);
     }
 }
 
