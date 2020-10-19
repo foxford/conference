@@ -284,7 +284,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "room_not_found");
             });
         }
@@ -325,7 +325,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "agent_not_entered_the_room");
             });
         }
@@ -366,7 +366,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "agent_not_entered_the_room");
             });
         }
@@ -447,7 +447,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "room_not_found");
             });
         }
@@ -478,7 +478,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "agent_not_entered_the_room");
             });
         }

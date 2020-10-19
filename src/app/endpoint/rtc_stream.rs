@@ -235,7 +235,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc listing");
 
-                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
                 assert_eq!(err.kind(), "access_denied");
             });
         }
@@ -258,7 +258,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc listing");
 
-                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "room_not_found");
             });
         }

@@ -9,7 +9,6 @@ use svc_agent::{
     mqtt::{IncomingResponseProperties, OutgoingRequestProperties, SubscriptionTopic},
     AgentId, Subscription,
 };
-use svc_error::{extension::sentry, Error as SvcError};
 
 use crate::app::error::{Error as AppError, ErrorKind as AppErrorKind};
 use crate::config::BackendConfig;
@@ -68,13 +67,9 @@ impl Client {
                                 anyhow!("Janus request timed out ({}): {:?}", corr_data, info);
 
                             error!(crate::LOG, "{}", err);
-                            let app_error =
-                                AppError::new(AppErrorKind::BackendRequestTimedOut, err);
-                            let svc_error: SvcError = app_error.into();
 
-                            sentry::send(svc_error).unwrap_or_else(|err| {
-                                warn!(crate::LOG, "Error sending error to Sentry: {}", err);
-                            });
+                            AppError::new(AppErrorKind::BackendRequestTimedOut, err)
+                                .notify_sentry(&crate::LOG);
 
                             false
                         } else {

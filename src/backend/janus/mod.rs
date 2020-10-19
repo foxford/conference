@@ -10,7 +10,7 @@ use svc_agent::mqtt::{
     ResponseStatus, ShortTermTimingProperties,
 };
 use svc_agent::Addressable;
-use svc_error::{extension::sentry, Error as SvcError};
+use svc_error::Error as SvcError;
 use uuid::Uuid;
 
 use crate::app::context::Context;
@@ -50,12 +50,7 @@ pub(crate) async fn handle_response<C: Context>(
                 "Failed to handle a response from janus: {}", app_error,
             );
 
-            let svc_error: SvcError = app_error.into();
-
-            sentry::send(svc_error).unwrap_or_else(|err| {
-                warn!(context.logger(), "Error sending error to Sentry: {}", err)
-            });
-
+            app_error.notify_sentry(context.logger());
             Box::new(stream::empty())
         })
 }
@@ -436,23 +431,20 @@ fn handle_response_error<C: Context>(
     reqp: &IncomingRequestProperties,
     app_error: AppError,
 ) -> MessageStream {
-    let svc_error: SvcError = app_error.into();
-
     context.add_logger_tags(o!(
-        "kind" => svc_error.kind().to_owned(),
-        "status" => svc_error.status_code().as_u16(),
+        "status" => app_error.status().as_u16(),
+        "kind" => app_error.kind().to_owned(),
     ));
 
     error!(
         context.logger(),
         "Failed to handle a response from janus: {}",
-        svc_error.detail().unwrap_or(""),
+        app_error.source(),
     );
 
-    sentry::send(svc_error.clone()).unwrap_or_else(|err| {
-        warn!(context.logger(), "Error sending error to Sentry: {}", err);
-    });
+    app_error.notify_sentry(context.logger());
 
+    let svc_error: SvcError = app_error.to_svc_error();
     let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
     let respp = reqp.to_response(svc_error.status_code(), timing);
     let resp = OutgoingResponse::unicast(svc_error, respp, reqp, API_VERSION);
@@ -472,12 +464,7 @@ pub(crate) async fn handle_event<C: Context>(
                 "Failed to handle an event from janus: {}", app_error
             );
 
-            let svc_error: SvcError = app_error.into();
-
-            sentry::send(svc_error).unwrap_or_else(|err| {
-                warn!(context.logger(), "Error sending error to Sentry: {}", err);
-            });
-
+            app_error.notify_sentry(context.logger());
             Box::new(stream::empty())
         })
 }
@@ -597,12 +584,7 @@ pub(crate) async fn handle_status_event<C: Context>(
                 "Failed to handle a status event from janus: {}", app_error
             );
 
-            let svc_error: SvcError = app_error.into();
-
-            sentry::send(svc_error).unwrap_or_else(|err| {
-                warn!(context.logger(), "Error sending error to Sentry: {}", err);
-            });
-
+            app_error.notify_sentry(context.logger());
             Box::new(stream::empty())
         })
 }

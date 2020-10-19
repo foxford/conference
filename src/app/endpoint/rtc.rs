@@ -443,7 +443,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc creation");
 
-                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "room_not_found");
             });
         }
@@ -469,7 +469,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc creation");
 
-                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
                 assert_eq!(err.kind(), "access_denied");
             });
         }
@@ -541,7 +541,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc reading");
 
-                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
                 assert_eq!(err.kind(), "access_denied");
             });
         }
@@ -557,7 +557,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc reading");
 
-                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "room_not_found");
             });
         }
@@ -640,7 +640,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc listing");
 
-                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
                 assert_eq!(err.kind(), "access_denied");
             });
         }
@@ -661,7 +661,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc listing");
 
-                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "room_not_found");
             });
         }
@@ -1110,7 +1110,7 @@ mod test {
                     .await
                     .expect_err("Connected to RTC while expected capacity exceeded error");
 
-                assert_eq!(err.status_code(), ResponseStatus::SERVICE_UNAVAILABLE);
+                assert_eq!(err.status(), ResponseStatus::SERVICE_UNAVAILABLE);
                 assert_eq!(err.kind(), "capacity_exceeded");
 
                 // Connect to the rtc in the room with free reserved slots.
@@ -1268,7 +1268,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc connecting");
 
-                assert_eq!(err.status_code(), ResponseStatus::SERVICE_UNAVAILABLE);
+                assert_eq!(err.status(), ResponseStatus::SERVICE_UNAVAILABLE);
                 assert_eq!(err.kind(), "capacity_exceeded");
             });
         }
@@ -1649,7 +1649,7 @@ mod test {
                     .await
                     .expect_err("Connected to RTC while expected capacity exceeded error");
 
-                assert_eq!(err.status_code(), ResponseStatus::SERVICE_UNAVAILABLE);
+                assert_eq!(err.status(), ResponseStatus::SERVICE_UNAVAILABLE);
                 assert_eq!(err.kind(), "capacity_exceeded");
             });
         }
@@ -1680,7 +1680,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc connecting");
 
-                assert_eq!(err.status_code(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
                 assert_eq!(err.kind(), "access_denied");
             });
         }
@@ -1700,7 +1700,7 @@ mod test {
                     .await
                     .expect_err("Unexpected success on rtc connecting");
 
-                assert_eq!(err.status_code(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "room_not_found");
             });
         }
