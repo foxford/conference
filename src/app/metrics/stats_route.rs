@@ -95,7 +95,7 @@ impl<C: GlobalContext + Send + 'static> StatsRoute<C> {
         let metrics = self
             .message_handler
             .global_context()
-            .get_metrics(5)
+            .get_metrics()
             .context("Failed to get metrics")?;
 
         for metric in metrics {
