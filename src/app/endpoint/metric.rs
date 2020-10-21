@@ -28,7 +28,7 @@ impl EventHandler for PullHandler {
 
     async fn handle<C: Context>(
         context: &mut C,
-        payload: Self::Payload,
+        _payload: Self::Payload,
         evp: &IncomingEventProperties,
     ) -> Result {
         match context.config().telemetry {
@@ -36,7 +36,7 @@ impl EventHandler for PullHandler {
                 id: Some(ref account_id),
             } => {
                 let metrics = context
-                    .get_metrics(payload.duration)
+                    .get_metrics()
                     .error(AppErrorKind::StatsCollectionFailed)?;
 
                 let metrics2 = metrics
