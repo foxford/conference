@@ -434,7 +434,7 @@ dependencies = [
 
 [[package]]
 name = "conference"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow 1.0.31 (registry+https://github.com/rust-lang/crates.io-index)",
  "async-std 1.6.0 (registry+https://github.com/rust-lang/crates.io-index)",

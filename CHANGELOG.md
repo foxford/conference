@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.1 (October 23, 2020)
+
+### Changes
+- Added connected agents load for each backend ([ba0567d](https://github.com/netology-group/conference/commit/ba0567dc72df735d2be899995c74e48b48921259))
+
+### Fixes
+- Fixed mqtt metrics ([3920516](https://github.com/netology-group/conference/commit/3920516d2b2fc611b25eb3979b68deeb97842baa))
+
 ## v0.6.0 (October 20, 2020)
 
 ### Changes
