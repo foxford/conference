@@ -335,7 +335,7 @@ mod test {
 
                     assert_eq!(recording.status(), &RecordingStatus::InProgress);
 
-                    find_event_by_predicate::<JsonValue, _>(&messages, |evp, p| {
+                    find_event_by_predicate::<JsonValue, _>(&messages, |evp, p, _| {
                         evp.label() == "room.close"
                             && p.get("id").and_then(|v| v.as_str())
                                 == Some(rtc.room_id().to_string()).as_deref()
