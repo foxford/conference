@@ -22,7 +22,6 @@ impl<'a, C: GlobalContext> Collector<'a, C> {
         append_dynamic_stats(&mut metrics, self.context, now)?;
 
         append_janus_stats(&mut metrics, self.context, now)?;
-        {}
 
         Ok(metrics)
     }

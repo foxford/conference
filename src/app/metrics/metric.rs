@@ -210,12 +210,12 @@ impl From<MetricKey> for MetricKey2 {
 impl std::fmt::Display for MetricKey2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MetricKey2::IncomingQueueRequests => write!(f, "incoming_queue_requests_total"),
-            MetricKey2::IncomingQueueResponses => write!(f, "incoming_queue_responses_total"),
-            MetricKey2::IncomingQueueEvents => write!(f, "incoming_queue_events_total"),
-            MetricKey2::OutgoingQueueRequests => write!(f, "outgoing_queue_responses_total"),
-            MetricKey2::OutgoingQueueResponses => write!(f, "outgoing_queue_responses_total"),
-            MetricKey2::OutgoingQueueEvents => write!(f, "outgoing_queue_events_total"),
+            MetricKey2::IncomingQueueRequests => write!(f, "incoming_requests_total"),
+            MetricKey2::IncomingQueueResponses => write!(f, "incoming_responses_total"),
+            MetricKey2::IncomingQueueEvents => write!(f, "incoming_events_total"),
+            MetricKey2::OutgoingQueueRequests => write!(f, "outgoing_responses_total"),
+            MetricKey2::OutgoingQueueResponses => write!(f, "outgoing_responses_total"),
+            MetricKey2::OutgoingQueueEvents => write!(f, "outgoing_events_total"),
             MetricKey2::DbConnections => write!(f, "db_connections_total"),
             MetricKey2::IdleDbConnections => write!(f, "idle_db_connections_total"),
             MetricKey2::RedisConnections => write!(f, "redis_connections_total"),
