@@ -251,14 +251,21 @@ impl RequestHandler for UpdateHandler {
         let mut responses = vec![response, notification];
 
         let append_closed_notification = || {
-            let closed_notification = helpers::build_notification(
+            responses.push(helpers::build_notification(
                 "room.close",
                 &format!("rooms/{}/events", room.id()),
+                room.clone(),
+                reqp,
+                context.start_timestamp(),
+            ));
+
+            responses.push(helpers::build_notification(
+                "room.close",
+                &format!("audiences/{}/events", room.audience()),
                 room,
                 reqp,
                 context.start_timestamp(),
-            );
-            responses.push(closed_notification);
+            ));
         };
 
         // Publish room closed notification
@@ -810,16 +817,29 @@ mod test {
                     .await
                     .expect("Room update failed");
 
-                assert_eq!(messages.len(), 3);
+                assert_eq!(messages.len(), 4);
 
-                let (closed_notification, _, _) =
-                    find_event_by_predicate::<JsonValue, _>(messages.as_slice(), |evp, _| {
-                        evp.label() == "room.close"
-                    })
-                    .expect("Failed to find room.close event");
+                let (closed_tenant_notification, _, _) = find_event_by_predicate::<JsonValue, _>(
+                    messages.as_slice(),
+                    |evp, _, topic| evp.label() == "room.close" && topic.contains("audiences"),
+                )
+                .expect("Failed to find room.close event");
 
                 assert_eq!(
-                    closed_notification.get("id").and_then(|v| v.as_str()),
+                    closed_tenant_notification
+                        .get("id")
+                        .and_then(|v| v.as_str()),
+                    Some(room.id().to_string()).as_deref()
+                );
+
+                let (closed_room_notification, _, _) = find_event_by_predicate::<JsonValue, _>(
+                    messages.as_slice(),
+                    |evp, _, topic| evp.label() == "room.close" && topic.contains("rooms"),
+                )
+                .expect("Failed to find room.close event");
+
+                assert_eq!(
+                    closed_room_notification.get("id").and_then(|v| v.as_str()),
                     Some(room.id().to_string()).as_deref()
                 );
             });

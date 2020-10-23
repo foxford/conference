@@ -117,11 +117,11 @@ pub(crate) fn find_event_by_predicate<P, F>(
 ) -> Option<(P, &OutgoingEventProperties, &str)>
 where
     P: DeserializeOwned,
-    F: Fn(&OutgoingEventProperties, P) -> bool,
+    F: Fn(&OutgoingEventProperties, P, &str) -> bool,
 {
     for message in messages {
         if let OutgoingEnvelopeProperties::Event(evp) = message.properties() {
-            if f(evp, message.payload::<P>()) {
+            if f(evp, message.payload::<P>(), message.topic()) {
                 return Some((message.payload::<P>(), evp, message.topic()));
             }
         }

@@ -21,10 +21,11 @@ If either
   * the room was updated so that the closure datetime was moved from future into the past,
   * the room was vacuumed
 
-`room.close` event will be sent to room topic.
-This event is not guaranteed to be unique, that is two `room.close` events could be sent by the service.
+`room.close` event will be sent to room topic and tenant topics.
+This event is not guaranteed to be unique for a room, that is two `room.close` events could be sent by the service.
 
 **URI:** `rooms/:room_id/events`
+**URI:** `audiences/:audience/events`
 
 **Label:** `room.close`.
 
