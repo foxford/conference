@@ -1,13 +1,14 @@
+use std::ops::Bound;
 use std::str::FromStr;
 
 use anyhow::Result;
 use async_std::stream;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use std::ops::Bound;
+use serde_derive::Serialize;
 use svc_agent::mqtt::{
     IncomingEvent as MQTTIncomingEvent, IncomingEventProperties, IncomingRequestProperties,
-    IncomingResponse as MQTTIncomingResponse, IntoPublishableMessage, OutgoingResponse,
-    ResponseStatus, ShortTermTimingProperties,
+    IncomingResponse as MQTTIncomingResponse, IntoPublishableMessage, OutgoingEvent,
+    OutgoingEventProperties, OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
 };
 use svc_agent::Addressable;
 use svc_error::Error as SvcError;
@@ -23,7 +24,7 @@ use crate::db::{agent, janus_backend, janus_rtc_stream, recording, room, rtc};
 use crate::diesel::Connection;
 use crate::util::from_base64;
 
-use self::events::{IncomingEvent, StatusEvent};
+use self::events::{IncomingEvent, SlowLinkEvent, StatusEvent};
 use self::responses::{ErrorResponse, IncomingResponse};
 use self::transactions::Transaction;
 
@@ -481,46 +482,108 @@ async fn handle_event_impl<C: Context>(
 
     let evp = event.properties();
     match payload {
-        IncomingEvent::WebRtcUp(ref inev) => {
-            context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
-
-            let rtc_stream_id = Uuid::from_str(inev.opaque_id())
-                .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
-                .error(AppErrorKind::MessageParsingFailed)?;
-
-            let conn = context.get_conn()?;
-
-            // If the event relates to a publisher's handle,
-            // we will find the corresponding stream and send event w/ updated stream object
-            // to the room's topic.
-            if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
-                let room = endpoint::helpers::find_room_by_rtc_id(
-                    context,
-                    rtc_stream.rtc_id(),
-                    endpoint::helpers::RoomTimeRequirement::Open,
-                )?;
-
-                let event = endpoint::rtc_stream::update_event(
-                    room.id(),
-                    rtc_stream,
-                    context.start_timestamp(),
-                    evp.tracking(),
-                )?;
-
-                Ok(Box::new(stream::once(
-                    Box::new(event) as Box<dyn IntoPublishableMessage + Send>
-                )))
-            } else {
-                Ok(Box::new(stream::empty()))
-            }
-        }
+        IncomingEvent::WebRtcUp(ref inev) => handle_webrtc_up(context, inev, evp),
+        IncomingEvent::SlowLink(ref inev) => handle_slow_link(context, inev, evp),
         IncomingEvent::HangUp(ref inev) => handle_hangup_detach(context, inev, evp),
         IncomingEvent::Detached(ref inev) => handle_hangup_detach(context, inev, evp),
-        IncomingEvent::Media(_) | IncomingEvent::Timeout(_) | IncomingEvent::SlowLink(_) => {
+        IncomingEvent::Media(_) | IncomingEvent::Timeout(_) => {
             // Ignore these kinds of events.
             Ok(Box::new(stream::empty()))
         }
     }
+}
+
+fn handle_webrtc_up<C: Context, E: OpaqueId>(
+    context: &mut C,
+    inev: &E,
+    evp: &IncomingEventProperties,
+) -> Result<MessageStream, AppError> {
+    context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
+
+    let rtc_stream_id = Uuid::from_str(inev.opaque_id())
+        .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
+        .error(AppErrorKind::MessageParsingFailed)?;
+
+    let conn = context.get_conn()?;
+
+    // If the event relates to a publisher's handle,
+    // we will find the corresponding stream and send event w/ updated stream object
+    // to the room's topic.
+    if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
+        let room = endpoint::helpers::find_room_by_rtc_id(
+            context,
+            rtc_stream.rtc_id(),
+            endpoint::helpers::RoomTimeRequirement::Open,
+        )?;
+
+        let event = endpoint::rtc_stream::update_event(
+            room.id(),
+            rtc_stream,
+            context.start_timestamp(),
+            evp.tracking(),
+        )?;
+
+        Ok(Box::new(stream::once(
+            Box::new(event) as Box<dyn IntoPublishableMessage + Send>
+        )))
+    } else {
+        Ok(Box::new(stream::empty()))
+    }
+}
+
+#[derive(Serialize)]
+struct SlowLinkEventPayload {
+    rtc_stream_id: Uuid,
+    media: String,
+    lost: usize,
+}
+
+fn handle_slow_link<C: Context>(
+    context: &mut C,
+    inev: &SlowLinkEvent,
+    evp: &IncomingEventProperties,
+) -> Result<MessageStream, AppError> {
+    context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
+
+    let rtc_stream_id = Uuid::from_str(inev.opaque_id())
+        .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
+        .error(AppErrorKind::MessageParsingFailed)?;
+
+    let conn = context.get_conn()?;
+
+    let rtc_stream = janus_rtc_stream::FindQuery::new(rtc_stream_id)
+        .execute(&conn)?
+        .ok_or_else(|| anyhow!("RTC stream not found"))
+        .error(AppErrorKind::RtcStreamNotFound)?;
+
+    let payload = SlowLinkEventPayload {
+        rtc_stream_id,
+        media: inev.media().to_owned(),
+        lost: inev.lost(),
+    };
+
+    let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
+    let mut props = OutgoingEventProperties::new("rtc_stream.slow_link", timing);
+    props.set_tracking(evp.tracking().to_owned());
+
+    let event = if inev.is_publisher() {
+        // Slow link is from publisher => room broadcast notification.
+        let room = endpoint::helpers::find_room_by_rtc_id(
+            context,
+            rtc_stream.rtc_id(),
+            endpoint::helpers::RoomTimeRequirement::Open,
+        )?;
+
+        let uri = format!("rooms/{}/events", room.id());
+        OutgoingEvent::broadcast(payload, props, &uri)
+    } else {
+        // Slow link is from viewer => unicast notification.
+        OutgoingEvent::unicast(payload, props, rtc_stream.sent_by(), API_VERSION)
+    };
+
+    Ok(Box::new(stream::once(
+        Box::new(event) as Box<dyn IntoPublishableMessage + Send>
+    )))
 }
 
 fn handle_hangup_detach<C: Context, E: OpaqueId>(

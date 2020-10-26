@@ -41,6 +41,7 @@ pub(crate) enum ErrorKind {
     RoomClosed,
     RoomNotFound,
     RtcNotFound,
+    RtcStreamNotFound,
     StatsCollectionFailed,
 }
 
@@ -224,6 +225,12 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 status: ResponseStatus::NOT_FOUND,
                 kind: "rtc_not_found",
                 title: "RTC not found",
+                is_notify_sentry: false,
+            },
+            Self::RtcStreamNotFound => ErrorKindProperties {
+                status: ResponseStatus::NOT_FOUND,
+                kind: "rtc_stream_not_found",
+                title: "RTC stream not found",
                 is_notify_sentry: false,
             },
             Self::StatsCollectionFailed => ErrorKindProperties {

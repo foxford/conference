@@ -245,6 +245,28 @@ impl<'a> ListWithRtcQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug)]
+pub(crate) struct FindQuery {
+    id: Uuid,
+}
+
+impl FindQuery {
+    pub(crate) fn new(id: Uuid) -> Self {
+        Self { id }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+        use diesel::prelude::*;
+
+        janus_rtc_stream::table
+            .find(self.id)
+            .get_result(conn)
+            .optional()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "janus_rtc_stream"]
 pub(crate) struct InsertQuery<'a> {

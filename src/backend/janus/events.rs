@@ -68,7 +68,29 @@ pub(crate) struct SlowLinkEvent {
     session_id: i64,
     sender: i64,
     opaque_id: String,
+    media: String,
     uplink: bool,
+    lost: usize,
+}
+
+impl SlowLinkEvent {
+    pub(crate) fn media(&self) -> &str {
+        &self.media
+    }
+
+    pub(crate) fn lost(&self) -> usize {
+        self.lost
+    }
+
+    pub(crate) fn is_publisher(&self) -> bool {
+        !self.uplink
+    }
+}
+
+impl OpaqueId for SlowLinkEvent {
+    fn opaque_id(&self) -> &str {
+        &self.opaque_id
+    }
 }
 
 // Janus handle detached.

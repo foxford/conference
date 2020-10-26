@@ -49,5 +49,6 @@ The following types are a part of the service's API and are guaranteed to mainta
 - `room_closed` - The [room](room.md#Room) exists but already closed.
 - `room_not_found` – The [room](room.md#Room) is missing.
 - `rtc_not_found` – An [RTC](rtc.md#Real-time_Connection) is missing or closed.
+– `rtc_stream_not_found` – An [RTC stream](rtc_stream.md#RTC_Stream) is missing.
 - `stats_collection_failed` – Couldn't collect metrics from one of the sources.
 - `unknown_method` – An unsupported value in `method` property of the request message.
