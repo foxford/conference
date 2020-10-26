@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.2 (October 26, 2020)
+
+### Changes
+- Added audience level notification of room closure ([67a3fb1](https://github.com/netology-group/conference/commit/67a3fb18a3fde0ecb6565ddb508367262dcdddad))
+
+### Fixes
+- Fixed mqtt metrics labels ([1e692c1](https://github.com/netology-group/conference/commit/1e692c120edc2e6505713a33d16842fb36cc277a))
+
 ## v0.6.1 (October 23, 2020)
 
 ### Changes
