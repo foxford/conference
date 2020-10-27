@@ -18,8 +18,6 @@ use crate::db;
 
 ///////////////////////////////////////////////////////////////////////////////
 
-const MQTT_GW_API_VERSION: &str = "v1";
-
 #[derive(Debug, Serialize)]
 struct SubscriptionRequest {
     subject: AgentId,
@@ -377,16 +375,8 @@ impl RequestHandler for EnterHandler {
             short_term_timing,
         );
 
-        // FIXME: It looks like sending a request to the client but the broker intercepts it
-        //        creates a subscription and replaces the request with the response.
-        //        This is kind of ugly but it guaranties that the request will be processed by
-        //        the broker node where the client is connected to. We need that because
-        //        the request changes local state on that node.
-        //        A better solution will be possible after resolution of this issue:
-        //        https://github.com/vernemq/vernemq/issues/1326.
-        //        Then we won't need the local state on the broker at all and will be able
-        //        to send a multicast request to the broker.
-        let outgoing_request = OutgoingRequest::unicast(payload, props, reqp, MQTT_GW_API_VERSION);
+        let to = &context.config().broker_id;
+        let outgoing_request = OutgoingRequest::multicast(payload, props, to);
         let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_request)))
     }
@@ -442,16 +432,8 @@ impl RequestHandler for LeaveHandler {
             ShortTermTimingProperties::until_now(context.start_timestamp()),
         );
 
-        // FIXME: It looks like sending a request to the client but the broker intercepts it
-        //        deletes the subscription and replaces the request with the response.
-        //        This is kind of ugly but it guaranties that the request will be processed by
-        //        the broker node where the client is connected to. We need that because
-        //        the request changes local state on that node.
-        //        A better solution will be possible after resolution of this issue:
-        //        https://github.com/vernemq/vernemq/issues/1326.
-        //        Then we won't need the local state on the broker at all and will be able
-        //        to send a multicast request to the broker.
-        let outgoing_request = OutgoingRequest::unicast(payload, props, reqp, MQTT_GW_API_VERSION);
+        let to = &context.config().broker_id;
+        let outgoing_request = OutgoingRequest::multicast(payload, props, to);
         let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_request)))
     }
@@ -994,6 +976,7 @@ mod test {
     }
 
     mod enter {
+        use crate::app::API_VERSION;
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
@@ -1037,10 +1020,11 @@ mod test {
                 let (payload, reqp, topic) = find_request::<DynSubRequest>(messages.as_slice());
 
                 let expected_topic = format!(
-                    "agents/{}/api/{}/in/{}",
-                    agent.agent_id(),
-                    MQTT_GW_API_VERSION,
+                    "agents/{}.{}/api/{}/out/{}",
+                    context.config().agent_label,
                     context.config().id,
+                    API_VERSION,
+                    context.config().broker_id,
                 );
 
                 assert_eq!(topic, expected_topic);
@@ -1134,6 +1118,7 @@ mod test {
     }
 
     mod leave {
+        use crate::app::API_VERSION;
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
@@ -1171,10 +1156,11 @@ mod test {
                 let (payload, reqp, topic) = find_request::<DynSubRequest>(messages.as_slice());
 
                 let expected_topic = format!(
-                    "agents/{}/api/{}/in/{}",
-                    agent.agent_id(),
-                    MQTT_GW_API_VERSION,
+                    "agents/{}.{}/api/{}/out/{}",
+                    context.config().agent_label,
                     context.config().id,
+                    API_VERSION,
+                    context.config().broker_id,
                 );
 
                 assert_eq!(topic, expected_topic);
