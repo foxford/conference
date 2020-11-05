@@ -126,7 +126,7 @@ impl GlobalContext for TestContext {
         None
     }
 
-    fn get_metrics(&self) -> anyhow::Result<Vec<crate::app::metrics::Metric>> {
+    fn get_metrics(&self, _duration: u64) -> anyhow::Result<Vec<crate::app::metrics::Metric>> {
         Ok(vec![])
     }
 }

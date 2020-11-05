@@ -5,18 +5,19 @@ use crate::app::metrics::{Metric, MetricKey, Tags};
 
 pub(crate) struct Collector<'a, C: GlobalContext> {
     context: &'a C,
+    duration: u64,
 }
 
 impl<'a, C: GlobalContext> Collector<'a, C> {
-    pub(crate) fn new(context: &'a C) -> Self {
-        Self { context }
+    pub(crate) fn new(context: &'a C, duration: u64) -> Self {
+        Self { context, duration }
     }
 
     pub(crate) fn get(&self) -> anyhow::Result<Vec<crate::app::metrics::Metric>> {
         let now = Utc::now();
         let mut metrics = vec![];
 
-        append_mqtt_stats(&mut metrics, self.context, now)?;
+        append_mqtt_stats(&mut metrics, self.context, now, self.duration)?;
         append_internal_stats(&mut metrics, self.context, now);
         append_redis_pool_metrics(&mut metrics, self.context, now);
         append_dynamic_stats(&mut metrics, self.context, now)?;
@@ -31,63 +32,56 @@ fn append_mqtt_stats(
     metrics: &mut Vec<Metric>,
     context: &impl GlobalContext,
     now: DateTime<Utc>,
+    duration: u64,
 ) -> anyhow::Result<()> {
     if let Some(qc) = context.queue_counter() {
         let stats = qc
-            .get_stats()
+            .get_stats(duration)
             .map_err(|err| anyhow!(err).context("Failed to get stats"))?;
 
         stats.into_iter().for_each(|(tags, value)| {
             let tags = Tags::build_queues_tags(crate::APP_VERSION, context.agent_id(), tags);
 
-            if value.incoming_requests > 0 {
-                metrics.push(Metric::new(
+            let m = [
+                Metric::new(
                     MetricKey::IncomingQueueRequests,
                     value.incoming_requests,
                     now,
                     tags.clone(),
-                ));
-            }
-            if value.incoming_responses > 0 {
-                metrics.push(Metric::new(
+                ),
+                Metric::new(
                     MetricKey::IncomingQueueResponses,
                     value.incoming_responses,
                     now,
                     tags.clone(),
-                ));
-            }
-            if value.incoming_events > 0 {
-                metrics.push(Metric::new(
+                ),
+                Metric::new(
                     MetricKey::IncomingQueueEvents,
                     value.incoming_events,
                     now,
                     tags.clone(),
-                ));
-            }
-            if value.outgoing_requests > 0 {
-                metrics.push(Metric::new(
+                ),
+                Metric::new(
                     MetricKey::OutgoingQueueRequests,
                     value.outgoing_requests,
                     now,
                     tags.clone(),
-                ));
-            }
-            if value.outgoing_responses > 0 {
-                metrics.push(Metric::new(
+                ),
+                Metric::new(
                     MetricKey::OutgoingQueueResponses,
                     value.outgoing_responses,
                     now,
                     tags.clone(),
-                ));
-            }
-            if value.outgoing_events > 0 {
-                metrics.push(Metric::new(
+                ),
+                Metric::new(
                     MetricKey::OutgoingQueueEvents,
                     value.outgoing_events,
                     now,
                     tags,
-                ));
-            }
+                ),
+            ];
+
+            metrics.extend_from_slice(&m);
         });
     }
 

@@ -28,7 +28,7 @@ pub(crate) trait GlobalContext: Sync {
     fn queue_counter(&self) -> &Option<QueueCounterHandle>;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
     fn dynamic_stats(&self) -> Option<&DynamicStatsCollector>;
-    fn get_metrics(&self) -> anyhow::Result<Vec<Metric>>;
+    fn get_metrics(&self, duration: u64) -> anyhow::Result<Vec<Metric>>;
 
     fn get_conn(&self) -> Result<PooledConnection<ConnectionManager<PgConnection>>, AppError> {
         self.db()
@@ -137,8 +137,8 @@ impl GlobalContext for AppContext {
         self.dynamic_stats.as_deref()
     }
 
-    fn get_metrics(&self) -> anyhow::Result<Vec<Metric>> {
-        crate::app::metrics::Collector::new(self).get()
+    fn get_metrics(&self, duration: u64) -> anyhow::Result<Vec<Metric>> {
+        crate::app::metrics::Collector::new(self, duration).get()
     }
 }
 
@@ -197,8 +197,8 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.dynamic_stats()
     }
 
-    fn get_metrics(&self) -> anyhow::Result<Vec<Metric>> {
-        self.global_context.get_metrics()
+    fn get_metrics(&self, duration: u64) -> anyhow::Result<Vec<Metric>> {
+        self.global_context.get_metrics(duration)
     }
 }
 
