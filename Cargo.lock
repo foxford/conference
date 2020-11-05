@@ -466,7 +466,7 @@ dependencies = [
  "svc-agent 0.14.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-authn 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-authz 0.10.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "svc-error 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
+ "svc-error 0.1.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "tide 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "uuid 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrtc-sdp 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2512,10 +2512,11 @@ dependencies = [
 
 [[package]]
 name = "svc-error"
-version = "0.1.9"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "atom 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "diesel 1.4.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "http 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3469,7 +3470,7 @@ dependencies = [
 "checksum svc-agent 0.14.10 (registry+https://github.com/rust-lang/crates.io-index)" = "35f7eecd834c81cdde33ed0435b31d5086fb8b8c8f6162a6c44346a2bceb6ace"
 "checksum svc-authn 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "7f546e117d9287d7b1274e855315019011d13736fdc5c8f8ef9d09ae00509de6"
 "checksum svc-authz 0.10.4 (registry+https://github.com/rust-lang/crates.io-index)" = "3d6372c729616b9782b86d1bc8c80db49ae53fba7c788b3b4bc307800e7bcc88"
-"checksum svc-error 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "5ca1419d26952fbb917f2481b0697bc77768c0ad9bde5618fd7cefdf18fd1738"
+"checksum svc-error 0.1.11 (registry+https://github.com/rust-lang/crates.io-index)" = "b1716fe22df598c8f66494b0ea81c15f630143f664f62f6a15b170b2f30ace3b"
 "checksum svc-rumq-client 0.1.0-alpha.11 (registry+https://github.com/rust-lang/crates.io-index)" = "c34437fee65675f17afcdbbda414068a101dfab942afac9e452e476cd5546b64"
 "checksum syn 0.11.11 (registry+https://github.com/rust-lang/crates.io-index)" = "d3b891b9015c88c576343b9b3e41c2c11a51c219ef067b264bd9c8aa9b441dad"
 "checksum syn 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)" = "891d8d6567fe7c7f8835a3a98af4208f3846fba258c1bc3c31d6e506239f11f9"
