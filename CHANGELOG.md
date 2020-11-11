@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.3 (November 11, 2020)
+
+### Changes
+- Changed rtc list to sort by created_at asc ([02e6b48](https://github.com/netology-group/conference/commit/02e6b48624903ac181788c4da10e9f9c72719762))
+
+### Fixes
+- Reverted svc-agent update to 0.14.11, which bloats memory consumption ([6a08c34](https://github.com/netology-group/conference/commit/6a08c3457516bac6fb6bfaf012747a1b18c2a4cb))
+
 ## v0.6.2 (October 26, 2020)
 
 ### Changes
