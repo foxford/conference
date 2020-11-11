@@ -116,7 +116,7 @@ impl ListQuery {
             q = q.limit(limit);
         }
 
-        q.order_by(rtc::created_at.desc()).get_results(conn)
+        q.order_by(rtc::created_at.asc()).get_results(conn)
     }
 }
 
