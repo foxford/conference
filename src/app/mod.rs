@@ -157,11 +157,6 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
         )
         .context("Error subscribing to multicast requests")?;
 
-    // Unicast requests
-    agent
-        .subscribe(&Subscription::unicast_requests(), QoS::AtMostOnce, None)
-        .context("Error subscribing to unicast requests")?;
-
     // Janus status events
     let subscription = Subscription::broadcast_events(&config.backend.id, API_VERSION, "status");
 
@@ -188,7 +183,7 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
     let subscription = Subscription::unicast_responses_from(&config.backend.id);
 
     agent
-        .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
+        .subscribe(&subscription, QoS::AtLeastOnce, None)
         .context("Error subscribing to backend responses topic")?;
 
     let janus_responses_topic = subscription
