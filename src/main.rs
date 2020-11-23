@@ -28,6 +28,8 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[async_std::main]
 async fn main() -> Result<()> {
+    let _guard = slog_envlogger::init().unwrap();
+
     let db = {
         let url = var("DATABASE_URL").expect("DATABASE_URL must be specified");
         let size = var("DATABASE_POOL_SIZE")
