@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{atomic::AtomicI64, Arc};
 
 use chrono::{DateTime, Utc};
 use serde_json::json;
@@ -128,6 +128,10 @@ impl GlobalContext for TestContext {
 
     fn get_metrics(&self) -> anyhow::Result<Vec<crate::app::metrics::Metric>> {
         Ok(vec![])
+    }
+
+    fn running_requests(&self) -> Option<Arc<AtomicI64>> {
+        None
     }
 }
 

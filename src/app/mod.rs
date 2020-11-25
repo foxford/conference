@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -85,6 +85,8 @@ pub(crate) async fn run(
     // Subscribe to topics
     let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
 
+    let running_requests = Arc::new(AtomicI64::new(0));
+
     // Context
     let context = AppContext::new(
         config.clone(),
@@ -93,7 +95,8 @@ pub(crate) async fn run(
         JanusClient::start(&config.backend, agent_id)?,
         janus_topics,
     )
-    .add_queue_counter(agent.get_queue_counter());
+    .add_queue_counter(agent.get_queue_counter())
+    .add_running_requests_counter(running_requests.clone());
 
     let context = match redis_pool {
         Some(pool) => context.add_redis_pool(pool),
@@ -115,10 +118,13 @@ pub(crate) async fn run(
 
         if let Ok(Some(message)) = fut.await {
             let message_handler = message_handler.clone();
+            let running_requests_ = running_requests.clone();
 
             task::spawn_blocking(move || match message {
                 AgentNotification::Message(message, metadata) => {
+                    running_requests_.fetch_add(1, Ordering::SeqCst);
                     async_std::task::block_on(message_handler.handle(&message, &metadata.topic));
+                    running_requests_.fetch_add(-1, Ordering::SeqCst);
                 }
                 AgentNotification::Disconnection => error!(crate::LOG, "Disconnected from broker"),
                 AgentNotification::Reconnection => {
