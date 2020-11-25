@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{atomic::AtomicI64, Arc};
 
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
@@ -29,6 +29,7 @@ pub(crate) trait GlobalContext: Sync {
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
     fn dynamic_stats(&self) -> Option<&DynamicStatsCollector>;
     fn get_metrics(&self) -> anyhow::Result<Vec<Metric>>;
+    fn running_requests(&self) -> Option<Arc<AtomicI64>>;
 
     fn get_conn(&self) -> Result<PooledConnection<ConnectionManager<PgConnection>>, AppError> {
         self.db()
@@ -60,6 +61,7 @@ pub(crate) struct AppContext {
     queue_counter: Option<QueueCounterHandle>,
     redis_pool: Option<RedisConnectionPool>,
     dynamic_stats: Option<Arc<DynamicStatsCollector>>,
+    running_requests: Option<Arc<AtomicI64>>,
 }
 
 impl AppContext {
@@ -82,12 +84,20 @@ impl AppContext {
             queue_counter: None,
             redis_pool: None,
             dynamic_stats: Some(Arc::new(DynamicStatsCollector::start())),
+            running_requests: None,
         }
     }
 
     pub(crate) fn add_queue_counter(self, qc: QueueCounterHandle) -> Self {
         Self {
             queue_counter: Some(qc),
+            ..self
+        }
+    }
+
+    pub(crate) fn add_running_requests_counter(self, counter: Arc<AtomicI64>) -> Self {
+        Self {
+            running_requests: Some(counter),
             ..self
         }
     }
@@ -139,6 +149,10 @@ impl GlobalContext for AppContext {
 
     fn get_metrics(&self) -> anyhow::Result<Vec<Metric>> {
         crate::app::metrics::Collector::new(self).get()
+    }
+
+    fn running_requests(&self) -> Option<Arc<AtomicI64>> {
+        self.running_requests.clone()
     }
 }
 
@@ -199,6 +213,10 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 
     fn get_metrics(&self) -> anyhow::Result<Vec<Metric>> {
         self.global_context.get_metrics()
+    }
+
+    fn running_requests(&self) -> Option<Arc<AtomicI64>> {
+        self.global_context.running_requests()
     }
 }
 

@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use chrono::{DateTime, Utc};
 
 use crate::app::context::GlobalContext;
@@ -22,6 +24,16 @@ impl<'a, C: GlobalContext> Collector<'a, C> {
         append_dynamic_stats(&mut metrics, self.context, now)?;
 
         append_janus_stats(&mut metrics, self.context, now)?;
+
+        if let Some(counter) = self.context.running_requests() {
+            let tags = Tags::build_internal_tags(crate::APP_VERSION, &self.context.agent_id());
+            metrics.push(Metric::new(
+                MetricKey::RunningRequests,
+                counter.load(Ordering::SeqCst),
+                now,
+                tags,
+            ));
+        }
 
         Ok(metrics)
     }
