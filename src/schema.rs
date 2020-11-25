@@ -62,7 +62,6 @@ table! {
         started_at -> Nullable<Timestamptz>,
         segments -> Nullable<Array<Int8range>>,
         status -> Recording_status,
-        backend_id -> Agent_id,
     }
 }
 
@@ -78,6 +77,7 @@ table! {
         backend -> Room_backend,
         reserve -> Nullable<Int4>,
         tags -> Json,
+        backend_id -> Nullable<Agent_id>,
     }
 }
 

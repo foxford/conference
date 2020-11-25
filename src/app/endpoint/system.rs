@@ -203,13 +203,11 @@ fn record_name(recording: &Recording) -> String {
 #[cfg(test)]
 mod test {
     mod vacuum {
-        use chrono::{Duration, Utc};
         use diesel::prelude::*;
         use serde_json::Value as JsonValue;
         use svc_agent::mqtt::ResponseStatus;
 
         use crate::backend::janus::JANUS_API_VERSION;
-        use crate::db;
         use crate::test_helpers::prelude::*;
         use crate::test_helpers::{find_event_by_predicate, find_request_by_predicate};
 
@@ -243,28 +241,29 @@ mod test {
                     .connection_pool()
                     .get()
                     .map(|conn| {
-                        // Insert an rtc and janus backend.
-                        let rtcs = vec![
-                            shared_helpers::insert_rtc(&conn),
-                            shared_helpers::insert_rtc(&conn),
-                        ];
-                        let _other_rtc = shared_helpers::insert_rtc(&conn);
+                        // Insert janus backend and rooms.
                         let backend = shared_helpers::insert_janus_backend(&conn);
 
-                        // Insert active agents and close rooms.
-                        let start = Utc::now() - Duration::hours(2);
-                        let finish = start + Duration::hours(1);
-                        let time = (Bound::Included(start), Bound::Excluded(finish));
+                        let room1 =
+                            shared_helpers::insert_closed_room_with_backend(&conn, &backend.id());
+
+                        let room2 =
+                            shared_helpers::insert_closed_room_with_backend(&conn, &backend.id());
+
+                        // Insert rtcs.
+                        let rtcs = vec![
+                            shared_helpers::insert_rtc_with_room(&conn, &room1),
+                            shared_helpers::insert_rtc_with_room(&conn, &room2),
+                        ];
+
+                        let _other_rtc = shared_helpers::insert_rtc(&conn);
+
+                        // Insert active agents.
                         let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
                         for rtc in rtcs.iter() {
                             shared_helpers::insert_agent(&conn, agent.agent_id(), rtc.room_id());
-                            shared_helpers::insert_recording(&conn, rtc, &backend);
-
-                            db::room::UpdateQuery::new(rtc.room_id().to_owned())
-                                .time(Some(time))
-                                .execute(&conn)
-                                .unwrap();
+                            shared_helpers::insert_recording(&conn, rtc);
                         }
 
                         (rtcs, backend)

@@ -7,11 +7,12 @@ use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::db::janus_backend::Object as JanusBackend;
 use crate::db::recording::{Object as Recording, Status as RecordingStatus};
-use crate::schema::{room, rtc};
+use crate::schema::{janus_backend, recording, room, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -25,6 +26,7 @@ type AllColumns = (
     room::backend,
     room::reserve,
     room::tags,
+    room::backend_id,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -35,6 +37,7 @@ const ALL_COLUMNS: AllColumns = (
     room::backend,
     room::reserve,
     room::tags,
+    room::backend_id,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -57,7 +60,10 @@ impl fmt::Display for RoomBackend {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Debug, Deserialize, Serialize, Identifiable, Queryable, QueryableByName)]
+#[derive(
+    Clone, Debug, Deserialize, Serialize, Identifiable, Queryable, QueryableByName, Associations,
+)]
+#[belongs_to(JanusBackend, foreign_key = "backend_id")]
 #[table_name = "room"]
 pub(crate) struct Object {
     id: Uuid,
@@ -70,6 +76,7 @@ pub(crate) struct Object {
     #[serde(skip_serializing_if = "Option::is_none")]
     reserve: Option<i32>,
     tags: JsonValue,
+    backend_id: Option<AgentId>,
 }
 
 impl Object {
@@ -103,6 +110,10 @@ impl Object {
 
     pub(crate) fn tags(&self) -> &JsonValue {
         &self.tags
+    }
+
+    pub(crate) fn backend_id(&self) -> Option<&AgentId> {
+        self.backend_id.as_ref()
     }
 }
 
@@ -171,21 +182,14 @@ impl FindQueryable for FindByRtcIdQuery {
 pub(crate) fn finished_with_in_progress_recordings(
     conn: &PgConnection,
 ) -> Result<Vec<(Object, Recording, JanusBackend)>, Error> {
-    use crate::schema;
     use diesel::{dsl::sql, prelude::*};
 
-    schema::room::table
-        .inner_join(
-            schema::rtc::table.inner_join(
-                schema::recording::table.inner_join(
-                    schema::janus_backend::table
-                        .on(schema::janus_backend::id.eq(schema::recording::backend_id)),
-                ),
-            ),
-        )
+    room::table
+        .inner_join(rtc::table.inner_join(recording::table))
+        .inner_join(janus_backend::table.on(janus_backend::id.nullable().eq(room::backend_id)))
         .filter(room::backend.eq(RoomBackend::Janus))
         .filter(sql("upper(\"room\".\"time\") < now()"))
-        .filter(schema::recording::status.eq(RecordingStatus::InProgress))
+        .filter(recording::status.eq(RecordingStatus::InProgress))
         .select((
             self::ALL_COLUMNS,
             super::recording::ALL_COLUMNS,
@@ -204,6 +208,7 @@ pub(crate) struct InsertQuery<'a> {
     backend: RoomBackend,
     reserve: Option<i32>,
     tags: Option<&'a JsonValue>,
+    backend_id: Option<&'a AgentId>,
 }
 
 impl<'a> InsertQuery<'a> {
@@ -214,6 +219,7 @@ impl<'a> InsertQuery<'a> {
             backend,
             reserve: None,
             tags: None,
+            backend_id: None,
         }
     }
 
@@ -227,6 +233,14 @@ impl<'a> InsertQuery<'a> {
     pub(crate) fn tags(self, value: &'a JsonValue) -> Self {
         Self {
             tags: Some(value),
+            ..self
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn backend_id(self, backend_id: &'a AgentId) -> Self {
+        Self {
+            backend_id: Some(backend_id),
             ..self
         }
     }
@@ -259,26 +273,23 @@ impl DeleteQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Identifiable, AsChangeset)]
+#[derive(Debug, Default, Identifiable, AsChangeset)]
 #[table_name = "room"]
-pub(crate) struct UpdateQuery {
+pub(crate) struct UpdateQuery<'a> {
     id: Uuid,
     time: Option<Time>,
     audience: Option<String>,
     backend: Option<RoomBackend>,
     reserve: Option<Option<i32>>,
     tags: Option<JsonValue>,
+    backend_id: Option<&'a AgentId>,
 }
 
-impl UpdateQuery {
+impl<'a> UpdateQuery<'a> {
     pub(crate) fn new(id: Uuid) -> Self {
         Self {
             id,
-            time: None,
-            audience: None,
-            backend: None,
-            reserve: None,
-            tags: None,
+            ..Default::default()
         }
     }
 
@@ -302,12 +313,18 @@ impl UpdateQuery {
         Self { tags, ..self }
     }
 
+    pub(crate) fn backend_id(self, backend_id: Option<&'a AgentId>) -> Self {
+        Self { backend_id, ..self }
+    }
+
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use diesel::prelude::*;
 
         diesel::update(self).set(self).get_result(conn)
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod tests {
@@ -321,24 +338,27 @@ mod tests {
             let pool = db.connection_pool();
             let conn = pool.get().expect("Failed to get db connection");
 
-            let room1 = shared_helpers::insert_closed_room(&conn);
-            let room2 = shared_helpers::insert_closed_room(&conn);
+            let backend1 = shared_helpers::insert_janus_backend(&conn);
+            let backend2 = shared_helpers::insert_janus_backend(&conn);
+
+            let room1 = shared_helpers::insert_closed_room_with_backend(&conn, backend1.id());
+            let room2 = shared_helpers::insert_closed_room_with_backend(&conn, backend2.id());
 
             // this room will have rtc but no rtc_stream simulating the case when janus_backend was removed
             // (for example crashed) and via cascade removed all streams hosted on it
             //
             // it should not appear in query result and it should not result in query Err
-            let room3 = shared_helpers::insert_closed_room(&conn);
+            let backend3_id = TestAgent::new("alpha", "janus3", SVC_AUDIENCE);
 
-            let backend1 = shared_helpers::insert_janus_backend(&conn);
-            let backend2 = shared_helpers::insert_janus_backend(&conn);
+            let room3 =
+                shared_helpers::insert_closed_room_with_backend(&conn, backend3_id.agent_id());
 
             let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
             let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
             let _rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
 
-            shared_helpers::insert_recording(&conn, &rtc1, &backend1);
-            shared_helpers::insert_recording(&conn, &rtc2, &backend2);
+            shared_helpers::insert_recording(&conn, &rtc1);
+            shared_helpers::insert_recording(&conn, &rtc2);
 
             let rooms = finished_with_in_progress_recordings(&conn)
                 .expect("finished_with_in_progress_recordings call failed");

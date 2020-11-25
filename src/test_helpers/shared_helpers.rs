@@ -21,8 +21,25 @@ pub(crate) fn insert_room(conn: &PgConnection) -> Room {
 
     factory::Room::new()
         .audience(USR_AUDIENCE)
-        .time((Bound::Included(now), Bound::Unbounded))
+        .time((
+            Bound::Included(now),
+            Bound::Excluded(now + Duration::hours(1)),
+        ))
         .backend(RoomBackend::Janus)
+        .insert(conn)
+}
+
+pub(crate) fn insert_room_with_backend_id(conn: &PgConnection, backend_id: &AgentId) -> Room {
+    let now = Utc::now().trunc_subsecs(0);
+
+    factory::Room::new()
+        .audience(USR_AUDIENCE)
+        .time((
+            Bound::Included(now),
+            Bound::Excluded(now + Duration::hours(1)),
+        ))
+        .backend(RoomBackend::Janus)
+        .backend_id(backend_id)
         .insert(conn)
 }
 
@@ -36,6 +53,20 @@ pub(crate) fn insert_closed_room(conn: &PgConnection) -> Room {
             Bound::Excluded(now - Duration::hours(8)),
         ))
         .backend(RoomBackend::Janus)
+        .insert(conn)
+}
+
+pub(crate) fn insert_closed_room_with_backend(conn: &PgConnection, backend_id: &AgentId) -> Room {
+    let now = Utc::now().trunc_subsecs(0);
+
+    factory::Room::new()
+        .audience(USR_AUDIENCE)
+        .time((
+            Bound::Included(now - Duration::hours(10)),
+            Bound::Excluded(now - Duration::hours(8)),
+        ))
+        .backend(RoomBackend::Janus)
+        .backend_id(backend_id)
         .insert(conn)
 }
 
@@ -69,13 +100,6 @@ pub(crate) fn insert_rtc_with_room(conn: &PgConnection, room: &Room) -> Rtc {
     factory::Rtc::new(room.id()).insert(conn)
 }
 
-pub(crate) fn insert_recording(
-    conn: &PgConnection,
-    rtc: &Rtc,
-    backend: &JanusBackend,
-) -> Recording {
-    factory::Recording::new()
-        .rtc(rtc)
-        .backend(backend)
-        .insert(conn)
+pub(crate) fn insert_recording(conn: &PgConnection, rtc: &Rtc) -> Recording {
+    factory::Recording::new().rtc(rtc).insert(conn)
 }

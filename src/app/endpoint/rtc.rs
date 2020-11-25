@@ -13,6 +13,7 @@ use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::app::handle_id::HandleId;
 use crate::db;
+use crate::diesel::Connection;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -281,21 +282,18 @@ impl RequestHandler for ConnectHandler {
             let conn = context.get_conn()?;
 
             // There are 3 cases:
-            // 1. Connecting as writer for the first time. There's no recording in that case.
+            // 1. Connecting as writer for the first time. There's no `backend_id` in that case.
             //    Select the most loaded backend that is capable to host the room's reservation.
             //    If there's no capable backend then select the least loaded and send a warning
             //    to Sentry. If there are no backends at all then return `no available backends`
             //    error and also send it to Sentry.
-            // 2. Connecting as reader with existing recording. Choose the backend of the active
-            //    recording because Janus doesn't support clustering and it must be the same server
-            //    that the writer is connected to.
-            // 3. Reconnecting as writer with previous recording. Select the recording's backend id
-            //    to avoid partitioning of the record across multiple servers.
-            let maybe_recording = db::recording::FindQuery::new(payload.id).execute(&conn)?;
-
-            let backend = match maybe_recording {
-                Some(ref recording) => db::janus_backend::FindQuery::new()
-                    .id(recording.backend_id().to_owned())
+            // 2. Connecting as reader with existing `backend_id`. Choose it because Janus doesn't
+            //    support clustering and it must be the same server that the writer is connected to.
+            // 3. Reconnecting as writer with existing `backend_id`. Select it to avoid partitioning
+            //    of the record across multiple servers.
+            let backend = match room.backend_id() {
+                Some(backend_id) => db::janus_backend::FindQuery::new()
+                    .id(backend_id)
                     .execute(&conn)?
                     .ok_or_else(|| anyhow!("No backend found for stream"))
                     .error(AppErrorKind::BackendNotFound)?,
@@ -333,8 +331,15 @@ impl RequestHandler for ConnectHandler {
             };
 
             // Create recording if a writer connects for the first time.
-            if payload.intent == ConnectIntent::Write && maybe_recording.is_none() {
-                db::recording::InsertQuery::new(payload.id, backend.id()).execute(&conn)?;
+            if payload.intent == ConnectIntent::Write && room.backend_id().is_none() {
+                conn.transaction::<_, diesel::result::Error, _>(|| {
+                    db::room::UpdateQuery::new(room.id())
+                        .backend_id(Some(backend.id()))
+                        .execute(&conn)?;
+
+                    db::recording::InsertQuery::new(payload.id).execute(&conn)?;
+                    Ok(())
+                })?;
             }
 
             // Check that the backend's capacity is not exceeded for readers.
@@ -718,7 +723,7 @@ mod test {
         }
 
         #[test]
-        fn connect_to_rtc() {
+        fn connect_to_rtc_only() {
             async_std::task::block_on(async {
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
@@ -732,40 +737,26 @@ mod test {
                         let backend1 = shared_helpers::insert_janus_backend(&conn);
                         let backend2 = shared_helpers::insert_janus_backend(&conn);
 
-                        // The first backend has a recording and an active agent.
-                        let rtc1 = shared_helpers::insert_rtc(&conn);
+                        // The first backend has an active agent.
+                        let room1 =
+                            shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
 
-                        factory::Recording::new()
-                            .rtc(&rtc1)
-                            .backend(&backend1)
-                            .insert(&conn);
-
-                        factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .rtc(&rtc1)
-                            .backend(&backend1)
-                            .insert(&conn);
+                        let _rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
 
                         let s1a1 = TestAgent::new("web", "s1a1", USR_AUDIENCE);
-                        shared_helpers::insert_agent(&conn, s1a1.agent_id(), rtc1.room_id());
+                        shared_helpers::insert_agent(&conn, s1a1.agent_id(), room1.id());
 
-                        // The second backend has 1 stream with 2 agents.
-                        let rtc2 = shared_helpers::insert_rtc(&conn);
+                        // The second backend has 2 agents.
+                        let room2 =
+                            shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
 
-                        factory::Recording::new()
-                            .rtc(&rtc2)
-                            .backend(&backend2)
-                            .insert(&conn);
-
-                        factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .rtc(&rtc2)
-                            .backend(&backend2)
-                            .insert(&conn);
+                        let _rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
 
                         let s2a1 = TestAgent::new("web", "s2a1", USR_AUDIENCE);
-                        shared_helpers::insert_agent(&conn, s2a1.agent_id(), rtc2.room_id());
+                        shared_helpers::insert_agent(&conn, s2a1.agent_id(), room2.id());
 
                         let s2a2 = TestAgent::new("web", "s2a2", USR_AUDIENCE);
-                        shared_helpers::insert_agent(&conn, s2a2.agent_id(), rtc2.room_id());
+                        shared_helpers::insert_agent(&conn, s2a2.agent_id(), room2.id());
 
                         // The new rtc for which we will balance the stream.
                         let rtc3 = shared_helpers::insert_rtc(&conn);
@@ -828,7 +819,7 @@ mod test {
         }
 
         #[test]
-        fn connect_to_rtc_with_existing_stream() {
+        fn connect_to_ongoing_rtc() {
             async_std::task::block_on(async {
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
@@ -838,25 +829,13 @@ mod test {
                     .connection_pool()
                     .get()
                     .map(|conn| {
-                        let rtc = shared_helpers::insert_rtc(&conn);
-
-                        // Insert janus backends.
                         let _backend1 = shared_helpers::insert_janus_backend(&conn);
                         let backend2 = shared_helpers::insert_janus_backend(&conn);
 
-                        // The second backend has an active stream already.
-                        let stream = factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .backend(&backend2)
-                            .rtc(&rtc)
-                            .insert(&conn);
+                        let room =
+                            shared_helpers::insert_room_with_backend_id(&conn, &backend2.id());
 
-                        crate::db::janus_rtc_stream::start(stream.id(), &conn).unwrap();
-
-                        factory::Recording::new()
-                            .rtc(&rtc)
-                            .backend(&backend2)
-                            .insert(&conn);
-
+                        let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
                         (rtc, backend2)
                     })
                     .unwrap();
@@ -906,25 +885,6 @@ mod test {
                     .connection_pool()
                     .get()
                     .map(|conn| {
-                        let now = Utc::now();
-
-                        // Insert room with reserve.
-                        let room1 = shared_helpers::insert_room(&conn);
-
-                        let room2 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .backend(RoomBackend::Janus)
-                            .reserve(15)
-                            .insert(&conn);
-
-                        // Insert rtcs.
-                        let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
-                        let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
-
                         // The first backend is big enough but has some load.
                         let backend1_id = {
                             let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
@@ -936,20 +896,16 @@ mod test {
                                 .capacity(20)
                                 .insert(&conn);
 
-                        let stream1 = factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .backend(&backend1)
-                            .rtc(&rtc1)
-                            .insert(&conn);
+                        let room1 =
+                            shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
 
-                        crate::db::janus_rtc_stream::start(stream1.id(), &conn).unwrap();
-
-                        factory::Recording::new()
-                            .rtc(&rtc1)
-                            .backend(&backend1)
-                            .insert(&conn);
+                        let _rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
 
                         let agent = TestAgent::new("web", "user456", SVC_AUDIENCE);
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), rtc1.room_id());
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), room1.id());
+
+                        let agent = TestAgent::new("web", "user456", USR_AUDIENCE);
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), room1.id());
 
                         // The second backend is too small but has no load.
                         let backend2_id = {
@@ -961,11 +917,20 @@ mod test {
                             .capacity(5)
                             .insert(&conn);
 
-                        // Insert active agent.
-                        let agent = TestAgent::new("web", "user456", USR_AUDIENCE);
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), rtc1.room_id());
-
                         // It should balance to the first one despite of the load.
+                        let now = Utc::now();
+
+                        let room2 = factory::Room::new()
+                            .audience(USR_AUDIENCE)
+                            .time((
+                                Bound::Included(now),
+                                Bound::Excluded(now + Duration::hours(1)),
+                            ))
+                            .backend(RoomBackend::Janus)
+                            .reserve(15)
+                            .insert(&conn);
+
+                        let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
                         (rtc2, backend1)
                     })
                     .unwrap();
@@ -1019,25 +984,6 @@ mod test {
                     .connection_pool()
                     .get()
                     .map(|conn| {
-                        let now = Utc::now();
-
-                        // Insert rooms: 1 with reserve = 2 and the other without reserve.
-                        let room1 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .backend(RoomBackend::Janus)
-                            .reserve(2)
-                            .insert(&conn);
-
-                        let room2 = shared_helpers::insert_room(&conn);
-
-                        // Insert rtcs.
-                        let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
-                        let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
-
                         // Insert backend with capacity = 4.
                         let backend_id = {
                             let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
@@ -1048,30 +994,26 @@ mod test {
                             .capacity(4)
                             .insert(&conn);
 
-                        // Insert started streams.
-                        let stream1 = factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .backend(&backend)
-                            .rtc(&rtc1)
+                        // Insert rooms: 1 with reserve = 2 and the other without reserve.
+                        let now = Utc::now();
+
+                        let room1 = factory::Room::new()
+                            .audience(USR_AUDIENCE)
+                            .time((
+                                Bound::Included(now),
+                                Bound::Excluded(now + Duration::hours(1)),
+                            ))
+                            .backend(RoomBackend::Janus)
+                            .backend_id(&backend.id())
+                            .reserve(2)
                             .insert(&conn);
 
-                        crate::db::janus_rtc_stream::start(stream1.id(), &conn).unwrap();
+                        let room2 =
+                            shared_helpers::insert_room_with_backend_id(&conn, &backend.id());
 
-                        factory::Recording::new()
-                            .rtc(&rtc1)
-                            .backend(&backend)
-                            .insert(&conn);
-
-                        let stream2 = factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .backend(&backend)
-                            .rtc(&rtc2)
-                            .insert(&conn);
-
-                        crate::db::janus_rtc_stream::start(stream2.id(), &conn).unwrap();
-
-                        factory::Recording::new()
-                            .rtc(&rtc2)
-                            .backend(&backend)
-                            .insert(&conn);
+                        // Insert rtcs.
+                        let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
+                        let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
 
                         // Insert active agents.
                         shared_helpers::insert_agent(&conn, writer1.agent_id(), room1.id());
@@ -1139,9 +1081,6 @@ mod test {
                     .connection_pool()
                     .get()
                     .map(|conn| {
-                        // Insert rtc.
-                        let rtc = shared_helpers::insert_rtc(&conn);
-
                         // Insert backend.
                         let backend_id = {
                             let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
@@ -1152,23 +1091,16 @@ mod test {
                             .capacity(2)
                             .insert(&conn);
 
-                        // Insert stream and recording.
-                        factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .backend(&backend)
-                            .rtc(&rtc)
-                            .insert(&conn);
-
-                        factory::Recording::new()
-                            .rtc(&rtc)
-                            .backend(&backend)
-                            .insert(&conn);
+                        // Insert room and rtc.
+                        let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                        let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
                         // Insert active agents.
-                        shared_helpers::insert_agent(&conn, writer.agent_id(), rtc.room_id());
+                        shared_helpers::insert_agent(&conn, writer.agent_id(), room.id());
 
                         factory::Agent::new()
                             .agent_id(reader.agent_id())
-                            .room_id(rtc.room_id())
+                            .room_id(room.id())
                             .status(AgentStatus::Ready)
                             .insert(&conn);
 
@@ -1210,9 +1142,6 @@ mod test {
                     .connection_pool()
                     .get()
                     .map(|conn| {
-                        // Insert rtc.
-                        let rtc = shared_helpers::insert_rtc(&conn);
-
                         // Insert backend.
                         let backend_id = {
                             let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
@@ -1223,26 +1152,19 @@ mod test {
                             .capacity(2)
                             .insert(&conn);
 
-                        // Insert active stream and recording.
-                        let stream = factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .backend(&backend)
-                            .rtc(&rtc)
-                            .insert(&conn);
+                        // Insert room and rtc.
+                        let room =
+                            shared_helpers::insert_room_with_backend_id(&conn, &backend.id());
 
-                        crate::db::janus_rtc_stream::start(stream.id(), &conn).unwrap();
-
-                        factory::Recording::new()
-                            .rtc(&rtc)
-                            .backend(&backend)
-                            .insert(&conn);
+                        let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
                         // Insert active agents.
-                        shared_helpers::insert_agent(&conn, writer.agent_id(), rtc.room_id());
-                        shared_helpers::insert_agent(&conn, reader1.agent_id(), rtc.room_id());
+                        shared_helpers::insert_agent(&conn, writer.agent_id(), room.id());
+                        shared_helpers::insert_agent(&conn, reader1.agent_id(), room.id());
 
                         factory::Agent::new()
                             .agent_id(reader2.agent_id())
-                            .room_id(rtc.room_id())
+                            .room_id(room.id())
                             .status(AgentStatus::Ready)
                             .insert(&conn);
 
@@ -1286,9 +1208,6 @@ mod test {
                     .connection_pool()
                     .get()
                     .map(|conn| {
-                        // Insert rtc.
-                        let rtc = shared_helpers::insert_rtc(&conn);
-
                         // Insert backend.
                         let backend_id = {
                             let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
@@ -1299,23 +1218,16 @@ mod test {
                             .capacity(1)
                             .insert(&conn);
 
-                        // Insert stream and recording.
-                        factory::JanusRtcStream::new(USR_AUDIENCE)
-                            .backend(&backend)
-                            .rtc(&rtc)
-                            .insert(&conn);
-
-                        factory::Recording::new()
-                            .rtc(&rtc)
-                            .backend(&backend)
-                            .insert(&conn);
+                        // Insert rtc.
+                        let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                        let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
                         // Insert active agents.
-                        shared_helpers::insert_agent(&conn, reader.agent_id(), rtc.room_id());
+                        shared_helpers::insert_agent(&conn, reader.agent_id(), room.id());
 
                         factory::Agent::new()
                             .agent_id(writer.agent_id())
-                            .room_id(rtc.room_id())
+                            .room_id(room.id())
                             .status(AgentStatus::Ready)
                             .insert(&conn);
 
@@ -1365,42 +1277,6 @@ mod test {
                         // Since it doesnt fit anywhere it should go to backend with smallest current load,
                         // ie to backend 2 (though it has only 100 free reserve, and backend1 has 200 free reserve)
 
-                        // Setup three rooms with 500, 600 and 400 reserves.
-                        let room1 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .backend(RoomBackend::Janus)
-                            .reserve(500)
-                            .insert(&conn);
-
-                        let room2 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .reserve(600)
-                            .backend(RoomBackend::Janus)
-                            .insert(&conn);
-
-                        let room3 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .reserve(400)
-                            .backend(RoomBackend::Janus)
-                            .insert(&conn);
-
-                        // Insert rtcs for each room.
-                        let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
-                        let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
-                        let rtc3 = factory::Rtc::new(room3.id()).insert(&conn);
-
                         // Insert alpha and beta backends.
                         let backend1 = {
                             let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
@@ -1420,6 +1296,44 @@ mod test {
                                 .insert(&conn)
                         };
 
+                        // Setup three rooms with 500, 600 and 400 reserves.
+                        let room1 = factory::Room::new()
+                            .audience(USR_AUDIENCE)
+                            .time((
+                                Bound::Included(now),
+                                Bound::Excluded(now + Duration::hours(1)),
+                            ))
+                            .backend(RoomBackend::Janus)
+                            .backend_id(backend1.id())
+                            .reserve(500)
+                            .insert(&conn);
+
+                        let room2 = factory::Room::new()
+                            .audience(USR_AUDIENCE)
+                            .time((
+                                Bound::Included(now),
+                                Bound::Excluded(now + Duration::hours(1)),
+                            ))
+                            .reserve(600)
+                            .backend(RoomBackend::Janus)
+                            .backend_id(backend2.id())
+                            .insert(&conn);
+
+                        let room3 = factory::Room::new()
+                            .audience(USR_AUDIENCE)
+                            .time((
+                                Bound::Included(now),
+                                Bound::Excluded(now + Duration::hours(1)),
+                            ))
+                            .reserve(400)
+                            .backend(RoomBackend::Janus)
+                            .insert(&conn);
+
+                        // Insert rtcs for each room.
+                        let _rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+                        let _rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+                        let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
+
                         // Insert writer for room 1 @ backend 1
                         factory::Agent::new()
                             .agent_id(TestAgent::new("web", "writer1", USR_AUDIENCE).agent_id())
@@ -1433,6 +1347,7 @@ mod test {
                             .room_id(room1.id())
                             .status(AgentStatus::Connected)
                             .insert(&conn);
+
                         factory::Agent::new()
                             .agent_id(TestAgent::new("web", "reader1-2", USR_AUDIENCE).agent_id())
                             .room_id(room1.id())
@@ -1452,10 +1367,6 @@ mod test {
                             .room_id(room2.id())
                             .status(AgentStatus::Connected)
                             .insert(&conn);
-
-                        // We need these in_progress recordings since they bind each room to its respective backend
-                        shared_helpers::insert_recording(&conn, &rtc1, &backend1);
-                        shared_helpers::insert_recording(&conn, &rtc2, &backend2);
 
                         (rtc3, backend2)
                     })
@@ -1514,6 +1425,16 @@ mod test {
                         // We should allow users to connect to rooms with reserves if reserve and cap allows them
                         // But not allow to connect to room with no reserve
 
+                        // Insert alpha backend.
+                        let backend = {
+                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                            let id = agent.agent_id().to_owned();
+                            factory::JanusBackend::new(id, rng.gen(), rng.gen())
+                                .balancer_capacity(700)
+                                .capacity(800)
+                                .insert(&conn)
+                        };
+
                         // Setup three rooms with 500, 600 and none.
                         let room1 = factory::Room::new()
                             .audience(USR_AUDIENCE)
@@ -1522,6 +1443,7 @@ mod test {
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
                             .backend(RoomBackend::Janus)
+                            .backend_id(backend.id())
                             .reserve(500)
                             .insert(&conn);
 
@@ -1533,6 +1455,7 @@ mod test {
                             ))
                             .reserve(600)
                             .backend(RoomBackend::Janus)
+                            .backend_id(backend.id())
                             .insert(&conn);
 
                         let room3 = factory::Room::new()
@@ -1542,22 +1465,13 @@ mod test {
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
                             .backend(RoomBackend::Janus)
+                            .backend_id(backend.id())
                             .insert(&conn);
 
                         // Insert rtcs for each room.
-                        let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
-                        let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
-                        let rtc3 = factory::Rtc::new(room3.id()).insert(&conn);
-
-                        // Insert alpha backend.
-                        let backend1 = {
-                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                            let id = agent.agent_id().to_owned();
-                            factory::JanusBackend::new(id, rng.gen(), rng.gen())
-                                .balancer_capacity(700)
-                                .capacity(800)
-                                .insert(&conn)
-                        };
+                        let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+                        let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+                        let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
 
                         // Insert writer for room 1
                         factory::Agent::new()
@@ -1592,12 +1506,7 @@ mod test {
                             .status(AgentStatus::Connected)
                             .insert(&conn);
 
-                        // We need these in_progress recordings since they bind each room to its respective backend
-                        shared_helpers::insert_recording(&conn, &rtc1, &backend1);
-                        shared_helpers::insert_recording(&conn, &rtc2, &backend1);
-                        shared_helpers::insert_recording(&conn, &rtc3, &backend1);
-
-                        ([rtc1, rtc2, rtc3], backend1)
+                        ([rtc1, rtc2, rtc3], backend)
                     })
                     .unwrap();
 
