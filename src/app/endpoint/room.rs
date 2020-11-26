@@ -59,7 +59,6 @@ pub(crate) struct CreateHandler;
 #[async_trait]
 impl RequestHandler for CreateHandler {
     type Payload = CreateRequest;
-    const ERROR_TITLE: &'static str = "Failed to create room";
 
     async fn handle<C: Context>(
         context: &mut C,
@@ -125,7 +124,6 @@ pub(crate) struct ReadHandler;
 #[async_trait]
 impl RequestHandler for ReadHandler {
     type Payload = ReadRequest;
-    const ERROR_TITLE: &'static str = "Failed to read room";
 
     async fn handle<C: Context>(
         context: &mut C,
@@ -172,7 +170,6 @@ pub(crate) struct UpdateHandler;
 #[async_trait]
 impl RequestHandler for UpdateHandler {
     type Payload = UpdateRequest;
-    const ERROR_TITLE: &'static str = "Failed to create room";
 
     async fn handle<C: Context>(
         context: &mut C,
@@ -285,7 +282,6 @@ pub(crate) struct DeleteHandler;
 #[async_trait]
 impl RequestHandler for DeleteHandler {
     type Payload = DeleteRequest;
-    const ERROR_TITLE: &'static str = "Failed to delete room";
 
     async fn handle<C: Context>(
         context: &mut C,
@@ -339,7 +335,6 @@ pub(crate) struct EnterHandler;
 #[async_trait]
 impl RequestHandler for EnterHandler {
     type Payload = EnterRequest;
-    const ERROR_TITLE: &'static str = "Failed to enter room";
 
     async fn handle<C: Context>(
         context: &mut C,
@@ -400,7 +395,6 @@ pub(crate) struct LeaveHandler;
 #[async_trait]
 impl RequestHandler for LeaveHandler {
     type Payload = LeaveRequest;
-    const ERROR_TITLE: &'static str = "Failed to leave room";
 
     async fn handle<C: Context>(
         context: &mut C,

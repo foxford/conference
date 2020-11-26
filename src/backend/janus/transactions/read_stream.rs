@@ -1,15 +1,12 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
 use serde_derive::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
-use svc_agent::{
-    mqtt::{
-        IncomingRequestProperties, OutgoingMessage, OutgoingRequest, ShortTermTimingProperties,
-    },
-    Addressable, AgentId,
+use svc_agent::mqtt::{
+    IncomingRequestProperties, OutgoingMessage, OutgoingRequest, ShortTermTimingProperties,
 };
 use uuid::Uuid;
 
+use crate::app::handle_id::HandleId;
 use crate::util::{generate_correlation_data, to_base64};
 
 use super::super::requests::{MessageRequest, ReadStreamRequestBody};
@@ -35,19 +32,16 @@ impl TransactionData {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 impl Client {
     pub(crate) fn read_stream_request(
         &self,
         reqp: IncomingRequestProperties,
-        session_id: i64,
-        handle_id: i64,
+        handle_id: &HandleId,
         rtc_id: Uuid,
-        jsep: JsonValue,
-        to: &AgentId,
         start_timestamp: DateTime<Utc>,
         authz_time: Duration,
     ) -> Result<OutgoingMessage<MessageRequest>> {
+        let to = handle_id.backend_id();
         let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
         short_term_timing.set_authorization_time(authz_time);
 
@@ -58,16 +52,15 @@ impl Client {
             short_term_timing,
         );
 
-        let agent_id = reqp.as_agent_id().to_owned();
-        let body = ReadStreamRequestBody::new(rtc_id, agent_id);
+        let body = ReadStreamRequestBody::new(rtc_id);
         let transaction = Transaction::ReadStream(TransactionData::new(reqp));
 
         let payload = MessageRequest::new(
             &to_base64(&transaction)?,
-            session_id,
-            handle_id,
+            handle_id.janus_session_id(),
+            handle_id.janus_handle_id(),
             serde_json::to_value(&body)?,
-            Some(jsep),
+            None,
         );
 
         self.register_transaction(to, start_timestamp, &props, &payload, self.timeout(METHOD));

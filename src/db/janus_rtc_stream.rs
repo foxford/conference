@@ -73,7 +73,6 @@ impl Object {
         &self.backend_id
     }
 
-    #[cfg(test)]
     pub(crate) fn label(&self) -> &str {
         self.label.as_ref()
     }

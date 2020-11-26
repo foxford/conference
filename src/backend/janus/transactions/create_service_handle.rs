@@ -61,7 +61,7 @@ impl TransactionData {
 ////////////////////////////////////////////////////////////////////////////////
 
 impl Client {
-    pub(crate) fn create_handle_request(
+    pub(crate) fn create_service_handle_request(
         &self,
         respp: &IncomingResponseProperties,
         session_id: i64,
@@ -80,7 +80,7 @@ impl Client {
             tn_data.set_balancer_capacity(balancer_capacity);
         }
 
-        let transaction = Transaction::CreateHandle(tn_data);
+        let transaction = Transaction::CreateServiceHandle(tn_data);
 
         let payload = CreateHandleRequest::new(
             &to_base64(&transaction)?,

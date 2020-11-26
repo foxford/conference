@@ -64,7 +64,6 @@ pub(crate) struct VacuumHandler;
 #[async_trait]
 impl RequestHandler for VacuumHandler {
     type Payload = VacuumRequest;
-    const ERROR_TITLE: &'static str = "Failed to vacuum system";
 
     async fn handle<C: Context>(
         context: &mut C,
