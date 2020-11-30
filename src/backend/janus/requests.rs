@@ -103,6 +103,21 @@ impl CreateSignalRequestBody {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct UpdateSignalRequestBody {
+    method: &'static str,
+}
+
+impl UpdateSignalRequestBody {
+    pub(crate) fn new() -> Self {
+        Self {
+            method: "signal.update",
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreateStreamRequestBody {
     method: &'static str,
     id: Uuid,

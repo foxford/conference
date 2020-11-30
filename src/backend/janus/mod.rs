@@ -201,6 +201,32 @@ async fn handle_response_impl<C: Context>(
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
                 }
+                // Signal has been updated.
+                Transaction::UpdateSignal(ref tn) => {
+                    context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
+
+                    inresp
+                        .jsep()
+                        .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                        .error(AppErrorKind::MessageParsingFailed)
+                        .and_then(|jsep| {
+                            let resp = endpoint::signal::UpdateResponse::unicast(
+                                endpoint::signal::UpdateResponseData::new(jsep.to_owned()),
+                                tn.reqp().to_response(
+                                    ResponseStatus::OK,
+                                    ShortTermTimingProperties::until_now(context.start_timestamp()),
+                                ),
+                                tn.reqp(),
+                                JANUS_API_VERSION,
+                            );
+
+                            let boxed_resp =
+                                Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+
+                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                        })
+                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
+                }
                 // Conference Stream has been created (an answer received)
                 Transaction::CreateStream(ref tn) => {
                     context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));

@@ -4,7 +4,7 @@ Initialize WebRTC connection by exchanging SDPs.
 
 This method is available only for rooms with `janus` backend.
 
-The room must be open and the agent must be [entered](api/room/enter.md) there.
+The room must be open and the agent must be [entered](../room/enter.md) there.
 
 
 ## Multicast request

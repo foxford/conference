@@ -17,6 +17,7 @@
     - [Signal](api/signal.md)
         - [Create](api/signal/create.md)
         - [Trickle](api/signal/trickle.md)
+        - [Update](api/signal/update.md)
     - [RTC](api/rtc.md)
         - [Connect](api/rtc/connect.md)
         - [Create](api/rtc/create.md)
