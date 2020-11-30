@@ -1,7 +1,10 @@
 use std::fmt;
+use std::ops::Bound;
 
 use async_std::stream;
 use async_trait::async_trait;
+use chrono::Duration;
+use chrono::Utc;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus},
@@ -31,6 +34,8 @@ impl ConnectResponseData {
 pub(crate) type ConnectResponse = OutgoingResponse<ConnectResponseData>;
 
 ////////////////////////////////////////////////////////////////////////////////
+
+const MAX_WEBINAR_DURATION: i64 = 6;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct CreateRequest {
@@ -64,7 +69,24 @@ impl RequestHandler for CreateHandler {
         // Create an rtc.
         let rtc = {
             let conn = context.get_conn()?;
-            db::rtc::InsertQuery::new(room.id()).execute(&conn)?
+
+            conn.transaction::<_, diesel::result::Error, _>(|| {
+                match room.time() {
+                    (start, Bound::Unbounded) => {
+                        let new_time = (
+                            *start,
+                            Bound::Excluded(Utc::now() + Duration::hours(MAX_WEBINAR_DURATION)),
+                        );
+
+                        db::room::UpdateQuery::new(room.id())
+                            .time(Some(new_time))
+                            .execute(&conn)?;
+                    }
+                    _ => {}
+                }
+                let rtc = db::rtc::InsertQuery::new(room.id()).execute(&conn)?;
+                Ok(rtc)
+            })?
         };
 
         context.add_logger_tags(o!("rtc_id" => rtc.id().to_string()));
@@ -390,6 +412,9 @@ impl RequestHandler for ConnectHandler {
 #[cfg(test)]
 mod test {
     mod create {
+        use chrono::{SubsecRound, Utc};
+
+        use crate::db::room::FindQueryable;
         use crate::db::rtc::Object as Rtc;
         use crate::test_helpers::prelude::*;
 
@@ -432,6 +457,58 @@ mod test {
                 assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
                 assert_eq!(evp.label(), "room.create");
                 assert_eq!(rtc.room_id(), room.id());
+            });
+        }
+
+        #[test]
+        fn create_in_unbounded_room() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
+
+                // Insert a room.
+                let room = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| {
+                        factory::Room::new()
+                            .audience(USR_AUDIENCE)
+                            .time((
+                                Bound::Included(Utc::now().trunc_subsecs(0)),
+                                Bound::Unbounded,
+                            ))
+                            .backend(crate::db::room::RoomBackend::Janus)
+                            .insert(&conn)
+                    })
+                    .unwrap();
+
+                // Allow user to create rtcs in the room.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let room_id = room.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs"];
+                authz.allow(agent.account_id(), object, "create");
+
+                // Make rtc.create request.
+                let mut context = TestContext::new(db, authz);
+                let payload = CreateRequest { room_id: room.id() };
+
+                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect("Rtc creation failed");
+
+                // Assert response.
+                let (rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                assert_eq!(respp.status(), ResponseStatus::CREATED);
+                assert_eq!(rtc.room_id(), room.id());
+
+                // Assert room closure is not unbounded
+                let conn = context.db().get().expect("Failed to get conn");
+
+                let room = db::room::FindQuery::new(room.id())
+                    .execute(&conn)
+                    .expect("Db query failed")
+                    .expect("Room must exist");
+                assert_ne!(room.time().1, Bound::Unbounded);
             });
         }
 

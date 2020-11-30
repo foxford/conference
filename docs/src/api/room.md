@@ -13,6 +13,13 @@ reserve    |        int | _optional_ | The number of slots for agents reserved o
 tags       |       json | {}         | Arbitrary tags object associated with the room.
 
 
+Room can be unbounded, ie its closing timestamp is null.
+To avoid rooms being stuck in unvacuumed state, room closure time will be set as 6 hours from first rtc creation.
+This 6 hours duration serves as timeout for vacuums.
+
+When the room closure time becomes bounded (either by creating rtc or it was bounded from the start),
+closure=unbounded update is prohibited to avoid erasing this 6 hours timeout.
+
 ## Lifecycle events
 
 ### room.close event

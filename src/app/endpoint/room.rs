@@ -214,6 +214,26 @@ impl RequestHandler for UpdateHandler {
                         }
                     }
                 }
+                // the case when new end is unbouned is special
+                // we must take care not to erase max webinar duration timeout
+                (new_opened_at, Bound::Unbounded) => {
+                    let (start, end) = room.time();
+                    let new_start = match start {
+                        Bound::Included(opened_at) if *opened_at <= Utc::now() => {
+                            Bound::Included(*opened_at)
+                        }
+                        Bound::Included(_) => new_opened_at,
+                        _ => {
+                            return Err(anyhow!("Invalid room time"))
+                                .error(AppErrorKind::InvalidRoomTime)
+                        }
+                    };
+                    // if new end should be unbounded there are two cases
+                    // old end is unbounded => end doesnt change
+                    // old end is bounded => it means there already has been an attempt to stream or the room was bounded from creation
+                    // thus we cant make the end unbounded again
+                    time = Some((new_start, *end))
+                }
                 _ => return Err(anyhow!("Invalid room time")).error(AppErrorKind::InvalidRoomTime),
             }
         }
