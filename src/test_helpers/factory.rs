@@ -10,19 +10,21 @@ use super::shared_helpers::{insert_janus_backend, insert_room, insert_rtc};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct Room {
+pub(crate) struct Room<'a> {
     audience: Option<String>,
     time: Option<db::room::Time>,
     backend: db::room::RoomBackend,
+    backend_id: Option<&'a AgentId>,
     reserve: Option<i32>,
 }
 
-impl Room {
+impl<'a> Room<'a> {
     pub(crate) fn new() -> Self {
         Self {
             audience: None,
             time: None,
             backend: db::room::RoomBackend::None,
+            backend_id: None,
             reserve: None,
         }
     }
@@ -52,11 +54,22 @@ impl Room {
         Self { backend, ..self }
     }
 
+    pub(crate) fn backend_id(self, backend_id: &'a AgentId) -> Self {
+        Self {
+            backend_id: Some(backend_id),
+            ..self
+        }
+    }
+
     pub(crate) fn insert(self, conn: &PgConnection) -> db::room::Object {
         let audience = self.audience.expect("Audience not set");
         let time = self.time.expect("Time not set");
 
         let mut q = db::room::InsertQuery::new(time, &audience, self.backend);
+
+        if let Some(backend_id) = self.backend_id {
+            q = q.backend_id(backend_id);
+        }
 
         if let Some(reserve) = self.reserve {
             q = q.reserve(reserve);
@@ -278,29 +291,19 @@ impl<'a> JanusRtcStream<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+#[derive(Default)]
 pub(crate) struct Recording<'a> {
     rtc: Option<&'a db::rtc::Object>,
-    backend: Option<&'a db::janus_backend::Object>,
 }
 
 impl<'a> Recording<'a> {
     pub(crate) fn new() -> Self {
-        Self {
-            rtc: None,
-            backend: None,
-        }
+        Default::default()
     }
 
     pub(crate) fn rtc(self, rtc: &'a db::rtc::Object) -> Self {
         Self {
             rtc: Some(rtc),
-            ..self
-        }
-    }
-
-    pub(crate) fn backend(self, backend: &'a db::janus_backend::Object) -> Self {
-        Self {
-            backend: Some(backend),
             ..self
         }
     }
@@ -316,17 +319,7 @@ impl<'a> Recording<'a> {
             }
         };
 
-        let default_backend;
-
-        let backend = match self.backend {
-            Some(value) => value,
-            None => {
-                default_backend = insert_janus_backend(conn);
-                &default_backend
-            }
-        };
-
-        db::recording::InsertQuery::new(rtc.id(), backend.id())
+        db::recording::InsertQuery::new(rtc.id())
             .execute(conn)
             .expect("Failed to insert recording")
     }

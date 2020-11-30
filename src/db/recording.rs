@@ -4,10 +4,8 @@ use std::ops::Bound;
 use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::AgentId;
 use uuid::Uuid;
 
-use super::janus_backend::Object as JanusBackend;
 use super::rtc::Object as Rtc;
 use crate::schema::recording;
 
@@ -18,7 +16,6 @@ pub(crate) type AllColumns = (
     recording::started_at,
     recording::segments,
     recording::status,
-    recording::backend_id,
 );
 
 pub(crate) const ALL_COLUMNS: AllColumns = (
@@ -26,7 +23,6 @@ pub(crate) const ALL_COLUMNS: AllColumns = (
     recording::started_at,
     recording::segments,
     recording::status,
-    recording::backend_id,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -55,7 +51,6 @@ impl fmt::Display for Status {
 
 #[derive(Debug, Serialize, Identifiable, Associations, Queryable)]
 #[belongs_to(Rtc, foreign_key = "rtc_id")]
-#[belongs_to(JanusBackend, foreign_key = "backend_id")]
 #[primary_key(rtc_id)]
 #[table_name = "recording"]
 pub(crate) struct Object {
@@ -64,7 +59,6 @@ pub(crate) struct Object {
     started_at: Option<DateTime<Utc>>,
     segments: Option<Vec<Segment>>,
     status: Status,
-    backend_id: AgentId,
 }
 
 impl Object {
@@ -83,46 +77,19 @@ impl Object {
     pub(crate) fn status(&self) -> &Status {
         &self.status
     }
-
-    pub(crate) fn backend_id(&self) -> &AgentId {
-        &self.backend_id
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug)]
-pub(crate) struct FindQuery {
-    rtc_id: Uuid,
-}
-
-impl FindQuery {
-    pub(crate) fn new(rtc_id: Uuid) -> Self {
-        Self { rtc_id }
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        recording::table
-            .find(self.rtc_id)
-            .get_result(conn)
-            .optional()
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Insertable)]
 #[table_name = "recording"]
-pub(crate) struct InsertQuery<'a> {
+pub(crate) struct InsertQuery {
     rtc_id: Uuid,
-    backend_id: &'a AgentId,
 }
 
-impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(rtc_id: Uuid, backend_id: &'a AgentId) -> Self {
-        Self { rtc_id, backend_id }
+impl InsertQuery {
+    pub(crate) fn new(rtc_id: Uuid) -> Self {
+        Self { rtc_id }
     }
 
     pub(crate) fn execute(self, conn: &PgConnection) -> Result<Object, Error> {

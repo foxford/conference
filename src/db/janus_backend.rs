@@ -94,16 +94,16 @@ impl<'a> ListQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct FindQuery {
-    id: Option<AgentId>,
+pub(crate) struct FindQuery<'a> {
+    id: Option<&'a AgentId>,
 }
 
-impl FindQuery {
+impl<'a> FindQuery<'a> {
     pub(crate) fn new() -> Self {
         Self { id: None }
     }
 
-    pub(crate) fn id(self, id: AgentId) -> Self {
+    pub(crate) fn id(self, id: &'a AgentId) -> Self {
         Self { id: Some(id) }
     }
 
@@ -208,6 +208,7 @@ const MOST_LOADED_SQL: &str = r#"
             SELECT *
             FROM room
             WHERE backend = 'janus'
+            AND   backend_id IS NOT NULL
             AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
         ),
         janus_backend_load AS (
@@ -216,18 +217,13 @@ const MOST_LOADED_SQL: &str = r#"
                 SUM(GREATEST(taken, reserve)) AS load
             FROM (
                 SELECT DISTINCT ON(backend_id, room_id)
-                    rec.backend_id,
-                    rtc.room_id,
+                    ar.backend_id,
+                    ar.id                   AS room_id,
                     COALESCE(rl.taken, 0)   AS taken,
                     COALESCE(ar.reserve, 0) AS reserve
-                FROM recording AS rec
-                INNER JOIN rtc
-                ON rtc.id = rec.rtc_id
-                LEFT JOIN active_room AS ar
-                ON ar.id = rtc.room_id
+                FROM active_room AS ar
                 LEFT JOIN room_load AS rl
-                ON rl.room_id = rtc.room_id
-                WHERE rec.status = 'in_progress'
+                ON rl.room_id = ar.id
             ) AS sub
             GROUP BY backend_id
         )
@@ -268,6 +264,7 @@ const LEAST_LOADED_SQL: &str = r#"
             SELECT *
             FROM room
             WHERE backend = 'janus'
+            AND   backend_id IS NOT NULL
             AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
         ),
         janus_backend_load AS (
@@ -276,17 +273,12 @@ const LEAST_LOADED_SQL: &str = r#"
                 SUM(taken) AS load
             FROM (
                 SELECT DISTINCT ON(backend_id, room_id)
-                    rec.backend_id,
-                    rtc.room_id,
+                    ar.backend_id,
+                    ar.id                 AS room_id,
                     COALESCE(rl.taken, 0) AS taken
-                FROM recording AS rec
-                INNER JOIN rtc
-                ON rtc.id = rec.rtc_id
-                LEFT JOIN active_room AS ar
-                ON ar.id = rtc.room_id
+                FROM active_room AS ar
                 LEFT JOIN room_load AS rl
-                ON rl.room_id = rtc.room_id
-                WHERE rec.status = 'in_progress'
+                ON rl.room_id = ar.id
             ) AS sub
             GROUP BY backend_id
         )
@@ -332,6 +324,7 @@ const FREE_CAPACITY_SQL: &str = r#"
             SELECT *
             FROM room
             WHERE backend = 'janus'
+            AND   backend_id IS NOT NULL
             AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
         ),
         janus_backend_load AS (
@@ -342,18 +335,13 @@ const FREE_CAPACITY_SQL: &str = r#"
                 SUM(GREATEST(taken, reserve)) AS load
             FROM (
                 SELECT DISTINCT ON(backend_id, room_id)
-                    rec.backend_id,
-                    rtc.room_id,
+                    ar.backend_id,
+                    ar.id                   AS room_id,
                     COALESCE(rl.taken, 0)   AS taken,
                     COALESCE(ar.reserve, 0) AS reserve
-                FROM recording AS rec
-                INNER JOIN rtc
-                ON rtc.id = rec.rtc_id
-                LEFT JOIN active_room AS ar
-                ON ar.id = rtc.room_id
+                FROM active_room AS ar
                 LEFT JOIN room_load AS rl
-                ON rl.room_id = rtc.room_id
-                WHERE rec.status = 'in_progress'
+                ON rl.room_id = ar.id
             ) AS sub
             GROUP BY backend_id
         )
@@ -379,11 +367,8 @@ const FREE_CAPACITY_SQL: &str = r#"
     ON ar.id = rtc.room_id
     LEFT JOIN room_load as rl
     ON rl.room_id = rtc.room_id
-    LEFT JOIN recording AS rec
-    ON  rec.rtc_id = rtc.id
-    AND rec.status = 'in_progress'
     LEFT JOIN janus_backend AS jb
-    ON jb.id = rec.backend_id
+    ON jb.id = ar.backend_id
     LEFT JOIN janus_backend_load AS jbl
     ON jbl.backend_id = jb.id
     WHERE rtc.id = $1
@@ -458,6 +443,7 @@ WITH
         SELECT *
         FROM room
         WHERE backend = 'janus'
+        AND   backend_id IS NOT NULL
         AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
     ),
     janus_backend_load AS (
@@ -467,18 +453,13 @@ WITH
             SUM(taken) AS taken
         FROM (
             SELECT DISTINCT ON(backend_id, room_id)
-                rec.backend_id,
-                rtc.room_id,
+                ar.backend_id,
+                ar.id                   AS room_id,
                 COALESCE(rl.taken, 0)   AS taken,
                 COALESCE(ar.reserve, 0) AS reserve
-            FROM recording AS rec
-            INNER JOIN rtc
-            ON rtc.id = rec.rtc_id
-            LEFT JOIN active_room AS ar
-            ON ar.id = rtc.room_id
+            FROM active_room AS ar
             LEFT JOIN room_load AS rl
-            ON rl.room_id = rtc.room_id
-            WHERE rec.status = 'in_progress'
+            ON rl.room_id = ar.id
         ) AS sub
         GROUP BY backend_id
     )
@@ -522,6 +503,7 @@ mod tests {
                     Bound::Excluded(now + Duration::hours(1)),
                 ))
                 .backend(RoomBackend::Janus)
+                .backend_id(backend1.id())
                 .reserve(200)
                 .insert(&conn);
 
@@ -533,6 +515,7 @@ mod tests {
                 ))
                 .reserve(300)
                 .backend(RoomBackend::Janus)
+                .backend_id(backend1.id())
                 .insert(&conn);
 
             let room3 = factory::Room::new()
@@ -543,15 +526,12 @@ mod tests {
                 ))
                 .reserve(400)
                 .backend(RoomBackend::Janus)
+                .backend_id(backend2.id())
                 .insert(&conn);
 
-            let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
-            let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
-            let rtc3 = factory::Rtc::new(room3.id()).insert(&conn);
-
-            shared_helpers::insert_recording(&conn, &rtc1, &backend1);
-            shared_helpers::insert_recording(&conn, &rtc2, &backend1);
-            shared_helpers::insert_recording(&conn, &rtc3, &backend2);
+            shared_helpers::insert_rtc_with_room(&conn, &room1);
+            shared_helpers::insert_rtc_with_room(&conn, &room2);
+            shared_helpers::insert_rtc_with_room(&conn, &room3);
 
             let loads = super::reserve_load_for_each_backend(&conn).expect("Db query failed");
             assert_eq!(loads.len(), 3);
