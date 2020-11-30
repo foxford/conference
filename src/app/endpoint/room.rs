@@ -2,12 +2,12 @@ use std::ops::Bound;
 
 use async_std::stream;
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableMessage, OutgoingRequest, ResponseStatus,
-    ShortTermTimingProperties,
+    IncomingEventProperties, IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent,
+    OutgoingEventProperties, OutgoingRequest, ResponseStatus, ShortTermTimingProperties,
 };
 use svc_agent::{Addressable, AgentId};
 use uuid::Uuid;
@@ -454,6 +454,57 @@ impl RequestHandler for LeaveHandler {
         let outgoing_request = OutgoingRequest::unicast(payload, props, reqp, MQTT_GW_API_VERSION);
         let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_request)))
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct NotifyOpenedEvent {
+    #[serde(default = "NotifyOpenedEvent::default_duration")]
+    duration: i64,
+}
+
+impl NotifyOpenedEvent {
+    fn default_duration() -> i64 {
+        60
+    }
+}
+
+pub(crate) struct NotifyOpenedHandler;
+
+#[async_trait]
+impl EventHandler for NotifyOpenedHandler {
+    type Payload = NotifyOpenedEvent;
+
+    async fn handle<C: Context>(
+        context: &mut C,
+        payload: Self::Payload,
+        evp: &IncomingEventProperties,
+    ) -> Result {
+        // Get recently opened rooms.
+        let rooms = {
+            let time = Utc::now() - Duration::seconds(payload.duration);
+            let conn = context.get_conn()?;
+
+            db::room::ListQuery::new()
+                .opened_since(time)
+                .execute(&conn)?
+        };
+
+        let events = rooms
+            .into_iter()
+            .map(|room| {
+                let url = format!("rooms/{}/events", room.id());
+                let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
+                let mut props = OutgoingEventProperties::new("room.open", timing);
+                props.set_tracking(evp.tracking().to_owned());
+                let boxed_ev = Box::new(OutgoingEvent::broadcast(room, props, &url));
+                boxed_ev as Box<dyn IntoPublishableMessage + Send>
+            })
+            .collect::<Vec<Box<dyn IntoPublishableMessage + Send>>>();
+
+        Ok(Box::new(stream::from_iter(events)))
     }
 }
 
@@ -1226,6 +1277,92 @@ mod test {
 
                 assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "room_not_found");
+            });
+        }
+    }
+
+    mod notify_opened {
+        use std::ops::Bound;
+
+        use chrono::{Duration, Utc};
+
+        use crate::app::API_VERSION;
+        use crate::db::room::{Object as Room, RoomBackend};
+        use crate::test_helpers::outgoing_envelope::OutgoingEnvelopeProperties;
+        use crate::test_helpers::prelude::*;
+
+        use super::super::*;
+
+        #[test]
+        fn notify_opened() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let now = Utc::now();
+
+                // Create rooms.
+                let rooms = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    let durations = vec![
+                        Duration::hours(-1),
+                        Duration::seconds(-30),
+                        Duration::seconds(-20),
+                        Duration::seconds(30),
+                        Duration::minutes(10),
+                    ];
+
+                    durations
+                        .into_iter()
+                        .map(|duration| {
+                            factory::Room::new()
+                                .audience(USR_AUDIENCE)
+                                .time((
+                                    Bound::Included(now + duration),
+                                    Bound::Excluded(now + Duration::hours(1)),
+                                ))
+                                .backend(RoomBackend::Janus)
+                                .insert(&conn)
+                        })
+                        .collect::<Vec<Room>>()
+                };
+
+                // Send `room.notify_opened` event.
+                let mut context = TestContext::new(db, TestAuthz::new());
+                let agent = TestAgent::new("alpha", "kruonis", SVC_AUDIENCE);
+                let payload = NotifyOpenedEvent { duration: 60 };
+
+                let messages = handle_event::<NotifyOpenedHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect("Recently opened rooms notification failed");
+
+                // Collect and assert notified rooms from outgoing events.
+                let mut notified_room_ids = vec![];
+
+                for message in messages {
+                    if let OutgoingEnvelopeProperties::Event(evp) = message.properties() {
+                        let room = message.payload::<Room>();
+                        notified_room_ids.push(room.id());
+
+                        let expected_topic = format!(
+                            "apps/conference.{}/api/{}/rooms/{}/events",
+                            SVC_AUDIENCE,
+                            API_VERSION,
+                            room.id()
+                        );
+
+                        assert_eq!(message.topic(), expected_topic);
+                        assert_eq!(evp.label(), "room.open");
+                    }
+                }
+
+                for expected_room_id in &[rooms[1].id(), rooms[2].id()] {
+                    if !notified_room_ids.contains(expected_room_id) {
+                        panic!("Room {} is not notified", expected_room_id);
+                    }
+                }
             });
         }
     }
