@@ -37,6 +37,7 @@ The following types are a part of the service's API and are guaranteed to mainta
 - `database_connection_acquisition_failed` – The service couldn't obtain a DB connection from the pool.
 - `database_query_failed` – The database returned an error while executing a query.
 - `invalid_jsep_format` – Failed to determine whether the SDP is recvonly.
+- `invalid_payload` – Failed to parse the payload because it's schema doesn't match the method's parameters spec.
 - `invalid_sdp_type` – Failed to parse SDP type or an SDP answer is received.
 - `invalid_subscription_object` – An object for dynamic subscription is not of format `["rooms", UUID, "events"]`.
 - `message_building_failed` – An error occurred while building a message to another service.
@@ -51,3 +52,4 @@ The following types are a part of the service's API and are guaranteed to mainta
 - `rtc_not_found` – An [RTC](rtc.md#Real-time_Connection) is missing or closed.
 - `stats_collection_failed` – Couldn't collect metrics from one of the sources.
 - `unknown_method` – An unsupported value in `method` property of the request message.
+- `unsupported_backend` – Room backend is not supported for the called operation.

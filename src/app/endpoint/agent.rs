@@ -24,7 +24,6 @@ pub(crate) struct ListHandler;
 #[async_trait]
 impl RequestHandler for ListHandler {
     type Payload = ListRequest;
-    const ERROR_TITLE: &'static str = "Failed to list agents";
 
     async fn handle<C: Context>(
         context: &mut C,

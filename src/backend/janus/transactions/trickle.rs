@@ -1,14 +1,12 @@
 use anyhow::Result;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use svc_agent::{
-    mqtt::{
-        IncomingRequestProperties, OutgoingMessage, OutgoingRequest, ShortTermTimingProperties,
-    },
-    AgentId,
+use svc_agent::mqtt::{
+    IncomingRequestProperties, OutgoingMessage, OutgoingRequest, ShortTermTimingProperties,
 };
 
+use crate::app::handle_id::HandleId;
 use crate::util::{generate_correlation_data, to_base64};
 
 use super::super::requests::TrickleRequest;
@@ -35,29 +33,31 @@ impl TransactionData {
 }
 
 impl Client {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn trickle_request(
         &self,
         reqp: IncomingRequestProperties,
-        session_id: i64,
-        handle_id: i64,
+        handle_id: &HandleId,
         jsep: JsonValue,
-        to: &AgentId,
         start_timestamp: DateTime<Utc>,
-        authz_time: Duration,
     ) -> Result<OutgoingMessage<TrickleRequest>> {
-        let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-        short_term_timing.set_authorization_time(authz_time);
+        let to = handle_id.backend_id();
 
         let props = reqp.to_request(
             METHOD,
             &self.response_topic(to)?,
             &generate_correlation_data(),
-            short_term_timing,
+            ShortTermTimingProperties::until_now(start_timestamp),
         );
 
         let transaction = Transaction::Trickle(TransactionData::new(reqp));
-        let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
+
+        let payload = TrickleRequest::new(
+            &to_base64(&transaction)?,
+            handle_id.janus_session_id(),
+            handle_id.janus_handle_id(),
+            jsep,
+        );
+
         self.register_transaction(to, start_timestamp, &props, &payload, self.timeout(METHOD));
 
         Ok(OutgoingRequest::unicast(

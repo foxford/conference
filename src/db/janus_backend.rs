@@ -362,16 +362,14 @@ const FREE_CAPACITY_SQL: &str = r#"
                 )
             END
         )::INT AS free_capacity
-    FROM rtc
-    LEFT JOIN active_room AS ar
-    ON ar.id = rtc.room_id
+    FROM active_room AS ar
     LEFT JOIN room_load as rl
-    ON rl.room_id = rtc.room_id
+    ON rl.room_id = ar.id
     LEFT JOIN janus_backend AS jb
     ON jb.id = ar.backend_id
     LEFT JOIN janus_backend_load AS jbl
     ON jbl.backend_id = jb.id
-    WHERE rtc.id = $1
+    WHERE ar.id = $1
 "#;
 
 #[derive(QueryableByName)]
@@ -380,12 +378,12 @@ struct FreeCapacityQueryRow {
     free_capacity: i32,
 }
 
-pub(crate) fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Error> {
+pub(crate) fn free_capacity(room_id: Uuid, conn: &PgConnection) -> Result<i32, Error> {
     use diesel::prelude::*;
     use diesel::sql_types::Uuid;
 
     diesel::sql_query(FREE_CAPACITY_SQL)
-        .bind::<Uuid, _>(rtc_id)
+        .bind::<Uuid, _>(room_id)
         .get_result::<FreeCapacityQueryRow>(conn)
         .map(|row| row.free_capacity)
 }
@@ -472,9 +470,10 @@ LEFT OUTER JOIN janus_backend_load jbl
 ON jb.id = jbl.backend_id;
 "#;
 
+////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod tests {
-
     use chrono::{Duration, Utc};
     use std::ops::Bound;
 

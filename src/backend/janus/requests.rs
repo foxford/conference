@@ -86,18 +86,33 @@ impl MessageRequest {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CreateStreamRequestBody {
+pub(crate) struct CreateSignalRequestBody {
     method: &'static str,
-    id: Uuid,
     agent_id: AgentId,
 }
 
+impl CreateSignalRequestBody {
+    pub(crate) fn new(agent_id: AgentId) -> Self {
+        Self {
+            method: "signal.create",
+            agent_id,
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct CreateStreamRequestBody {
+    method: &'static str,
+    id: Uuid,
+}
+
 impl CreateStreamRequestBody {
-    pub(crate) fn new(id: Uuid, agent_id: AgentId) -> Self {
+    pub(crate) fn new(id: Uuid) -> Self {
         Self {
             method: "stream.create",
             id,
-            agent_id,
         }
     }
 }
@@ -108,15 +123,13 @@ impl CreateStreamRequestBody {
 pub(crate) struct ReadStreamRequestBody {
     method: &'static str,
     id: Uuid,
-    agent_id: AgentId,
 }
 
 impl ReadStreamRequestBody {
-    pub(crate) fn new(id: Uuid, agent_id: AgentId) -> Self {
+    pub(crate) fn new(id: Uuid) -> Self {
         Self {
             method: "stream.read",
             id,
-            agent_id,
         }
     }
 }

@@ -28,6 +28,7 @@ pub(crate) enum ErrorKind {
     DbConnAcquisitionFailed,
     DbQueryFailed,
     InvalidJsepFormat,
+    InvalidPayload,
     InvalidRoomTime,
     InvalidSdpType,
     InvalidSubscriptionObject,
@@ -42,6 +43,8 @@ pub(crate) enum ErrorKind {
     RoomNotFound,
     RtcNotFound,
     StatsCollectionFailed,
+    UnknownMethod,
+    UnsupportedBackend,
 }
 
 impl ErrorKind {
@@ -53,11 +56,6 @@ impl ErrorKind {
     pub(crate) fn kind(self) -> &'static str {
         let properties: ErrorKindProperties = self.into();
         properties.kind
-    }
-
-    pub(crate) fn title(self) -> &'static str {
-        let properties: ErrorKindProperties = self.into();
-        properties.title
     }
 
     pub(crate) fn is_notify_sentry(self) -> bool {
@@ -148,6 +146,12 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 title: "Invalid JSEP format",
                 is_notify_sentry: false,
             },
+            Self::InvalidPayload => ErrorKindProperties {
+                status: ResponseStatus::BAD_REQUEST,
+                kind: "invalid_payload",
+                title: "Invalid payload",
+                is_notify_sentry: false,
+            },
             Self::InvalidRoomTime => ErrorKindProperties {
                 status: ResponseStatus::BAD_REQUEST,
                 kind: "invalid_room_time",
@@ -232,6 +236,18 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 title: "Stats collection failed",
                 is_notify_sentry: true,
             },
+            Self::UnknownMethod => ErrorKindProperties {
+                status: ResponseStatus::METHOD_NOT_ALLOWED,
+                kind: "unknown_method",
+                title: "Unknown method",
+                is_notify_sentry: false,
+            },
+            Self::UnsupportedBackend => ErrorKindProperties {
+                status: ResponseStatus::UNPROCESSABLE_ENTITY,
+                kind: "unsupported_backend",
+                title: "Unsupported backend",
+                is_notify_sentry: false,
+            },
         }
     }
 }
@@ -260,10 +276,6 @@ impl Error {
 
     pub(crate) fn kind(&self) -> &str {
         self.kind.kind()
-    }
-
-    pub(crate) fn title(&self) -> &str {
-        self.kind.title()
     }
 
     pub(crate) fn source(&self) -> &(dyn StdError + Send + Sync + 'static) {

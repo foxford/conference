@@ -73,12 +73,12 @@ async fn handle_response_impl<C: Context>(
                 .error(AppErrorKind::MessageParsingFailed)?;
 
             match txn {
-                // Session has been created
+                // Session has been created.
                 Transaction::CreateSession(tn) => {
-                    // Creating Handle
+                    // Create service handle.
                     let backreq = context
                         .janus_client()
-                        .create_handle_request(
+                        .create_service_handle_request(
                             respp,
                             inresp.data().id(),
                             tn.capacity(),
@@ -90,8 +90,8 @@ async fn handle_response_impl<C: Context>(
                     let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>;
                     Ok(Box::new(stream::once(boxed_backreq)))
                 }
-                // Handle has been created
-                Transaction::CreateHandle(tn) => {
+                // Service handle has been created.
+                Transaction::CreateServiceHandle(tn) => {
                     let backend_id = respp.as_agent_id();
                     let handle_id = inresp.data().id();
                     let conn = context.get_conn()?;
@@ -110,32 +110,30 @@ async fn handle_response_impl<C: Context>(
                     q.execute(&conn)?;
                     Ok(Box::new(stream::empty()))
                 }
-                // Rtc Handle has been created
-                Transaction::CreateRtcHandle(tn) => {
-                    let agent_id = respp.as_agent_id();
-                    let reqp = tn.reqp();
-
-                    // Returning Real-Time connection handle
-                    let resp = endpoint::rtc::ConnectResponse::unicast(
-                        endpoint::rtc::ConnectResponseData::new(HandleId::new(
-                            tn.rtc_stream_id(),
-                            tn.rtc_id(),
-                            inresp.data().id(),
-                            tn.session_id(),
-                            agent_id.clone(),
-                        )),
-                        reqp.to_response(
-                            ResponseStatus::OK,
-                            ShortTermTimingProperties::until_now(context.start_timestamp()),
-                        ),
-                        reqp,
-                        JANUS_API_VERSION,
+                // Agent handle has been created.
+                Transaction::CreateAgentHandle(tn) => {
+                    let handle_id = HandleId::new(
+                        inresp.data().id(),
+                        tn.session_id(),
+                        respp.as_agent_id().to_owned(),
                     );
 
-                    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-                    Ok(Box::new(stream::once(boxed_resp)))
+                    // Make signal.create request.
+                    let backreq = context
+                        .janus_client()
+                        .create_signal_request(
+                            tn.reqp(),
+                            &respp,
+                            handle_id,
+                            tn.jsep().to_owned(),
+                            context.start_timestamp(),
+                        )
+                        .error(AppErrorKind::MessageBuildingFailed)?;
+
+                    let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>;
+                    Ok(Box::new(stream::once(boxed_backreq)))
                 }
-                // An unsupported incoming Success message has been received
+                // An unsupported incoming Success message has been received.
                 _ => Ok(Box::new(stream::empty())),
             }
         }
@@ -149,8 +147,8 @@ async fn handle_response_impl<C: Context>(
                 Transaction::CreateStream(_tn) => Ok(Box::new(stream::empty())),
                 // Trickle message has been received by Janus Gateway
                 Transaction::Trickle(tn) => {
-                    let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                        endpoint::rtc_signal::CreateResponseData::new(None),
+                    let resp = endpoint::signal::TrickleResponse::unicast(
+                        endpoint::signal::TrickleResponseData::new(),
                         tn.reqp().to_response(
                             ResponseStatus::OK,
                             ShortTermTimingProperties::until_now(context.start_timestamp()),
@@ -174,6 +172,35 @@ async fn handle_response_impl<C: Context>(
                 .error(AppErrorKind::MessageParsingFailed)?;
 
             match txn {
+                // Signal has been created.
+                Transaction::CreateSignal(ref tn) => {
+                    context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
+
+                    inresp
+                        .jsep()
+                        .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                        .error(AppErrorKind::MessageParsingFailed)
+                        .and_then(|jsep| {
+                            let resp = endpoint::signal::CreateResponse::unicast(
+                                endpoint::signal::CreateResponseData::new(
+                                    tn.handle_id().to_owned(),
+                                    jsep.to_owned(),
+                                ),
+                                tn.reqp().to_response(
+                                    ResponseStatus::OK,
+                                    ShortTermTimingProperties::until_now(context.start_timestamp()),
+                                ),
+                                tn.reqp(),
+                                JANUS_API_VERSION,
+                            );
+
+                            let boxed_resp =
+                                Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+
+                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                        })
+                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
+                }
                 // Conference Stream has been created (an answer received)
                 Transaction::CreateStream(ref tn) => {
                     context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
@@ -195,17 +222,11 @@ async fn handle_response_impl<C: Context>(
                             }
                         })
                         .and_then(|_| {
-                            // Getting answer (as JSEP)
-                            let jsep = inresp
-                                .jsep()
-                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)?;
-
                             let timing =
                                 ShortTermTimingProperties::until_now(context.start_timestamp());
 
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                            let resp = endpoint::rtc::ConnectResponse::unicast(
+                                endpoint::rtc::ConnectResponseData::new(),
                                 tn.reqp().to_response(ResponseStatus::OK, timing),
                                 tn.reqp().as_agent_id(),
                                 JANUS_API_VERSION,
@@ -213,6 +234,7 @@ async fn handle_response_impl<C: Context>(
 
                             let boxed_resp =
                                 Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+
                             Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
@@ -239,17 +261,11 @@ async fn handle_response_impl<C: Context>(
                             }
                         })
                         .and_then(|_| {
-                            // Getting answer (as JSEP)
-                            let jsep = inresp
-                                .jsep()
-                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)?;
-
                             let timing =
                                 ShortTermTimingProperties::until_now(context.start_timestamp());
 
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                            let resp = endpoint::rtc::ConnectResponse::unicast(
+                                endpoint::rtc::ConnectResponseData::new(),
                                 tn.reqp().to_response(ResponseStatus::OK, timing),
                                 tn.reqp().as_agent_id(),
                                 JANUS_API_VERSION,
@@ -257,6 +273,7 @@ async fn handle_response_impl<C: Context>(
 
                             let boxed_resp =
                                 Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+
                             Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
