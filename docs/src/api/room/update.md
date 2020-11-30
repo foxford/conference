@@ -2,8 +2,6 @@
 
 Update a Room which holds Real-Time Connections.
 
-
-
 ## Multicast request
 
 **Properties**
