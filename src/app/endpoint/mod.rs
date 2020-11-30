@@ -133,6 +133,7 @@ macro_rules! event_routes {
 // Event routes configuration: label => EventHandler
 event_routes!(
     "metric.pull" => metric::PullHandler,
+    "room.notify_opened" => room::NotifyOpenedHandler,
     "subscription.delete" => subscription::DeleteHandler,
     "subscription.create" => subscription::CreateHandler
 );
