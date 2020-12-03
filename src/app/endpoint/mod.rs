@@ -65,6 +65,7 @@ request_routes!(
     "rtc_stream.list" => rtc_stream::ListHandler,
     "signal.create" => signal::CreateHandler,
     "signal.trickle" => signal::TrickleHandler,
+    "signal.update" => signal::UpdateHandler,
     "system.vacuum" => system::VacuumHandler
 );
 

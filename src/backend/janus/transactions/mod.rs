@@ -8,6 +8,7 @@ pub(crate) enum Transaction {
     CreateServiceHandle(create_service_handle::TransactionData),
     CreateSession(create_session::TransactionData),
     CreateSignal(create_signal::TransactionData),
+    UpdateSignal(update_signal::TransactionData),
     CreateStream(create_stream::TransactionData),
     ReadStream(read_stream::TransactionData),
     Trickle(trickle::TransactionData),
@@ -22,4 +23,5 @@ mod create_signal;
 mod create_stream;
 mod read_stream;
 mod trickle;
+mod update_signal;
 mod upload_stream;

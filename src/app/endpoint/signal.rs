@@ -201,6 +201,75 @@ impl RequestHandler for TrickleHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, Serialize)]
+pub(crate) struct UpdateResponseData {
+    jsep: JsonValue,
+}
+
+impl UpdateResponseData {
+    pub(crate) fn new(jsep: JsonValue) -> Self {
+        Self { jsep }
+    }
+}
+
+pub(crate) type UpdateResponse = OutgoingResponse<UpdateResponseData>;
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct UpdateRequest {
+    handle_id: HandleId,
+    jsep: JsonValue,
+}
+
+pub(crate) struct UpdateHandler;
+
+#[async_trait]
+impl RequestHandler for UpdateHandler {
+    type Payload = UpdateRequest;
+
+    async fn handle<C: Context>(
+        context: &mut C,
+        payload: Self::Payload,
+        reqp: &IncomingRequestProperties,
+    ) -> Result {
+        // Validate SDP type.
+        match parse_sdp_type(&payload.jsep) {
+            Ok(SdpType::Offer) => (),
+            Ok(sdp_type) => {
+                return Err(anyhow!(
+                    "SDP type '{}' is invalid for signal.create method",
+                    sdp_type
+                ))
+                .error(AppErrorKind::InvalidSdpType);
+            }
+            Err(err) => {
+                return Err(err.context("Failed to parse SDP type"))
+                    .error(AppErrorKind::InvalidSdpType);
+            }
+        }
+
+        // Make janus `signal.update` request.
+        let janus_request_result = context.janus_client().update_signal_request(
+            reqp.clone(),
+            &payload.handle_id,
+            payload.jsep,
+            context.start_timestamp(),
+        );
+
+        match janus_request_result {
+            Ok(req) => {
+                let boxed_request = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
+                Ok(Box::new(stream::once(boxed_request)))
+            }
+            Err(err) => Err(err.context("Error creating a backend request"))
+                .error(AppErrorKind::MessageBuildingFailed),
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug)]
 enum SdpType {
     Offer,
@@ -461,7 +530,7 @@ mod tests {
         use super::{SDP_ANSWER, SDP_OFFER_RECVONLY, SDP_OFFER_SENDRECV};
 
         #[derive(Deserialize)]
-        struct JanusRequest {
+        struct JanusAgentHandleCreateRequest {
             transaction: String,
             janus: String,
             session_id: i64,
@@ -505,7 +574,8 @@ mod tests {
                     .expect("Signal creation failed");
 
                 // Assert outgoing request to Janus.
-                let (payload, _reqp, topic) = find_request::<JanusRequest>(messages.as_slice());
+                let (payload, _reqp, topic) =
+                    find_request::<JanusAgentHandleCreateRequest>(messages.as_slice());
 
                 let expected_topic = format!(
                     "agents/{}/api/{}/in/conference.{}",
@@ -589,7 +659,8 @@ mod tests {
                     .expect("Signal creation failed");
 
                 // Assert outgoing request to Janus.
-                let (_payload, _reqp, topic) = find_request::<JanusRequest>(messages.as_slice());
+                let (_payload, _reqp, topic) =
+                    find_request::<JanusAgentHandleCreateRequest>(messages.as_slice());
 
                 let expected_topic = format!(
                     "agents/{}/api/{}/in/conference.{}",
@@ -709,7 +780,8 @@ mod tests {
                     .expect("Signal creation failed");
 
                 // Assert outgoing request to Janus.
-                let (_payload, _reqp, topic) = find_request::<JanusRequest>(messages.as_slice());
+                let (_payload, _reqp, topic) =
+                    find_request::<JanusAgentHandleCreateRequest>(messages.as_slice());
 
                 let expected_topic = format!(
                     "agents/{}/api/{}/in/conference.{}",
@@ -802,7 +874,8 @@ mod tests {
                     .expect("Signal creation failed");
 
                 // Assert outgoing request to Janus.
-                let (_payload, _reqp, topic) = find_request::<JanusRequest>(messages.as_slice());
+                let (_payload, _reqp, topic) =
+                    find_request::<JanusAgentHandleCreateRequest>(messages.as_slice());
 
                 let expected_topic = format!(
                     "agents/{}/api/{}/in/conference.{}",
@@ -934,7 +1007,8 @@ mod tests {
                     .expect("Signal creation failed");
 
                 // Assert outgoing request to Janus.
-                let (_payload, _reqp, topic) = find_request::<JanusRequest>(messages.as_slice());
+                let (_payload, _reqp, topic) =
+                    find_request::<JanusAgentHandleCreateRequest>(messages.as_slice());
 
                 let expected_topic = format!(
                     "agents/{}/api/{}/in/conference.{}",
@@ -1253,6 +1327,149 @@ mod tests {
                 let err = handle_request::<TrickleHandler>(&mut context, &agent, payload)
                     .await
                     .expect_err("Signal trickle succeeded while expecting invalid SDP error");
+
+                assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
+                assert_eq!(err.kind(), "invalid_sdp_type");
+            });
+        }
+    }
+
+    mod update {
+        use serde_derive::{Deserialize, Serialize};
+        use serde_json::json;
+        use svc_agent::mqtt::ResponseStatus;
+
+        use crate::app::API_VERSION;
+        use crate::db::agent::Status as AgentStatus;
+        use crate::test_helpers::prelude::*;
+
+        use super::super::*;
+        use super::{SDP_ANSWER, SDP_OFFER_SENDRECV};
+
+        #[derive(Deserialize)]
+        struct JanusSignalUpdateRequest {
+            janus: String,
+            session_id: i64,
+            handle_id: i64,
+            body: JanusSignalUpdateRequestBody,
+            jsep: Jsep,
+        }
+
+        #[derive(Deserialize)]
+        struct JanusSignalUpdateRequestBody {
+            method: String,
+        }
+
+        #[derive(Debug, PartialEq, Deserialize, Serialize)]
+        struct Jsep {
+            #[serde(rename = "type")]
+            kind: String,
+            sdp: String,
+        }
+
+        impl Jsep {
+            fn new(kind: &str, sdp: &str) -> Self {
+                Self {
+                    kind: kind.to_owned(),
+                    sdp: sdp.to_owned(),
+                }
+            }
+        }
+
+        #[test]
+        fn update_signal() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let db = TestDb::new();
+
+                // Insert backend, room and enter agent there.
+                let backend = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room(&conn);
+
+                    factory::Agent::new()
+                        .agent_id(agent.agent_id())
+                        .room_id(room.id())
+                        .status(AgentStatus::Connected)
+                        .insert(&conn);
+
+                    backend
+                };
+
+                // Make `signal.update` request.
+                let mut context = TestContext::new(db.clone(), TestAuthz::new());
+                let jsep = Jsep::new("offer", SDP_OFFER_SENDRECV);
+
+                let payload = UpdateRequest {
+                    handle_id: HandleId::new(123, 456, backend.id().to_owned()),
+                    jsep: json!(jsep),
+                };
+
+                let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect("Signal update failed");
+
+                // Assert outgoing request to Janus.
+                let (payload, _reqp, topic) =
+                    find_request::<JanusSignalUpdateRequest>(messages.as_slice());
+
+                let expected_topic = format!(
+                    "agents/{}/api/{}/in/conference.{}",
+                    backend.id(),
+                    API_VERSION,
+                    SVC_AUDIENCE,
+                );
+
+                assert_eq!(topic, expected_topic);
+                assert_eq!(payload.janus, "message");
+                assert_eq!(payload.session_id, 456);
+                assert_eq!(payload.handle_id, 123);
+                assert_eq!(payload.body.method, "signal.update");
+                assert_eq!(payload.jsep, jsep);
+            });
+        }
+
+        #[test]
+        fn update_signal_with_invalid_jsep() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let db = TestDb::new();
+
+                // Insert backend, room and enter agent there.
+                let backend = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room(&conn);
+
+                    factory::Agent::new()
+                        .agent_id(agent.agent_id())
+                        .room_id(room.id())
+                        .status(AgentStatus::Connected)
+                        .insert(&conn);
+
+                    backend
+                };
+
+                // Make `signal.update` request.
+                let mut context = TestContext::new(db.clone(), TestAuthz::new());
+
+                let payload = UpdateRequest {
+                    handle_id: HandleId::new(123, 456, backend.id().to_owned()),
+                    jsep: json!(Jsep::new("answer", SDP_ANSWER)),
+                };
+
+                let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect_err("Signal update succeeded while expecting invalid SDP error");
 
                 assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
                 assert_eq!(err.kind(), "invalid_sdp_type");
