@@ -15,7 +15,7 @@ method           | String | _required_ | Always `room.enter`.
 
 Name     | Type       | Default    | Description
 -------- | ---------- | ---------- | ------------------
-id       | Uuid       | _required_ | The room identifier. The room must be opened.
+id       | Uuid       | _required_ | The room identifier.
 
 
 ## Unicast response

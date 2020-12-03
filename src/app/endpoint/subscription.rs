@@ -76,7 +76,7 @@ impl EventHandler for CreateHandler {
             "audience" => evp.as_account_id().audience().to_owned(),
         ));
 
-        helpers::find_room_by_id(context, room_id, helpers::RoomTimeRequirement::Open)?;
+        helpers::find_room_by_id(context, room_id, helpers::RoomTimeRequirement::NotClosed)?;
 
         {
             let conn = context.get_conn()?;
