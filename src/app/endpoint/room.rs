@@ -342,7 +342,7 @@ impl RequestHandler for EnterHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let room =
-            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::Open)?;
+            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::NotClosed)?;
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();
