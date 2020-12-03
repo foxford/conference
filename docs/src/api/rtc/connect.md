@@ -12,7 +12,6 @@ If there's no stream yet then the handle is being balanced to the instance with 
 of active RTC streams.
 
 
-
 ## Multicast request
 
 **Properties**
@@ -29,7 +28,6 @@ id     | String | _required_ | A real-time connection identifier.
 intent | String | read       | `write` or `read`.
 
 
-
 ## Unicast response
 
-If successful, the response payload contains a **Real-Time Connection Handle Identifier**.
+If successful, the response payload contains an empty JSON object.

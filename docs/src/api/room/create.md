@@ -26,7 +26,7 @@ tags     | json       | {}         | Arbitrary tags object associated with the r
 
 ## Unicast response
 
-If successful, the response payload contains a **Room** object.
+If successful, the response payload contains a [Room](../room.md#properties) object.
 
 ## Broadcast event
 
@@ -36,4 +36,4 @@ A notification is being sent to the _audience_ topic.
 
 **Label:** `room.create`.
 
-**Payload:** created [room](../room.md#room) object.
+**Payload:** created [room](../room.md#properties) object.
