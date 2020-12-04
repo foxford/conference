@@ -32,6 +32,8 @@ use self::transactions::Transaction;
 const STREAM_UPLOAD_METHOD: &str = "stream.upload";
 pub(crate) const JANUS_API_VERSION: &str = "v1";
 
+const ALREADY_RUNNING_STATE: &str = "already_running";
+
 pub(crate) trait OpaqueId {
     fn opaque_id(&self) -> &str;
 }
@@ -305,6 +307,12 @@ async fn handle_response_impl<C: Context>(
                                         .map_err(|err| anyhow!("Invalid value for 'id': {}", err))
                                         .error(AppErrorKind::MessageParsingFailed)
                                 })?;
+
+                            // if vacuuming was already started by previous request - just do nothing
+                            let maybe_already_running = plugin_data.get("state").and_then(|v| v.as_str()) == Some(ALREADY_RUNNING_STATE);
+                            if maybe_already_running {
+                                return Ok(Box::new(stream::empty()) as MessageStream);
+                            }
 
                             let started_at = plugin_data
                                 .get("started_at")
