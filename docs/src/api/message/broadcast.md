@@ -3,7 +3,6 @@
 Send a message to all agents in the room.
 
 
-
 ## Multicast request
 
 **Properties**
@@ -21,7 +20,16 @@ data              | JsonObject | _required_ | JSON object.
 label             | String     | _optional_ | A label to group messages by in metrics.
 
 
-
 ## Unicast response
 
-If successful, the response payload contains a JSON object.
+If successful, the response payload contains an empty JSON object.
+
+## Broadcast event
+
+A notification is being sent to the _room_ topic.
+
+**URI:** `rooms/:room_id/events`
+
+**Label:** `message.broadcast`.
+
+**Payload:** the same as request's payload.

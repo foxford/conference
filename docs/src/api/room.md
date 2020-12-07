@@ -15,6 +15,36 @@ tags       |       json | {}         | Arbitrary tags object associated with the
 
 ## Lifecycle events
 
+### room.create event
+
+Emited when a room gets created.
+
+**URI:** `audiences/:audience/events`.
+
+**Label:** `room.create`.
+
+**Payload:** created [room](#properties) object.
+
+### room.update event
+
+Emited when a room gets updated.
+
+**URI:** `audiences/:audience/events`.
+
+**Label:** `room.update`.
+
+**Payload:** updated [room](#properties) object.
+
+### room.open event
+
+Emited when room's opening time has recently come.
+
+**URI:** `rooms/:room_id/events`.
+
+**Label:** `room.open`.
+
+**Payload:** opened [room](#properties) object.
+
 ### room.close event
 
 If either
@@ -24,9 +54,43 @@ If either
 `room.close` event will be sent to room topic and tenant topics.
 This event is not guaranteed to be unique for a room, that is two `room.close` events could be sent by the service.
 
-**URI:** `rooms/:room_id/events`
-**URI:** `audiences/:audience/events`
+**URI:** `rooms/:room_id/events`, `audiences/:audience/events`.
 
 **Label:** `room.close`.
 
-**Payload:** [room](#properties) object.
+**Payload:** closed [room](#properties) object.
+
+### room.upload event
+
+Emited when room's RTC recordings get uploaded to S3.
+
+**URI:** `audiences/:audience/events`.
+
+**Label:** `room.upload`.
+
+**Payload:**
+```json
+{
+  "id": ROOM_ID,
+  "rtcs": [
+    {
+      "id": RTC_ID,
+      "status": "ready|missing",
+      "uri": "s3://BUCKET/RTC_ID.origin.mp4",
+      "segments": [[0, SEGMENT_END], …],
+      "started_at": ABSOLUTE_RECORDING_START_TIMESTAMP
+    },
+    …
+  ]
+}
+```
+
+### room.delete event
+
+Emited when a room gets deleted.
+
+**URI:** `audiences/:audience/events`.
+
+**Label:** `room.delete`.
+
+**Payload:** deleted [room](#properties) object.

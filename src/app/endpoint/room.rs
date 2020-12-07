@@ -316,7 +316,7 @@ impl RequestHandler for DeleteHandler {
         );
 
         let notification = helpers::build_notification(
-            "room.update",
+            "room.delete",
             &format!("audiences/{}/events", room.audience()),
             room,
             reqp,
