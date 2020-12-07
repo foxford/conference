@@ -33,8 +33,12 @@ pub(crate) struct Object {
     status: Status,
 }
 
-#[cfg(test)]
 impl Object {
+    pub(crate) fn agent_id(&self) -> &AgentId {
+        &self.agent_id
+    }
+
+    #[cfg(test)]
     pub(crate) fn status(&self) -> Status {
         self.status
     }

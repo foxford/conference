@@ -14,7 +14,9 @@ use uuid::Uuid;
 
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
+use crate::app::endpoint::subscription::RoomEnterLeaveEvent;
 use crate::db;
+use crate::diesel::Connection;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -190,42 +192,92 @@ impl RequestHandler for UpdateHandler {
 
         let room_was_open = !room.is_closed();
         let mut room_closed_by_update = false;
-
-        let mut time = payload.time;
-        if let Some(new_time) = time {
-            match new_time {
-                (Bound::Included(new_opened_at), Bound::Excluded(new_closed_at))
-                    if new_closed_at > new_opened_at =>
-                {
-                    if let (Bound::Included(opened_at), _) = room.time() {
-                        if *opened_at <= Utc::now() {
-                            let new_closed_at = if new_closed_at <= Utc::now() {
-                                room_closed_by_update = true;
-                                Utc::now()
-                            } else {
-                                new_closed_at
-                            };
-
-                            time =
-                                Some((Bound::Included(*opened_at), Bound::Excluded(new_closed_at)));
-                        }
-                    }
-                }
-                _ => return Err(anyhow!("Invalid room time")).error(AppErrorKind::InvalidRoomTime),
-            }
-        }
+        let mut delete_agents = false;
 
         // Update room.
-        let room = {
-            let query = db::room::UpdateQuery::new(room.id())
-                .time(time)
-                .audience(payload.audience)
-                .backend(payload.backend)
-                .reserve(payload.reserve)
-                .tags(payload.tags);
-
+        let (room, left_agents) = {
             let conn = context.get_conn()?;
-            query.execute(&conn)?
+
+            let time = match payload.time {
+                None => None,
+                Some(new_time) => {
+                    let (new_opened_at, maybe_new_closed_at) = match new_time {
+                        (Bound::Included(o), Bound::Excluded(c)) if o < c => (o, Some(c)),
+                        (Bound::Included(o), Bound::Unbounded) => (o, None),
+                        _ => {
+                            return Err(anyhow!("Invalid room time"))
+                                .error(AppErrorKind::InvalidRoomTime)
+                        }
+                    };
+
+                    // If the room has been already opened
+                    match room.time() {
+                        (Bound::Included(o), old_bound_closed_at) if *o <= Utc::now() => {
+                            let rtcs = db::rtc::ListQuery::new()
+                                .room_id(room.id())
+                                .execute(&conn)?;
+
+                            // If we're moving the opening to the future remove active agents.
+                            // Also if an RTC has already been created then forbid changing the time.
+                            if new_opened_at > Utc::now() {
+                                if rtcs.is_empty() {
+                                    delete_agents = true;
+                                } else {
+                                    let err = anyhow!("Opening time changing forbidden since an RTC has already been created");
+                                    return Err(err).error(AppErrorKind::RoomTimeChangingForbidden);
+                                }
+                            }
+
+                            // Allow only closing it in the future or close it now.
+                            let bounded_new_closed_at = match maybe_new_closed_at {
+                                Some(c) if c <= Utc::now() => {
+                                    room_closed_by_update = true;
+                                    Bound::Excluded(Utc::now())
+                                }
+                                Some(c) => Bound::Excluded(c),
+                                None => {
+                                    if rtcs.is_empty() {
+                                        Bound::Unbounded
+                                    } else {
+                                        // We can't make the end unbounded when an rtc is present
+                                        // to avoid dropping the timeout.
+                                        *old_bound_closed_at
+                                    }
+                                }
+                            };
+
+                            Some((Bound::Included(new_opened_at), bounded_new_closed_at))
+                        }
+                        _ => Some(new_time),
+                    }
+                }
+            };
+
+            conn.transaction::<_, diesel::result::Error, _>(|| {
+                let room = db::room::UpdateQuery::new(room.id())
+                    .time(time)
+                    .audience(payload.audience)
+                    .backend(payload.backend)
+                    .reserve(payload.reserve)
+                    .tags(payload.tags)
+                    .execute(&conn)?;
+
+                let agents = if delete_agents {
+                    let agents = db::agent::ListQuery::new()
+                        .room_id(room.id())
+                        .execute(&conn)?;
+
+                    db::agent::DeleteQuery::new()
+                        .room_id(room.id())
+                        .execute(&conn)?;
+
+                    agents
+                } else {
+                    vec![]
+                };
+
+                Ok((room, agents))
+            })?
         };
 
         // Respond and broadcast to the audience topic.
@@ -247,7 +299,8 @@ impl RequestHandler for UpdateHandler {
 
         let mut responses = vec![response, notification];
 
-        let append_closed_notification = || {
+        // Publish room closed notification.
+        if room_was_open && room_closed_by_update {
             responses.push(helpers::build_notification(
                 "room.close",
                 &format!("rooms/{}/events", room.id()),
@@ -259,15 +312,21 @@ impl RequestHandler for UpdateHandler {
             responses.push(helpers::build_notification(
                 "room.close",
                 &format!("audiences/{}/events", room.audience()),
-                room,
+                room.clone(),
                 reqp,
                 context.start_timestamp(),
             ));
-        };
+        }
 
-        // Publish room closed notification
-        if room_was_open && room_closed_by_update {
-            append_closed_notification();
+        // Notify about left agents if any.
+        for agent in left_agents {
+            responses.push(helpers::build_notification(
+                "room.leave",
+                &format!("rooms/{}/events", room.id()),
+                RoomEnterLeaveEvent::new(room.id(), agent.agent_id().to_owned()),
+                reqp,
+                context.start_timestamp(),
+            ));
         }
 
         Ok(Box::new(stream::from_iter(responses)))
@@ -689,13 +748,23 @@ mod test {
         use std::ops::Bound;
 
         use chrono::{Duration, SubsecRound, Utc};
+        use serde_derive::Deserialize;
         use serde_json::json;
+        use svc_agent::AgentId;
+        use uuid::Uuid;
 
+        use crate::db::agent::ListQuery as AgentListQuery;
         use crate::db::room::Object as Room;
         use crate::test_helpers::find_event_by_predicate;
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
+
+        #[derive(Deserialize)]
+        struct RoomLeavePayload {
+            id: Uuid,
+            agent_id: AgentId,
+        }
 
         #[test]
         fn update_room() {
@@ -938,6 +1007,128 @@ mod test {
 
                 assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "room_closed");
+            });
+        }
+
+        #[test]
+        fn update_room_move_opening_time_to_the_future() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
+
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    // Insert a room with an active agent.
+                    let room = shared_helpers::insert_room(&conn);
+                    shared_helpers::insert_agent(&conn, reader.agent_id(), room.id());
+                    room
+                };
+
+                // Allow updating the room.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let mut authz = TestAuthz::new();
+                let room_id = room.id().to_string();
+                authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+                let mut context = TestContext::new(db.clone(), authz);
+
+                // Move the room for tomorrow.
+                let opened_at = match room.time() {
+                    (Bound::Included(dt), _) => *dt,
+                    _ => panic!("Invalid room time"),
+                };
+
+                let payload = UpdateRequest {
+                    id: room.id(),
+                    time: Some((
+                        Bound::Included(opened_at + Duration::days(1)),
+                        Bound::Unbounded,
+                    )),
+                    ..Default::default()
+                };
+
+                let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect("Failed to update room");
+
+                // Assert `room.leave` notification to the agent.
+                let (raw_payload, evp, topic) =
+                    find_event_by_predicate::<serde_json::Value, _>(&messages, |evp, _, _| {
+                        evp.label() == "room.leave"
+                    })
+                    .expect("Expected to find `room.leave` event");
+
+                let payload: RoomLeavePayload = serde_json::from_value(raw_payload)
+                    .expect("Failed to parse `room.leave` payload");
+
+                assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
+                assert_eq!(evp.label(), "room.leave");
+                assert_eq!(payload.id, room.id());
+                assert_eq!(&payload.agent_id, reader.agent_id());
+
+                // Assert the agent to be deleted from the DB.
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                let agents = AgentListQuery::new()
+                    .room_id(room.id())
+                    .execute(&conn)
+                    .expect("Failed to list agents");
+
+                assert!(agents.is_empty());
+            });
+        }
+
+        #[test]
+        fn update_room_move_opening_time_to_the_future_with_rtc() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    // Insert a room with an rtc.
+                    let room = shared_helpers::insert_room(&conn);
+                    shared_helpers::insert_rtc_with_room(&conn, &room);
+                    room
+                };
+
+                // Allow updating the room.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let mut authz = TestAuthz::new();
+                let room_id = room.id().to_string();
+                authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+                let mut context = TestContext::new(db, authz);
+
+                // Move the room for tomorrow.
+                let opened_at = match room.time() {
+                    (Bound::Included(dt), _) => *dt,
+                    _ => panic!("Invalid room time"),
+                };
+
+                let payload = UpdateRequest {
+                    id: room.id(),
+                    time: Some((
+                        Bound::Included(opened_at + Duration::days(1)),
+                        Bound::Unbounded,
+                    )),
+                    ..Default::default()
+                };
+
+                let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect_err("Expected room.update to fail");
+
+                assert_eq!(err.status(), ResponseStatus::UNPROCESSABLE_ENTITY);
+                assert_eq!(err.kind(), "room_time_changing_forbidden");
             });
         }
     }
