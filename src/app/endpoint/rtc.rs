@@ -528,6 +528,50 @@ mod test {
         }
 
         #[test]
+        fn create_rtc_duplicate() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
+
+                // Insert a room.
+                let room = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| shared_helpers::insert_room(&conn))
+                    .unwrap();
+
+                // Allow user to create rtcs in the room.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let room_id = room.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs"];
+                authz.allow(agent.account_id(), object, "create");
+
+                // Make rtc.create request.
+                let mut context = TestContext::new(db, authz);
+                let payload = CreateRequest { room_id: room.id() };
+
+                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect("Rtc creation failed");
+
+                // Assert response.
+                let (rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                assert_eq!(respp.status(), ResponseStatus::CREATED);
+                assert_eq!(rtc.room_id(), room.id());
+
+                // Make rtc.create request second time.
+                let payload = CreateRequest { room_id: room.id() };
+                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on rtc creation");
+
+                // This should fail with already exists
+                assert_eq!(err.status(), ResponseStatus::UNPROCESSABLE_ENTITY);
+                assert_eq!(err.kind(), "database_query_failed");
+            });
+        }
+
+        #[test]
         fn create_rtc_unauthorized() {
             async_std::task::block_on(async {
                 let db = TestDb::new();
