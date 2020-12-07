@@ -465,8 +465,8 @@ WITH
     )
 SELECT
     jb.id AS backend_id,
-    COALESCE(jbl.load, 0) as load,
-    COALESCE(jbl.taken, 0) as taken
+    COALESCE(jbl.load, 0)::BIGINT as load,
+    COALESCE(jbl.taken, 0)::BIGINT as taken
 FROM janus_backend jb
 LEFT OUTER JOIN janus_backend_load jbl
 ON jb.id = jbl.backend_id;
