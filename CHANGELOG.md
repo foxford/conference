@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.6.4 (December 8, 2020)
+
+### Changes
+- svc-error update ([f2dc52d](https://github.com/netology-group/conference/commit/f2dc52da777565ad8fdbf1adabe54a1497380988))
+- Moved backend binding to room ([1c27500](https://github.com/netology-group/conference/commit/1c275009ddb9fac0efd9d39e7885e0a708a19b21))
+- Allowed janus to return state=already_running to work around vacuum overlaps ([3a58024](https://github.com/netology-group/conference/commit/3a5802476853575fc28cff669ef9ca83993064e8))
+- Set unbounded rooms closure timeout to 6 hours ([1017e3f](https://github.com/netology-group/conference/commit/1017e3f5c26ab29b35417d5c5abafc2322237829))
+- svc-agent update to v0.14.12 ([a9c6df0](https://github.com/netology-group/conference/commit/a9c6df05c54781b3a411310f59022f46e032b6a9))
+
+### Fixes
+- Removed unicast subscription, changed shared unicast janus responses subscription to non-shared ([2fc263b](https://github.com/netology-group/conference/commit/2fc263b01808c01db2915e2e073ef671bad1ed45))
+- Fixed slog-envlogger initialization ([a56ad3d](https://github.com/netology-group/conference/commit/a56ad3d0e6b1d24f0d5820db16570a68aaf85239))
+- Fixed pg types in load_for_each_backend query ([d133a26](https://github.com/netology-group/conference/commit/d133a262b84f6f67495ac106a0cf1c4bea0222ca))
+
+
 ## v0.6.3 (November 11, 2020)
 
 ### Changes
