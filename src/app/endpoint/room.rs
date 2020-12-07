@@ -519,7 +519,7 @@ mod test {
     mod create {
         use std::ops::Bound;
 
-        use chrono::{SubsecRound, Utc};
+        use chrono::Utc;
         use serde_json::json;
 
         use crate::db::room::Object as Room;
@@ -537,8 +537,7 @@ mod test {
 
                 // Make room.create request.
                 let mut context = TestContext::new(TestDb::new(), authz);
-                let now = Utc::now().trunc_subsecs(0);
-                let time = (Bound::Included(now), Bound::Unbounded);
+                let time = (Bound::Unbounded, Bound::Unbounded);
 
                 let payload = CreateRequest {
                     time: time.clone(),
@@ -1165,7 +1164,7 @@ mod test {
                 );
 
                 // Make room.enter request.
-                let mut context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, authz);
                 let payload = EnterRequest { id: room.id() };
 
                 let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
@@ -1174,6 +1173,90 @@ mod test {
 
                 assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "room_closed");
+            });
+        }
+
+        #[test]
+        fn enter_room_with_no_opening_time() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    // Create room without time.
+                    factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((Bound::Unbounded, Bound::Unbounded))
+                        .insert(&conn)
+                };
+
+                // Allow agent to subscribe to the rooms' events.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let mut authz = TestAuthz::new();
+                let room_id = room.id().to_string();
+
+                authz.allow(
+                    agent.account_id(),
+                    vec!["rooms", &room_id, "events"],
+                    "subscribe",
+                );
+
+                // Make room.enter request.
+                let mut context = TestContext::new(db, authz);
+                let payload = EnterRequest { id: room.id() };
+
+                let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on room entering");
+
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_closed");
+            });
+        }
+
+        #[test]
+        fn enter_room_that_opens_in_the_future() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    // Create room without time.
+                    factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(Utc::now() + Duration::hours(1)),
+                            Bound::Unbounded,
+                        ))
+                        .insert(&conn)
+                };
+
+                // Allow agent to subscribe to the rooms' events.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let mut authz = TestAuthz::new();
+                let room_id = room.id().to_string();
+
+                authz.allow(
+                    agent.account_id(),
+                    vec!["rooms", &room_id, "events"],
+                    "subscribe",
+                );
+
+                // Make room.enter request.
+                let mut context = TestContext::new(db, authz);
+                let payload = EnterRequest { id: room.id() };
+
+                handle_request::<EnterHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect("Room entrance failed");
             });
         }
     }

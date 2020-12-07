@@ -100,12 +100,16 @@ where
         // Room time doesn't matter.
         RoomTimeRequirement::Any => Ok(room),
         // Current time must be before room closing, including not yet opened rooms.
+        // Rooms without closing time are fine.
+        // Rooms without opening time are forbidden.
         RoomTimeRequirement::NotClosed => {
             let now = Utc::now();
-            let (_opened_at, closed_at) = room.time();
 
-            match closed_at {
-                Bound::Included(dt) | Bound::Excluded(dt) if *dt < now => {
+            match room.time() {
+                (Bound::Unbounded, _) => {
+                    Err(anyhow!("Room has no opening time")).error(AppErrorKind::RoomClosed)
+                }
+                (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if *dt < now => {
                     Err(anyhow!("Room closed")).error(AppErrorKind::RoomClosed)
                 }
                 _ => Ok(room),
@@ -117,6 +121,9 @@ where
             let (opened_at, closed_at) = room.time();
 
             match opened_at {
+                Bound::Unbounded => {
+                    Err(anyhow!("Room has no opening time")).error(AppErrorKind::RoomClosed)
+                }
                 Bound::Included(dt) | Bound::Excluded(dt) if *dt >= now => {
                     Err(anyhow!("Room not opened")).error(AppErrorKind::RoomClosed)
                 }

@@ -2,6 +2,8 @@
 
 Subscribe to the room's events.
 
+One cannot enter the room when its closing time has come or when it doesn't have opening time.
+If opening time is in the future then that's fine.
 
 ## Multicast request
 
