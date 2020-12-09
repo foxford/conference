@@ -45,6 +45,12 @@ pub(crate) struct RoomEnterLeaveEvent {
     agent_id: AgentId,
 }
 
+impl RoomEnterLeaveEvent {
+    pub(crate) fn new(id: Uuid, agent_id: AgentId) -> Self {
+        Self { id, agent_id }
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct CreateHandler;
@@ -88,11 +94,7 @@ impl EventHandler for CreateHandler {
         }
 
         // Send broadcast notification that the agent has entered the room.
-        let outgoing_event_payload = RoomEnterLeaveEvent {
-            id: room_id.to_owned(),
-            agent_id: payload.subject,
-        };
-
+        let outgoing_event_payload = RoomEnterLeaveEvent::new(room_id.to_owned(), payload.subject);
         let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
         let props = evp.to_event("room.enter", short_term_timing);
         let to_uri = format!("rooms/{}/events", room_id);
@@ -136,10 +138,8 @@ impl EventHandler for DeleteHandler {
 
         if row_count == 1 {
             // Send broadcast notification that the agent has left the room.
-            let outgoing_event_payload = RoomEnterLeaveEvent {
-                id: room_id.to_owned(),
-                agent_id: payload.subject.to_owned(),
-            };
+            let outgoing_event_payload =
+                RoomEnterLeaveEvent::new(room_id.to_owned(), payload.subject.to_owned());
 
             let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
             let props = evp.to_event("room.leave", short_term_timing);

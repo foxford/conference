@@ -49,6 +49,7 @@ The following types are a part of the service's API and are guaranteed to mainta
 - `resubscription_failed` – The services has failed to resubscribe to topics after reconnect.
 - `room_closed` - The [room](room.md#Room) exists but already closed.
 - `room_not_found` – The [room](room.md#Room) is missing.
+- `room_time_changing_forbidden` – Current room state doesn't allow to change its time.
 - `rtc_not_found` – An [RTC](rtc.md#Real-time_Connection) is missing or closed.
 - `stats_collection_failed` – Couldn't collect metrics from one of the sources.
 - `unknown_method` – An unsupported value in `method` property of the request message.
