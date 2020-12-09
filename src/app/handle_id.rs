@@ -106,3 +106,22 @@ mod serde {
         }
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::prelude::*;
+
+    #[test]
+    fn dump_and_parse_handle_id() {
+        let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+        let handle_id = HandleId::new(1, 2, agent.agent_id().to_owned());
+        let dump = serde_json::to_string(&handle_id).expect("Failed to dump handle_id");
+        let parsed = serde_json::from_str::<HandleId>(&dump).expect("Failed to parse handle id");
+        assert_eq!(parsed.janus_handle_id(), 1);
+        assert_eq!(parsed.janus_session_id(), 2);
+        assert_eq!(parsed.backend_id(), agent.agent_id());
+    }
+}
