@@ -182,71 +182,80 @@ fn append_janus_stats(
 ) -> anyhow::Result<()> {
     use crate::db::agent;
     use anyhow::Context;
-    let conn = context.get_conn().unwrap();
-
-    let tags = Tags::build_internal_tags(crate::APP_VERSION, context.agent_id());
-
-    // The number of online janus backends.
-    let online_backends_count =
-        crate::db::janus_backend::count(&conn).context("Failed to get janus backends count")?;
-
-    metrics.push(Metric::new(
-        MetricKey::OnlineJanusBackendsCount,
-        online_backends_count,
-        now,
-        tags.clone(),
-    ));
-
-    // Total capacity of online janus backends.
-    let total_capacity = crate::db::janus_backend::total_capacity(&conn)
-        .context("Failed to get janus backends total capacity")?;
-
-    metrics.push(Metric::new(
-        MetricKey::JanusBackendTotalCapacity,
-        total_capacity,
-        now,
-        tags.clone(),
-    ));
-
-    // The number of agents connect to an RTC.
-    let connected_agents_count = agent::CountQuery::new()
-        .status(agent::Status::Connected)
-        .execute(&conn)
-        .context("Failed to get connected agents count")?;
-
-    metrics.push(Metric::new(
-        MetricKey::ConnectedAgentsCount,
-        connected_agents_count,
-        now,
-        tags,
-    ));
-
-    let backend_load = crate::db::janus_backend::reserve_load_for_each_backend(&conn)
-        .context("Failed to get janus backends reserve load")?
-        .into_iter()
-        .fold(vec![], |mut v, load_row| {
-            let tags = Tags::build_janus_tags(
-                crate::APP_VERSION,
-                context.agent_id(),
-                &load_row.backend_id,
+    match context.get_conn() {
+        Err(e) => {
+            error!(
+                crate::LOG,
+                "Collector failed to acquire connection, reason = {:?}", e
             );
+            Ok(())
+        }
+        Ok(conn) => {
+            let tags = Tags::build_internal_tags(crate::APP_VERSION, context.agent_id());
 
-            v.push(Metric::new(
-                MetricKey::JanusBackendReserveLoad,
-                load_row.load,
+            // The number of online janus backends.
+            let online_backends_count = crate::db::janus_backend::count(&conn)
+                .context("Failed to get janus backends count")?;
+
+            metrics.push(Metric::new(
+                MetricKey::OnlineJanusBackendsCount,
+                online_backends_count,
                 now,
                 tags.clone(),
             ));
-            v.push(Metric::new(
-                MetricKey::JanusBackendAgentLoad,
-                load_row.taken,
+
+            // Total capacity of online janus backends.
+            let total_capacity = crate::db::janus_backend::total_capacity(&conn)
+                .context("Failed to get janus backends total capacity")?;
+
+            metrics.push(Metric::new(
+                MetricKey::JanusBackendTotalCapacity,
+                total_capacity,
+                now,
+                tags.clone(),
+            ));
+
+            // The number of agents connect to an RTC.
+            let connected_agents_count = agent::CountQuery::new()
+                .status(agent::Status::Connected)
+                .execute(&conn)
+                .context("Failed to get connected agents count")?;
+
+            metrics.push(Metric::new(
+                MetricKey::ConnectedAgentsCount,
+                connected_agents_count,
                 now,
                 tags,
             ));
-            v
-        });
 
-    metrics.extend(backend_load);
+            let backend_load = crate::db::janus_backend::reserve_load_for_each_backend(&conn)
+                .context("Failed to get janus backends reserve load")?
+                .into_iter()
+                .fold(vec![], |mut v, load_row| {
+                    let tags = Tags::build_janus_tags(
+                        crate::APP_VERSION,
+                        context.agent_id(),
+                        &load_row.backend_id,
+                    );
 
-    Ok(())
+                    v.push(Metric::new(
+                        MetricKey::JanusBackendReserveLoad,
+                        load_row.load,
+                        now,
+                        tags.clone(),
+                    ));
+                    v.push(Metric::new(
+                        MetricKey::JanusBackendAgentLoad,
+                        load_row.taken,
+                        now,
+                        tags,
+                    ));
+                    v
+                });
+
+            metrics.extend(backend_load);
+
+            Ok(())
+        }
+    }
 }
