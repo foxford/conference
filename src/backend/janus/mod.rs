@@ -376,13 +376,13 @@ async fn handle_response_impl<C: Context>(
                             };
 
                             // Ensure that all rtcs have a recording.
-                            let rtc_ids_with_recs = recs
+                            let mut rtc_ids_with_recs = recs
                                 .iter()
-                                .map(|rec| rec.rtc_id())
-                                .collect::<Vec<Uuid>>();
+                                .map(|rec| rec.rtc_id());
 
                             for rtc in rtcs {
-                                if !rtc_ids_with_recs.contains(&rtc.id()) {
+                                let id = rtc.id();
+                                if !rtc_ids_with_recs.any(|v| v == id) {
                                     let mut logger = context.logger().new(o!(
                                         "room_id" => room.id().to_string(),
                                         "rtc_id" => rtc.id().to_string(),
