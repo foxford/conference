@@ -23,7 +23,7 @@ use crate::db::{agent, janus_backend, janus_rtc_stream, recording, room, rtc};
 use crate::diesel::Connection;
 use crate::util::from_base64;
 
-use self::events::{IncomingEvent, StatusEvent};
+use self::events::{IncomingEvent, MediaEvent, StatusEvent};
 use self::responses::{ErrorResponse, IncomingResponse};
 use self::transactions::Transaction;
 
@@ -31,10 +31,6 @@ use self::transactions::Transaction;
 
 const STREAM_UPLOAD_METHOD: &str = "stream.upload";
 pub(crate) const JANUS_API_VERSION: &str = "v1";
-
-pub(crate) trait OpaqueId {
-    fn opaque_id(&self) -> &str;
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -523,55 +519,31 @@ async fn handle_event_impl<C: Context>(
         .error(AppErrorKind::MessageParsingFailed)?;
 
     let evp = event.properties();
+
     match payload {
-        IncomingEvent::WebRtcUp(ref inev) => {
-            context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
-
-            let rtc_stream_id = Uuid::from_str(inev.opaque_id())
-                .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
-                .error(AppErrorKind::MessageParsingFailed)?;
-
-            let conn = context.get_conn()?;
-
-            // If the event relates to a publisher's handle,
-            // we will find the corresponding stream and send event w/ updated stream object
-            // to the room's topic.
-            if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
-                let room = endpoint::helpers::find_room_by_rtc_id(
-                    context,
-                    rtc_stream.rtc_id(),
-                    endpoint::helpers::RoomTimeRequirement::Open,
-                )?;
-
-                let event = endpoint::rtc_stream::update_event(
-                    room.id(),
-                    rtc_stream,
-                    context.start_timestamp(),
-                    evp.tracking(),
-                )?;
-
-                Ok(Box::new(stream::once(
-                    Box::new(event) as Box<dyn IntoPublishableMessage + Send>
-                )))
-            } else {
-                Ok(Box::new(stream::empty()))
-            }
-        }
-        IncomingEvent::HangUp(ref inev) => handle_hangup_detach(context, inev, evp),
-        IncomingEvent::Detached(ref inev) => handle_hangup_detach(context, inev, evp),
-        IncomingEvent::Media(_) | IncomingEvent::Timeout(_) | IncomingEvent::SlowLink(_) => {
+        IncomingEvent::Media(ref inev) => handle_media_event(context, inev, evp),
+        IncomingEvent::HangUp(_)
+        | IncomingEvent::Detached(_)
+        | IncomingEvent::WebRtcUp(_)
+        | IncomingEvent::Timeout(_)
+        | IncomingEvent::SlowLink(_) => {
             // Ignore these kinds of events.
             Ok(Box::new(stream::empty()))
         }
     }
 }
 
-fn handle_hangup_detach<C: Context, E: OpaqueId>(
+fn handle_media_event<C: Context>(
     context: &mut C,
-    inev: &E,
+    inev: &MediaEvent,
     evp: &IncomingEventProperties,
 ) -> Result<MessageStream, AppError> {
-    context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_owned()));
+    // Handle only video-related events to avoid duplication.
+    if inev.is_video() {
+        return Ok(Box::new(stream::empty()));
+    }
+
+    context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
 
     let rtc_stream_id = Uuid::from_str(inev.opaque_id())
         .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
@@ -579,19 +551,51 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
 
     let conn = context.get_conn()?;
 
-    // If the event relates to the publisher's handle,
-    // we will find the corresponding stream and send an event w/ updated stream object
-    // to the room's topic.
-    if let Some(rtc_stream) = janus_rtc_stream::stop(rtc_stream_id, &conn)? {
-        let room = endpoint::helpers::find_room_by_rtc_id(
-            context,
-            rtc_stream.rtc_id(),
-            endpoint::helpers::RoomTimeRequirement::Open,
-        )?;
+    if inev.is_receiving() {
+        // If the event relates to a publisher's handle,
+        // we will find the corresponding stream and send event w/ updated stream object
+        // to the room's topic.
+        if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
+            let room = endpoint::helpers::find_room_by_rtc_id(
+                context,
+                rtc_stream.rtc_id(),
+                endpoint::helpers::RoomTimeRequirement::Open,
+            )?;
 
-        // Publish the update event only if the stream object has been changed.
-        // If there's no actual media stream, the object wouldn't contain its start time.
-        if rtc_stream.time().is_some() {
+            info!(context.logger(), "Stream started");
+
+            let event = endpoint::rtc_stream::update_event(
+                room.id(),
+                rtc_stream,
+                context.start_timestamp(),
+                evp.tracking(),
+            )?;
+
+            Ok(Box::new(stream::once(
+                Box::new(event) as Box<dyn IntoPublishableMessage + Send>
+            )))
+        } else {
+            Ok(Box::new(stream::empty()))
+        }
+    } else {
+        // If the event relates to the publisher's handle,
+        // we will find the corresponding stream and send an event w/ updated stream object
+        // to the room's topic.
+        if let Some(rtc_stream) = janus_rtc_stream::stop(rtc_stream_id, &conn)? {
+            // Publish the update event only if the stream object has been changed.
+            // If there's no actual media stream, the object wouldn't contain its start time.
+            if rtc_stream.time().is_none() {
+                return Ok(Box::new(stream::empty()));
+            }
+
+            let room = endpoint::helpers::find_room_by_rtc_id(
+                context,
+                rtc_stream.rtc_id(),
+                endpoint::helpers::RoomTimeRequirement::Open,
+            )?;
+
+            info!(context.logger(), "Stream stopped");
+
             // Put connected `agents` back into `ready` status since the stream has gone and
             // they haven't been connected anymore.
             agent::BulkStatusUpdateQuery::new(agent::Status::Ready)
@@ -608,11 +612,11 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
             )?;
 
             let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
-            return Ok(Box::new(stream::once(boxed_event)));
+            Ok(Box::new(stream::once(boxed_event)))
+        } else {
+            Ok(Box::new(stream::empty()))
         }
     }
-
-    Ok(Box::new(stream::empty()))
 }
 
 pub(crate) async fn handle_status_event<C: Context>(

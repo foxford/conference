@@ -1,7 +1,5 @@
 use serde_derive::Deserialize;
 
-use super::OpaqueId;
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[serde(tag = "janus")]
@@ -22,12 +20,6 @@ pub(crate) struct WebRtcUpEvent {
     opaque_id: String,
 }
 
-impl OpaqueId for WebRtcUpEvent {
-    fn opaque_id(&self) -> &str {
-        &self.opaque_id
-    }
-}
-
 // A RTCPeerConnection closed for a DTLS alert (normal shutdown).
 // With Firefox it's not being sent. There's only `DetachedEvent`.
 #[derive(Debug, Deserialize)]
@@ -36,12 +28,6 @@ pub(crate) struct HangUpEvent {
     sender: i64,
     opaque_id: String,
     reason: String,
-}
-
-impl OpaqueId for HangUpEvent {
-    fn opaque_id(&self) -> &str {
-        &self.opaque_id
-    }
 }
 
 // Audio or video bytes being received by a plugin handle.
@@ -53,6 +39,20 @@ pub(crate) struct MediaEvent {
     #[serde(rename = "type")]
     kind: String,
     receiving: bool,
+}
+
+impl MediaEvent {
+    pub(crate) fn opaque_id(&self) -> &str {
+        &self.opaque_id
+    }
+
+    pub(crate) fn is_video(&self) -> bool {
+        self.kind == "video"
+    }
+
+    pub(crate) fn is_receiving(&self) -> bool {
+        self.receiving
+    }
 }
 
 // A session was torn down by the server because of timeout: 60 seconds (by default).
@@ -78,12 +78,6 @@ pub(crate) struct DetachedEvent {
     session_id: i64,
     sender: i64,
     opaque_id: String,
-}
-
-impl OpaqueId for DetachedEvent {
-    fn opaque_id(&self) -> &str {
-        &self.opaque_id
-    }
 }
 
 // Janus Gateway online/offline status.
