@@ -71,18 +71,15 @@ impl RequestHandler for CreateHandler {
             let conn = context.get_conn()?;
 
             conn.transaction::<_, diesel::result::Error, _>(|| {
-                match room.time() {
-                    (start, Bound::Unbounded) => {
-                        let new_time = (
-                            *start,
-                            Bound::Excluded(Utc::now() + Duration::hours(MAX_WEBINAR_DURATION)),
-                        );
+                if let (start, Bound::Unbounded) = room.time() {
+                    let new_time = (
+                        *start,
+                        Bound::Excluded(Utc::now() + Duration::hours(MAX_WEBINAR_DURATION)),
+                    );
 
-                        db::room::UpdateQuery::new(room.id())
-                            .time(Some(new_time))
-                            .execute(&conn)?;
-                    }
-                    _ => {}
+                    db::room::UpdateQuery::new(room.id())
+                        .time(Some(new_time))
+                        .execute(&conn)?;
                 }
                 let rtc = db::rtc::InsertQuery::new(room.id()).execute(&conn)?;
                 Ok(rtc)

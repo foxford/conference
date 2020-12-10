@@ -251,10 +251,7 @@ fn is_sdp_recvonly(jsep: &JsonValue) -> anyhow::Result<bool> {
         let sendonly = item.get_attribute(SdpAttributeType::Sendonly).is_some();
         let sendrecv = item.get_attribute(SdpAttributeType::Sendrecv).is_some();
 
-        match (recvonly, sendonly, sendrecv) {
-            (true, false, false) => true,
-            _ => false,
-        }
+        matches!((recvonly, sendonly, sendrecv), (true, false, false))
     }))
 }
 
