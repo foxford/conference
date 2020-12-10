@@ -86,7 +86,6 @@ impl Client {
             &to_base64(&transaction)?,
             session_id,
             "janus.plugin.conference",
-            None,
         );
 
         let mut props = OutgoingRequestProperties::new(

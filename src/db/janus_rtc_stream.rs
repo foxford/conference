@@ -7,8 +7,9 @@ use std::ops::Bound;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
+use crate::db::room::Object as Room;
 use crate::db::rtc::Object as Rtc;
-use crate::schema::{janus_rtc_stream, rtc};
+use crate::schema::{janus_rtc_stream, room, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -239,6 +240,70 @@ impl<'a> ListWithRtcQuery<'a> {
         q.order_by(janus_rtc_stream::id)
             .select((self::ALL_COLUMNS, super::rtc::ALL_COLUMNS))
             .load(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Default)]
+pub(crate) struct FindWithRoomQuery {
+    handle_id: Option<i64>,
+    is_started: Option<bool>,
+    is_stopped: Option<bool>,
+}
+
+impl FindWithRoomQuery {
+    pub(crate) fn new() -> Self {
+        Default::default()
+    }
+
+    pub(crate) fn handle_id(self, handle_id: i64) -> Self {
+        Self {
+            handle_id: Some(handle_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn is_started(self, is_started: bool) -> Self {
+        Self {
+            is_started: Some(is_started),
+            ..self
+        }
+    }
+
+    pub(crate) fn is_stopped(self, is_stopped: bool) -> Self {
+        Self {
+            is_stopped: Some(is_stopped),
+            ..self
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<(Object, Room), Error> {
+        use diesel::dsl::sql;
+        use diesel::prelude::*;
+
+        let mut q = janus_rtc_stream::table
+            .inner_join(rtc::table.inner_join(room::table))
+            .into_boxed();
+
+        if let Some(handle_id) = self.handle_id {
+            q = q.filter(janus_rtc_stream::handle_id.eq(handle_id));
+        }
+
+        match self.is_started {
+            None => (),
+            Some(true) => q = q.filter(sql("LOWER(\"janus_rtc_stream\".\"time\") IS NOT NULL")),
+            Some(false) => q = q.filter(sql("LOWER(\"janus_rtc_stream\".\"time\") IS NULL")),
+        }
+
+        match self.is_stopped {
+            None => (),
+            Some(true) => q = q.filter(sql("UPPER(\"janus_rtc_stream\".\"time\") IS NOT NULL")),
+            Some(false) => q = q.filter(sql("UPPER(\"janus_rtc_stream\".\"time\") IS NULL")),
+        }
+
+        q.select((self::ALL_COLUMNS, super::room::ALL_COLUMNS))
+            .get_result(conn)
     }
 }
 

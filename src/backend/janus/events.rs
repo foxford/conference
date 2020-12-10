@@ -17,7 +17,6 @@ pub(crate) enum IncomingEvent {
 pub(crate) struct WebRtcUpEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
 }
 
 // A RTCPeerConnection closed for a DTLS alert (normal shutdown).
@@ -26,7 +25,6 @@ pub(crate) struct WebRtcUpEvent {
 pub(crate) struct HangUpEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
     reason: String,
 }
 
@@ -35,15 +33,14 @@ pub(crate) struct HangUpEvent {
 pub(crate) struct MediaEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
     #[serde(rename = "type")]
     kind: String,
     receiving: bool,
 }
 
 impl MediaEvent {
-    pub(crate) fn opaque_id(&self) -> &str {
-        &self.opaque_id
+    pub(crate) fn sender(&self) -> i64 {
+        self.sender
     }
 
     pub(crate) fn is_video(&self) -> bool {
@@ -67,7 +64,6 @@ pub(crate) struct TimeoutEvent {
 pub(crate) struct SlowLinkEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
     uplink: bool,
 }
 
@@ -77,7 +73,6 @@ pub(crate) struct SlowLinkEvent {
 pub(crate) struct DetachedEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
 }
 
 // Janus Gateway online/offline status.

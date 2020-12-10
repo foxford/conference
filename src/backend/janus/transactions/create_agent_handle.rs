@@ -6,7 +6,7 @@ use svc_agent::{
     mqtt::{
         IncomingRequestProperties, OutgoingMessage, OutgoingRequest, ShortTermTimingProperties,
     },
-    Addressable, AgentId,
+    AgentId,
 };
 
 use crate::util::{generate_correlation_data, to_base64};
@@ -66,7 +66,6 @@ impl Client {
             ShortTermTimingProperties::until_now(start_timestamp),
         );
 
-        let opaque_id = reqp.as_agent_id().to_string();
         let tn_data = TransactionData::new(reqp, session_id, jsep);
         let transaction = Transaction::CreateAgentHandle(tn_data);
 
@@ -74,7 +73,6 @@ impl Client {
             &to_base64(&transaction)?,
             session_id,
             "janus.plugin.conference",
-            Some(&opaque_id),
         );
 
         self.register_transaction(to, start_timestamp, &props, &payload, self.timeout(METHOD));

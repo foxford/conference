@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use anyhow::Result;
 use async_std::stream;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -543,25 +541,25 @@ fn handle_media_event<C: Context>(
         return Ok(Box::new(stream::empty()));
     }
 
-    context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
-
-    let rtc_stream_id = Uuid::from_str(inev.opaque_id())
-        .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
-        .error(AppErrorKind::MessageParsingFailed)?;
-
     let conn = context.get_conn()?;
+
+    let (janus_rtc_stream, room) = janus_rtc_stream::FindWithRoomQuery::new()
+        .handle_id(inev.sender())
+        .is_started(!inev.is_receiving())
+        .is_stopped(false)
+        .execute(&conn)?;
+
+    context.add_logger_tags(o!(
+        "room_id" => room.id().to_string(),
+        "rtc_id" => janus_rtc_stream.rtc_id().to_string(),
+        "rtc_stream_id" => janus_rtc_stream.id().to_string(),
+    ));
 
     if inev.is_receiving() {
         // If the event relates to a publisher's handle,
         // we will find the corresponding stream and send event w/ updated stream object
         // to the room's topic.
-        if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
-            let room = endpoint::helpers::find_room_by_rtc_id(
-                context,
-                rtc_stream.rtc_id(),
-                endpoint::helpers::RoomTimeRequirement::Open,
-            )?;
-
+        if let Some(rtc_stream) = janus_rtc_stream::start(janus_rtc_stream.id(), &conn)? {
             info!(context.logger(), "Stream started");
 
             let event = endpoint::rtc_stream::update_event(
@@ -581,18 +579,12 @@ fn handle_media_event<C: Context>(
         // If the event relates to the publisher's handle,
         // we will find the corresponding stream and send an event w/ updated stream object
         // to the room's topic.
-        if let Some(rtc_stream) = janus_rtc_stream::stop(rtc_stream_id, &conn)? {
+        if let Some(rtc_stream) = janus_rtc_stream::stop(janus_rtc_stream.id(), &conn)? {
             // Publish the update event only if the stream object has been changed.
             // If there's no actual media stream, the object wouldn't contain its start time.
             if rtc_stream.time().is_none() {
                 return Ok(Box::new(stream::empty()));
             }
-
-            let room = endpoint::helpers::find_room_by_rtc_id(
-                context,
-                rtc_stream.rtc_id(),
-                endpoint::helpers::RoomTimeRequirement::Open,
-            )?;
 
             info!(context.logger(), "Stream stopped");
 
