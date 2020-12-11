@@ -75,6 +75,12 @@ pub(crate) struct DetachedEvent {
     sender: i64,
 }
 
+impl DetachedEvent {
+    pub(crate) fn sender(&self) -> i64 {
+        self.sender
+    }
+}
+
 // Janus Gateway online/offline status.
 #[derive(Debug, Deserialize)]
 pub(crate) struct StatusEvent {

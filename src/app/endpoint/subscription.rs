@@ -149,36 +149,7 @@ impl EventHandler for DeleteHandler {
             let mut messages = vec![boxed_event];
 
             // `agent.leave` requests to Janus instances that host active streams in this room.
-            let streams = db::janus_rtc_stream::ListQuery::new()
-                .room_id(room_id)
-                .active(true)
-                .execute(&conn)?;
-
-            for stream in streams.iter() {
-                // If the agent is a publisher.
-                if stream.sent_by() == &payload.subject {
-                    // Stop the stream.
-                    db::janus_rtc_stream::stop(stream.id(), &conn)?;
-
-                    // Put stream readers into `ready` status since the stream has gone.
-                    db::agent::BulkStatusUpdateQuery::new(db::agent::Status::Ready)
-                        .room_id(room_id)
-                        .status(db::agent::Status::Connected)
-                        .execute(&conn)?;
-                }
-            }
-
-            // Send agent.leave requests to those backends where the agent is connected to.
-            let mut backend_ids = streams
-                .iter()
-                .map(|stream| stream.backend_id())
-                .collect::<Vec<&AgentId>>();
-
-            backend_ids.dedup();
-
-            let backends = db::janus_backend::ListQuery::new()
-                .ids(&backend_ids[..])
-                .execute(&conn)?;
+            let backends = db::janus_backend::ActiveListQuery::new().execute(&conn)?;
 
             for backend in backends {
                 let result = context.janus_client().agent_leave_request(

@@ -1,7 +1,9 @@
+use std::ops::Bound;
+
 use anyhow::Result;
 use async_std::stream;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use std::ops::Bound;
+use diesel::pg::PgConnection;
 use svc_agent::mqtt::{
     IncomingEvent as MQTTIncomingEvent, IncomingEventProperties, IncomingRequestProperties,
     IncomingResponse as MQTTIncomingResponse, IntoPublishableMessage, OutgoingResponse,
@@ -21,7 +23,7 @@ use crate::db::{agent, janus_backend, janus_rtc_stream, recording, room, rtc};
 use crate::diesel::Connection;
 use crate::util::from_base64;
 
-use self::events::{IncomingEvent, MediaEvent, StatusEvent};
+use self::events::{DetachedEvent, IncomingEvent, MediaEvent, StatusEvent};
 use self::responses::{ErrorResponse, IncomingResponse};
 use self::transactions::Transaction;
 
@@ -498,13 +500,17 @@ pub(crate) async fn handle_event<C: Context>(
         .unwrap_or_else(|app_error| {
             error!(
                 context.logger(),
-                "Failed to handle an event from janus: {}", app_error
+                "Failed to handle event from janus: {}; Payload: {}",
+                event.payload(),
+                app_error
             );
 
             app_error.notify_sentry(context.logger());
             Box::new(stream::empty())
         })
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 async fn handle_event_impl<C: Context>(
     context: &mut C,
@@ -518,16 +524,19 @@ async fn handle_event_impl<C: Context>(
 
     let evp = event.properties();
 
+    // Event types hint:
+    // WebRtcUp – DTLS connection has been initially set up. Not being dispatched on renegotiation.
+    // Media – Started/stopped receiving audio/video. Not being dispatched on refresh or tab close.
+    // SlowLink – Janus has detected many packet losses.
+    // HangUp – ICE handle stopped. Not being dispatched for Chrome.
+    // Detach – Janus plugin handle destroyed. FF dispatches both HangUp and Detach.
     match payload {
         IncomingEvent::Media(ref inev) => handle_media_event(context, inev, evp),
+        IncomingEvent::Detached(ref inev) => handle_detached_event(context, inev, evp),
         IncomingEvent::HangUp(_)
-        | IncomingEvent::Detached(_)
         | IncomingEvent::WebRtcUp(_)
         | IncomingEvent::Timeout(_)
-        | IncomingEvent::SlowLink(_) => {
-            // Ignore these kinds of events.
-            Ok(Box::new(stream::empty()))
-        }
+        | IncomingEvent::SlowLink(_) => Ok(Box::new(stream::empty())),
     }
 }
 
@@ -543,11 +552,37 @@ fn handle_media_event<C: Context>(
 
     let conn = context.get_conn()?;
 
+    let (janus_rtc_stream, room) =
+        find_stream_with_room(context, &conn, inev.sender(), !inev.is_receiving())?;
+
+    if inev.is_receiving() {
+        start_stream(context, &conn, &janus_rtc_stream, &room, evp)
+    } else {
+        stop_stream(context, &conn, &janus_rtc_stream, &room, evp)
+    }
+}
+
+fn handle_detached_event<C: Context>(
+    context: &mut C,
+    inev: &DetachedEvent,
+    evp: &IncomingEventProperties,
+) -> Result<MessageStream, AppError> {
+    let conn = context.get_conn()?;
+    let (janus_rtc_stream, room) = find_stream_with_room(context, &conn, inev.sender(), true)?;
+    stop_stream(context, &conn, &janus_rtc_stream, &room, evp)
+}
+
+fn find_stream_with_room<C: Context>(
+    context: &mut C,
+    conn: &PgConnection,
+    handle_id: i64,
+    is_started: bool,
+) -> Result<(janus_rtc_stream::Object, room::Object), AppError> {
     let (janus_rtc_stream, room) = janus_rtc_stream::FindWithRoomQuery::new()
-        .handle_id(inev.sender())
-        .is_started(!inev.is_receiving())
+        .handle_id(handle_id)
+        .is_started(is_started)
         .is_stopped(false)
-        .execute(&conn)?;
+        .execute(conn)?;
 
     context.add_logger_tags(o!(
         "room_id" => room.id().to_string(),
@@ -555,61 +590,66 @@ fn handle_media_event<C: Context>(
         "rtc_stream_id" => janus_rtc_stream.id().to_string(),
     ));
 
-    if inev.is_receiving() {
-        // If the event relates to a publisher's handle,
-        // we will find the corresponding stream and send event w/ updated stream object
-        // to the room's topic.
-        if let Some(rtc_stream) = janus_rtc_stream::start(janus_rtc_stream.id(), &conn)? {
-            info!(context.logger(), "Stream started");
+    Ok((janus_rtc_stream, room))
+}
 
-            let event = endpoint::rtc_stream::update_event(
-                room.id(),
-                rtc_stream,
-                context.start_timestamp(),
-                evp.tracking(),
-            )?;
+fn start_stream<C: Context>(
+    context: &mut C,
+    conn: &PgConnection,
+    janus_rtc_stream: &janus_rtc_stream::Object,
+    room: &room::Object,
+    evp: &IncomingEventProperties,
+) -> Result<MessageStream, AppError> {
+    if let Some(rtc_stream) = janus_rtc_stream::start(janus_rtc_stream.id(), conn)? {
+        info!(context.logger(), "Stream started");
 
-            Ok(Box::new(stream::once(
-                Box::new(event) as Box<dyn IntoPublishableMessage + Send>
-            )))
-        } else {
-            Ok(Box::new(stream::empty()))
-        }
+        let event = endpoint::rtc_stream::update_event(
+            room.id(),
+            rtc_stream,
+            context.start_timestamp(),
+            evp.tracking(),
+        )?;
+
+        Ok(Box::new(stream::once(
+            Box::new(event) as Box<dyn IntoPublishableMessage + Send>
+        )))
     } else {
-        // If the event relates to the publisher's handle,
-        // we will find the corresponding stream and send an event w/ updated stream object
-        // to the room's topic.
-        if let Some(rtc_stream) = janus_rtc_stream::stop(janus_rtc_stream.id(), &conn)? {
-            // Publish the update event only if the stream object has been changed.
-            // If there's no actual media stream, the object wouldn't contain its start time.
-            if rtc_stream.time().is_none() {
-                return Ok(Box::new(stream::empty()));
-            }
-
-            info!(context.logger(), "Stream stopped");
-
-            // Put connected `agents` back into `ready` status since the stream has gone and
-            // they haven't been connected anymore.
-            agent::BulkStatusUpdateQuery::new(agent::Status::Ready)
-                .room_id(room.id())
-                .status(agent::Status::Connected)
-                .execute(&conn)?;
-
-            // Send rtc_stream.update event.
-            let event = endpoint::rtc_stream::update_event(
-                room.id(),
-                rtc_stream,
-                context.start_timestamp(),
-                evp.tracking(),
-            )?;
-
-            let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
-            Ok(Box::new(stream::once(boxed_event)))
-        } else {
-            Ok(Box::new(stream::empty()))
-        }
+        Ok(Box::new(stream::empty()))
     }
 }
+
+fn stop_stream<C: Context>(
+    context: &mut C,
+    conn: &PgConnection,
+    janus_rtc_stream: &janus_rtc_stream::Object,
+    room: &room::Object,
+    evp: &IncomingEventProperties,
+) -> Result<MessageStream, AppError> {
+    if let Some(rtc_stream) = janus_rtc_stream::stop(janus_rtc_stream.id(), conn)? {
+        // Publish the update event only if the stream object has been changed.
+        // If there's no actual media stream, the object wouldn't contain its start time.
+        if rtc_stream.time().is_none() {
+            return Ok(Box::new(stream::empty()));
+        }
+
+        info!(context.logger(), "Stream stopped");
+
+        // Send rtc_stream.update event.
+        let event = endpoint::rtc_stream::update_event(
+            room.id(),
+            rtc_stream,
+            context.start_timestamp(),
+            evp.tracking(),
+        )?;
+
+        let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
+        Ok(Box::new(stream::once(boxed_event)))
+    } else {
+        Ok(Box::new(stream::empty()))
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) async fn handle_status_event<C: Context>(
     context: &mut C,

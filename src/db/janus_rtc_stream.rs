@@ -70,16 +70,8 @@ impl Object {
         self.rtc_id
     }
 
-    pub(crate) fn backend_id(&self) -> &AgentId {
-        &self.backend_id
-    }
-
     pub(crate) fn label(&self) -> &str {
         self.label.as_ref()
-    }
-
-    pub(crate) fn sent_by(&self) -> &AgentId {
-        &self.sent_by
     }
 
     pub(crate) fn time(&self) -> Option<Time> {
@@ -99,7 +91,7 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const ACTIVE_SQL: &str = r#"(
+pub(crate) const ACTIVE_SQL: &str = r#"(
     lower("janus_rtc_stream"."time") is not null
     and upper("janus_rtc_stream"."time") is null
 )"#;
@@ -109,7 +101,6 @@ pub(crate) struct ListQuery {
     room_id: Option<Uuid>,
     rtc_id: Option<Uuid>,
     time: Option<Time>,
-    active: Option<bool>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
@@ -140,13 +131,6 @@ impl ListQuery {
         }
     }
 
-    pub(crate) fn active(self, active: bool) -> Self {
-        Self {
-            active: Some(active),
-            ..self
-        }
-    }
-
     pub(crate) fn offset(self, offset: i64) -> Self {
         Self {
             offset: Some(offset),
@@ -171,11 +155,6 @@ impl ListQuery {
         }
         if let Some(time) = self.time {
             q = q.filter(sql("time && ").bind::<Tstzrange, _>(time));
-        }
-        match self.active {
-            None => (),
-            Some(true) => q = q.filter(sql(ACTIVE_SQL)),
-            Some(false) => q = q.filter(sql(&format!("not {}", ACTIVE_SQL))),
         }
         if let Some(offset) = self.offset {
             q = q.offset(offset);

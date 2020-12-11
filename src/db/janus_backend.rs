@@ -4,7 +4,7 @@ use diesel::result::Error;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::schema::janus_backend;
+use crate::schema::{janus_backend, janus_rtc_stream};
 
 pub(crate) type AllColumns = (
     janus_backend::id,
@@ -53,42 +53,26 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct ListQuery<'a> {
-    ids: Option<&'a [&'a AgentId]>,
-    offset: Option<i64>,
-    limit: Option<i64>,
-}
+#[derive(Debug)]
+pub(crate) struct ActiveListQuery {}
 
-impl<'a> ListQuery<'a> {
+impl ActiveListQuery {
     pub(crate) fn new() -> Self {
-        Self {
-            ids: None,
-            offset: None,
-            limit: None,
-        }
-    }
-
-    pub(crate) fn ids(self, ids: &'a [&'a AgentId]) -> Self {
-        Self {
-            ids: Some(ids),
-            ..self
-        }
+        Self {}
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+        use diesel::dsl::sql;
         use diesel::prelude::*;
 
-        let mut q = janus_backend::table.into_boxed();
-        if let Some(ids) = self.ids {
-            q = q.filter(janus_backend::id.eq_any(ids))
-        }
-        if let Some(offset) = self.offset {
-            q = q.offset(offset);
-        }
-        if let Some(limit) = self.limit {
-            q = q.limit(limit);
-        }
-        q.order_by(janus_backend::created_at).get_results(conn)
+        janus_backend::table
+            .inner_join(
+                janus_rtc_stream::table.on(janus_rtc_stream::backend_id.eq(janus_backend::id)),
+            )
+            .filter(sql(crate::db::janus_rtc_stream::ACTIVE_SQL))
+            .select(ALL_COLUMNS)
+            .distinct()
+            .get_results(conn)
     }
 }
 

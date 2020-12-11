@@ -229,7 +229,6 @@ impl<'a> UpdateQuery<'a> {
 
 #[derive(Debug)]
 pub(crate) struct BulkStatusUpdateQuery<'a> {
-    room_id: Option<Uuid>,
     backend_id: Option<&'a AgentId>,
     status: Option<Status>,
     new_status: Status,
@@ -238,17 +237,9 @@ pub(crate) struct BulkStatusUpdateQuery<'a> {
 impl<'a> BulkStatusUpdateQuery<'a> {
     pub(crate) fn new(new_status: Status) -> Self {
         Self {
-            room_id: None,
             backend_id: None,
             status: None,
             new_status,
-        }
-    }
-
-    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
-        Self {
-            room_id: Some(room_id),
-            ..self
         }
     }
 
@@ -271,10 +262,6 @@ impl<'a> BulkStatusUpdateQuery<'a> {
 
         conn.transaction::<_, Error, _>(|| {
             let mut query = diesel::update(agent::table).into_boxed();
-
-            if let Some(room_id) = self.room_id {
-                query = query.filter(agent::room_id.eq(room_id));
-            }
 
             if let Some(backend_id) = self.backend_id {
                 // Diesel doesn't allow JOINs with UPDATE so find backend ids with a separate query.
