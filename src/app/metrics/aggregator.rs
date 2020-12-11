@@ -1,15 +1,17 @@
+use std::str::FromStr;
 use std::sync::atomic::Ordering;
 
 use chrono::{DateTime, Utc};
+use svc_agent::AgentId;
 
 use crate::app::context::GlobalContext;
 use crate::app::metrics::{Metric, MetricKey, Tags};
 
-pub(crate) struct Collector<'a, C: GlobalContext> {
+pub(crate) struct Aggregator<'a, C: GlobalContext> {
     context: &'a C,
 }
 
-impl<'a, C: GlobalContext> Collector<'a, C> {
+impl<'a, C: GlobalContext> Aggregator<'a, C> {
     pub(crate) fn new(context: &'a C) -> Self {
         Self { context }
     }
@@ -170,6 +172,22 @@ fn append_dynamic_stats(
                 Tags::Empty,
             ));
         }
+
+        for (agent_id, value) in dynamic_stats.get_janus_timeouts()? {
+            let tags = Tags::build_janus_tags(
+                crate::APP_VERSION,
+                context.agent_id(),
+                &AgentId::from_str(&agent_id)
+                    .expect("We only write agent ids into DynamicStatsCollector"),
+            );
+
+            metrics.push(Metric::new(
+                MetricKey::JanusTimeoutsTotal,
+                value,
+                now,
+                tags.clone(),
+            ));
+        }
     }
 
     Ok(())
@@ -182,11 +200,12 @@ fn append_janus_stats(
 ) -> anyhow::Result<()> {
     use crate::db::agent;
     use anyhow::Context;
+
     match context.get_conn() {
         Err(e) => {
             error!(
                 crate::LOG,
-                "Collector failed to acquire connection, reason = {:?}", e
+                "Aggregator failed to acquire connection, reason = {:?}", e
             );
             Ok(())
         }

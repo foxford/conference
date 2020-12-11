@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration as StdDuration;
 
@@ -11,6 +12,7 @@ use svc_agent::{
 };
 
 use crate::app::error::{Error as AppError, ErrorKind as AppErrorKind};
+use crate::app::metrics::DynamicStatsCollector;
 use crate::config::BackendConfig;
 
 use super::{JANUS_API_VERSION, STREAM_UPLOAD_METHOD};
@@ -39,7 +41,11 @@ pub(crate) struct Client {
 }
 
 impl Client {
-    pub(crate) fn start(config: &BackendConfig, me: AgentId) -> Result<Self> {
+    pub(crate) fn start(
+        config: &BackendConfig,
+        me: AgentId,
+        timeouts_writer: Option<Arc<DynamicStatsCollector>>,
+    ) -> Result<Self> {
         let period = StdDuration::from_secs(config.transaction_watchdog_check_period);
         let (tx, rx) = crossbeam_channel::unbounded();
 
@@ -67,6 +73,9 @@ impl Client {
                                 anyhow!("Janus request timed out ({}): {:?}", corr_data, info);
 
                             error!(crate::LOG, "{}", err);
+                            if let Some(ref writer) = timeouts_writer {
+                                writer.record_janus_timeout(info.to.clone());
+                            }
 
                             AppError::new(AppErrorKind::BackendRequestTimedOut, err)
                                 .notify_sentry(&crate::LOG);

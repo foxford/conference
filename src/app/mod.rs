@@ -20,7 +20,7 @@ use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPoo
 
 use crate::app::context::GlobalContext;
 use crate::app::error::{Error as AppError, ErrorKind as AppErrorKind};
-use crate::app::metrics::StatsRoute;
+use crate::app::metrics::{DynamicStatsCollector, StatsRoute};
 use crate::backend::janus::Client as JanusClient;
 use crate::config::{self, Config, KruonisConfig};
 use crate::db::ConnectionPool;
@@ -86,14 +86,16 @@ pub(crate) async fn run(
     let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
 
     let running_requests = Arc::new(AtomicI64::new(0));
+    let stats_collector = Arc::new(DynamicStatsCollector::start());
 
     // Context
     let context = AppContext::new(
         config.clone(),
         authz,
         db.clone(),
-        JanusClient::start(&config.backend, agent_id)?,
+        JanusClient::start(&config.backend, agent_id, Some(stats_collector.clone()))?,
         janus_topics,
+        stats_collector,
     )
     .add_queue_counter(agent.get_queue_counter())
     .add_running_requests_counter(running_requests.clone());

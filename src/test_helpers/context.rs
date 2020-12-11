@@ -73,7 +73,7 @@ impl TestContext {
         let config = build_config();
         let agent_id = AgentId::new(&config.agent_label, config.id.clone());
 
-        let janus_client = JanusClient::start(&config.backend, agent_id.clone())
+        let janus_client = JanusClient::start(&config.backend, agent_id.clone(), None)
             .expect("Failed to start janus client");
 
         Self {
