@@ -71,6 +71,7 @@ impl AppContext {
         db: Db,
         janus_client: JanusClient,
         janus_topics: JanusTopics,
+        stats_collector: Arc<DynamicStatsCollector>,
     ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
 
@@ -83,7 +84,7 @@ impl AppContext {
             janus_topics,
             queue_counter: None,
             redis_pool: None,
-            dynamic_stats: Some(Arc::new(DynamicStatsCollector::start())),
+            dynamic_stats: Some(stats_collector),
             running_requests: None,
         }
     }
@@ -148,7 +149,7 @@ impl GlobalContext for AppContext {
     }
 
     fn get_metrics(&self) -> anyhow::Result<Vec<Metric>> {
-        crate::app::metrics::Collector::new(self).get()
+        crate::app::metrics::Aggregator::new(self).get()
     }
 
     fn running_requests(&self) -> Option<Arc<AtomicI64>> {

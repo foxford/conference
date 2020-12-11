@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::thread;
 
 use anyhow::{Context, Result};
+use svc_agent::AgentId;
 
 enum Message {
     Register {
@@ -11,11 +12,20 @@ enum Message {
     Flush {
         tx: crossbeam_channel::Sender<Vec<(String, usize)>>,
     },
+    JanusTimeout(AgentId),
     Stop,
+    GetJanusTimeouts {
+        tx: crossbeam_channel::Sender<Vec<(String, u64)>>,
+    },
 }
 
 pub(crate) struct DynamicStatsCollector {
     tx: crossbeam_channel::Sender<Message>,
+}
+
+struct State {
+    data: BTreeMap<String, usize>,
+    janus_timeouts: BTreeMap<String, u64>,
 }
 
 impl DynamicStatsCollector {
@@ -23,20 +33,23 @@ impl DynamicStatsCollector {
         let (tx, rx) = crossbeam_channel::unbounded();
 
         thread::spawn(move || {
-            let mut data: BTreeMap<String, usize> = BTreeMap::new();
+            let mut state = State {
+                data: BTreeMap::new(),
+                janus_timeouts: BTreeMap::new(),
+            };
 
             for message in rx {
                 match message {
                     Message::Register { key, value } => {
-                        let current_value = data.get_mut(&key).map(|v| *v);
+                        let current_value = state.data.get_mut(&key).map(|v| *v);
 
                         match current_value {
-                            Some(current_value) => data.insert(key, current_value + value),
-                            None => data.insert(key, value),
+                            Some(current_value) => state.data.insert(key, current_value + value),
+                            None => state.data.insert(key, value),
                         };
                     }
                     Message::Flush { tx } => {
-                        let report = data.into_iter().collect::<Vec<(String, usize)>>();
+                        let report = state.data.into_iter().collect();
 
                         if let Err(err) = tx.send(report) {
                             warn!(
@@ -45,9 +58,30 @@ impl DynamicStatsCollector {
                             );
                         }
 
-                        data = BTreeMap::new();
+                        state.data = BTreeMap::new();
                     }
                     Message::Stop => break,
+                    Message::JanusTimeout(agent_id) => {
+                        let entry = state
+                            .janus_timeouts
+                            .entry(agent_id.to_string())
+                            .or_insert(0);
+                        *entry += 1;
+                    }
+                    Message::GetJanusTimeouts { tx } => {
+                        let report = state
+                            .janus_timeouts
+                            .iter()
+                            .map(|(aid, c)| (aid.clone(), *c))
+                            .collect();
+
+                        if let Err(err) = tx.send(report) {
+                            warn!(
+                                crate::LOG,
+                                "Failed to send dynamic stats collector report: {}", err,
+                            );
+                        }
+                    }
                 }
             }
         });
@@ -75,6 +109,26 @@ impl DynamicStatsCollector {
         self.tx
             .send(Message::Flush { tx })
             .context("Failed to send flush message to the dynamic stats collector")?;
+
+        rx.recv()
+            .context("Failed to receive dynamic stats collector report")
+    }
+
+    pub(crate) fn record_janus_timeout(&self, janus: AgentId) {
+        if let Err(err) = self.tx.send(Message::JanusTimeout(janus)) {
+            warn!(
+                crate::LOG,
+                "Failed to register dynamic stats collector value: {}", err
+            );
+        }
+    }
+
+    pub(crate) fn get_janus_timeouts(&self) -> Result<Vec<(String, u64)>> {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+
+        self.tx
+            .send(Message::GetJanusTimeouts { tx })
+            .context("Failed to send GetJanusTimeouts message to the dynamic stats collector")?;
 
         rx.recv()
             .context("Failed to receive dynamic stats collector report")

@@ -147,6 +147,8 @@ pub(crate) enum MetricKey {
     Dynamic(String),
     #[serde(rename(serialize = "apps.conference.running_requests_total"))]
     RunningRequests,
+    #[serde(rename(serialize = "apps.conference.janus_timeouts_total"))]
+    JanusTimeoutsTotal,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -186,6 +188,8 @@ pub(crate) enum MetricKey2 {
     Dynamic(String),
     #[serde(rename(serialize = "running_requests_total"))]
     RunningRequests,
+    #[serde(rename(serialize = "janus_timeouts_total"))]
+    JanusTimeoutsTotal,
 }
 
 impl From<MetricKey> for MetricKey2 {
@@ -208,6 +212,7 @@ impl From<MetricKey> for MetricKey2 {
             MetricKey::JanusBackendReserveLoad => MetricKey2::JanusBackendReserveLoad,
             MetricKey::JanusBackendAgentLoad => MetricKey2::JanusBackendAgentLoad,
             MetricKey::RunningRequests => MetricKey2::RunningRequests,
+            MetricKey::JanusTimeoutsTotal => MetricKey2::JanusTimeoutsTotal,
         }
     }
 }
@@ -232,6 +237,7 @@ impl std::fmt::Display for MetricKey2 {
             MetricKey2::JanusBackendAgentLoad => write!(f, "janus_backend_agent_load_total"),
             MetricKey2::Dynamic(key) => write!(f, "{}_total", key),
             MetricKey2::RunningRequests => write!(f, "running_requests_total"),
+            MetricKey2::JanusTimeoutsTotal => write!(f, "janus_backend_agent_load_total"),
         }
     }
 }
