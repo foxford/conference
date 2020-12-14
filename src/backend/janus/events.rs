@@ -1,7 +1,5 @@
 use serde_derive::Deserialize;
 
-use super::OpaqueId;
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[serde(tag = "janus")]
@@ -19,13 +17,6 @@ pub(crate) enum IncomingEvent {
 pub(crate) struct WebRtcUpEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
-}
-
-impl OpaqueId for WebRtcUpEvent {
-    fn opaque_id(&self) -> &str {
-        &self.opaque_id
-    }
 }
 
 // A RTCPeerConnection closed for a DTLS alert (normal shutdown).
@@ -34,14 +25,7 @@ impl OpaqueId for WebRtcUpEvent {
 pub(crate) struct HangUpEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
     reason: String,
-}
-
-impl OpaqueId for HangUpEvent {
-    fn opaque_id(&self) -> &str {
-        &self.opaque_id
-    }
 }
 
 // Audio or video bytes being received by a plugin handle.
@@ -49,10 +33,23 @@ impl OpaqueId for HangUpEvent {
 pub(crate) struct MediaEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
     #[serde(rename = "type")]
     kind: String,
     receiving: bool,
+}
+
+impl MediaEvent {
+    pub(crate) fn sender(&self) -> i64 {
+        self.sender
+    }
+
+    pub(crate) fn is_video(&self) -> bool {
+        self.kind == "video"
+    }
+
+    pub(crate) fn is_receiving(&self) -> bool {
+        self.receiving
+    }
 }
 
 // A session was torn down by the server because of timeout: 60 seconds (by default).
@@ -67,7 +64,6 @@ pub(crate) struct TimeoutEvent {
 pub(crate) struct SlowLinkEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
     uplink: bool,
 }
 
@@ -77,12 +73,11 @@ pub(crate) struct SlowLinkEvent {
 pub(crate) struct DetachedEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
 }
 
-impl OpaqueId for DetachedEvent {
-    fn opaque_id(&self) -> &str {
-        &self.opaque_id
+impl DetachedEvent {
+    pub(crate) fn sender(&self) -> i64 {
+        self.sender
     }
 }
 

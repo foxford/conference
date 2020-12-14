@@ -18,7 +18,7 @@ use crate::schema::{janus_backend, recording, room, rtc};
 
 pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
-type AllColumns = (
+pub(crate) type AllColumns = (
     room::id,
     room::time,
     room::audience,
@@ -29,7 +29,7 @@ type AllColumns = (
     room::backend_id,
 );
 
-const ALL_COLUMNS: AllColumns = (
+pub(crate) const ALL_COLUMNS: AllColumns = (
     room::id,
     room::time,
     room::audience,
