@@ -76,6 +76,13 @@ pub enum Tags {
         account_audience: String,
         backend_label: String,
     },
+    RunningFuture {
+        version: String,
+        agent_label: String,
+        account_label: String,
+        account_audience: String,
+        method: String,
+    },
     Empty,
 }
 
@@ -106,6 +113,16 @@ impl Tags {
             account_label: agent_id.as_account_id().label().to_owned(),
             account_audience: agent_id.as_account_id().audience().to_owned(),
             backend_label: janus_id.label().to_owned(),
+        }
+    }
+
+    pub fn build_running_futures_tags(version: &str, agent_id: &AgentId, method: String) -> Self {
+        Tags::RunningFuture {
+            version: version.to_owned(),
+            agent_label: agent_id.label().to_owned(),
+            account_label: agent_id.as_account_id().label().to_owned(),
+            account_audience: agent_id.as_account_id().audience().to_owned(),
+            method,
         }
     }
 }
@@ -149,6 +166,12 @@ pub(crate) enum MetricKey {
     RunningRequests,
     #[serde(rename(serialize = "apps.conference.janus_timeouts_total"))]
     JanusTimeoutsTotal,
+    #[serde(rename(serialize = "apps.conference.running_request_p95_microseconds"))]
+    RunningRequestDurationP95,
+    #[serde(rename(serialize = "apps.conference.running_request_p99_microseconds"))]
+    RunningRequestDurationP99,
+    #[serde(rename(serialize = "apps.conference.running_request_max_microseconds"))]
+    RunningRequestDurationMax,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -190,6 +213,12 @@ pub(crate) enum MetricKey2 {
     RunningRequests,
     #[serde(rename(serialize = "janus_timeouts_total"))]
     JanusTimeoutsTotal,
+    #[serde(rename(serialize = "running_request_p95_microseconds"))]
+    RunningRequestDurationP95,
+    #[serde(rename(serialize = "running_request_p99_microseconds"))]
+    RunningRequestDurationP99,
+    #[serde(rename(serialize = "running_request_max_microseconds"))]
+    RunningRequestDurationMax,
 }
 
 impl From<MetricKey> for MetricKey2 {
@@ -213,6 +242,9 @@ impl From<MetricKey> for MetricKey2 {
             MetricKey::JanusBackendAgentLoad => MetricKey2::JanusBackendAgentLoad,
             MetricKey::RunningRequests => MetricKey2::RunningRequests,
             MetricKey::JanusTimeoutsTotal => MetricKey2::JanusTimeoutsTotal,
+            MetricKey::RunningRequestDurationP95 => MetricKey2::RunningRequestDurationP95,
+            MetricKey::RunningRequestDurationP99 => MetricKey2::RunningRequestDurationP99,
+            MetricKey::RunningRequestDurationMax => MetricKey2::RunningRequestDurationMax,
         }
     }
 }
@@ -238,6 +270,15 @@ impl std::fmt::Display for MetricKey2 {
             MetricKey2::Dynamic(key) => write!(f, "{}_total", key),
             MetricKey2::RunningRequests => write!(f, "running_requests_total"),
             MetricKey2::JanusTimeoutsTotal => write!(f, "janus_backend_agent_load_total"),
+            MetricKey2::RunningRequestDurationP95 => {
+                write!(f, "running_request_duration_p95_microseconds")
+            }
+            MetricKey2::RunningRequestDurationP99 => {
+                write!(f, "running_request_duration_p99_microseconds")
+            }
+            MetricKey2::RunningRequestDurationMax => {
+                write!(f, "running_request_duration_max_microseconds")
+            }
         }
     }
 }

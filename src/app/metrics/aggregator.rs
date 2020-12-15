@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use svc_agent::AgentId;
 
 use crate::app::context::GlobalContext;
-use crate::app::metrics::{Metric, MetricKey, Tags};
+use crate::app::metrics::{Metric, MetricKey, PercentileReport, Tags};
 
 pub(crate) struct Aggregator<'a, C: GlobalContext> {
     context: &'a C,
@@ -184,6 +184,32 @@ fn append_dynamic_stats(
             metrics.push(Metric::new(
                 MetricKey::JanusTimeoutsTotal,
                 value,
+                now,
+                tags.clone(),
+            ));
+        }
+
+        for (method, PercentileReport { p95, p99, max }) in dynamic_stats.get_handler_timings()? {
+            let tags =
+                Tags::build_running_futures_tags(crate::APP_VERSION, context.agent_id(), method);
+
+            metrics.push(Metric::new(
+                MetricKey::RunningRequestDurationP95,
+                p95,
+                now,
+                tags.clone(),
+            ));
+
+            metrics.push(Metric::new(
+                MetricKey::RunningRequestDurationP99,
+                p99,
+                now,
+                tags.clone(),
+            ));
+
+            metrics.push(Metric::new(
+                MetricKey::RunningRequestDurationMax,
+                max,
                 now,
                 tags.clone(),
             ));

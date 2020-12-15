@@ -1,5 +1,6 @@
 pub(crate) use aggregator::Aggregator;
 pub(crate) use dynamic_stats_collector::DynamicStatsCollector;
+pub(crate) use dynamic_stats_collector::PercentileReport;
 pub(crate) use metric::{Metric, Metric2, MetricKey, Tags};
 pub(crate) use stats_route::StatsRoute;
 
