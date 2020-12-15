@@ -87,6 +87,17 @@ pub(crate) async fn run(
 
     let running_requests = Arc::new(AtomicI64::new(0));
     let stats_collector = Arc::new(DynamicStatsCollector::start());
+    let stats_collector_ = stats_collector.clone();
+
+    let (handler_timer_tx, handler_timer_rx) = crossbeam_channel::bounded(500);
+    std::thread::Builder::new()
+        .name("msg-handler-timings".into())
+        .spawn(move || {
+            for (dur, method) in handler_timer_rx {
+                stats_collector_.record_future_time(dur, method);
+            }
+        })
+        .expect("Failed to start msg-handler-timings thread");
 
     // Context
     let context = AppContext::new(
@@ -106,7 +117,11 @@ pub(crate) async fn run(
     };
 
     // Message handler
-    let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
+    let message_handler = Arc::new(MessageHandler::new(
+        agent.clone(),
+        context,
+        handler_timer_tx,
+    ));
     StatsRoute::start(config, message_handler.clone());
 
     // Message loop
