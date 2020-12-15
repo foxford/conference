@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.6.5 (December 16, 2020)
+
+### Changes
+- Added unique index on rtc.room_id ([da24b7d](https://github.com/netology-group/conference/commit/da24b7df0b04740d1e8135b4583d9e3cf30a5f9e))
+- Added janus timeouts metric ([e610a03](https://github.com/netology-group/conference/commit/e610a03ad03754314d2217c423b502d2231b1ec5))
+
+### Fixes
+- Fixed unwrap crashing metrics aggregator ([7ef6fb3](https://github.com/netology-group/conference/commit/7ef6fb3ab1ce1dad839a322dcb1af5e8be89b6be))
+
+
 ## v0.6.4 (December 8, 2020)
 
 ### Changes
