@@ -26,6 +26,7 @@ One must rely on the `type` field of the error for error identification, not the
 The following types are a part of the service's API and are guaranteed to maintain compatibility.
 
 - `access_denied` – The action was forbidden by [authorization](authz.md#Authorization).
+- `agent_not_connected` – The agent must preliminary make [signal.create](signal/create.md#signal.create) request.
 - `agent_not_entered_the_room` – The agent must preliminary make [room.enter](room/enter.md#room.enter) request.
 - `authorization_failed` – Authorization request failed due to a network error or another reason.
 - `backend_recording_missing` – The backend responded that it doesn't have the recording for the RTC.

@@ -8,6 +8,7 @@ use svc_agent::{
     },
     AgentId,
 };
+use uuid::Uuid;
 
 use crate::util::{generate_correlation_data, to_base64};
 
@@ -23,20 +24,31 @@ const METHOD: &str = "janus_handle.create";
 pub(crate) struct TransactionData {
     reqp: IncomingRequestProperties,
     session_id: i64,
+    room_id: Uuid,
     jsep: JsonValue,
 }
 
 impl TransactionData {
-    pub(crate) fn new(reqp: IncomingRequestProperties, session_id: i64, jsep: JsonValue) -> Self {
+    pub(crate) fn new(
+        reqp: IncomingRequestProperties,
+        room_id: Uuid,
+        session_id: i64,
+        jsep: JsonValue,
+    ) -> Self {
         Self {
             reqp,
             session_id,
+            room_id,
             jsep,
         }
     }
 
     pub(crate) fn reqp(&self) -> &IncomingRequestProperties {
         &self.reqp
+    }
+
+    pub(crate) fn room_id(&self) -> Uuid {
+        self.room_id
     }
 
     pub(crate) fn session_id(&self) -> i64 {
@@ -54,6 +66,7 @@ impl Client {
     pub(crate) fn create_agent_handle_request(
         &self,
         reqp: IncomingRequestProperties,
+        room_id: Uuid,
         session_id: i64,
         jsep: JsonValue,
         to: &AgentId,
@@ -66,7 +79,7 @@ impl Client {
             ShortTermTimingProperties::until_now(start_timestamp),
         );
 
-        let tn_data = TransactionData::new(reqp, session_id, jsep);
+        let tn_data = TransactionData::new(reqp, room_id, session_id, jsep);
         let transaction = Transaction::CreateAgentHandle(tn_data);
 
         let payload = CreateHandleRequest::new(

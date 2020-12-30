@@ -25,7 +25,7 @@ pub(crate) fn insert_room(conn: &PgConnection) -> Room {
             Bound::Included(now),
             Bound::Excluded(now + Duration::hours(1)),
         ))
-        .backend(RoomBackend::Janus)
+        .backend(RoomBackend::None)
         .insert(conn)
 }
 
@@ -74,8 +74,18 @@ pub(crate) fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uui
     factory::Agent::new()
         .agent_id(agent_id)
         .room_id(room_id)
-        .status(AgentStatus::Connected)
+        .status(AgentStatus::Ready)
         .insert(conn)
+}
+
+pub(crate) fn insert_connected_agent(
+    conn: &PgConnection,
+    agent_id: &AgentId,
+    room_id: Uuid,
+) -> Agent {
+    let agent = insert_agent(conn, agent_id, room_id);
+    factory::AgentConnection::new(agent.id(), 123).insert(conn);
+    agent
 }
 
 pub(crate) fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {
@@ -92,7 +102,19 @@ pub(crate) fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {
 }
 
 pub(crate) fn insert_rtc(conn: &PgConnection) -> Rtc {
-    let room = insert_room(conn);
+    let now = Utc::now();
+    let backend = insert_janus_backend(conn);
+
+    let room = factory::Room::new()
+        .audience(USR_AUDIENCE)
+        .time((
+            Bound::Included(now),
+            Bound::Excluded(now + Duration::hours(1)),
+        ))
+        .backend(RoomBackend::Janus)
+        .backend_id(backend.id())
+        .insert(conn);
+
     factory::Rtc::new(room.id()).insert(conn)
 }
 

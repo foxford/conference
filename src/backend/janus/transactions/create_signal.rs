@@ -7,10 +7,9 @@ use svc_agent::{
         IncomingRequestProperties, IncomingResponseProperties, OutgoingMessage, OutgoingRequest,
         OutgoingRequestProperties, ShortTermTimingProperties,
     },
-    Addressable,
+    Addressable, AgentId,
 };
 
-use crate::app::handle_id::HandleId;
 use crate::util::{generate_correlation_data, to_base64};
 
 use super::super::requests::{CreateSignalRequestBody, MessageRequest};
@@ -24,20 +23,15 @@ const METHOD: &str = "janus_conference_signal.create";
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct TransactionData {
     reqp: IncomingRequestProperties,
-    handle_id: HandleId,
 }
 
 impl TransactionData {
-    pub(crate) fn new(reqp: IncomingRequestProperties, handle_id: HandleId) -> Self {
-        Self { reqp, handle_id }
+    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
+        Self { reqp }
     }
 
     pub(crate) fn reqp(&self) -> &IncomingRequestProperties {
         &self.reqp
-    }
-
-    pub(crate) fn handle_id(&self) -> &HandleId {
-        &self.handle_id
     }
 }
 
@@ -46,15 +40,13 @@ impl Client {
         &self,
         reqp: &IncomingRequestProperties,
         respp: &IncomingResponseProperties,
-        handle_id: HandleId,
+        backend_id: &AgentId,
+        janus_session_id: i64,
+        janus_handle_id: i64,
         jsep: JsonValue,
         start_timestamp: DateTime<Utc>,
     ) -> Result<OutgoingMessage<MessageRequest>> {
-        let janus_session_id = handle_id.janus_session_id();
-        let janus_handle_id = handle_id.janus_handle_id();
-        let to = handle_id.backend_id().to_owned();
-
-        let tn_data = TransactionData::new(reqp.to_owned(), handle_id);
+        let tn_data = TransactionData::new(reqp.to_owned());
         let transaction = Transaction::CreateSignal(tn_data);
         let body = CreateSignalRequestBody::new(reqp.as_agent_id().to_owned());
 
@@ -68,18 +60,19 @@ impl Client {
 
         let mut props = OutgoingRequestProperties::new(
             METHOD,
-            &self.response_topic(&to)?,
+            &self.response_topic(backend_id)?,
             &generate_correlation_data(),
             ShortTermTimingProperties::until_now(start_timestamp),
         );
 
         props.set_tracking(respp.tracking().to_owned());
-        self.register_transaction(&to, start_timestamp, &props, &payload, self.timeout(METHOD));
+        let timeout = self.timeout(METHOD);
+        self.register_transaction(backend_id, start_timestamp, &props, &payload, timeout);
 
         Ok(OutgoingRequest::unicast(
             payload,
             props,
-            &to,
+            backend_id,
             JANUS_API_VERSION,
         ))
     }

@@ -182,11 +182,12 @@ const MOST_LOADED_SQL: &str = r#"
     WITH
         room_load AS (
             SELECT
-                room_id,
-                COUNT(id) AS taken
-            FROM agent
-            WHERE status = 'connected'
-            GROUP BY room_id
+                a.room_id,
+                COUNT(a.id) AS taken
+            FROM agent AS a
+            INNER JOIN agent_connection AS ac
+            ON ac.agent_id = a.id
+            GROUP BY a.room_id
         ),
         active_room AS (
             SELECT *
@@ -238,11 +239,12 @@ const LEAST_LOADED_SQL: &str = r#"
     WITH
         room_load AS (
             SELECT
-                room_id,
-                COUNT(id) AS taken
-            FROM agent
-            WHERE status = 'connected'
-            GROUP BY room_id
+                a.room_id,
+                COUNT(a.id) AS taken
+            FROM agent AS a
+            INNER JOIN agent_connection AS ac
+            ON ac.agent_id = a.id
+            GROUP BY a.room_id
         ),
         active_room AS (
             SELECT *
@@ -301,7 +303,8 @@ const FREE_CAPACITY_SQL: &str = r#"
             FROM agent AS a
             INNER JOIN room AS r
             ON r.id = a.room_id
-            WHERE a.status = 'connected'
+            INNER JOIN agent_connection AS ac
+            ON ac.agent_id = a.id
             GROUP BY r.id
         ),
         active_room AS (
@@ -415,11 +418,12 @@ const LOAD_FOR_EACH_BACKEND: &str = r#"
 WITH
     room_load AS (
         SELECT
-            room_id,
-            COUNT(id) AS taken
-        FROM agent
-        WHERE status = 'connected'
-        GROUP BY room_id
+            a.room_id,
+            COUNT(a.id) AS taken
+        FROM agent AS a
+        INNER JOIN agent_connection AS ac
+        ON ac.agent_id = a.id
+        GROUP BY a.room_id
     ),
     active_room AS (
         SELECT *

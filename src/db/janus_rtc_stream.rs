@@ -1,9 +1,10 @@
+use std::ops::Bound;
+
 use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::result::Error;
 use serde_derive::{Deserialize, Serialize};
-use std::ops::Bound;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
@@ -44,8 +45,10 @@ const ALL_COLUMNS: AllColumns = (
 #[table_name = "janus_rtc_stream"]
 pub(crate) struct Object {
     id: Uuid,
+    #[serde(skip_serializing)]
     handle_id: i64,
     rtc_id: Uuid,
+    #[serde(skip_serializing)]
     backend_id: AgentId,
     label: String,
     sent_by: AgentId,
@@ -61,17 +64,22 @@ impl Object {
         self.id
     }
 
-    #[cfg(test)]
-    pub(crate) fn handle_id(&self) -> i64 {
-        self.handle_id
-    }
-
     pub(crate) fn rtc_id(&self) -> Uuid {
         self.rtc_id
     }
 
+    #[cfg(test)]
+    pub(crate) fn backend_id(&self) -> &AgentId {
+        &self.backend_id
+    }
+
     pub(crate) fn label(&self) -> &str {
         self.label.as_ref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn sent_by(&self) -> &AgentId {
+        &self.sent_by
     }
 
     pub(crate) fn time(&self) -> Option<Time> {

@@ -17,6 +17,7 @@ struct ErrorKindProperties {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ErrorKind {
     AccessDenied,
+    AgentNotConnected,
     AgentNotEnteredTheRoom,
     AuthorizationFailed,
     BackendRecordingMissing,
@@ -36,7 +37,6 @@ pub(crate) enum ErrorKind {
     MessageHandlingFailed,
     MessageParsingFailed,
     NoAvailableBackends,
-    NotImplemented,
     PublishFailed,
     ResubscriptionFailed,
     RoomClosed,
@@ -79,6 +79,12 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 status: ResponseStatus::FORBIDDEN,
                 kind: "access_denied",
                 title: "Access denied",
+                is_notify_sentry: false,
+            },
+            Self::AgentNotConnected => ErrorKindProperties {
+                status: ResponseStatus::NOT_FOUND,
+                kind: "agent_not_connected",
+                title: "Agent not connected",
                 is_notify_sentry: false,
             },
             Self::AgentNotEnteredTheRoom => ErrorKindProperties {
@@ -193,12 +199,6 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 status: ResponseStatus::SERVICE_UNAVAILABLE,
                 kind: "no_available_backends",
                 title: "No available backends",
-                is_notify_sentry: true,
-            },
-            Self::NotImplemented => ErrorKindProperties {
-                status: ResponseStatus::INTERNAL_SERVER_ERROR,
-                kind: "not_implemented",
-                title: "Not implemented",
                 is_notify_sentry: true,
             },
             Self::PublishFailed => ErrorKindProperties {

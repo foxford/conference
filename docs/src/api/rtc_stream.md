@@ -5,9 +5,7 @@
 Name       | Type       | Default    | Description
 -----------| ---------- | ---------- | ---------------------------------------------------------------
 id         |       uuid | _required_ | The RTC stream identifier.
-handle_id  |        int | _required_ | Writer's janus handle id.
 rtc_id     |       uuid | _required_ | The [RTC](rtc.md#properties) to which stream stream belongs to.
-backend_id |   agent_id | _required_ | Agent ID of the janus backend which hosts the stream.
 label      |     string | _required_ | Arbitrary label associated with the stream.
 sent_by    |   agent_id | _required_ | Agent ID of the writer.
 time       | [int, int] | _optional_ | Absolute start and stop timestamps of the stream. If missing then the stream is not yet started.
