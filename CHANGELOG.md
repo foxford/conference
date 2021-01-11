@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.6 (January 12, 2021)
+
+### Changes
+- Allow users to exceed room reserves ([a5aea1c](https://github.com/netology-group/conference/commit/a5aea1c04044a87c51e698d6455de05e3f601c53))
+- Added running requests durations metrics ([395c4fb](https://github.com/netology-group/conference/commit/395c4fbe46a6606efdbfca91fd18f6624fc0e8bf))
+
+
 ## v0.6.5 (December 16, 2020)
 
 ### Changes
