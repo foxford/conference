@@ -1165,13 +1165,22 @@ mod test {
                     intent: ConnectIntent::Read,
                 };
 
-                // Expect failure.
-                let err = handle_request::<ConnectHandler>(&mut context, &reader1, payload)
+                // Should be ok since we disregard reserves.
+                handle_request::<ConnectHandler>(&mut context, &reader1, payload)
                     .await
-                    .expect_err("Connected to RTC while expected capacity exceeded error");
+                    .expect("RTC connect failed");
 
-                assert_eq!(err.status(), ResponseStatus::SERVICE_UNAVAILABLE);
-                assert_eq!(err.kind(), "capacity_exceeded");
+                // Delete agent
+                {
+                    let conn = context.get_conn().expect("Failed to acquire db conn");
+                    let row_count = db::agent::DeleteQuery::new()
+                        .agent_id(&reader1.agent_id())
+                        .room_id(rtc2.room_id())
+                        .execute(&conn)
+                        .expect("Failed to delete user from agents");
+                    // Check that we actually deleted something
+                    assert_eq!(row_count, 1);
+                }
 
                 // Connect to the rtc in the room with free reserved slots.
                 let payload = ConnectRequest {
@@ -1671,13 +1680,14 @@ mod test {
                 };
 
                 // Last room has NO reserve AND there is free capacity BUT it was exhausted by first two rooms
-                // So we cant connect to this room
-                let err = handle_request::<ConnectHandler>(&mut context, &new_reader, payload)
+                // So in theory we should not be able to connect to this room due to capacity_exceeded error
+                // But we still let the user through because:
+                //   1. we almost never fill any server with users upto max capacity
+                //   2. thus there are unused slots anyway
+                // So its better to let them in
+                handle_request::<ConnectHandler>(&mut context, &new_reader, payload)
                     .await
-                    .expect_err("Connected to RTC while expected capacity exceeded error");
-
-                assert_eq!(err.status(), ResponseStatus::SERVICE_UNAVAILABLE);
-                assert_eq!(err.kind(), "capacity_exceeded");
+                    .expect("RTC connect failed");
             });
         }
 
