@@ -350,15 +350,19 @@ const FREE_CAPACITY_SQL: &str = r#"
             CASE
                 WHEN COALESCE(jb.capacity, 2147483647) <= COALESCE(jbl.total_taken, 0) THEN 0
                 ELSE (
-                    CASE
-                        WHEN COALESCE(ar.reserve, 0) > COALESCE(rl.taken, 0)
-                            THEN LEAST(
-                                COALESCE(ar.reserve, 0) - COALESCE(rl.taken, 0),
-                                COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.total_taken, 0)
-                            )
-                        ELSE
-                            GREATEST(COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.load, 0), 0)
-                    END
+                    GREATEST(
+                        (
+                            CASE
+                                WHEN COALESCE(ar.reserve, 0) > COALESCE(rl.taken, 0)
+                                    THEN LEAST(
+                                        COALESCE(ar.reserve, 0) - COALESCE(rl.taken, 0),
+                                        COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.total_taken, 0)
+                                    )
+                                ELSE
+                                    GREATEST(COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.load, 0), 0)
+                            END
+                        ),
+                    1)
                 )
             END
         )::INT AS free_capacity
