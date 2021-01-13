@@ -16,10 +16,9 @@ use uuid::Uuid;
 use crate::app::context::Context;
 use crate::app::endpoint;
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
-use crate::app::handle_id::HandleId;
 use crate::app::message_handler::MessageStream;
 use crate::app::API_VERSION;
-use crate::db::{agent, janus_backend, janus_rtc_stream, recording, room, rtc};
+use crate::db::{agent, agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc};
 use crate::diesel::Connection;
 use crate::util::from_base64;
 
@@ -108,11 +107,37 @@ async fn handle_response_impl<C: Context>(
                 }
                 // Agent handle has been created.
                 Transaction::CreateAgentHandle(tn) => {
-                    let handle_id = HandleId::new(
-                        inresp.data().id(),
-                        tn.session_id(),
-                        respp.as_agent_id().to_owned(),
-                    );
+                    let handle_id = inresp.data().id();
+                    let agent_id = tn.reqp().as_agent_id();
+                    let room_id = tn.room_id();
+                    let conn = context.get_conn()?;
+
+                    conn.transaction::<_, AppError, _>(|| {
+                        // Find agent in the DB who made the original `signal.create` request.
+                        let maybe_agent = agent::ListQuery::new()
+                            .agent_id(agent_id)
+                            .room_id(room_id)
+                            .status(agent::Status::Ready)
+                            .limit(1)
+                            .execute(&conn)?;
+
+                        if let Some(agent) = maybe_agent.first() {
+                            // Create agent connection in the DB.
+                            agent_connection::UpsertQuery::new(agent.id(), handle_id)
+                                .execute(&conn)?;
+
+                            Ok(())
+                        } else {
+                            context.add_logger_tags(o!(
+                                "agent_id" => agent_id.to_string(),
+                                "room_id" => room_id.to_string(),
+                            ));
+
+                            // Agent may be already gone.
+                            Err(anyhow!("Agent not found"))
+                                .error(AppErrorKind::AgentNotEnteredTheRoom)
+                        }
+                    })?;
 
                     // Make signal.create request.
                     let backreq = context
@@ -120,6 +145,8 @@ async fn handle_response_impl<C: Context>(
                         .create_signal_request(
                             tn.reqp(),
                             &respp,
+                            respp.as_agent_id(),
+                            tn.session_id(),
                             handle_id,
                             tn.jsep().to_owned(),
                             context.start_timestamp(),
@@ -178,10 +205,7 @@ async fn handle_response_impl<C: Context>(
                         .error(AppErrorKind::MessageParsingFailed)
                         .and_then(|jsep| {
                             let resp = endpoint::signal::CreateResponse::unicast(
-                                endpoint::signal::CreateResponseData::new(
-                                    tn.handle_id().to_owned(),
-                                    jsep.to_owned(),
-                                ),
+                                endpoint::signal::CreateResponseData::new(jsep.to_owned()),
                                 tn.reqp().to_response(
                                     ResponseStatus::OK,
                                     ShortTermTimingProperties::until_now(context.start_timestamp()),
@@ -696,10 +720,7 @@ async fn handle_status_event_impl<C: Context>(
                 .backend_id(evp.as_agent_id())
                 .execute(&conn)?;
 
-            agent::BulkStatusUpdateQuery::new(agent::Status::Ready)
-                .backend_id(evp.as_agent_id())
-                .status(agent::Status::Connected)
-                .execute(&conn)?;
+            agent_connection::BulkDisconnectQuery::new(evp.as_agent_id()).execute(&conn)?;
 
             janus_backend::DeleteQuery::new(evp.as_agent_id()).execute(&conn)?;
             Ok(streams_with_rtc)

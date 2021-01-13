@@ -12,7 +12,6 @@ use uuid::Uuid;
 
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
-use crate::app::handle_id::HandleId;
 use crate::db;
 use crate::diesel::Connection;
 
@@ -225,7 +224,6 @@ impl fmt::Display for ConnectIntent {
 #[derive(Debug, Deserialize)]
 pub(crate) struct ConnectRequest {
     id: Uuid,
-    handle_id: HandleId,
     #[serde(default = "ConnectRequest::default_intent")]
     intent: ConnectIntent,
     label: Option<String>,
@@ -251,23 +249,19 @@ impl RequestHandler for ConnectHandler {
         context.add_logger_tags(o!(
             "rtc_id" => payload.id.to_string(),
             "intent" => payload.intent.to_string(),
-            "janus_session_id" => payload.handle_id.janus_session_id(),
-            "janus_handle_id" => payload.handle_id.janus_handle_id(),
-            "backend_id" => payload.handle_id.backend_id().to_string(),
         ));
 
+        // Find room.
         let room =
             helpers::find_room_by_rtc_id(context, payload.id, helpers::RoomTimeRequirement::Open)?;
 
-        // Authorize connecting to the rtc.
-        if room.backend() != db::room::RoomBackend::Janus {
-            return Err(anyhow!(
-                "'rtc.connect' is not implemented for '{}' backend",
-                room.backend(),
-            ))
-            .error(AppErrorKind::NotImplemented);
-        }
+        context.add_logger_tags(o!("room_id" => room.id().to_string()));
 
+        // Find agent connection and backend.
+        let (agent_connection, backend) =
+            helpers::find_agent_connection_with_backend(context, reqp.as_agent_id(), &room)?;
+
+        // Authorize connecting to the rtc.
         let rtc_id = payload.id.to_string();
         let room_id = room.id().to_string();
         let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
@@ -288,7 +282,9 @@ impl RequestHandler for ConnectHandler {
                 .janus_client()
                 .read_stream_request(
                     reqp.clone(),
-                    &payload.handle_id,
+                    backend.id(),
+                    backend.session_id(),
+                    agent_connection.handle_id(),
                     payload.id,
                     context.start_timestamp(),
                     authz_time,
@@ -309,9 +305,9 @@ impl RequestHandler for ConnectHandler {
 
                     db::janus_rtc_stream::InsertQuery::new(
                         Uuid::new_v4(),
-                        payload.handle_id.janus_handle_id(),
+                        agent_connection.handle_id(),
                         payload.id,
-                        payload.handle_id.backend_id(),
+                        backend.id(),
                         label,
                         reqp.as_agent_id(),
                     )
@@ -327,7 +323,9 @@ impl RequestHandler for ConnectHandler {
                     .janus_client()
                     .create_stream_request(
                         reqp.clone(),
-                        &payload.handle_id,
+                        backend.id(),
+                        backend.session_id(),
+                        agent_connection.handle_id(),
                         payload.id,
                         context.start_timestamp(),
                         authz_time,
@@ -638,8 +636,8 @@ mod test {
         #[derive(Deserialize)]
         struct JanusRequest {
             janus: String,
-            session_id: u64,
-            handle_id: u64,
+            session_id: i64,
+            handle_id: i64,
             body: JanusRequestBody,
         }
 
@@ -653,19 +651,23 @@ mod test {
         fn connect_to_rtc_as_reader() {
             async_std::task::block_on(async {
                 let db = TestDb::new();
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
                 // Create an rtc.
-                let rtc = {
+                let (backend, rtc) = {
                     let conn = db
                         .connection_pool()
                         .get()
                         .expect("Failed to get DB connection");
 
-                    shared_helpers::insert_rtc(&conn)
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+                    shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room.id());
+                    (backend, rtc)
                 };
 
                 // Allow agent to read the rtc.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 let mut authz = TestAuthz::new();
                 let room_id = rtc.room_id().to_string();
                 let rtc_id = rtc.id().to_string();
@@ -678,11 +680,9 @@ mod test {
 
                 // Make `rtc.connect` request.
                 let mut context = TestContext::new(db, authz);
-                let backend = TestAgent::new("alpha", "janus", USR_AUDIENCE);
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
-                    handle_id: HandleId::new(123, 456, backend.agent_id().to_owned()),
                     intent: ConnectIntent::Read,
                     label: None,
                 };
@@ -696,7 +696,7 @@ mod test {
 
                 let expected_topic = format!(
                     "agents/{}/api/{}/in/conference.{}",
-                    backend.agent_id(),
+                    backend.id(),
                     API_VERSION,
                     SVC_AUDIENCE,
                 );
@@ -704,7 +704,7 @@ mod test {
                 assert_eq!(topic, expected_topic);
                 assert_eq!(payload.janus, "message");
                 assert_eq!(payload.handle_id, 123);
-                assert_eq!(payload.session_id, 456);
+                assert_eq!(payload.session_id, backend.session_id());
                 assert_eq!(payload.body.method, "stream.read");
                 assert_eq!(payload.body.id, rtc.id());
             });
@@ -714,9 +714,10 @@ mod test {
         fn connect_to_rtc_as_writer() {
             async_std::task::block_on(async {
                 let db = TestDb::new();
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
                 // Create an rtc.
-                let (rtc, backend) = {
+                let (backend, rtc) = {
                     let conn = db
                         .connection_pool()
                         .get()
@@ -725,11 +726,11 @@ mod test {
                     let backend = shared_helpers::insert_janus_backend(&conn);
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
-                    (rtc, backend)
+                    shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room.id());
+                    (backend, rtc)
                 };
 
                 // Allow agent to update the rtc.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 let mut authz = TestAuthz::new();
                 let room_id = rtc.room_id().to_string();
                 let rtc_id = rtc.id().to_string();
@@ -745,7 +746,6 @@ mod test {
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
-                    handle_id: HandleId::new(123, 456, backend.id().to_owned()),
                     intent: ConnectIntent::Write,
                     label: Some(String::from("test")),
                 };
@@ -767,7 +767,7 @@ mod test {
                 assert_eq!(topic, expected_topic);
                 assert_eq!(payload.janus, "message");
                 assert_eq!(payload.handle_id, 123);
-                assert_eq!(payload.session_id, 456);
+                assert_eq!(payload.session_id, backend.session_id());
                 assert_eq!(payload.body.method, "stream.create");
                 assert_eq!(payload.body.id, rtc.id());
 
@@ -801,15 +801,16 @@ mod test {
                         .get()
                         .expect("Failed to get DB connection");
 
-                    shared_helpers::insert_rtc(&conn)
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room.id());
+                    shared_helpers::insert_rtc_with_room(&conn, &room)
                 };
 
                 let mut context = TestContext::new(db, TestAuthz::new());
-                let backend = TestAgent::new("alpha", "janus", USR_AUDIENCE);
 
                 let payload = ConnectRequest {
                     id: rtc.id(),
-                    handle_id: HandleId::new(1, 2, backend.agent_id().to_owned()),
                     intent: ConnectIntent::Read,
                     label: None,
                 };
@@ -824,15 +825,59 @@ mod test {
         }
 
         #[test]
+        fn connect_to_rtc_not_signaled() {
+            async_std::task::block_on(async {
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let db = TestDb::new();
+
+                let rtc = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                    shared_helpers::insert_rtc_with_room(&conn, &room)
+                };
+
+                // Allow agent to update the rtc.
+                let mut authz = TestAuthz::new();
+                let room_id = rtc.room_id().to_string();
+                let rtc_id = rtc.id().to_string();
+
+                authz.allow(
+                    agent.account_id(),
+                    vec!["rooms", &room_id, "rtcs", &rtc_id],
+                    "update",
+                );
+
+                let mut context = TestContext::new(db, authz);
+
+                let payload = ConnectRequest {
+                    id: rtc.id(),
+                    intent: ConnectIntent::Read,
+                    label: None,
+                };
+
+                let err = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on rtc connecting");
+
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "agent_not_connected");
+            });
+        }
+
+        #[test]
         fn connect_to_rtc_missing() {
             async_std::task::block_on(async {
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-                let backend = TestAgent::new("alpha", "janus", USR_AUDIENCE);
 
                 let payload = ConnectRequest {
                     id: Uuid::new_v4(),
-                    handle_id: HandleId::new(1, 2, backend.agent_id().to_owned()),
                     intent: ConnectIntent::Read,
                     label: None,
                 };

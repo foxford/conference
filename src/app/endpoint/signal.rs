@@ -16,7 +16,6 @@ use uuid::Uuid;
 
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
-use crate::app::handle_id::HandleId;
 use crate::db;
 use crate::db::janus_backend::Object as JanusBackend;
 use crate::db::room::Object as Room;
@@ -25,13 +24,12 @@ use crate::db::room::Object as Room;
 
 #[derive(Debug, Serialize)]
 pub(crate) struct CreateResponseData {
-    handle_id: HandleId,
     jsep: JsonValue,
 }
 
 impl CreateResponseData {
-    pub(crate) fn new(handle_id: HandleId, jsep: JsonValue) -> Self {
-        Self { handle_id, jsep }
+    pub(crate) fn new(jsep: JsonValue) -> Self {
+        Self { jsep }
     }
 }
 
@@ -111,6 +109,7 @@ impl RequestHandler for CreateHandler {
         // Make janus handle creation request.
         let janus_request_result = context.janus_client().create_agent_handle_request(
             reqp.clone(),
+            payload.room_id,
             backend.session_id(),
             payload.jsep,
             backend.id(),
@@ -119,10 +118,6 @@ impl RequestHandler for CreateHandler {
 
         match janus_request_result {
             Ok(req) => {
-                db::agent::UpdateQuery::new(reqp.as_agent_id(), room.id())
-                    .status(db::agent::Status::Connected)
-                    .execute(&conn)?;
-
                 let boxed_request = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
                 Ok(Box::new(stream::once(boxed_request)))
             }
@@ -149,7 +144,7 @@ pub(crate) type TrickleResponse = OutgoingResponse<TrickleResponseData>;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct TrickleRequest {
-    handle_id: HandleId,
+    room_id: Uuid,
     jsep: JsonValue,
 }
 
@@ -180,10 +175,20 @@ impl RequestHandler for TrickleHandler {
             }
         }
 
+        // Find room.
+        let room =
+            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
+
+        // Find agent connection and backend.
+        let (agent_connection, backend) =
+            helpers::find_agent_connection_with_backend(context, reqp.as_agent_id(), &room)?;
+
         // Make janus trickle request.
         let janus_request_result = context.janus_client().trickle_request(
             reqp.clone(),
-            &payload.handle_id,
+            backend.id(),
+            backend.session_id(),
+            agent_connection.handle_id(),
             payload.jsep,
             context.start_timestamp(),
         );
@@ -218,7 +223,7 @@ pub(crate) type UpdateResponse = OutgoingResponse<UpdateResponseData>;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct UpdateRequest {
-    handle_id: HandleId,
+    room_id: Uuid,
     jsep: JsonValue,
 }
 
@@ -249,10 +254,20 @@ impl RequestHandler for UpdateHandler {
             }
         }
 
+        // Find room.
+        let room =
+            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
+
+        // Find agent connection and backend.
+        let (agent_connection, backend) =
+            helpers::find_agent_connection_with_backend(context, reqp.as_agent_id(), &room)?;
+
         // Make janus `signal.update` request.
         let janus_request_result = context.janus_client().update_signal_request(
             reqp.clone(),
-            &payload.handle_id,
+            backend.id(),
+            backend.session_id(),
+            agent_connection.handle_id(),
             payload.jsep,
             context.start_timestamp(),
         );
@@ -516,7 +531,7 @@ mod tests {
     mod create {
         use std::ops::Bound;
 
-        use chrono::{Duration, Utc};
+        use chrono::{Duration, SubsecRound, Utc};
         use serde_json::json;
         use svc_agent::mqtt::ResponseStatus;
 
@@ -550,14 +565,8 @@ mod tests {
                         .expect("Failed to get DB connection");
 
                     let backend = shared_helpers::insert_janus_backend(&conn);
-                    let room = shared_helpers::insert_room(&conn);
-
-                    factory::Agent::new()
-                        .agent_id(agent.agent_id())
-                        .room_id(room.id())
-                        .status(AgentStatus::Ready)
-                        .insert(&conn);
-
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
                     (backend, room)
                 };
 
@@ -616,7 +625,7 @@ mod tests {
                     .expect("Failed to get agents");
 
                 assert_eq!(db_agents.len(), 1);
-                assert_eq!(db_agents[0].status(), AgentStatus::Connected);
+                assert_eq!(db_agents[0].status(), AgentStatus::Ready);
             });
         }
 
@@ -636,13 +645,7 @@ mod tests {
                     let _backend1 = shared_helpers::insert_janus_backend(&conn);
                     let backend2 = shared_helpers::insert_janus_backend(&conn);
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
-
-                    factory::Agent::new()
-                        .agent_id(agent.agent_id())
-                        .room_id(room.id())
-                        .status(AgentStatus::Ready)
-                        .insert(&conn);
-
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
                     (backend2, room)
                 };
 
@@ -711,12 +714,7 @@ mod tests {
                         .insert(&conn);
 
                     let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
-
-                    factory::Agent::new()
-                        .agent_id(agent1.agent_id())
-                        .room_id(room1.id())
-                        .status(AgentStatus::Connected)
-                        .insert(&conn);
+                    shared_helpers::insert_connected_agent(&conn, agent1.agent_id(), room1.id());
 
                     // The third one is even more loaded but incapable to host the reserve.
                     let backend3_id = {
@@ -730,18 +728,8 @@ mod tests {
                         .insert(&conn);
 
                     let room2 = shared_helpers::insert_room_with_backend_id(&conn, backend3.id());
-
-                    factory::Agent::new()
-                        .agent_id(agent2.agent_id())
-                        .room_id(room2.id())
-                        .status(AgentStatus::Connected)
-                        .insert(&conn);
-
-                    factory::Agent::new()
-                        .agent_id(agent3.agent_id())
-                        .room_id(room2.id())
-                        .status(AgentStatus::Connected)
-                        .insert(&conn);
+                    shared_helpers::insert_connected_agent(&conn, agent2.agent_id(), room2.id());
+                    shared_helpers::insert_connected_agent(&conn, agent3.agent_id(), room2.id());
 
                     // Insert a room with a reserve to signal within. Put a ready agent there.
                     let now = Utc::now();
@@ -756,11 +744,7 @@ mod tests {
                         .reserve(120)
                         .insert(&conn);
 
-                    factory::Agent::new()
-                        .agent_id(agent4.agent_id())
-                        .room_id(room3.id())
-                        .status(AgentStatus::Ready)
-                        .insert(&conn);
+                    shared_helpers::insert_agent(&conn, agent4.agent_id(), room3.id());
 
                     // The greedy balancer should pick the second backend because it's the most
                     // loaded of those which are capable to host the reserve.
@@ -830,12 +814,7 @@ mod tests {
                         .insert(&conn);
 
                     let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
-
-                    factory::Agent::new()
-                        .agent_id(agent1.agent_id())
-                        .room_id(room1.id())
-                        .status(AgentStatus::Connected)
-                        .insert(&conn);
+                    shared_helpers::insert_agent(&conn, agent1.agent_id(), room1.id());
 
                     // Insert a room with a reserve to signal within. Put a ready agent there.
                     let now = Utc::now();
@@ -850,11 +829,7 @@ mod tests {
                         .reserve(200)
                         .insert(&conn);
 
-                    factory::Agent::new()
-                        .agent_id(agent2.agent_id())
-                        .room_id(room2.id())
-                        .status(AgentStatus::Ready)
-                        .insert(&conn);
+                    shared_helpers::insert_agent(&conn, agent2.agent_id(), room2.id());
 
                     // No backend can host such a big reserve so the balancer should pick the
                     // least loaded one.
@@ -913,22 +888,11 @@ mod tests {
 
                     // Insert room with a connected agent.
                     let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-
-                    factory::Agent::new()
-                        .agent_id(agent1.agent_id())
-                        .room_id(room1.id())
-                        .status(AgentStatus::Connected)
-                        .insert(&conn);
+                    shared_helpers::insert_connected_agent(&conn, agent1.agent_id(), room1.id());
 
                     // Insert a room to signal within and put a ready agent there.
                     let room2 = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-
-                    factory::Agent::new()
-                        .agent_id(agent2.agent_id())
-                        .room_id(room2.id())
-                        .status(AgentStatus::Ready)
-                        .insert(&conn);
-
+                    shared_helpers::insert_connected_agent(&conn, agent2.agent_id(), room2.id());
                     room2
                 };
 
@@ -974,22 +938,11 @@ mod tests {
 
                     // Insert room with a connected agent.
                     let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-
-                    factory::Agent::new()
-                        .agent_id(agent1.agent_id())
-                        .room_id(room1.id())
-                        .status(AgentStatus::Connected)
-                        .insert(&conn);
+                    shared_helpers::insert_agent(&conn, agent1.agent_id(), room1.id());
 
                     // Insert a room to signal within and put a ready agent there.
                     let room2 = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-
-                    factory::Agent::new()
-                        .agent_id(agent2.agent_id())
-                        .room_id(room2.id())
-                        .status(AgentStatus::Ready)
-                        .insert(&conn);
-
+                    shared_helpers::insert_agent(&conn, agent2.agent_id(), room2.id());
                     room2
                 };
 
@@ -1034,14 +987,18 @@ mod tests {
                         .get()
                         .expect("Failed to get DB connection");
 
-                    let room = shared_helpers::insert_room(&conn);
+                    let now = Utc::now().trunc_subsecs(0);
 
-                    factory::Agent::new()
-                        .agent_id(agent.agent_id())
-                        .room_id(room.id())
-                        .status(AgentStatus::Ready)
+                    let room = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(now),
+                            Bound::Excluded(now + Duration::hours(1)),
+                        ))
+                        .backend(RoomBackend::Janus)
                         .insert(&conn);
 
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
                     room
                 };
 
@@ -1077,13 +1034,7 @@ mod tests {
 
                     shared_helpers::insert_janus_backend(&conn);
                     let room = shared_helpers::insert_room(&conn);
-
-                    factory::Agent::new()
-                        .agent_id(agent.agent_id())
-                        .room_id(room.id())
-                        .status(AgentStatus::Ready)
-                        .insert(&conn);
-
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
                     room
                 };
 
@@ -1117,8 +1068,8 @@ mod tests {
                         .get()
                         .expect("Failed to get DB connection");
 
-                    shared_helpers::insert_janus_backend(&conn);
-                    shared_helpers::insert_room(&conn)
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    shared_helpers::insert_room_with_backend_id(&conn, backend.id())
                 };
 
                 // Make `signal.create` request.
@@ -1153,13 +1104,7 @@ mod tests {
 
                     shared_helpers::insert_janus_backend(&conn);
                     let room = shared_helpers::insert_closed_room(&conn);
-
-                    factory::Agent::new()
-                        .agent_id(agent.agent_id())
-                        .room_id(room.id())
-                        .status(AgentStatus::Ready)
-                        .insert(&conn);
-
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
                     room
                 };
 
@@ -1209,7 +1154,6 @@ mod tests {
         use svc_agent::mqtt::ResponseStatus;
 
         use crate::app::API_VERSION;
-        use crate::db::agent::Status as AgentStatus;
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
@@ -1240,29 +1184,23 @@ mod tests {
                 let db = TestDb::new();
 
                 // Insert backend, room and enter agent there.
-                let backend = {
+                let (backend, room) = {
                     let conn = db
                         .connection_pool()
                         .get()
                         .expect("Failed to get DB connection");
 
                     let backend = shared_helpers::insert_janus_backend(&conn);
-                    let room = shared_helpers::insert_room(&conn);
-
-                    factory::Agent::new()
-                        .agent_id(agent.agent_id())
-                        .room_id(room.id())
-                        .status(AgentStatus::Connected)
-                        .insert(&conn);
-
-                    backend
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room.id());
+                    (backend, room)
                 };
 
                 // Make `signal.trickle` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
                 let payload = TrickleRequest {
-                    handle_id: HandleId::new(123, 456, backend.id().to_owned()),
+                    room_id: room.id(),
                     jsep: json!({ "sdpMid": 0, "sdpMLineIndex": 0, "candidate": ICE_CANDIDATE }),
                 };
 
@@ -1283,7 +1221,7 @@ mod tests {
 
                 assert_eq!(topic, expected_topic);
                 assert_eq!(payload.janus, "trickle");
-                assert_eq!(payload.session_id, 456);
+                assert_eq!(payload.session_id, backend.session_id());
                 assert_eq!(payload.handle_id, 123);
                 assert_eq!(payload.candidate.sdp_m_id, 0);
                 assert_eq!(payload.candidate.sdp_m_line_index, 0);
@@ -1298,29 +1236,23 @@ mod tests {
                 let db = TestDb::new();
 
                 // Insert backend, room and enter agent there.
-                let backend = {
+                let room = {
                     let conn = db
                         .connection_pool()
                         .get()
                         .expect("Failed to get DB connection");
 
                     let backend = shared_helpers::insert_janus_backend(&conn);
-                    let room = shared_helpers::insert_room(&conn);
-
-                    factory::Agent::new()
-                        .agent_id(agent.agent_id())
-                        .room_id(room.id())
-                        .status(AgentStatus::Connected)
-                        .insert(&conn);
-
-                    backend
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room.id());
+                    room
                 };
 
                 // Make `signal.trickle` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
                 let payload = TrickleRequest {
-                    handle_id: HandleId::new(123, 456, backend.id().to_owned()),
+                    room_id: room.id(),
                     jsep: json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
                 };
 
@@ -1340,7 +1272,6 @@ mod tests {
         use svc_agent::mqtt::ResponseStatus;
 
         use crate::app::API_VERSION;
-        use crate::db::agent::Status as AgentStatus;
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
@@ -1383,22 +1314,16 @@ mod tests {
                 let db = TestDb::new();
 
                 // Insert backend, room and enter agent there.
-                let backend = {
+                let (backend, room) = {
                     let conn = db
                         .connection_pool()
                         .get()
                         .expect("Failed to get DB connection");
 
                     let backend = shared_helpers::insert_janus_backend(&conn);
-                    let room = shared_helpers::insert_room(&conn);
-
-                    factory::Agent::new()
-                        .agent_id(agent.agent_id())
-                        .room_id(room.id())
-                        .status(AgentStatus::Connected)
-                        .insert(&conn);
-
-                    backend
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room.id());
+                    (backend, room)
                 };
 
                 // Make `signal.update` request.
@@ -1406,7 +1331,7 @@ mod tests {
                 let jsep = Jsep::new("offer", SDP_OFFER_SENDRECV);
 
                 let payload = UpdateRequest {
-                    handle_id: HandleId::new(123, 456, backend.id().to_owned()),
+                    room_id: room.id(),
                     jsep: json!(jsep),
                 };
 
@@ -1427,7 +1352,7 @@ mod tests {
 
                 assert_eq!(topic, expected_topic);
                 assert_eq!(payload.janus, "message");
-                assert_eq!(payload.session_id, 456);
+                assert_eq!(payload.session_id, backend.session_id());
                 assert_eq!(payload.handle_id, 123);
                 assert_eq!(payload.body.method, "signal.update");
                 assert_eq!(payload.jsep, jsep);
@@ -1441,29 +1366,23 @@ mod tests {
                 let db = TestDb::new();
 
                 // Insert backend, room and enter agent there.
-                let backend = {
+                let room = {
                     let conn = db
                         .connection_pool()
                         .get()
                         .expect("Failed to get DB connection");
 
                     let backend = shared_helpers::insert_janus_backend(&conn);
-                    let room = shared_helpers::insert_room(&conn);
-
-                    factory::Agent::new()
-                        .agent_id(agent.agent_id())
-                        .room_id(room.id())
-                        .status(AgentStatus::Connected)
-                        .insert(&conn);
-
-                    backend
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room.id());
+                    room
                 };
 
                 // Make `signal.update` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
                 let payload = UpdateRequest {
-                    handle_id: HandleId::new(123, 456, backend.id().to_owned()),
+                    room_id: room.id(),
                     jsep: json!(Jsep::new("answer", SDP_ANSWER)),
                 };
 

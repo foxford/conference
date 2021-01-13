@@ -14,4 +14,3 @@ status     |   string | _required_ | See below.
 
 * `in_progress` – the agent has called [room.enter](room/enter.md) request but the broker has not yet confirmed the dynamic subscription to the room's events.
 * `ready` – the agent has entered the room.
-* `connected` – the agent has entered the room performed [signal.create](signal/create.md) call.

@@ -94,7 +94,7 @@ impl<'a> Agent<'a> {
             audience: None,
             agent_id: None,
             room_id: None,
-            status: db::agent::Status::Connected,
+            status: db::agent::Status::Ready,
         }
     }
 
@@ -134,6 +134,28 @@ impl<'a> Agent<'a> {
             .status(self.status)
             .execute(conn)
             .expect("Failed to insert agent")
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct AgentConnection {
+    agent_id: Uuid,
+    handle_id: i64,
+}
+
+impl AgentConnection {
+    pub(crate) fn new(agent_id: Uuid, handle_id: i64) -> Self {
+        Self {
+            agent_id,
+            handle_id,
+        }
+    }
+
+    pub(crate) fn insert(&self, conn: &PgConnection) -> db::agent_connection::Object {
+        db::agent_connection::UpsertQuery::new(self.agent_id, self.handle_id)
+            .execute(conn)
+            .expect("Failed to insert agent_connection")
     }
 }
 

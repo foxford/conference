@@ -1,12 +1,14 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::mqtt::{
-    IncomingRequestProperties, OutgoingMessage, OutgoingRequest, ShortTermTimingProperties,
+use svc_agent::{
+    mqtt::{
+        IncomingRequestProperties, OutgoingMessage, OutgoingRequest, ShortTermTimingProperties,
+    },
+    AgentId,
 };
 use uuid::Uuid;
 
-use crate::app::handle_id::HandleId;
 use crate::util::{generate_correlation_data, to_base64};
 
 use super::super::requests::{MessageRequest, ReadStreamRequestBody};
@@ -36,18 +38,19 @@ impl Client {
     pub(crate) fn read_stream_request(
         &self,
         reqp: IncomingRequestProperties,
-        handle_id: &HandleId,
+        backend_id: &AgentId,
+        janus_session_id: i64,
+        janus_handle_id: i64,
         rtc_id: Uuid,
         start_timestamp: DateTime<Utc>,
         authz_time: Duration,
     ) -> Result<OutgoingMessage<MessageRequest>> {
-        let to = handle_id.backend_id();
         let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
         short_term_timing.set_authorization_time(authz_time);
 
         let props = reqp.to_request(
             METHOD,
-            &self.response_topic(to)?,
+            &self.response_topic(backend_id)?,
             &generate_correlation_data(),
             short_term_timing,
         );
@@ -57,18 +60,19 @@ impl Client {
 
         let payload = MessageRequest::new(
             &to_base64(&transaction)?,
-            handle_id.janus_session_id(),
-            handle_id.janus_handle_id(),
+            janus_session_id,
+            janus_handle_id,
             serde_json::to_value(&body)?,
             None,
         );
 
-        self.register_transaction(to, start_timestamp, &props, &payload, self.timeout(METHOD));
+        let timeout = self.timeout(METHOD);
+        self.register_transaction(backend_id, start_timestamp, &props, &payload, timeout);
 
         Ok(OutgoingRequest::unicast(
             payload,
             props,
-            to,
+            backend_id,
             JANUS_API_VERSION,
         ))
     }

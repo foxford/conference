@@ -28,3 +28,5 @@
     - [Agent](api/agent.md)
         - [List](api/agent/list.md)
     - [Errors](api/errors.md)
+- [Implementation details](impl.md)
+    - [Database schema](impl/db_schema.md)
