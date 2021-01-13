@@ -1,8 +1,5 @@
-use std::result::Result as StdResult;
-
 use async_std::stream;
 use async_trait::async_trait;
-use diesel::pg::PgConnection;
 use serde_derive::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use svc_agent::mqtt::{
@@ -16,7 +13,6 @@ use uuid::Uuid;
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::app::API_VERSION;
-use crate::db::{self, room::Object as Room};
 use crate::util::{from_base64, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -33,7 +29,6 @@ pub(crate) struct UnicastHandler;
 #[async_trait]
 impl RequestHandler for UnicastHandler {
     type Payload = UnicastRequest;
-    const ERROR_TITLE: &'static str = "Failed to send unicast message";
 
     async fn handle<C: Context>(
         context: &mut C,
@@ -48,8 +43,8 @@ impl RequestHandler for UnicastHandler {
             )?;
 
             let conn = context.get_conn()?;
-            check_room_presence(&room, reqp.as_agent_id(), &conn)?;
-            check_room_presence(&room, &payload.agent_id, &conn)?;
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
+            helpers::check_room_presence(&room, &payload.agent_id, &conn)?;
         }
 
         let response_topic =
@@ -95,7 +90,6 @@ pub(crate) struct BroadcastHandler;
 #[async_trait]
 impl RequestHandler for BroadcastHandler {
     type Payload = BroadcastRequest;
-    const ERROR_TITLE: &'static str = "Failed to send broadcast message";
 
     async fn handle<C: Context>(
         context: &mut C,
@@ -110,7 +104,7 @@ impl RequestHandler for BroadcastHandler {
             )?;
 
             let conn = context.get_conn()?;
-            check_room_presence(&room, &reqp.as_agent_id(), &conn)?;
+            helpers::check_room_presence(&room, &reqp.as_agent_id(), &conn)?;
             room
         };
 
@@ -181,25 +175,6 @@ impl ResponseHandler for CallbackHandler {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-fn check_room_presence(
-    room: &Room,
-    agent_id: &AgentId,
-    conn: &PgConnection,
-) -> StdResult<(), AppError> {
-    let results = db::agent::ListQuery::new()
-        .room_id(room.id())
-        .agent_id(agent_id)
-        .execute(conn)?;
-
-    if results.is_empty() {
-        Err(anyhow!("Agent is not online in the room")).error(AppErrorKind::AgentNotEnteredTheRoom)
-    } else {
-        Ok(())
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
 #[cfg(test)]
 mod test {
     mod unicast {
@@ -223,17 +198,8 @@ mod test {
                     .get()
                     .map(|conn| {
                         let room = shared_helpers::insert_room(&conn);
-
-                        factory::Agent::new()
-                            .room_id(room.id())
-                            .agent_id(sender.agent_id())
-                            .insert(&conn);
-
-                        factory::Agent::new()
-                            .room_id(room.id())
-                            .agent_id(receiver.agent_id())
-                            .insert(&conn);
-
+                        shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
+                        shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
                         room
                     })
                     .expect("Failed to insert room");
@@ -302,12 +268,7 @@ mod test {
                     .get()
                     .map(|conn| {
                         let room = shared_helpers::insert_room(&conn);
-
-                        factory::Agent::new()
-                            .room_id(room.id())
-                            .agent_id(receiver.agent_id())
-                            .insert(&conn);
-
+                        shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
                         room
                     })
                     .expect("Failed to insert room");
@@ -343,12 +304,7 @@ mod test {
                     .get()
                     .map(|conn| {
                         let room = shared_helpers::insert_room(&conn);
-
-                        factory::Agent::new()
-                            .room_id(room.id())
-                            .agent_id(sender.agent_id())
-                            .insert(&conn);
-
+                        shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
                         room
                     })
                     .expect("Failed to insert room");

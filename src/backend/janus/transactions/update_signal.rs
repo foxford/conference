@@ -1,21 +1,22 @@
 use anyhow::Result;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use svc_agent::{
     mqtt::{
-        IncomingRequestProperties, OutgoingMessage, OutgoingRequest, ShortTermTimingProperties,
+        IncomingRequestProperties, OutgoingMessage, OutgoingRequest, OutgoingRequestProperties,
+        ShortTermTimingProperties,
     },
     AgentId,
 };
-use uuid::Uuid;
 
 use crate::util::{generate_correlation_data, to_base64};
 
-use super::super::requests::{MessageRequest, ReadStreamRequestBody};
+use super::super::requests::{MessageRequest, UpdateSignalRequestBody};
 use super::super::{Client, JANUS_API_VERSION};
 use super::Transaction;
 
-const METHOD: &str = "janus_conference_stream.create";
+const METHOD: &str = "janus_conference_signal.update";
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -35,35 +36,31 @@ impl TransactionData {
 }
 
 impl Client {
-    pub(crate) fn read_stream_request(
+    pub(crate) fn update_signal_request(
         &self,
         reqp: IncomingRequestProperties,
         backend_id: &AgentId,
         janus_session_id: i64,
         janus_handle_id: i64,
-        rtc_id: Uuid,
+        jsep: JsonValue,
         start_timestamp: DateTime<Utc>,
-        authz_time: Duration,
     ) -> Result<OutgoingMessage<MessageRequest>> {
-        let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-        short_term_timing.set_authorization_time(authz_time);
-
-        let props = reqp.to_request(
-            METHOD,
-            &self.response_topic(backend_id)?,
-            &generate_correlation_data(),
-            short_term_timing,
-        );
-
-        let body = ReadStreamRequestBody::new(rtc_id);
-        let transaction = Transaction::ReadStream(TransactionData::new(reqp));
+        let transaction = Transaction::UpdateSignal(TransactionData::new(reqp));
+        let body = UpdateSignalRequestBody::new();
 
         let payload = MessageRequest::new(
             &to_base64(&transaction)?,
             janus_session_id,
             janus_handle_id,
             serde_json::to_value(&body)?,
-            None,
+            Some(jsep),
+        );
+
+        let props = OutgoingRequestProperties::new(
+            METHOD,
+            &self.response_topic(&backend_id)?,
+            &generate_correlation_data(),
+            ShortTermTimingProperties::until_now(start_timestamp),
         );
 
         let timeout = self.timeout(METHOD);

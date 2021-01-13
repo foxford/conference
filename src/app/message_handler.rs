@@ -9,12 +9,10 @@ use futures_util::pin_mut;
 use svc_agent::{
     mqtt::{
         Agent, IncomingEvent, IncomingMessage, IncomingRequest, IncomingRequestProperties,
-        IncomingResponse, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
-        ShortTermTimingProperties,
+        IncomingResponse, IntoPublishableMessage, OutgoingResponse, ShortTermTimingProperties,
     },
     Addressable, Authenticable,
 };
-use svc_error::Error as SvcError;
 
 use crate::app::context::{AppMessageContext, Context, GlobalContext, MessageContext};
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
@@ -144,11 +142,11 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         let outgoing_message_stream = endpoint::route_request(msg_context, request, topic)
             .await
             .unwrap_or_else(|| {
+                let err = anyhow!("Unknown method '{}'", request.properties().method());
+                let app_error = AppError::new(AppErrorKind::UnknownMethod, err);
+
                 error_response(
-                    ResponseStatus::METHOD_NOT_ALLOWED,
-                    "about:blank",
-                    "Unknown method",
-                    "Unknown method",
+                    app_error,
                     request.properties(),
                     msg_context.start_timestamp(),
                 )
@@ -228,24 +226,18 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
 }
 
 fn error_response(
-    status: ResponseStatus,
-    kind: &str,
-    title: &str,
-    detail: &str,
+    err: AppError,
     reqp: &IncomingRequestProperties,
     start_timestamp: DateTime<Utc>,
 ) -> MessageStream {
-    let err = SvcError::builder()
-        .status(status)
-        .kind(kind, title)
-        .detail(detail)
-        .build();
-
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
-    let props = reqp.to_response(status, timing);
-    let resp = OutgoingResponse::unicast(err, props, reqp, API_VERSION);
-    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-    Box::new(stream::once(boxed_resp))
+    let props = reqp.to_response(err.status(), timing);
+    let e = err.to_svc_error();
+    let resp = OutgoingResponse::unicast(e, props, reqp, API_VERSION);
+
+    Box::new(stream::once(
+        Box::new(resp) as Box<dyn IntoPublishableMessage + Send>
+    ))
 }
 
 pub(crate) fn publish_message(
@@ -314,25 +306,14 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
                             app_error.notify_sentry(context.logger());
 
                             // Handler returned an error.
-                            error_response(
-                                app_error.status(),
-                                app_error.kind(),
-                                app_error.title(),
-                                &app_error.source().to_string(),
-                                &reqp,
-                                context.start_timestamp(),
-                            )
+                            error_response(app_error, reqp, context.start_timestamp())
                         })
                 }
                 // Bad envelope or payload format => 400.
-                Err(err) => error_response(
-                    ResponseStatus::BAD_REQUEST,
-                    reqp.method(),
-                    H::ERROR_TITLE,
-                    &err.to_string(),
-                    reqp,
-                    context.start_timestamp(),
-                ),
+                Err(err) => {
+                    let app_error = AppError::new(AppErrorKind::InvalidPayload, anyhow!("{}", err));
+                    error_response(app_error, reqp, context.start_timestamp())
+                }
             }
         }
 

@@ -4,7 +4,7 @@ use diesel::result::Error;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::schema::janus_backend;
+use crate::schema::{janus_backend, janus_rtc_stream};
 
 pub(crate) type AllColumns = (
     janus_backend::id,
@@ -53,42 +53,26 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct ListQuery<'a> {
-    ids: Option<&'a [&'a AgentId]>,
-    offset: Option<i64>,
-    limit: Option<i64>,
-}
+#[derive(Debug)]
+pub(crate) struct ActiveListQuery {}
 
-impl<'a> ListQuery<'a> {
+impl ActiveListQuery {
     pub(crate) fn new() -> Self {
-        Self {
-            ids: None,
-            offset: None,
-            limit: None,
-        }
-    }
-
-    pub(crate) fn ids(self, ids: &'a [&'a AgentId]) -> Self {
-        Self {
-            ids: Some(ids),
-            ..self
-        }
+        Self {}
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+        use diesel::dsl::sql;
         use diesel::prelude::*;
 
-        let mut q = janus_backend::table.into_boxed();
-        if let Some(ids) = self.ids {
-            q = q.filter(janus_backend::id.eq_any(ids))
-        }
-        if let Some(offset) = self.offset {
-            q = q.offset(offset);
-        }
-        if let Some(limit) = self.limit {
-            q = q.limit(limit);
-        }
-        q.order_by(janus_backend::created_at).get_results(conn)
+        janus_backend::table
+            .inner_join(
+                janus_rtc_stream::table.on(janus_rtc_stream::backend_id.eq(janus_backend::id)),
+            )
+            .filter(sql(crate::db::janus_rtc_stream::ACTIVE_SQL))
+            .select(ALL_COLUMNS)
+            .distinct()
+            .get_results(conn)
     }
 }
 
@@ -198,11 +182,12 @@ const MOST_LOADED_SQL: &str = r#"
     WITH
         room_load AS (
             SELECT
-                room_id,
-                COUNT(id) AS taken
-            FROM agent
-            WHERE status = 'connected'
-            GROUP BY room_id
+                a.room_id,
+                COUNT(a.id) AS taken
+            FROM agent AS a
+            INNER JOIN agent_connection AS ac
+            ON ac.agent_id = a.id
+            GROUP BY a.room_id
         ),
         active_room AS (
             SELECT *
@@ -254,11 +239,12 @@ const LEAST_LOADED_SQL: &str = r#"
     WITH
         room_load AS (
             SELECT
-                room_id,
-                COUNT(id) AS taken
-            FROM agent
-            WHERE status = 'connected'
-            GROUP BY room_id
+                a.room_id,
+                COUNT(a.id) AS taken
+            FROM agent AS a
+            INNER JOIN agent_connection AS ac
+            ON ac.agent_id = a.id
+            GROUP BY a.room_id
         ),
         active_room AS (
             SELECT *
@@ -317,7 +303,8 @@ const FREE_CAPACITY_SQL: &str = r#"
             FROM agent AS a
             INNER JOIN room AS r
             ON r.id = a.room_id
-            WHERE a.status = 'connected'
+            INNER JOIN agent_connection AS ac
+            ON ac.agent_id = a.id
             GROUP BY r.id
         ),
         active_room AS (
@@ -366,16 +353,14 @@ const FREE_CAPACITY_SQL: &str = r#"
                 )
             END
         )::INT AS free_capacity
-    FROM rtc
-    LEFT JOIN active_room AS ar
-    ON ar.id = rtc.room_id
+    FROM active_room AS ar
     LEFT JOIN room_load as rl
-    ON rl.room_id = rtc.room_id
+    ON rl.room_id = ar.id
     LEFT JOIN janus_backend AS jb
     ON jb.id = ar.backend_id
     LEFT JOIN janus_backend_load AS jbl
     ON jbl.backend_id = jb.id
-    WHERE rtc.id = $1
+    WHERE ar.id = $1
 "#;
 
 #[derive(QueryableByName)]
@@ -384,12 +369,12 @@ struct FreeCapacityQueryRow {
     free_capacity: i32,
 }
 
-pub(crate) fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Error> {
+pub(crate) fn free_capacity(room_id: Uuid, conn: &PgConnection) -> Result<i32, Error> {
     use diesel::prelude::*;
     use diesel::sql_types::Uuid;
 
     diesel::sql_query(FREE_CAPACITY_SQL)
-        .bind::<Uuid, _>(rtc_id)
+        .bind::<Uuid, _>(room_id)
         .get_result::<FreeCapacityQueryRow>(conn)
         .map(|row| row.free_capacity)
 }
@@ -437,11 +422,12 @@ const LOAD_FOR_EACH_BACKEND: &str = r#"
 WITH
     room_load AS (
         SELECT
-            room_id,
-            COUNT(id) AS taken
-        FROM agent
-        WHERE status = 'connected'
-        GROUP BY room_id
+            a.room_id,
+            COUNT(a.id) AS taken
+        FROM agent AS a
+        INNER JOIN agent_connection AS ac
+        ON ac.agent_id = a.id
+        GROUP BY a.room_id
     ),
     active_room AS (
         SELECT *
@@ -476,9 +462,10 @@ LEFT OUTER JOIN janus_backend_load jbl
 ON jb.id = jbl.backend_id;
 "#;
 
+////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod tests {
-
     use chrono::{Duration, Utc};
     use std::ops::Bound;
 

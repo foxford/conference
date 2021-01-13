@@ -24,4 +24,4 @@ limit      | int        |         25 | Limits the number of objects in the respo
 
 ## Unicast response
 
-If successful, the response payload contains the list of **Agent** objects.
+If successful, the response payload contains the list of [Agent](../agent.md#properties) objects.

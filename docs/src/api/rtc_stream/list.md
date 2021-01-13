@@ -27,4 +27,4 @@ limit      | i32        |         25 | Limits the number of objects in the respo
 
 ## Unicast response
 
-If successful, the response payload contains the list of **Real-Time Connection Stream** objects.
+If successful, the response payload contains the list of [Real-Time Connection Stream](../rtc_stream.md#properties) objects.

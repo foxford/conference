@@ -6,7 +6,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use super::room::Object as Room;
-use crate::schema::{agent, janus_rtc_stream, rtc};
+use crate::schema::{agent, agent_connection};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -18,7 +18,6 @@ pub(crate) enum Status {
     #[serde(rename = "in_progress")]
     InProgress,
     Ready,
-    Connected,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
@@ -33,8 +32,16 @@ pub(crate) struct Object {
     status: Status,
 }
 
-#[cfg(test)]
 impl Object {
+    pub(crate) fn id(&self) -> Uuid {
+        self.id
+    }
+
+    pub(crate) fn agent_id(&self) -> &AgentId {
+        &self.agent_id
+    }
+
+    #[cfg(test)]
     pub(crate) fn status(&self) -> Status {
         self.status
     }
@@ -42,21 +49,18 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, Default)]
 pub(crate) struct ListQuery<'a> {
     agent_id: Option<&'a AgentId>,
     room_id: Option<Uuid>,
+    status: Option<Status>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
 impl<'a> ListQuery<'a> {
     pub(crate) fn new() -> Self {
-        Self {
-            agent_id: None,
-            room_id: None,
-            offset: None,
-            limit: None,
-        }
+        Default::default()
     }
 
     pub(crate) fn agent_id(self, agent_id: &'a AgentId) -> Self {
@@ -69,6 +73,13 @@ impl<'a> ListQuery<'a> {
     pub(crate) fn room_id(self, room_id: Uuid) -> Self {
         Self {
             room_id: Some(room_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn status(self, status: Status) -> Self {
+        Self {
+            status: Some(status),
             ..self
         }
     }
@@ -92,7 +103,7 @@ impl<'a> ListQuery<'a> {
 
         let mut q = agent::table
             .into_boxed()
-            .filter(agent::status.eq_any(&[Status::Ready, Status::Connected]));
+            .filter(agent::status.eq(Status::Ready));
 
         if let Some(agent_id) = self.agent_id {
             q = q.filter(agent::agent_id.eq(agent_id));
@@ -100,6 +111,10 @@ impl<'a> ListQuery<'a> {
 
         if let Some(room_id) = self.room_id {
             q = q.filter(agent::room_id.eq(room_id));
+        }
+
+        if let Some(status) = self.status {
+            q = q.filter(agent::status.eq(status));
         }
 
         if let Some(offset) = self.offset {
@@ -116,32 +131,22 @@ impl<'a> ListQuery<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct CountQuery {
-    status: Option<Status>,
-}
+#[derive(Debug)]
+pub(crate) struct ConnectedCountQuery {}
 
-impl CountQuery {
+impl ConnectedCountQuery {
     pub(crate) fn new() -> Self {
-        Self { status: None }
+        Self {}
     }
-
-    pub(crate) fn status(self, status: Status) -> Self {
-        Self {
-            status: Some(status),
-        }
-    }
-
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
         use diesel::dsl::count;
         use diesel::prelude::*;
 
-        let mut query = agent::table.select(count(agent::id)).into_boxed();
-
-        if let Some(status) = self.status {
-            query = query.filter(agent::status.eq(status));
-        }
-
-        query.get_result(conn)
+        agent::table
+            .inner_join(agent_connection::table)
+            .filter(agent::status.eq(Status::Ready))
+            .select(count(agent::id))
+            .get_result(conn)
     }
 }
 
@@ -218,78 +223,6 @@ impl<'a> UpdateQuery<'a> {
             .filter(agent::room_id.eq(self.room_id));
 
         diesel::update(query).set(self).get_result(conn).optional()
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug)]
-pub(crate) struct BulkStatusUpdateQuery<'a> {
-    room_id: Option<Uuid>,
-    backend_id: Option<&'a AgentId>,
-    status: Option<Status>,
-    new_status: Status,
-}
-
-impl<'a> BulkStatusUpdateQuery<'a> {
-    pub(crate) fn new(new_status: Status) -> Self {
-        Self {
-            room_id: None,
-            backend_id: None,
-            status: None,
-            new_status,
-        }
-    }
-
-    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
-        Self {
-            room_id: Some(room_id),
-            ..self
-        }
-    }
-
-    pub(crate) fn backend_id(self, backend_id: &'a AgentId) -> Self {
-        Self {
-            backend_id: Some(backend_id),
-            ..self
-        }
-    }
-
-    pub(crate) fn status(self, status: Status) -> Self {
-        Self {
-            status: Some(status),
-            ..self
-        }
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-
-        conn.transaction::<_, Error, _>(|| {
-            let mut query = diesel::update(agent::table).into_boxed();
-
-            if let Some(room_id) = self.room_id {
-                query = query.filter(agent::room_id.eq(room_id));
-            }
-
-            if let Some(backend_id) = self.backend_id {
-                // Diesel doesn't allow JOINs with UPDATE so find backend ids with a separate query.
-                let room_ids: Vec<Uuid> = rtc::table
-                    .inner_join(janus_rtc_stream::table)
-                    .filter(janus_rtc_stream::backend_id.eq(backend_id))
-                    .select(rtc::room_id)
-                    .distinct()
-                    .get_results(conn)?;
-
-                query = query.filter(agent::room_id.eq_any(room_ids))
-            }
-
-            if let Some(status) = self.status {
-                query = query.filter(agent::status.eq(status));
-            }
-
-            query.set(agent::status.eq(self.new_status)).execute(conn)
-        })
     }
 }
 

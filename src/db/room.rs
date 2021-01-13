@@ -18,7 +18,7 @@ use crate::schema::{janus_backend, recording, room, rtc};
 
 pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
-type AllColumns = (
+pub(crate) type AllColumns = (
     room::id,
     room::time,
     room::audience,
@@ -29,7 +29,7 @@ type AllColumns = (
     room::backend_id,
 );
 
-const ALL_COLUMNS: AllColumns = (
+pub(crate) const ALL_COLUMNS: AllColumns = (
     room::id,
     room::time,
     room::audience,
@@ -114,6 +114,42 @@ impl Object {
 
     pub(crate) fn backend_id(&self) -> Option<&AgentId> {
         self.backend_id.as_ref()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Default)]
+pub(crate) struct ListQuery {
+    opened_since: Option<DateTime<Utc>>,
+}
+
+impl ListQuery {
+    pub(crate) fn new() -> Self {
+        Default::default()
+    }
+
+    pub(crate) fn opened_since(self, time: DateTime<Utc>) -> Self {
+        Self {
+            opened_since: Some(time),
+            ..self
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+        use diesel::{dsl::sql, prelude::*, sql_types::Timestamptz};
+
+        let mut q = room::table.into_boxed();
+
+        if let Some(time) = self.opened_since {
+            q = q.filter(
+                sql("LOWER(\"room\".\"time\") BETWEEN ")
+                    .bind::<Timestamptz, _>(time)
+                    .sql(" AND NOW()"),
+            );
+        }
+
+        q.get_results(conn)
     }
 }
 

@@ -45,6 +45,12 @@ pub(crate) struct RoomEnterLeaveEvent {
     agent_id: AgentId,
 }
 
+impl RoomEnterLeaveEvent {
+    pub(crate) fn new(id: Uuid, agent_id: AgentId) -> Self {
+        Self { id, agent_id }
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct CreateHandler;
@@ -76,7 +82,7 @@ impl EventHandler for CreateHandler {
             "audience" => evp.as_account_id().audience().to_owned(),
         ));
 
-        helpers::find_room_by_id(context, room_id, helpers::RoomTimeRequirement::Open)?;
+        helpers::find_room_by_id(context, room_id, helpers::RoomTimeRequirement::NotClosed)?;
 
         {
             let conn = context.get_conn()?;
@@ -88,11 +94,7 @@ impl EventHandler for CreateHandler {
         }
 
         // Send broadcast notification that the agent has entered the room.
-        let outgoing_event_payload = RoomEnterLeaveEvent {
-            id: room_id.to_owned(),
-            agent_id: payload.subject,
-        };
-
+        let outgoing_event_payload = RoomEnterLeaveEvent::new(room_id.to_owned(), payload.subject);
         let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
         let props = evp.to_event("room.enter", short_term_timing);
         let to_uri = format!("rooms/{}/events", room_id);
@@ -136,10 +138,8 @@ impl EventHandler for DeleteHandler {
 
         if row_count == 1 {
             // Send broadcast notification that the agent has left the room.
-            let outgoing_event_payload = RoomEnterLeaveEvent {
-                id: room_id.to_owned(),
-                agent_id: payload.subject.to_owned(),
-            };
+            let outgoing_event_payload =
+                RoomEnterLeaveEvent::new(room_id.to_owned(), payload.subject.to_owned());
 
             let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
             let props = evp.to_event("room.leave", short_term_timing);
@@ -149,36 +149,7 @@ impl EventHandler for DeleteHandler {
             let mut messages = vec![boxed_event];
 
             // `agent.leave` requests to Janus instances that host active streams in this room.
-            let streams = db::janus_rtc_stream::ListQuery::new()
-                .room_id(room_id)
-                .active(true)
-                .execute(&conn)?;
-
-            for stream in streams.iter() {
-                // If the agent is a publisher.
-                if stream.sent_by() == &payload.subject {
-                    // Stop the stream.
-                    db::janus_rtc_stream::stop(stream.id(), &conn)?;
-
-                    // Put stream readers into `ready` status since the stream has gone.
-                    db::agent::BulkStatusUpdateQuery::new(db::agent::Status::Ready)
-                        .room_id(room_id)
-                        .status(db::agent::Status::Connected)
-                        .execute(&conn)?;
-                }
-            }
-
-            // Send agent.leave requests to those backends where the agent is connected to.
-            let mut backend_ids = streams
-                .iter()
-                .map(|stream| stream.backend_id())
-                .collect::<Vec<&AgentId>>();
-
-            backend_ids.dedup();
-
-            let backends = db::janus_backend::ListQuery::new()
-                .ids(&backend_ids[..])
-                .execute(&conn)?;
+            let backends = db::janus_backend::ActiveListQuery::new().execute(&conn)?;
 
             for backend in backends {
                 let result = context.janus_client().agent_leave_request(
@@ -210,17 +181,30 @@ impl EventHandler for DeleteHandler {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Bound;
+    use serde_derive::Deserialize;
+    use svc_agent::{mqtt::ResponseStatus, AgentId};
 
-    use svc_agent::mqtt::ResponseStatus;
-
+    use crate::app::API_VERSION;
     use crate::db::agent::{ListQuery as AgentListQuery, Status as AgentStatus};
-    use crate::db::janus_rtc_stream::Object as JanusRtcStream;
     use crate::test_helpers::prelude::*;
 
     use super::*;
 
     ///////////////////////////////////////////////////////////////////////////
+
+    #[derive(Deserialize)]
+    struct AgentLeaveRequest {
+        janus: String,
+        session_id: i64,
+        handle_id: i64,
+        body: AgentLeaveRequestBody,
+    }
+
+    #[derive(Deserialize)]
+    struct AgentLeaveRequestBody {
+        method: String,
+        agent_id: AgentId,
+    }
 
     #[test]
     fn create_subscription() {
@@ -241,6 +225,7 @@ mod tests {
                 factory::Agent::new()
                     .room_id(room.id())
                     .agent_id(agent.agent_id())
+                    .status(AgentStatus::InProgress)
                     .insert(&conn);
 
                 room
@@ -408,80 +393,87 @@ mod tests {
     #[test]
     fn delete_subscription_for_stream_writer() {
         async_std::task::block_on(async {
-            use diesel::prelude::*;
-
             let db = TestDb::new();
-            let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
-            let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let (rtc, stream) = {
+            let (backend, room) = {
                 let conn = db
                     .connection_pool()
                     .get()
                     .expect("Failed to get DB connection");
 
                 // Create room with rtc, backend and a started active stream.
-                let rtc = shared_helpers::insert_rtc(&conn);
                 let backend = shared_helpers::insert_janus_backend(&conn);
+                let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room.id());
+                let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
                 let stream = factory::JanusRtcStream::new(USR_AUDIENCE)
                     .backend(&backend)
                     .rtc(&rtc)
-                    .sent_by(writer.agent_id())
+                    .sent_by(agent.agent_id())
                     .insert(&conn);
 
-                let started_stream = crate::db::janus_rtc_stream::start(stream.id(), &conn)
+                crate::db::janus_rtc_stream::start(stream.id(), &conn)
                     .expect("Failed to start janus rtc stream")
                     .expect("Janus rtc stream couldn't start");
 
-                // Put agents online.
-                shared_helpers::insert_agent(&conn, writer.agent_id(), rtc.room_id());
-                shared_helpers::insert_agent(&conn, reader.agent_id(), rtc.room_id());
-
-                (rtc, started_stream)
+                (backend, room)
             };
 
             // Send subscription.delete event for the writer.
             let mut context = TestContext::new(db.clone(), TestAuthz::new());
-            let room_id = rtc.room_id().to_string();
+            let room_id = room.id().to_string();
 
             let payload = SubscriptionEvent {
-                subject: writer.agent_id().to_owned(),
+                subject: agent.agent_id().to_owned(),
                 object: vec!["rooms".to_string(), room_id, "events".to_string()],
             };
 
             let broker_account_label = context.config().broker_id.label();
             let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
 
-            handle_event::<DeleteHandler>(&mut context, &broker, payload)
+            let messages = handle_event::<DeleteHandler>(&mut context, &broker, payload)
                 .await
                 .expect("Subscription deletion failed");
 
-            // Assert the stream is stopped.
+            // Assert broadcast notification.
+            let (payload, evp, topic) = find_event::<RoomEnterLeaveEvent>(messages.as_slice());
+            assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
+            assert_eq!(evp.label(), "room.leave");
+            assert_eq!(payload.id, room.id());
+            assert_eq!(&payload.agent_id, agent.agent_id());
+
+            // Assert `agent.leave` request to janus.
+            let (payload, _reqp, topic) = find_request::<AgentLeaveRequest>(messages.as_slice());
+
+            let expected_topic = format!(
+                "agents/{}/api/{}/in/conference.{}",
+                backend.id(),
+                API_VERSION,
+                SVC_AUDIENCE,
+            );
+
+            assert_eq!(topic, expected_topic);
+            assert_eq!(payload.session_id, backend.session_id());
+            assert_eq!(payload.handle_id, backend.handle_id());
+            assert_eq!(payload.janus, "message");
+            assert_eq!(payload.body.method, "agent.leave");
+            assert_eq!(&payload.body.agent_id, agent.agent_id());
+
+            // Assert agent deleted from the DB.
             let conn = db
                 .connection_pool()
                 .get()
                 .expect("Failed to get DB connection");
 
-            let db_stream: JanusRtcStream = crate::schema::janus_rtc_stream::table
-                .find(stream.id())
-                .get_result(&conn)
-                .expect("Failed to get janus rtc stream");
-
-            assert!(matches!(
-                db_stream.time(),
-                Some((Bound::Included(_), Bound::Excluded(_)))
-            ));
-
-            // Assert the reader is in `ready` status.
             let db_agents = AgentListQuery::new()
-                .agent_id(reader.agent_id())
-                .room_id(rtc.room_id())
+                .agent_id(agent.agent_id())
+                .room_id(room.id())
                 .execute(&conn)
                 .expect("Failed to execute agent list query");
 
-            let db_agent = db_agents.first().expect("Reader agent not found");
-            assert_eq!(db_agent.status(), AgentStatus::Ready);
+            assert_eq!(db_agents.len(), 0);
         });
     }
 

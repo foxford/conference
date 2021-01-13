@@ -22,4 +22,4 @@ id         | String | _required_ | The Real-time connection identifier.
 
 ## Unicast response
 
-If successful, the response payload contains the **Real-Time Connection** instance.
+If successful, the response payload contains the requested [Real-Time Connection](../rtc.md#properties) object.

@@ -1,9 +1,9 @@
-use std::str::FromStr;
+use std::ops::Bound;
 
 use anyhow::Result;
 use async_std::stream;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use std::ops::Bound;
+use diesel::pg::PgConnection;
 use svc_agent::mqtt::{
     IncomingEvent as MQTTIncomingEvent, IncomingEventProperties, IncomingRequestProperties,
     IncomingResponse as MQTTIncomingResponse, IntoPublishableMessage, OutgoingResponse,
@@ -16,14 +16,13 @@ use uuid::Uuid;
 use crate::app::context::Context;
 use crate::app::endpoint;
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
-use crate::app::handle_id::HandleId;
 use crate::app::message_handler::MessageStream;
 use crate::app::API_VERSION;
-use crate::db::{agent, janus_backend, janus_rtc_stream, recording, room, rtc};
+use crate::db::{agent, agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc};
 use crate::diesel::Connection;
 use crate::util::from_base64;
 
-use self::events::{IncomingEvent, StatusEvent};
+use self::events::{DetachedEvent, IncomingEvent, MediaEvent, StatusEvent};
 use self::responses::{ErrorResponse, IncomingResponse};
 use self::transactions::Transaction;
 
@@ -31,12 +30,7 @@ use self::transactions::Transaction;
 
 const STREAM_UPLOAD_METHOD: &str = "stream.upload";
 pub(crate) const JANUS_API_VERSION: &str = "v1";
-
 const ALREADY_RUNNING_STATE: &str = "already_running";
-
-pub(crate) trait OpaqueId {
-    fn opaque_id(&self) -> &str;
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -75,12 +69,12 @@ async fn handle_response_impl<C: Context>(
                 .error(AppErrorKind::MessageParsingFailed)?;
 
             match txn {
-                // Session has been created
+                // Session has been created.
                 Transaction::CreateSession(tn) => {
-                    // Creating Handle
+                    // Create service handle.
                     let backreq = context
                         .janus_client()
-                        .create_handle_request(
+                        .create_service_handle_request(
                             respp,
                             inresp.data().id(),
                             tn.capacity(),
@@ -92,8 +86,8 @@ async fn handle_response_impl<C: Context>(
                     let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>;
                     Ok(Box::new(stream::once(boxed_backreq)))
                 }
-                // Handle has been created
-                Transaction::CreateHandle(tn) => {
+                // Service handle has been created.
+                Transaction::CreateServiceHandle(tn) => {
                     let backend_id = respp.as_agent_id();
                     let handle_id = inresp.data().id();
                     let conn = context.get_conn()?;
@@ -112,32 +106,58 @@ async fn handle_response_impl<C: Context>(
                     q.execute(&conn)?;
                     Ok(Box::new(stream::empty()))
                 }
-                // Rtc Handle has been created
-                Transaction::CreateRtcHandle(tn) => {
-                    let agent_id = respp.as_agent_id();
-                    let reqp = tn.reqp();
+                // Agent handle has been created.
+                Transaction::CreateAgentHandle(tn) => {
+                    let handle_id = inresp.data().id();
+                    let agent_id = tn.reqp().as_agent_id();
+                    let room_id = tn.room_id();
+                    let conn = context.get_conn()?;
 
-                    // Returning Real-Time connection handle
-                    let resp = endpoint::rtc::ConnectResponse::unicast(
-                        endpoint::rtc::ConnectResponseData::new(HandleId::new(
-                            tn.rtc_stream_id(),
-                            tn.rtc_id(),
-                            inresp.data().id(),
+                    conn.transaction::<_, AppError, _>(|| {
+                        // Find agent in the DB who made the original `signal.create` request.
+                        let maybe_agent = agent::ListQuery::new()
+                            .agent_id(agent_id)
+                            .room_id(room_id)
+                            .status(agent::Status::Ready)
+                            .limit(1)
+                            .execute(&conn)?;
+
+                        if let Some(agent) = maybe_agent.first() {
+                            // Create agent connection in the DB.
+                            agent_connection::UpsertQuery::new(agent.id(), handle_id)
+                                .execute(&conn)?;
+
+                            Ok(())
+                        } else {
+                            context.add_logger_tags(o!(
+                                "agent_id" => agent_id.to_string(),
+                                "room_id" => room_id.to_string(),
+                            ));
+
+                            // Agent may be already gone.
+                            Err(anyhow!("Agent not found"))
+                                .error(AppErrorKind::AgentNotEnteredTheRoom)
+                        }
+                    })?;
+
+                    // Make signal.create request.
+                    let backreq = context
+                        .janus_client()
+                        .create_signal_request(
+                            tn.reqp(),
+                            &respp,
+                            respp.as_agent_id(),
                             tn.session_id(),
-                            agent_id.clone(),
-                        )),
-                        reqp.to_response(
-                            ResponseStatus::OK,
-                            ShortTermTimingProperties::until_now(context.start_timestamp()),
-                        ),
-                        reqp,
-                        JANUS_API_VERSION,
-                    );
+                            handle_id,
+                            tn.jsep().to_owned(),
+                            context.start_timestamp(),
+                        )
+                        .error(AppErrorKind::MessageBuildingFailed)?;
 
-                    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-                    Ok(Box::new(stream::once(boxed_resp)))
+                    let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>;
+                    Ok(Box::new(stream::once(boxed_backreq)))
                 }
-                // An unsupported incoming Success message has been received
+                // An unsupported incoming Success message has been received.
                 _ => Ok(Box::new(stream::empty())),
             }
         }
@@ -151,8 +171,8 @@ async fn handle_response_impl<C: Context>(
                 Transaction::CreateStream(_tn) => Ok(Box::new(stream::empty())),
                 // Trickle message has been received by Janus Gateway
                 Transaction::Trickle(tn) => {
-                    let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                        endpoint::rtc_signal::CreateResponseData::new(None),
+                    let resp = endpoint::signal::TrickleResponse::unicast(
+                        endpoint::signal::TrickleResponseData::new(),
                         tn.reqp().to_response(
                             ResponseStatus::OK,
                             ShortTermTimingProperties::until_now(context.start_timestamp()),
@@ -176,6 +196,58 @@ async fn handle_response_impl<C: Context>(
                 .error(AppErrorKind::MessageParsingFailed)?;
 
             match txn {
+                // Signal has been created.
+                Transaction::CreateSignal(ref tn) => {
+                    context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
+
+                    inresp
+                        .jsep()
+                        .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                        .error(AppErrorKind::MessageParsingFailed)
+                        .and_then(|jsep| {
+                            let resp = endpoint::signal::CreateResponse::unicast(
+                                endpoint::signal::CreateResponseData::new(jsep.to_owned()),
+                                tn.reqp().to_response(
+                                    ResponseStatus::OK,
+                                    ShortTermTimingProperties::until_now(context.start_timestamp()),
+                                ),
+                                tn.reqp(),
+                                JANUS_API_VERSION,
+                            );
+
+                            let boxed_resp =
+                                Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+
+                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                        })
+                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
+                }
+                // Signal has been updated.
+                Transaction::UpdateSignal(ref tn) => {
+                    context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
+
+                    inresp
+                        .jsep()
+                        .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                        .error(AppErrorKind::MessageParsingFailed)
+                        .and_then(|jsep| {
+                            let resp = endpoint::signal::UpdateResponse::unicast(
+                                endpoint::signal::UpdateResponseData::new(jsep.to_owned()),
+                                tn.reqp().to_response(
+                                    ResponseStatus::OK,
+                                    ShortTermTimingProperties::until_now(context.start_timestamp()),
+                                ),
+                                tn.reqp(),
+                                JANUS_API_VERSION,
+                            );
+
+                            let boxed_resp =
+                                Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+
+                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                        })
+                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
+                }
                 // Conference Stream has been created (an answer received)
                 Transaction::CreateStream(ref tn) => {
                     context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
@@ -197,17 +269,11 @@ async fn handle_response_impl<C: Context>(
                             }
                         })
                         .and_then(|_| {
-                            // Getting answer (as JSEP)
-                            let jsep = inresp
-                                .jsep()
-                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)?;
-
                             let timing =
                                 ShortTermTimingProperties::until_now(context.start_timestamp());
 
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                            let resp = endpoint::rtc::ConnectResponse::unicast(
+                                endpoint::rtc::ConnectResponseData::new(),
                                 tn.reqp().to_response(ResponseStatus::OK, timing),
                                 tn.reqp().as_agent_id(),
                                 JANUS_API_VERSION,
@@ -215,6 +281,7 @@ async fn handle_response_impl<C: Context>(
 
                             let boxed_resp =
                                 Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+
                             Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
@@ -241,17 +308,11 @@ async fn handle_response_impl<C: Context>(
                             }
                         })
                         .and_then(|_| {
-                            // Getting answer (as JSEP)
-                            let jsep = inresp
-                                .jsep()
-                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)?;
-
                             let timing =
                                 ShortTermTimingProperties::until_now(context.start_timestamp());
 
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                            let resp = endpoint::rtc::ConnectResponse::unicast(
+                                endpoint::rtc::ConnectResponseData::new(),
                                 tn.reqp().to_response(ResponseStatus::OK, timing),
                                 tn.reqp().as_agent_id(),
                                 JANUS_API_VERSION,
@@ -259,6 +320,7 @@ async fn handle_response_impl<C: Context>(
 
                             let boxed_resp =
                                 Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+
                             Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
@@ -469,13 +531,17 @@ pub(crate) async fn handle_event<C: Context>(
         .unwrap_or_else(|app_error| {
             error!(
                 context.logger(),
-                "Failed to handle an event from janus: {}", app_error
+                "Failed to handle event from janus: {}; Payload: {}",
+                event.payload(),
+                app_error
             );
 
             app_error.notify_sentry(context.logger());
             Box::new(stream::empty())
         })
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 async fn handle_event_impl<C: Context>(
     context: &mut C,
@@ -488,97 +554,133 @@ async fn handle_event_impl<C: Context>(
         .error(AppErrorKind::MessageParsingFailed)?;
 
     let evp = event.properties();
+
+    // Event types hint:
+    // WebRtcUp – DTLS connection has been initially set up. Not being dispatched on renegotiation.
+    // Media – Started/stopped receiving audio/video. Not being dispatched on refresh or tab close.
+    // SlowLink – Janus has detected many packet losses.
+    // HangUp – ICE handle stopped. Not being dispatched for Chrome.
+    // Detach – Janus plugin handle destroyed. FF dispatches both HangUp and Detach.
     match payload {
-        IncomingEvent::WebRtcUp(ref inev) => {
-            context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
-
-            let rtc_stream_id = Uuid::from_str(inev.opaque_id())
-                .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
-                .error(AppErrorKind::MessageParsingFailed)?;
-
-            let conn = context.get_conn()?;
-
-            // If the event relates to a publisher's handle,
-            // we will find the corresponding stream and send event w/ updated stream object
-            // to the room's topic.
-            if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
-                let room = endpoint::helpers::find_room_by_rtc_id(
-                    context,
-                    rtc_stream.rtc_id(),
-                    endpoint::helpers::RoomTimeRequirement::Open,
-                )?;
-
-                let event = endpoint::rtc_stream::update_event(
-                    room.id(),
-                    rtc_stream,
-                    context.start_timestamp(),
-                    evp.tracking(),
-                )?;
-
-                Ok(Box::new(stream::once(
-                    Box::new(event) as Box<dyn IntoPublishableMessage + Send>
-                )))
-            } else {
-                Ok(Box::new(stream::empty()))
-            }
-        }
-        IncomingEvent::HangUp(ref inev) => handle_hangup_detach(context, inev, evp),
-        IncomingEvent::Detached(ref inev) => handle_hangup_detach(context, inev, evp),
-        IncomingEvent::Media(_) | IncomingEvent::Timeout(_) | IncomingEvent::SlowLink(_) => {
-            // Ignore these kinds of events.
-            Ok(Box::new(stream::empty()))
-        }
+        IncomingEvent::Media(ref inev) => handle_media_event(context, inev, evp),
+        IncomingEvent::Detached(ref inev) => handle_detached_event(context, inev, evp),
+        IncomingEvent::HangUp(_)
+        | IncomingEvent::WebRtcUp(_)
+        | IncomingEvent::Timeout(_)
+        | IncomingEvent::SlowLink(_) => Ok(Box::new(stream::empty())),
     }
 }
 
-fn handle_hangup_detach<C: Context, E: OpaqueId>(
+fn handle_media_event<C: Context>(
     context: &mut C,
-    inev: &E,
+    inev: &MediaEvent,
     evp: &IncomingEventProperties,
 ) -> Result<MessageStream, AppError> {
-    context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_owned()));
-
-    let rtc_stream_id = Uuid::from_str(inev.opaque_id())
-        .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
-        .error(AppErrorKind::MessageParsingFailed)?;
+    // Handle only video-related events to avoid duplication.
+    if inev.is_video() {
+        return Ok(Box::new(stream::empty()));
+    }
 
     let conn = context.get_conn()?;
 
-    // If the event relates to the publisher's handle,
-    // we will find the corresponding stream and send an event w/ updated stream object
-    // to the room's topic.
-    if let Some(rtc_stream) = janus_rtc_stream::stop(rtc_stream_id, &conn)? {
-        let room = endpoint::helpers::find_room_by_rtc_id(
-            context,
-            rtc_stream.rtc_id(),
-            endpoint::helpers::RoomTimeRequirement::Open,
+    let (janus_rtc_stream, room) =
+        find_stream_with_room(context, &conn, inev.sender(), !inev.is_receiving())?;
+
+    if inev.is_receiving() {
+        start_stream(context, &conn, &janus_rtc_stream, &room, evp)
+    } else {
+        stop_stream(context, &conn, &janus_rtc_stream, &room, evp)
+    }
+}
+
+fn handle_detached_event<C: Context>(
+    context: &mut C,
+    inev: &DetachedEvent,
+    evp: &IncomingEventProperties,
+) -> Result<MessageStream, AppError> {
+    let conn = context.get_conn()?;
+    let (janus_rtc_stream, room) = find_stream_with_room(context, &conn, inev.sender(), true)?;
+    stop_stream(context, &conn, &janus_rtc_stream, &room, evp)
+}
+
+fn find_stream_with_room<C: Context>(
+    context: &mut C,
+    conn: &PgConnection,
+    handle_id: i64,
+    is_started: bool,
+) -> Result<(janus_rtc_stream::Object, room::Object), AppError> {
+    let (janus_rtc_stream, room) = janus_rtc_stream::FindWithRoomQuery::new()
+        .handle_id(handle_id)
+        .is_started(is_started)
+        .is_stopped(false)
+        .execute(conn)?;
+
+    context.add_logger_tags(o!(
+        "room_id" => room.id().to_string(),
+        "rtc_id" => janus_rtc_stream.rtc_id().to_string(),
+        "rtc_stream_id" => janus_rtc_stream.id().to_string(),
+    ));
+
+    Ok((janus_rtc_stream, room))
+}
+
+fn start_stream<C: Context>(
+    context: &mut C,
+    conn: &PgConnection,
+    janus_rtc_stream: &janus_rtc_stream::Object,
+    room: &room::Object,
+    evp: &IncomingEventProperties,
+) -> Result<MessageStream, AppError> {
+    if let Some(rtc_stream) = janus_rtc_stream::start(janus_rtc_stream.id(), conn)? {
+        info!(context.logger(), "Stream started");
+
+        let event = endpoint::rtc_stream::update_event(
+            room.id(),
+            rtc_stream,
+            context.start_timestamp(),
+            evp.tracking(),
         )?;
 
+        Ok(Box::new(stream::once(
+            Box::new(event) as Box<dyn IntoPublishableMessage + Send>
+        )))
+    } else {
+        Ok(Box::new(stream::empty()))
+    }
+}
+
+fn stop_stream<C: Context>(
+    context: &mut C,
+    conn: &PgConnection,
+    janus_rtc_stream: &janus_rtc_stream::Object,
+    room: &room::Object,
+    evp: &IncomingEventProperties,
+) -> Result<MessageStream, AppError> {
+    if let Some(rtc_stream) = janus_rtc_stream::stop(janus_rtc_stream.id(), conn)? {
         // Publish the update event only if the stream object has been changed.
         // If there's no actual media stream, the object wouldn't contain its start time.
-        if rtc_stream.time().is_some() {
-            // Put connected `agents` back into `ready` status since the stream has gone and
-            // they haven't been connected anymore.
-            agent::BulkStatusUpdateQuery::new(agent::Status::Ready)
-                .room_id(room.id())
-                .status(agent::Status::Connected)
-                .execute(&conn)?;
-
-            // Send rtc_stream.update event.
-            let event = endpoint::rtc_stream::update_event(
-                room.id(),
-                rtc_stream,
-                context.start_timestamp(),
-                evp.tracking(),
-            )?;
-
-            let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
-            return Ok(Box::new(stream::once(boxed_event)));
+        if rtc_stream.time().is_none() {
+            return Ok(Box::new(stream::empty()));
         }
-    }
 
-    Ok(Box::new(stream::empty()))
+        info!(context.logger(), "Stream stopped");
+
+        // Send rtc_stream.update event.
+        let event = endpoint::rtc_stream::update_event(
+            room.id(),
+            rtc_stream,
+            context.start_timestamp(),
+            evp.tracking(),
+        )?;
+
+        let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
+        Ok(Box::new(stream::once(boxed_event)))
+    } else {
+        Ok(Box::new(stream::empty()))
+    }
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) async fn handle_status_event<C: Context>(
     context: &mut C,
@@ -625,10 +727,7 @@ async fn handle_status_event_impl<C: Context>(
                 .backend_id(evp.as_agent_id())
                 .execute(&conn)?;
 
-            agent::BulkStatusUpdateQuery::new(agent::Status::Ready)
-                .backend_id(evp.as_agent_id())
-                .status(agent::Status::Connected)
-                .execute(&conn)?;
+            agent_connection::BulkDisconnectQuery::new(evp.as_agent_id()).execute(&conn)?;
 
             janus_backend::DeleteQuery::new(evp.as_agent_id()).execute(&conn)?;
             Ok(streams_with_rtc)

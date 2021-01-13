@@ -34,7 +34,6 @@ pub(crate) struct ListHandler;
 #[async_trait]
 impl RequestHandler for ListHandler {
     type Payload = ListRequest;
-    const ERROR_TITLE: &'static str = "Failed to list rtc streams";
 
     async fn handle<C: Context>(
         context: &mut C,
@@ -50,11 +49,11 @@ impl RequestHandler for ListHandler {
 
         if room.backend() != db::room::RoomBackend::Janus {
             let err = anyhow!(
-                "'rtc_stream.list' is not implemented for '{}' backend",
+                "'rtc_stream.list' is not supported for '{}' backend",
                 room.backend()
             );
 
-            return Err(err).error(AppErrorKind::NotImplemented)?;
+            return Err(err).error(AppErrorKind::UnsupportedBackend)?;
         }
 
         let room_id = room.id().to_string();
@@ -118,16 +117,28 @@ pub(crate) fn update_event(
 #[cfg(test)]
 mod test {
     mod list {
+        use chrono::serde::ts_seconds;
+        use chrono::{DateTime, SubsecRound, Utc};
+        use serde_derive::Deserialize;
         use std::ops::Bound;
+        use svc_agent::AgentId;
+        use uuid::Uuid;
 
-        use chrono::SubsecRound;
-        use diesel::prelude::*;
-
-        use crate::db::janus_rtc_stream::Object as JanusRtcStream;
-        use crate::db::rtc::Object as Rtc;
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
+
+        #[derive(Deserialize)]
+        struct JanusRtcStream {
+            id: Uuid,
+            rtc_id: Uuid,
+            label: String,
+            sent_by: AgentId,
+            #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
+            time: Option<(Bound<DateTime<Utc>>, Bound<DateTime<Utc>>)>,
+            #[serde(with = "ts_seconds")]
+            created_at: DateTime<Utc>,
+        }
 
         #[test]
         fn list_rtc_streams() {
@@ -139,26 +150,37 @@ mod test {
                     .connection_pool()
                     .get()
                     .map(|conn| {
+                        // Insert backend, rooms and rtcs.
+                        let backend = shared_helpers::insert_janus_backend(&conn);
+
+                        let room1 =
+                            shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+
+                        let room2 =
+                            shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+
+                        let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+                        let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+
                         // Insert janus rtc streams.
-                        let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE).insert(&conn);
+                        let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .backend(&backend)
+                            .rtc(&rtc1)
+                            .insert(&conn);
 
                         let rtc_stream = crate::db::janus_rtc_stream::start(rtc_stream.id(), &conn)
                             .expect("Failed to start rtc stream")
                             .expect("Missing rtc stream");
 
-                        let other_rtc_stream =
-                            factory::JanusRtcStream::new(USR_AUDIENCE).insert(&conn);
+                        let other_rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE)
+                            .backend(&backend)
+                            .rtc(&rtc2)
+                            .insert(&conn);
 
                         crate::db::janus_rtc_stream::start(other_rtc_stream.id(), &conn)
                             .expect("Failed to start rtc stream");
 
-                        // Find rtc.
-                        let rtc: Rtc = crate::schema::rtc::table
-                            .find(rtc_stream.rtc_id())
-                            .get_result(&conn)
-                            .expect("Rtc not found");
-
-                        (rtc_stream, rtc)
+                        (rtc_stream, rtc1)
                     })
                     .expect("Failed to create rtc streams");
 
@@ -193,14 +215,14 @@ mod test {
                     _ => panic!("Bad rtc stream time"),
                 };
 
-                assert_eq!(streams[0].id(), rtc_stream.id());
-                assert_eq!(streams[0].handle_id(), rtc_stream.handle_id());
-                assert_eq!(streams[0].backend_id(), rtc_stream.backend_id());
-                assert_eq!(streams[0].label(), rtc_stream.label());
-                assert_eq!(streams[0].sent_by(), rtc_stream.sent_by());
-                assert_eq!(streams[0].time(), Some(expected_time));
+                assert_eq!(streams[0].id, rtc_stream.id());
+                assert_eq!(streams[0].rtc_id, rtc_stream.rtc_id());
+                assert_eq!(streams[0].label, rtc_stream.label());
+                assert_eq!(&streams[0].sent_by, rtc_stream.sent_by());
+                assert_eq!(streams[0].time, Some(expected_time));
+
                 assert_eq!(
-                    streams[0].created_at(),
+                    streams[0].created_at,
                     rtc_stream.created_at().trunc_subsecs(0)
                 );
             });
@@ -218,7 +240,8 @@ mod test {
                         .get()
                         .expect("Failed to get DB connection");
 
-                    shared_helpers::insert_room(&conn)
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    shared_helpers::insert_room_with_backend_id(&conn, backend.id())
                 };
 
                 let mut context = TestContext::new(db, TestAuthz::new());

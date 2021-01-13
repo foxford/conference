@@ -30,23 +30,15 @@ pub(crate) struct CreateHandleRequest {
     session_id: i64,
     plugin: String,
     janus: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    opaque_id: Option<String>,
 }
 
 impl CreateHandleRequest {
-    pub(crate) fn new(
-        transaction: &str,
-        session_id: i64,
-        plugin: &str,
-        opaque_id: Option<&str>,
-    ) -> Self {
+    pub(crate) fn new(transaction: &str, session_id: i64, plugin: &str) -> Self {
         Self {
             transaction: transaction.to_owned(),
             session_id,
             plugin: plugin.to_owned(),
             janus: "attach",
-            opaque_id: opaque_id.map(|val| val.to_owned()),
         }
     }
 }
@@ -86,18 +78,48 @@ impl MessageRequest {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CreateStreamRequestBody {
+pub(crate) struct CreateSignalRequestBody {
     method: &'static str,
-    id: Uuid,
     agent_id: AgentId,
 }
 
+impl CreateSignalRequestBody {
+    pub(crate) fn new(agent_id: AgentId) -> Self {
+        Self {
+            method: "signal.create",
+            agent_id,
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct UpdateSignalRequestBody {
+    method: &'static str,
+}
+
+impl UpdateSignalRequestBody {
+    pub(crate) fn new() -> Self {
+        Self {
+            method: "signal.update",
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct CreateStreamRequestBody {
+    method: &'static str,
+    id: Uuid,
+}
+
 impl CreateStreamRequestBody {
-    pub(crate) fn new(id: Uuid, agent_id: AgentId) -> Self {
+    pub(crate) fn new(id: Uuid) -> Self {
         Self {
             method: "stream.create",
             id,
-            agent_id,
         }
     }
 }
@@ -108,15 +130,13 @@ impl CreateStreamRequestBody {
 pub(crate) struct ReadStreamRequestBody {
     method: &'static str,
     id: Uuid,
-    agent_id: AgentId,
 }
 
 impl ReadStreamRequestBody {
-    pub(crate) fn new(id: Uuid, agent_id: AgentId) -> Self {
+    pub(crate) fn new(id: Uuid) -> Self {
         Self {
             method: "stream.read",
             id,
-            agent_id,
         }
     }
 }

@@ -1,12 +1,11 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
 use serde_derive::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 use svc_agent::{
     mqtt::{
         IncomingRequestProperties, OutgoingMessage, OutgoingRequest, ShortTermTimingProperties,
     },
-    Addressable, AgentId,
+    AgentId,
 };
 use uuid::Uuid;
 
@@ -35,16 +34,14 @@ impl TransactionData {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 impl Client {
     pub(crate) fn create_stream_request(
         &self,
         reqp: IncomingRequestProperties,
-        session_id: i64,
-        handle_id: i64,
+        backend_id: &AgentId,
+        janus_session_id: i64,
+        janus_handle_id: i64,
         rtc_id: Uuid,
-        jsep: JsonValue,
-        to: &AgentId,
         start_timestamp: DateTime<Utc>,
         authz_time: Duration,
     ) -> Result<OutgoingMessage<MessageRequest>> {
@@ -53,29 +50,29 @@ impl Client {
 
         let props = reqp.to_request(
             METHOD,
-            &self.response_topic(to)?,
+            &self.response_topic(backend_id)?,
             &generate_correlation_data(),
             short_term_timing,
         );
 
-        let agent_id = reqp.as_agent_id().to_owned();
-        let body = CreateStreamRequestBody::new(rtc_id, agent_id);
+        let body = CreateStreamRequestBody::new(rtc_id);
         let transaction = Transaction::CreateStream(TransactionData::new(reqp));
 
         let payload = MessageRequest::new(
             &to_base64(&transaction)?,
-            session_id,
-            handle_id,
+            janus_session_id,
+            janus_handle_id,
             serde_json::to_value(&body)?,
-            Some(jsep),
+            None,
         );
 
-        self.register_transaction(to, start_timestamp, &props, &payload, self.timeout(METHOD));
+        let timeout = self.timeout(METHOD);
+        self.register_transaction(backend_id, start_timestamp, &props, &payload, timeout);
 
         Ok(OutgoingRequest::unicast(
             payload,
             props,
-            to,
+            backend_id,
             JANUS_API_VERSION,
         ))
     }

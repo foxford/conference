@@ -22,7 +22,6 @@ pub(crate) type Result = StdResult<MessageStream, AppError>;
 #[async_trait]
 pub(crate) trait RequestHandler {
     type Payload: Send + DeserializeOwned;
-    const ERROR_TITLE: &'static str;
 
     async fn handle<C: Context>(
         context: &mut C,
@@ -63,8 +62,10 @@ request_routes!(
     "rtc.create" => rtc::CreateHandler,
     "rtc.list" => rtc::ListHandler,
     "rtc.read" => rtc::ReadHandler,
-    "rtc_signal.create" => rtc_signal::CreateHandler,
     "rtc_stream.list" => rtc_stream::ListHandler,
+    "signal.create" => signal::CreateHandler,
+    "signal.trickle" => signal::TrickleHandler,
+    "signal.update" => signal::UpdateHandler,
     "system.vacuum" => system::VacuumHandler
 );
 
@@ -133,6 +134,7 @@ macro_rules! event_routes {
 // Event routes configuration: label => EventHandler
 event_routes!(
     "metric.pull" => metric::PullHandler,
+    "room.notify_opened" => room::NotifyOpenedHandler,
     "subscription.delete" => subscription::DeleteHandler,
     "subscription.create" => subscription::CreateHandler
 );
@@ -145,8 +147,8 @@ mod message;
 mod metric;
 mod room;
 pub(crate) mod rtc;
-pub(crate) mod rtc_signal;
 pub(crate) mod rtc_stream;
+pub(crate) mod signal;
 mod subscription;
 pub(crate) mod system;
 

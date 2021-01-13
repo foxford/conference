@@ -24,7 +24,7 @@ tags     | json       | {}         | Arbitrary tags object associated with the r
 
 ## Unicast response
 
-If successful, the response payload contains an updated **Room** object.
+If successful, the response payload contains an updated [room](../room.md#properties) object.
 
 ## Broadcast event
 

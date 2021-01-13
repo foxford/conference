@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::{
@@ -35,35 +35,38 @@ impl TransactionData {
 }
 
 impl Client {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn trickle_request(
         &self,
         reqp: IncomingRequestProperties,
-        session_id: i64,
-        handle_id: i64,
+        backend_id: &AgentId,
+        janus_session_id: i64,
+        janus_handle_id: i64,
         jsep: JsonValue,
-        to: &AgentId,
         start_timestamp: DateTime<Utc>,
-        authz_time: Duration,
     ) -> Result<OutgoingMessage<TrickleRequest>> {
-        let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-        short_term_timing.set_authorization_time(authz_time);
-
         let props = reqp.to_request(
             METHOD,
-            &self.response_topic(to)?,
+            &self.response_topic(backend_id)?,
             &generate_correlation_data(),
-            short_term_timing,
+            ShortTermTimingProperties::until_now(start_timestamp),
         );
 
         let transaction = Transaction::Trickle(TransactionData::new(reqp));
-        let payload = TrickleRequest::new(&to_base64(&transaction)?, session_id, handle_id, jsep);
-        self.register_transaction(to, start_timestamp, &props, &payload, self.timeout(METHOD));
+
+        let payload = TrickleRequest::new(
+            &to_base64(&transaction)?,
+            janus_session_id,
+            janus_handle_id,
+            jsep,
+        );
+
+        let timeout = self.timeout(METHOD);
+        self.register_transaction(backend_id, start_timestamp, &props, &payload, timeout);
 
         Ok(OutgoingRequest::unicast(
             payload,
             props,
-            to,
+            backend_id,
             JANUS_API_VERSION,
         ))
     }

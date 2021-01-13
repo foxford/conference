@@ -22,4 +22,4 @@ id     | Uuid | _required_ | The room identifier.
 
 ## Unicast response
 
-If successful, the response payload contains a requested **Room** object.
+If successful, the response payload contains a requested [room](../room.md#properties) object.
