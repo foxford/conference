@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.0 (January 13, 2021)
+
+### Features
+- New signaling flow ([b1593cd](https://github.com/netology-group/conference/commit/b1593cdfc910d22e076a19c0a4c73aeebb68bc5c))
+
+
 ## v0.6.6 (January 12, 2021)
 
 ### Changes
