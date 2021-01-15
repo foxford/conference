@@ -4,7 +4,8 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::db::agent::{Object as Agent, Status as AgentStatus};
-use crate::schema::{agent, agent_connection};
+use crate::db::janus_backend::{Object as JanusBackend, ALL_COLUMNS as JANUS_BACKEND_COLUMNS};
+use crate::schema::{agent, agent_connection, janus_backend, room};
 
 pub(crate) type AllColumns = (
     agent_connection::agent_id,
@@ -60,6 +61,35 @@ impl<'a> FindQuery<'a> {
             .select(ALL_COLUMNS)
             .get_result(conn)
             .optional()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
+pub(crate) struct ActiveWithBackendsListQuery<'a> {
+    agent_id: &'a AgentId,
+}
+
+impl<'a> ActiveWithBackendsListQuery<'a> {
+    pub(crate) fn new(agent_id: &'a AgentId) -> Self {
+        Self { agent_id }
+    }
+
+    pub(crate) fn execute(
+        &self,
+        conn: &PgConnection,
+    ) -> Result<Vec<(Object, JanusBackend)>, Error> {
+        use diesel::prelude::*;
+
+        agent_connection::table
+            .inner_join(agent::table.inner_join(room::table.inner_join(
+                janus_backend::table.on(janus_backend::id.nullable().eq(room::backend_id)),
+            )))
+            .filter(agent::agent_id.eq(self.agent_id))
+            .filter(agent::status.eq(AgentStatus::Ready))
+            .select((ALL_COLUMNS, JANUS_BACKEND_COLUMNS))
+            .get_results(conn)
     }
 }
 
