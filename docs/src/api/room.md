@@ -13,12 +13,18 @@ reserve    |        int | _optional_ | The number of slots for agents reserved o
 tags       |       json | {}         | Arbitrary tags object associated with the room.
 
 
-Room can be unbounded, ie its closing timestamp is null.
+Room can be unbounded, so `[null, 1610730753]`, `[1610730753, null]` or `[null, null]` are valid values.
+
 To avoid rooms being stuck in unvacuumed state, room closure time will be set as 6 hours from first rtc creation.
 This 6 hours duration serves as timeout for vacuums.
 
 When the room closure time becomes bounded (either by creating rtc or it was bounded from the start),
 closure=unbounded update is prohibited to avoid erasing this 6 hours timeout.
+
+If `backend` property is set to `janus` an [RTC](../rtc.md) is being automatically created for the room.
+This allows agents to perform [rtc.connect](../rtc/connect.md) as soon as the room has been opened
+to avoid the need of large number of simultaneous requests after manual [rtc.create](../rtc/create.md)
+call when many agents have already entered the room.
 
 ## Lifecycle events
 
