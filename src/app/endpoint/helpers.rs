@@ -58,6 +58,7 @@ pub(crate) fn build_notification(
 pub(crate) enum RoomTimeRequirement {
     Any,
     NotClosed,
+    NotClosedOrUnboundedOpen,
     Open,
 }
 
@@ -112,6 +113,19 @@ where
                 (Bound::Unbounded, _) => {
                     Err(anyhow!("Room has no opening time")).error(AppErrorKind::RoomClosed)
                 }
+                (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if *dt < now => {
+                    Err(anyhow!("Room closed")).error(AppErrorKind::RoomClosed)
+                }
+                _ => Ok(room),
+            }
+        }
+        // Current time must be before room closing, including not yet opened rooms.
+        // Rooms without closing time are fine.
+        // Rooms without opening time are fine.
+        RoomTimeRequirement::NotClosedOrUnboundedOpen => {
+            let now = Utc::now();
+
+            match room.time() {
                 (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if *dt < now => {
                     Err(anyhow!("Room closed")).error(AppErrorKind::RoomClosed)
                 }
