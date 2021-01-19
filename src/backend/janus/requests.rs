@@ -198,17 +198,21 @@ impl TrickleRequest {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct AgentLeaveRequestBody {
-    method: &'static str,
-    agent_id: AgentId,
+#[derive(Debug, Serialize)]
+pub(crate) struct DetachRequest {
+    transaction: String,
+    session_id: i64,
+    handle_id: i64,
+    janus: &'static str,
 }
 
-impl AgentLeaveRequestBody {
-    pub(crate) fn new(agent_id: AgentId) -> Self {
+impl DetachRequest {
+    pub(crate) fn new(transaction: &str, session_id: i64, handle_id: i64) -> Self {
         Self {
-            method: "agent.leave",
-            agent_id,
+            transaction: transaction.to_owned(),
+            session_id,
+            handle_id,
+            janus: "detach",
         }
     }
 }

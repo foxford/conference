@@ -11,11 +11,11 @@ use svc_agent::{
 
 use crate::util::{generate_correlation_data, to_base64};
 
-use super::super::requests::{AgentLeaveRequestBody, MessageRequest};
+use super::super::requests::DetachRequest;
 use super::super::{Client, JANUS_API_VERSION};
 use super::Transaction;
 
-const METHOD: &str = "janus_conference_agent.leave";
+const METHOD: &str = "janus_conference_agent.detach";
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -31,15 +31,14 @@ impl TransactionData {
 }
 
 impl Client {
-    pub(crate) fn agent_leave_request(
+    pub(crate) fn detach_request(
         &self,
         evp: IncomingEventProperties,
         session_id: i64,
         handle_id: i64,
-        agent_id: &AgentId,
         to: &AgentId,
         tracking: &TrackingProperties,
-    ) -> Result<OutgoingMessage<MessageRequest>> {
+    ) -> Result<OutgoingMessage<DetachRequest>> {
         let start_timestamp = Utc::now();
 
         let mut props = OutgoingRequestProperties::new(
@@ -50,20 +49,9 @@ impl Client {
         );
 
         props.set_tracking(tracking.to_owned());
-
-        let transaction = Transaction::AgentLeave(TransactionData::new(evp));
-        let body = AgentLeaveRequestBody::new(agent_id.to_owned());
-
-        let payload = MessageRequest::new(
-            &to_base64(&transaction)?,
-            session_id,
-            handle_id,
-            serde_json::to_value(&body)?,
-            None,
-        );
-
+        let transaction = Transaction::Detach(TransactionData::new(evp));
+        let payload = DetachRequest::new(&to_base64(&transaction)?, session_id, handle_id);
         self.register_transaction(to, start_timestamp, &props, &payload, self.timeout(METHOD));
-
         Ok(OutgoingRequest::unicast(
             payload,
             props,

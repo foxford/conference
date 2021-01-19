@@ -126,11 +126,39 @@ impl EventHandler for DeleteHandler {
             .error(AppErrorKind::AccessDenied);
         }
 
-        // Delete agent from the DB.
+        // Find room.
         let room_id = payload.try_room_id()?;
         context.add_logger_tags(o!("room_id" => room_id.to_string()));
+
+        // Send `detach` requests to active Janus handles of the disconnected agent.
         let conn = context.get_conn()?;
 
+        let active_connections_with_backends =
+            db::agent_connection::ActiveWithBackendsListQuery::new(&payload.subject)
+                .execute(&conn)?;
+
+        let mut messages: Vec<Box<dyn IntoPublishableMessage + Send>> =
+            Vec::with_capacity(active_connections_with_backends.len() + 1);
+
+        for (agent_connection, backend) in active_connections_with_backends {
+            let result = context.janus_client().detach_request(
+                evp.to_owned(),
+                backend.session_id(),
+                agent_connection.handle_id(),
+                backend.id(),
+                evp.tracking(),
+            );
+
+            match result {
+                Ok(req) => messages.push(Box::new(req)),
+                Err(err) => {
+                    return Err(err.context("Error creating a backend request"))
+                        .error(AppErrorKind::MessageBuildingFailed);
+                }
+            }
+        }
+
+        // Delete agent from the DB.
         let row_count = db::agent::DeleteQuery::new()
             .agent_id(&payload.subject)
             .room_id(room_id)
@@ -146,30 +174,7 @@ impl EventHandler for DeleteHandler {
             let to_uri = format!("rooms/{}/events", room_id);
             let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
             let boxed_event = Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send>;
-            let mut messages = vec![boxed_event];
-
-            // `agent.leave` requests to Janus instances that host active streams in this room.
-            let backends = db::janus_backend::ActiveListQuery::new().execute(&conn)?;
-
-            for backend in backends {
-                let result = context.janus_client().agent_leave_request(
-                    evp.to_owned(),
-                    backend.session_id(),
-                    backend.handle_id(),
-                    &payload.subject,
-                    backend.id(),
-                    evp.tracking(),
-                );
-
-                match result {
-                    Ok(req) => messages.push(Box::new(req)),
-                    Err(err) => {
-                        return Err(err.context("Error creating a backend request"))
-                            .error(AppErrorKind::MessageBuildingFailed);
-                    }
-                }
-            }
-
+            messages.push(boxed_event);
             Ok(Box::new(stream::from_iter(messages)))
         } else {
             Err(anyhow!("The agent is not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
@@ -182,7 +187,7 @@ impl EventHandler for DeleteHandler {
 #[cfg(test)]
 mod tests {
     use serde_derive::Deserialize;
-    use svc_agent::{mqtt::ResponseStatus, AgentId};
+    use svc_agent::mqtt::ResponseStatus;
 
     use crate::app::API_VERSION;
     use crate::db::agent::{ListQuery as AgentListQuery, Status as AgentStatus};
@@ -193,17 +198,10 @@ mod tests {
     ///////////////////////////////////////////////////////////////////////////
 
     #[derive(Deserialize)]
-    struct AgentLeaveRequest {
+    struct DetachRequest {
         janus: String,
         session_id: i64,
         handle_id: i64,
-        body: AgentLeaveRequestBody,
-    }
-
-    #[derive(Deserialize)]
-    struct AgentLeaveRequestBody {
-        method: String,
-        agent_id: AgentId,
     }
 
     #[test]
@@ -396,7 +394,7 @@ mod tests {
             let db = TestDb::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let (backend, room) = {
+            let (backend, room, agent_connection) = {
                 let conn = db
                     .connection_pool()
                     .get()
@@ -405,8 +403,9 @@ mod tests {
                 // Create room with rtc, backend and a started active stream.
                 let backend = shared_helpers::insert_janus_backend(&conn);
                 let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room.id());
                 let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+                let agent = shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                let agent_connection = factory::AgentConnection::new(agent.id(), 123).insert(&conn);
 
                 let stream = factory::JanusRtcStream::new(USR_AUDIENCE)
                     .backend(&backend)
@@ -418,7 +417,7 @@ mod tests {
                     .expect("Failed to start janus rtc stream")
                     .expect("Janus rtc stream couldn't start");
 
-                (backend, room)
+                (backend, room, agent_connection)
             };
 
             // Send subscription.delete event for the writer.
@@ -444,8 +443,8 @@ mod tests {
             assert_eq!(payload.id, room.id());
             assert_eq!(&payload.agent_id, agent.agent_id());
 
-            // Assert `agent.leave` request to janus.
-            let (payload, _reqp, topic) = find_request::<AgentLeaveRequest>(messages.as_slice());
+            // Assert `detach` request to janus.
+            let (payload, _reqp, topic) = find_request::<DetachRequest>(messages.as_slice());
 
             let expected_topic = format!(
                 "agents/{}/api/{}/in/conference.{}",
@@ -456,10 +455,8 @@ mod tests {
 
             assert_eq!(topic, expected_topic);
             assert_eq!(payload.session_id, backend.session_id());
-            assert_eq!(payload.handle_id, backend.handle_id());
-            assert_eq!(payload.janus, "message");
-            assert_eq!(payload.body.method, "agent.leave");
-            assert_eq!(&payload.body.agent_id, agent.agent_id());
+            assert_eq!(payload.handle_id, agent_connection.handle_id());
+            assert_eq!(payload.janus, "detach");
 
             // Assert agent deleted from the DB.
             let conn = db

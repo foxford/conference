@@ -4,7 +4,7 @@ use diesel::result::Error;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::schema::{janus_backend, janus_rtc_stream};
+use crate::schema::janus_backend;
 
 pub(crate) type AllColumns = (
     janus_backend::id,
@@ -48,31 +48,6 @@ impl Object {
 
     pub(crate) fn session_id(&self) -> i64 {
         self.session_id
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug)]
-pub(crate) struct ActiveListQuery {}
-
-impl ActiveListQuery {
-    pub(crate) fn new() -> Self {
-        Self {}
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use diesel::dsl::sql;
-        use diesel::prelude::*;
-
-        janus_backend::table
-            .inner_join(
-                janus_rtc_stream::table.on(janus_rtc_stream::backend_id.eq(janus_backend::id)),
-            )
-            .filter(sql(crate::db::janus_rtc_stream::ACTIVE_SQL))
-            .select(ALL_COLUMNS)
-            .distinct()
-            .get_results(conn)
     }
 }
 
