@@ -16,6 +16,7 @@ use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::app::endpoint::subscription::RoomEnterLeaveEvent;
 use crate::db;
+use crate::db::room::RoomBackend;
 use crate::diesel::Connection;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -45,14 +46,14 @@ pub(crate) struct CreateRequest {
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: String,
     #[serde(default = "CreateRequest::default_backend")]
-    backend: db::room::RoomBackend,
+    backend: RoomBackend,
     reserve: Option<i32>,
     tags: Option<JsonValue>,
 }
 
 impl CreateRequest {
-    fn default_backend() -> db::room::RoomBackend {
-        db::room::RoomBackend::None
+    fn default_backend() -> RoomBackend {
+        RoomBackend::None
     }
 }
 
@@ -75,19 +76,29 @@ impl RequestHandler for CreateHandler {
 
         // Create a room.
         let room = {
-            let mut q =
-                db::room::InsertQuery::new(payload.time, &payload.audience, payload.backend);
-
-            if let Some(reserve) = payload.reserve {
-                q = q.reserve(reserve);
-            }
-
-            if let Some(ref tags) = payload.tags {
-                q = q.tags(tags);
-            }
-
             let conn = context.get_conn()?;
-            q.execute(&conn)?
+
+            conn.transaction::<_, diesel::result::Error, _>(|| {
+                let mut q =
+                    db::room::InsertQuery::new(payload.time, &payload.audience, payload.backend);
+
+                if let Some(reserve) = payload.reserve {
+                    q = q.reserve(reserve);
+                }
+
+                if let Some(ref tags) = payload.tags {
+                    q = q.tags(tags);
+                }
+
+                let room = q.execute(&conn)?;
+
+                // For a room with `janus` backend also create an rtc.
+                if payload.backend == RoomBackend::Janus {
+                    db::rtc::InsertQuery::new(room.id()).execute(&conn)?;
+                }
+
+                Ok(room)
+            })?
         };
 
         helpers::add_room_logger_tags(context, &room);
@@ -589,13 +600,15 @@ mod test {
         #[test]
         fn create() {
             async_std::task::block_on(async {
+                let db = TestDb::new();
+
                 // Allow user to create rooms.
                 let mut authz = TestAuthz::new();
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 authz.allow(agent.account_id(), vec!["rooms"], "create");
 
                 // Make room.create request.
-                let mut context = TestContext::new(TestDb::new(), authz);
+                let mut context = TestContext::new(db.clone(), authz);
                 let time = (Bound::Unbounded, Bound::Unbounded);
 
                 let payload = CreateRequest {
@@ -628,6 +641,19 @@ mod test {
                 assert_eq!(room.backend(), db::room::RoomBackend::Janus);
                 assert_eq!(room.reserve(), Some(123));
                 assert_eq!(room.tags(), &json!({ "foo": "bar" }));
+
+                // Assert automatic RTC creation.
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                let rtcs = db::rtc::ListQuery::new()
+                    .room_id(room.id())
+                    .execute(&conn)
+                    .expect("Failed to execute rtc list query");
+
+                assert_eq!(rtcs.len(), 1);
             });
         }
 

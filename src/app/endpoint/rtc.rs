@@ -1024,7 +1024,7 @@ mod test {
                             shared_helpers::insert_connected_agent(
                                 &conn,
                                 agent.agent_id(),
-                                room1.id()
+                                room1.id(),
                             );
                         }
 
@@ -1041,7 +1041,7 @@ mod test {
                             shared_helpers::insert_connected_agent(
                                 &conn,
                                 new_reader.agent_id(),
-                                room.id()
+                                room.id(),
                             );
                         }
 
@@ -1074,8 +1074,7 @@ mod test {
                             .expect("RTC connect failed");
 
                     // Assert outgoing request goes to the expected backend.
-                    let (_req, _reqp, topic) =
-                        find_request::<JanusRequest>(messages.as_slice());
+                    let (_req, _reqp, topic) = find_request::<JanusRequest>(messages.as_slice());
 
                     let expected_topic = format!(
                         "agents/{}/api/{}/in/{}",
