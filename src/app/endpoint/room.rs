@@ -189,8 +189,11 @@ impl RequestHandler for UpdateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room =
-            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::NotClosed)?;
+        let room = helpers::find_room_by_id(
+            context,
+            payload.id,
+            helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
+        )?;
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
@@ -358,8 +361,11 @@ impl RequestHandler for DeleteHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room =
-            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::NotClosed)?;
+        let room = helpers::find_room_by_id(
+            context,
+            payload.id,
+            helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
+        )?;
 
         // Authorize room deletion on the tenant.
         let room_id = room.id().to_string();
