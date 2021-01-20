@@ -169,7 +169,8 @@ const MOST_LOADED_SQL: &str = r#"
             FROM room
             WHERE backend = 'janus'
             AND   backend_id IS NOT NULL
-            AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
+            AND   LOWER(time) <= NOW()
+            AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
         ),
         janus_backend_load AS (
             SELECT
@@ -226,7 +227,8 @@ const LEAST_LOADED_SQL: &str = r#"
             FROM room
             WHERE backend = 'janus'
             AND   backend_id IS NOT NULL
-            AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
+            AND   LOWER(time) <= NOW()
+            AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
         ),
         janus_backend_load AS (
             SELECT
@@ -287,7 +289,8 @@ const FREE_CAPACITY_SQL: &str = r#"
             FROM room
             WHERE backend = 'janus'
             AND   backend_id IS NOT NULL
-            AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
+            AND   LOWER(time) <= NOW()
+            AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
         ),
         janus_backend_load AS (
             SELECT
@@ -409,7 +412,8 @@ WITH
         FROM room
         WHERE backend = 'janus'
         AND   backend_id IS NOT NULL
-        AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
+        AND   LOWER(time) <= NOW()
+        AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
     ),
     janus_backend_load AS (
         SELECT
