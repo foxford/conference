@@ -169,7 +169,8 @@ const MOST_LOADED_SQL: &str = r#"
             FROM room
             WHERE backend = 'janus'
             AND   backend_id IS NOT NULL
-            AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
+            AND   LOWER(time) <= NOW()
+            AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
         ),
         janus_backend_load AS (
             SELECT
@@ -194,7 +195,7 @@ const MOST_LOADED_SQL: &str = r#"
     LEFT JOIN room AS r2
     ON 1 = 1
     WHERE r2.id = $1
-    AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) >= COALESCE(r2.reserve, 0)
+    AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) >= COALESCE(r2.reserve, 1)
     ORDER BY COALESCE(jbl.load, 0) DESC
     LIMIT 1
 "#;
@@ -226,7 +227,8 @@ const LEAST_LOADED_SQL: &str = r#"
             FROM room
             WHERE backend = 'janus'
             AND   backend_id IS NOT NULL
-            AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
+            AND   LOWER(time) <= NOW()
+            AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
         ),
         janus_backend_load AS (
             SELECT
@@ -287,7 +289,8 @@ const FREE_CAPACITY_SQL: &str = r#"
             FROM room
             WHERE backend = 'janus'
             AND   backend_id IS NOT NULL
-            AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
+            AND   LOWER(time) <= NOW()
+            AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
         ),
         janus_backend_load AS (
             SELECT
@@ -409,7 +412,8 @@ WITH
         FROM room
         WHERE backend = 'janus'
         AND   backend_id IS NOT NULL
-        AND   UPPER(time) BETWEEN NOW() AND NOW() + INTERVAL '1 day'
+        AND   LOWER(time) <= NOW()
+        AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
     ),
     janus_backend_load AS (
         SELECT

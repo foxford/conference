@@ -37,6 +37,7 @@ impl Object {
         self.id
     }
 
+    #[cfg(test)]
     pub(crate) fn agent_id(&self) -> &AgentId {
         &self.agent_id
     }

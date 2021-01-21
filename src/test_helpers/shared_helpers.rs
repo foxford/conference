@@ -22,7 +22,7 @@ pub(crate) fn insert_room(conn: &PgConnection) -> Room {
     factory::Room::new()
         .audience(USR_AUDIENCE)
         .time((
-            Bound::Included(now),
+            Bound::Included(now - Duration::minutes(1)),
             Bound::Excluded(now + Duration::hours(1)),
         ))
         .backend(RoomBackend::None)
@@ -35,7 +35,7 @@ pub(crate) fn insert_room_with_backend_id(conn: &PgConnection, backend_id: &Agen
     factory::Room::new()
         .audience(USR_AUDIENCE)
         .time((
-            Bound::Included(now),
+            Bound::Included(now - Duration::minutes(1)),
             Bound::Excluded(now + Duration::hours(1)),
         ))
         .backend(RoomBackend::Janus)
@@ -108,7 +108,7 @@ pub(crate) fn insert_rtc(conn: &PgConnection) -> Rtc {
     let room = factory::Room::new()
         .audience(USR_AUDIENCE)
         .time((
-            Bound::Included(now),
+            Bound::Included(now - Duration::minutes(1)),
             Bound::Excluded(now + Duration::hours(1)),
         ))
         .backend(RoomBackend::Janus)

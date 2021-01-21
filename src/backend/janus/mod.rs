@@ -2,7 +2,7 @@ use std::ops::Bound;
 
 use anyhow::Result;
 use async_std::stream;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use diesel::pg::PgConnection;
 use svc_agent::mqtt::{
     IncomingEvent as MQTTIncomingEvent, IncomingEventProperties, IncomingRequestProperties,
@@ -31,6 +31,10 @@ use self::transactions::Transaction;
 const STREAM_UPLOAD_METHOD: &str = "stream.upload";
 pub(crate) const JANUS_API_VERSION: &str = "v1";
 const ALREADY_RUNNING_STATE: &str = "already_running";
+
+lazy_static! {
+    static ref MAX_WEBINAR_DURATION: Duration = Duration::hours(6);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -631,7 +635,20 @@ fn start_stream<C: Context>(
     room: &room::Object,
     evp: &IncomingEventProperties,
 ) -> Result<MessageStream, AppError> {
-    if let Some(rtc_stream) = janus_rtc_stream::start(janus_rtc_stream.id(), conn)? {
+    let maybe_rtc_stream = conn.transaction::<_, diesel::result::Error, _>(|| {
+        if let (start, Bound::Unbounded) = room.time() {
+            crate::db::room::UpdateQuery::new(room.id())
+                .time(Some((
+                    *start,
+                    Bound::Excluded(Utc::now() + *MAX_WEBINAR_DURATION),
+                )))
+                .execute(&conn)?;
+        }
+
+        janus_rtc_stream::start(janus_rtc_stream.id(), conn)
+    })?;
+
+    if let Some(rtc_stream) = maybe_rtc_stream {
         info!(context.logger(), "Stream started");
 
         let event = endpoint::rtc_stream::update_event(

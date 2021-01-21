@@ -2,6 +2,14 @@
 
 Update a Room which holds Real-Time Connections.
 
+`time` changing is possible only for rooms with unbounded closing time or when new closing time is
+less than the current one and the latter is not in the past.
+
+Note that closing time is being set automatically to current time + 6 hours when the first
+[RTC stream](../rtc_stream.rs) gets started. This is in order to provide timeout in case of no one
+closes the room explicitly.
+
+
 ## Multicast request
 
 **Properties**
