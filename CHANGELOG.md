@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.8.0 (January 21, 2021)
+
+### Features
+- Create an RTC for Janus room in advance ([6796060](https://github.com/netology-group/conference/commit/67960609f31e562b8da1fb866034e0020acf26b7))
+- Replace agent.leave Janus call with detach ([c61882d](https://github.com/netology-group/conference/commit/c61882db95942c96932cc1534d024cc848878937))
+
+### Fixes
+- Allow unbounded open time for room update/delete ([7eb68b6](https://github.com/netology-group/conference/commit/7eb68b67ed32b765742a1f9239a2b1a7d3b88854))
+- Consider unbounded closing time in balancer queries ([89c86e0](https://github.com/netology-group/conference/commit/89c86e0efdaf83a06c87f8198a07c0c1c60037f2))
+- Fix room time update 7 timeout ([868ce91](https://github.com/netology-group/conference/commit/868ce91d6db6030ad91ad639584a7b230287d277))
+- Create recording with default RTC ([8ef1187](https://github.com/netology-group/conference/commit/- Create recording with default RTC ([](https://github.com/netology-group/conference/commit/8ef1187df92f5c882b694200c5acaab7c6f0c61b))
+))
+- Fix balancing edge case ([563545a](https://github.com/netology-group/conference/commit/563545aff474fc19e1bfd83dba6f2caefb739c12))
+
+
 ## v0.7.0 (January 13, 2021)
 
 ### Features
