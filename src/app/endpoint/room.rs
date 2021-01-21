@@ -91,9 +91,10 @@ impl RequestHandler for CreateHandler {
 
                 let room = q.execute(&conn)?;
 
-                // For a room with `janus` backend also create an rtc.
+                // For a room with `janus` backend also create an rtc and a recording.
                 if payload.backend == RoomBackend::Janus {
-                    db::rtc::InsertQuery::new(room.id()).execute(&conn)?;
+                    let rtc = db::rtc::InsertQuery::new(room.id()).execute(&conn)?;
+                    db::recording::InsertQuery::new(rtc.id()).execute(&conn)?;
                 }
 
                 Ok(room)
