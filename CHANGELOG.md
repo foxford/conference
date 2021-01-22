@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.8.1 (January 21, 2021)
+
+### Fixes
+- Fix room.open notification ([aa8fa87](https://github.com/netology-group/conference/commit/aa8fa8740d0853c3a2a855fffd29e15e712bf14d))
+
+
 ## v0.8.0 (January 21, 2021)
 
 ### Features
