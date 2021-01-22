@@ -119,6 +119,10 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+const OPENED_SINCE_SQL: &str = r#"
+(UPPER("room"."time") IS NULL OR UPPER("room"."time") < NOW()) AND LOWER("room"."time") >
+"#;
+
 #[derive(Debug, Default)]
 pub(crate) struct ListQuery {
     opened_since: Option<DateTime<Utc>>,
@@ -142,11 +146,7 @@ impl ListQuery {
         let mut q = room::table.into_boxed();
 
         if let Some(time) = self.opened_since {
-            q = q.filter(
-                sql("LOWER(\"room\".\"time\") BETWEEN ")
-                    .bind::<Timestamptz, _>(time)
-                    .sql(" AND NOW()"),
-            );
+            q = q.filter(sql(OPENED_SINCE_SQL).bind::<Timestamptz, _>(time));
         }
 
         q.get_results(conn)
