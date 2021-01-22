@@ -269,7 +269,7 @@ impl std::fmt::Display for MetricKey2 {
             MetricKey2::JanusBackendAgentLoad => write!(f, "janus_backend_agent_load_total"),
             MetricKey2::Dynamic(key) => write!(f, "{}_total", key),
             MetricKey2::RunningRequests => write!(f, "running_requests_total"),
-            MetricKey2::JanusTimeoutsTotal => write!(f, "janus_backend_agent_load_total"),
+            MetricKey2::JanusTimeoutsTotal => write!(f, "janus_timeouts_total"),
             MetricKey2::RunningRequestDurationP95 => {
                 write!(f, "running_request_duration_p95_microseconds")
             }
