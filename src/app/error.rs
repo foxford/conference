@@ -40,6 +40,7 @@ pub(crate) enum ErrorKind {
     ResubscriptionFailed,
     RoomClosed,
     RoomNotFound,
+    RoomTimeChangingForbidden,
     RtcNotFound,
     StatsCollectionFailed,
 }
@@ -218,6 +219,12 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 status: ResponseStatus::NOT_FOUND,
                 kind: "room_not_found",
                 title: "Room not found",
+                is_notify_sentry: false,
+            },
+            Self::RoomTimeChangingForbidden => ErrorKindProperties {
+                status: ResponseStatus::UNPROCESSABLE_ENTITY,
+                kind: "room_time_changing_forbidden",
+                title: "Room time changing forbidden",
                 is_notify_sentry: false,
             },
             Self::RtcNotFound => ErrorKindProperties {

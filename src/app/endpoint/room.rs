@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::db;
+use crate::db::room::RoomBackend;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -43,14 +44,14 @@ pub(crate) struct CreateRequest {
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: String,
     #[serde(default = "CreateRequest::default_backend")]
-    backend: db::room::RoomBackend,
+    backend: RoomBackend,
     reserve: Option<i32>,
     tags: Option<JsonValue>,
 }
 
 impl CreateRequest {
-    fn default_backend() -> db::room::RoomBackend {
-        db::room::RoomBackend::None
+    fn default_backend() -> RoomBackend {
+        RoomBackend::None
     }
 }
 
@@ -179,8 +180,11 @@ impl RequestHandler for UpdateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room =
-            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::NotClosed)?;
+        let room = helpers::find_room_by_id(
+            context,
+            payload.id,
+            helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
+        )?;
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
@@ -192,63 +196,54 @@ impl RequestHandler for UpdateHandler {
             .await?;
 
         let room_was_open = !room.is_closed();
-        let mut room_closed_by_update = false;
 
-        let mut time = payload.time;
-        if let Some(new_time) = time {
-            match new_time {
-                (Bound::Included(new_opened_at), Bound::Excluded(new_closed_at))
-                    if new_closed_at > new_opened_at =>
-                {
-                    if let (Bound::Included(opened_at), _) = room.time() {
-                        if *opened_at <= Utc::now() {
-                            let new_closed_at = if new_closed_at <= Utc::now() {
-                                room_closed_by_update = true;
-                                Utc::now()
-                            } else {
-                                new_closed_at
-                            };
+        // Update room.
+        let room = {
+            let conn = context.get_conn()?;
 
-                            time =
-                                Some((Bound::Included(*opened_at), Bound::Excluded(new_closed_at)));
-                        }
-                    }
-                }
-                // the case when new end is unbouned is special
-                // we must take care not to erase max webinar duration timeout
-                (new_opened_at, Bound::Unbounded) => {
-                    let (start, end) = room.time();
-                    let new_start = match start {
-                        Bound::Included(opened_at) if *opened_at <= Utc::now() => {
-                            Bound::Included(*opened_at)
-                        }
-                        Bound::Included(_) => new_opened_at,
+            let time = match payload.time {
+                None => None,
+                Some(new_time) => {
+                    match new_time {
+                        (Bound::Included(o), Bound::Excluded(c)) if o < c => (),
+                        (Bound::Included(_), Bound::Unbounded) => (),
                         _ => {
                             return Err(anyhow!("Invalid room time"))
                                 .error(AppErrorKind::InvalidRoomTime)
                         }
                     };
-                    // if new end should be unbounded there are two cases
-                    // old end is unbounded => end doesnt change
-                    // old end is bounded => it means there already has been an attempt to stream or the room was bounded from creation
-                    // thus we cant make the end unbounded again
-                    time = Some((new_start, *end))
-                }
-                _ => return Err(anyhow!("Invalid room time")).error(AppErrorKind::InvalidRoomTime),
-            }
-        }
 
-        // Update room.
-        let room = {
-            let query = db::room::UpdateQuery::new(room.id())
+                    match room.time() {
+                        // Allow any change when no closing date specified.
+                        (_, Bound::Unbounded) => Some(new_time),
+                        (Bound::Included(o), Bound::Excluded(c)) if *c > Utc::now() => {
+                            match new_time {
+                                // Allow reschedule future closing.
+                                (_, Bound::Excluded(nc)) => {
+                                    let nc = std::cmp::max(nc, Utc::now());
+                                    Some((Bound::Included(*o), Bound::Excluded(nc)))
+                                }
+                                _ => {
+                                    return Err(anyhow!("Setting unbounded closing time is not allowed in this room anymore"))
+                                        .error(AppErrorKind::RoomTimeChangingForbidden);
+                                }
+                            }
+                        }
+                        _ => {
+                            return Err(anyhow!("Room has been already closed"))
+                                .error(AppErrorKind::RoomTimeChangingForbidden);
+                        }
+                    }
+                }
+            };
+
+            db::room::UpdateQuery::new(room.id())
                 .time(time)
                 .audience(payload.audience)
                 .backend(payload.backend)
                 .reserve(payload.reserve)
-                .tags(payload.tags);
-
-            let conn = context.get_conn()?;
-            query.execute(&conn)?
+                .tags(payload.tags)
+                .execute(&conn)?
         };
 
         // Respond and broadcast to the audience topic.
@@ -270,27 +265,25 @@ impl RequestHandler for UpdateHandler {
 
         let mut responses = vec![response, notification];
 
-        let append_closed_notification = || {
-            responses.push(helpers::build_notification(
-                "room.close",
-                &format!("rooms/{}/events", room.id()),
-                room.clone(),
-                reqp,
-                context.start_timestamp(),
-            ));
+        // Publish room closed notification.
+        if let (_, Bound::Excluded(closed_at)) = room.time() {
+            if room_was_open && *closed_at <= Utc::now() {
+                responses.push(helpers::build_notification(
+                    "room.close",
+                    &format!("rooms/{}/events", room.id()),
+                    room.clone(),
+                    reqp,
+                    context.start_timestamp(),
+                ));
 
-            responses.push(helpers::build_notification(
-                "room.close",
-                &format!("audiences/{}/events", room.audience()),
-                room,
-                reqp,
-                context.start_timestamp(),
-            ));
-        };
-
-        // Publish room closed notification
-        if room_was_open && room_closed_by_update {
-            append_closed_notification();
+                responses.push(helpers::build_notification(
+                    "room.close",
+                    &format!("audiences/{}/events", room.audience()),
+                    room.clone(),
+                    reqp,
+                    context.start_timestamp(),
+                ));
+            }
         }
 
         Ok(Box::new(stream::from_iter(responses)))
@@ -312,8 +305,11 @@ impl RequestHandler for DeleteHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room =
-            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::NotClosed)?;
+        let room = helpers::find_room_by_id(
+            context,
+            payload.id,
+            helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
+        )?;
 
         // Authorize room deletion on the tenant.
         let room_id = room.id().to_string();
@@ -340,7 +336,7 @@ impl RequestHandler for DeleteHandler {
         );
 
         let notification = helpers::build_notification(
-            "room.update",
+            "room.delete",
             &format!("audiences/{}/events", room.audience()),
             room,
             reqp,
@@ -367,7 +363,7 @@ impl RequestHandler for EnterHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let room =
-            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::Open)?;
+            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::NotClosed)?;
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();
@@ -494,7 +490,7 @@ mod test {
     mod create {
         use std::ops::Bound;
 
-        use chrono::{SubsecRound, Utc};
+        use chrono::Utc;
         use serde_json::json;
 
         use crate::db::room::Object as Room;
@@ -505,15 +501,16 @@ mod test {
         #[test]
         fn create() {
             async_std::task::block_on(async {
+                let db = TestDb::new();
+
                 // Allow user to create rooms.
                 let mut authz = TestAuthz::new();
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 authz.allow(agent.account_id(), vec!["rooms"], "create");
 
                 // Make room.create request.
-                let mut context = TestContext::new(TestDb::new(), authz);
-                let now = Utc::now().trunc_subsecs(0);
-                let time = (Bound::Included(now), Bound::Unbounded);
+                let mut context = TestContext::new(db.clone(), authz);
+                let time = (Bound::Unbounded, Bound::Unbounded);
 
                 let payload = CreateRequest {
                     time: time.clone(),
@@ -666,6 +663,7 @@ mod test {
 
         use chrono::{Duration, SubsecRound, Utc};
         use serde_json::json;
+        use uuid::Uuid;
 
         use crate::db::room::Object as Room;
         use crate::test_helpers::find_event_by_predicate;
@@ -688,10 +686,7 @@ mod test {
                     // Create room.
                     factory::Room::new()
                         .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(now + Duration::hours(1)),
-                            Bound::Excluded(now + Duration::hours(2)),
-                        ))
+                        .time((Bound::Unbounded, Bound::Unbounded))
                         .backend(db::room::RoomBackend::Janus)
                         .insert(&conn)
                 };
@@ -706,8 +701,8 @@ mod test {
                 let mut context = TestContext::new(db, authz);
 
                 let time = (
-                    Bound::Included(now + Duration::hours(2)),
-                    Bound::Excluded(now + Duration::hours(3)),
+                    Bound::Included(now + Duration::minutes(50)),
+                    Bound::Unbounded,
                 );
 
                 let payload = UpdateRequest {
@@ -804,7 +799,7 @@ mod test {
                         .audience(USR_AUDIENCE)
                         .time((
                             Bound::Included(now - Duration::hours(1)),
-                            Bound::Excluded(now + Duration::hours(2)),
+                            Bound::Excluded(now + Duration::hours(5)),
                         ))
                         .backend(db::room::RoomBackend::Janus)
                         .insert(&conn)
@@ -863,6 +858,55 @@ mod test {
                     Some(room.id().to_string()).as_deref()
                 );
             });
+        }
+
+        #[test]
+        fn update_and_close_unbounded_room() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let now = Utc::now().trunc_subsecs(0);
+
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    // Create room.
+                    factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((Bound::Included(now - Duration::hours(1)), Bound::Unbounded))
+                        .backend(db::room::RoomBackend::Janus)
+                        .insert(&conn)
+                };
+
+                // Allow agent to update the room.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let mut authz = TestAuthz::new();
+                let room_id = room.id().to_string();
+                authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+
+                // Make room.update request.
+                let mut context = TestContext::new(db, authz);
+
+                let time = (
+                    Bound::Included(now - Duration::hours(1)),
+                    Bound::Excluded(now - Duration::seconds(5)),
+                );
+
+                let payload = UpdateRequest {
+                    id: room.id(),
+                    time: Some(time),
+                    reserve: None,
+                    audience: None,
+                    backend: None,
+                    tags: None,
+                };
+
+                handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect("Room update failed");
+            })
         }
 
         #[test]
@@ -1014,6 +1058,8 @@ mod test {
     }
 
     mod enter {
+        use chrono::{Duration, Utc};
+
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
@@ -1140,7 +1186,7 @@ mod test {
                 );
 
                 // Make room.enter request.
-                let mut context = TestContext::new(db, TestAuthz::new());
+                let mut context = TestContext::new(db, authz);
                 let payload = EnterRequest { id: room.id() };
 
                 let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
@@ -1149,6 +1195,90 @@ mod test {
 
                 assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
                 assert_eq!(err.kind(), "room_closed");
+            });
+        }
+
+        #[test]
+        fn enter_room_with_no_opening_time() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    // Create room without time.
+                    factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((Bound::Unbounded, Bound::Unbounded))
+                        .insert(&conn)
+                };
+
+                // Allow agent to subscribe to the rooms' events.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let mut authz = TestAuthz::new();
+                let room_id = room.id().to_string();
+
+                authz.allow(
+                    agent.account_id(),
+                    vec!["rooms", &room_id, "events"],
+                    "subscribe",
+                );
+
+                // Make room.enter request.
+                let mut context = TestContext::new(db, authz);
+                let payload = EnterRequest { id: room.id() };
+
+                let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on room entering");
+
+                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+                assert_eq!(err.kind(), "room_closed");
+            });
+        }
+
+        #[test]
+        fn enter_room_that_opens_in_the_future() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+
+                let room = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    // Create room without time.
+                    factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(Utc::now() + Duration::hours(1)),
+                            Bound::Unbounded,
+                        ))
+                        .insert(&conn)
+                };
+
+                // Allow agent to subscribe to the rooms' events.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let mut authz = TestAuthz::new();
+                let room_id = room.id().to_string();
+
+                authz.allow(
+                    agent.account_id(),
+                    vec!["rooms", &room_id, "events"],
+                    "subscribe",
+                );
+
+                // Make room.enter request.
+                let mut context = TestContext::new(db, authz);
+                let payload = EnterRequest { id: room.id() };
+
+                handle_request::<EnterHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect("Room entrance failed");
             });
         }
     }
