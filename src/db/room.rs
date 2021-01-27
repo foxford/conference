@@ -120,7 +120,7 @@ impl Object {
 ////////////////////////////////////////////////////////////////////////////////
 
 const OPENED_SINCE_SQL: &str = r#"
-(UPPER("room"."time") IS NULL OR UPPER("room"."time") < NOW()) AND LOWER("room"."time") >
+(UPPER("room"."time") IS NULL OR UPPER("room"."time") >= NOW()) AND LOWER("room"."time") >
 "#;
 
 #[derive(Debug, Default)]
