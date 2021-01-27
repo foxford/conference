@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.7 (January 28, 2021)
+
+### Fixes
+- Fixed JanusTimeoutsTotal name ([a4fd512](https://github.com/netology-group/conference/commit/a4fd5127ecc5d4e09a3f8214d48d84ae15c02b66))
+
 ## v0.6.6 (January 12, 2021)
 
 ### Changes
