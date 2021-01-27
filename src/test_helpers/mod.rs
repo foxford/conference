@@ -35,7 +35,7 @@ pub(crate) async fn handle_request<H: RequestHandler>(
         "agent_id": agent_id,
         "connection_mode": "default",
         "connection_version": "v2",
-        "response_topic": format!("agents/{}/api/v1/in/event.{}", agent_id, SVC_AUDIENCE),
+        "response_topic": format!("agents/{}/api/v2/in/event.{}", agent_id, SVC_AUDIENCE),
         "broker_agent_id": format!("alpha.mqtt-gateway.{}", SVC_AUDIENCE),
         "broker_timestamp": now,
         "broker_processing_timestamp": now,
