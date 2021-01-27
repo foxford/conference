@@ -6,9 +6,8 @@ use async_trait::async_trait;
 use chrono::Duration;
 use chrono::Utc;
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::{
-    mqtt::{IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus},
-    Addressable,
+use svc_agent::mqtt::{
+    IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
 };
 use uuid::Uuid;
 
@@ -381,6 +380,7 @@ impl RequestHandler for ConnectHandler {
             reqp.clone(),
             Uuid::new_v4(),
             payload.id,
+            room.id(),
             backend.session_id(),
             backend.id(),
             context.start_timestamp(),
@@ -389,12 +389,6 @@ impl RequestHandler for ConnectHandler {
 
         match janus_request_result {
             Ok(req) => {
-                let conn = context.get_conn()?;
-
-                db::agent::UpdateQuery::new(reqp.as_agent_id(), room.id())
-                    .status(db::agent::Status::Connected)
-                    .execute(&conn)?;
-
                 let boxed_request = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
                 Ok(Box::new(stream::once(boxed_request)))
             }
@@ -862,7 +856,7 @@ mod test {
                         let _rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
 
                         let s1a1 = TestAgent::new("web", "s1a1", USR_AUDIENCE);
-                        shared_helpers::insert_agent(&conn, s1a1.agent_id(), room1.id());
+                        shared_helpers::insert_connected_agent(&conn, s1a1.agent_id(), room1.id());
 
                         // The second backend has 2 agents.
                         let room2 =
@@ -871,10 +865,10 @@ mod test {
                         let _rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
 
                         let s2a1 = TestAgent::new("web", "s2a1", USR_AUDIENCE);
-                        shared_helpers::insert_agent(&conn, s2a1.agent_id(), room2.id());
+                        shared_helpers::insert_connected_agent(&conn, s2a1.agent_id(), room2.id());
 
                         let s2a2 = TestAgent::new("web", "s2a2", USR_AUDIENCE);
-                        shared_helpers::insert_agent(&conn, s2a2.agent_id(), room2.id());
+                        shared_helpers::insert_connected_agent(&conn, s2a2.agent_id(), room2.id());
 
                         // The new rtc for which we will balance the stream.
                         let rtc3 = shared_helpers::insert_rtc(&conn);
@@ -1286,8 +1280,13 @@ mod test {
                         let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
                         // Insert active agents.
-                        shared_helpers::insert_agent(&conn, writer.agent_id(), room.id());
-                        shared_helpers::insert_agent(&conn, reader1.agent_id(), room.id());
+                        shared_helpers::insert_connected_agent(&conn, writer.agent_id(), room.id());
+
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            reader1.agent_id(),
+                            room.id(),
+                        );
 
                         factory::Agent::new()
                             .agent_id(reader2.agent_id())
@@ -1462,38 +1461,23 @@ mod test {
                         let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
 
                         // Insert writer for room 1 @ backend 1
-                        factory::Agent::new()
-                            .agent_id(TestAgent::new("web", "writer1", USR_AUDIENCE).agent_id())
-                            .room_id(room1.id())
-                            .status(AgentStatus::Connected)
-                            .insert(&conn);
+                        let agent = TestAgent::new("web", "writer1", USR_AUDIENCE);
+                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room1.id());
 
                         // Insert two readers for room 1 @ backend 1
-                        factory::Agent::new()
-                            .agent_id(TestAgent::new("web", "reader1-1", USR_AUDIENCE).agent_id())
-                            .room_id(room1.id())
-                            .status(AgentStatus::Connected)
-                            .insert(&conn);
+                        let agent = TestAgent::new("web", "reader1-1", USR_AUDIENCE);
+                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room1.id());
 
-                        factory::Agent::new()
-                            .agent_id(TestAgent::new("web", "reader1-2", USR_AUDIENCE).agent_id())
-                            .room_id(room1.id())
-                            .status(AgentStatus::Connected)
-                            .insert(&conn);
+                        let agent = TestAgent::new("web", "reader1-2", USR_AUDIENCE);
+                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room1.id());
 
                         // Insert writer for room 2 @ backend 2
-                        factory::Agent::new()
-                            .agent_id(TestAgent::new("web", "writer2", USR_AUDIENCE).agent_id())
-                            .room_id(room2.id())
-                            .status(AgentStatus::Connected)
-                            .insert(&conn);
+                        let agent = TestAgent::new("web", "writer2", USR_AUDIENCE);
+                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room2.id());
 
                         // Insert reader for room 2 @ backend 2
-                        factory::Agent::new()
-                            .agent_id(TestAgent::new("web", "reader2", USR_AUDIENCE).agent_id())
-                            .room_id(room2.id())
-                            .status(AgentStatus::Connected)
-                            .insert(&conn);
+                        let agent = TestAgent::new("web", "reader2", USR_AUDIENCE);
+                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room2.id());
 
                         (rtc3, backend2)
                     })
@@ -1601,37 +1585,28 @@ mod test {
                         let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
 
                         // Insert writer for room 1
-                        factory::Agent::new()
-                            .agent_id(TestAgent::new("web", "writer1", USR_AUDIENCE).agent_id())
-                            .room_id(room1.id())
-                            .status(AgentStatus::Connected)
-                            .insert(&conn);
+                        let agent = TestAgent::new("web", "writer1", USR_AUDIENCE);
+                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room1.id());
 
                         // Insert 450 readers for room 1
                         for i in 0..450 {
-                            factory::Agent::new()
-                                .agent_id(
-                                    TestAgent::new("web", &format!("reader1-{}", i), USR_AUDIENCE)
-                                        .agent_id(),
-                                )
-                                .room_id(room1.id())
-                                .status(AgentStatus::Connected)
-                                .insert(&conn);
+                            let agent =
+                                TestAgent::new("web", &format!("reader1-{}", i), USR_AUDIENCE);
+
+                            shared_helpers::insert_connected_agent(
+                                &conn,
+                                agent.agent_id(),
+                                room1.id(),
+                            );
                         }
 
                         // Insert writer for room 3
-                        factory::Agent::new()
-                            .agent_id(TestAgent::new("web", "writer3", USR_AUDIENCE).agent_id())
-                            .room_id(room2.id())
-                            .status(AgentStatus::Connected)
-                            .insert(&conn);
+                        let agent = TestAgent::new("web", "writer3", USR_AUDIENCE);
+                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room2.id());
 
                         // Insert reader for room 3
-                        factory::Agent::new()
-                            .agent_id(TestAgent::new("web", "reader3", USR_AUDIENCE).agent_id())
-                            .room_id(room3.id())
-                            .status(AgentStatus::Connected)
-                            .insert(&conn);
+                        let agent = TestAgent::new("web", "reader3", USR_AUDIENCE);
+                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room3.id());
 
                         ([rtc1, rtc2, rtc3], backend)
                     })
