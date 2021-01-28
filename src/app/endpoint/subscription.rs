@@ -154,16 +154,21 @@ impl EventHandler for DeleteHandler {
                 .active(true)
                 .execute(&conn)?;
 
+            let mut is_publisher = false;
+
             for stream in streams.iter() {
                 // If the agent is a publisher.
                 if stream.sent_by() == &payload.subject {
                     // Stop the stream.
                     db::janus_rtc_stream::stop(stream.id(), &conn)?;
+                    is_publisher = true;
                 }
             }
 
             // Disconnect stream readers since the stream has gone.
-            db::agent_connection::BulkDisconnectByRoomQuery::new(room_id).execute(&conn)?;
+            if is_publisher {
+                db::agent_connection::BulkDisconnectByRoomQuery::new(room_id).execute(&conn)?;
+            }
 
             // Send agent.leave requests to those backends where the agent is connected to.
             let mut backend_ids = streams
