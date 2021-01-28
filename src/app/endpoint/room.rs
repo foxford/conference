@@ -229,6 +229,7 @@ impl RequestHandler for UpdateHandler {
                             match new_time {
                                 // Allow reschedule future closing.
                                 (_, Bound::Excluded(nc)) => {
+                                    let nc = std::cmp::max(nc, Utc::now());
                                     Some((Bound::Included(*o), Bound::Excluded(nc)))
                                 }
                                 _ => {
