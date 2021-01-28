@@ -27,7 +27,7 @@ use crate::db::ConnectionPool;
 use context::{AppContext, JanusTopics};
 use message_handler::MessageHandler;
 
-pub(crate) const API_VERSION: &str = "v1";
+pub(crate) const API_VERSION: &str = "v2";
 
 ////////////////////////////////////////////////////////////////////////////////
 

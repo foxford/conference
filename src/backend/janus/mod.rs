@@ -29,7 +29,7 @@ use self::transactions::Transaction;
 ////////////////////////////////////////////////////////////////////////////////
 
 const STREAM_UPLOAD_METHOD: &str = "stream.upload";
-pub(crate) const JANUS_API_VERSION: &str = "v1";
+pub(crate) const JANUS_API_VERSION: &str = "v2";
 const ALREADY_RUNNING_STATE: &str = "already_running";
 
 lazy_static! {
