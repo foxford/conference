@@ -1,9 +1,20 @@
 # Changelog
 
+## v0.6.8 (January 28, 2021)
+
+### Features
+- Allow unbounded rooms ([477d78d](https://github.com/netology-group/conference/commit/477d78df0f93b2b79b6537c463959a4f707a59ab))
+- Replace connected agent status with agent connection ([c1a7058](https://github.com/netology-group/conference/commit/c1a7058a695258430171676ecad4518a55472f35))
+
+### Fixes
+- Fix bulk disconnect ([7338a91](https://github.com/netology-group/conference/commit/7338a91858f05e4e850b4c134882a0f93fd99482))
+
+
 ## v0.6.7 (January 28, 2021)
 
 ### Fixes
 - Fixed JanusTimeoutsTotal name ([a4fd512](https://github.com/netology-group/conference/commit/a4fd5127ecc5d4e09a3f8214d48d84ae15c02b66))
+
 
 ## v0.6.6 (January 12, 2021)
 
