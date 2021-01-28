@@ -24,6 +24,7 @@ pub(crate) struct TransactionData {
     reqp: IncomingRequestProperties,
     rtc_stream_id: Uuid,
     rtc_id: Uuid,
+    room_id: Uuid,
     session_id: i64,
 }
 
@@ -32,12 +33,14 @@ impl TransactionData {
         reqp: IncomingRequestProperties,
         rtc_stream_id: Uuid,
         rtc_id: Uuid,
+        room_id: Uuid,
         session_id: i64,
     ) -> Self {
         Self {
             reqp,
             rtc_stream_id,
             rtc_id,
+            room_id,
             session_id,
         }
     }
@@ -54,6 +57,10 @@ impl TransactionData {
         self.rtc_id
     }
 
+    pub(crate) fn room_id(&self) -> Uuid {
+        self.room_id
+    }
+
     pub(crate) fn session_id(&self) -> i64 {
         self.session_id
     }
@@ -68,6 +75,7 @@ impl Client {
         reqp: IncomingRequestProperties,
         rtc_stream_id: Uuid,
         rtc_id: Uuid,
+        room_id: Uuid,
         session_id: i64,
         to: &AgentId,
         start_timestamp: DateTime<Utc>,
@@ -87,6 +95,7 @@ impl Client {
             reqp,
             rtc_stream_id,
             rtc_id,
+            room_id,
             session_id,
         ));
 

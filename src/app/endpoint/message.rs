@@ -223,17 +223,8 @@ mod test {
                     .get()
                     .map(|conn| {
                         let room = shared_helpers::insert_room(&conn);
-
-                        factory::Agent::new()
-                            .room_id(room.id())
-                            .agent_id(sender.agent_id())
-                            .insert(&conn);
-
-                        factory::Agent::new()
-                            .room_id(room.id())
-                            .agent_id(receiver.agent_id())
-                            .insert(&conn);
-
+                        shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
+                        shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
                         room
                     })
                     .expect("Failed to insert room");
@@ -302,12 +293,7 @@ mod test {
                     .get()
                     .map(|conn| {
                         let room = shared_helpers::insert_room(&conn);
-
-                        factory::Agent::new()
-                            .room_id(room.id())
-                            .agent_id(receiver.agent_id())
-                            .insert(&conn);
-
+                        shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
                         room
                     })
                     .expect("Failed to insert room");
@@ -343,12 +329,7 @@ mod test {
                     .get()
                     .map(|conn| {
                         let room = shared_helpers::insert_room(&conn);
-
-                        factory::Agent::new()
-                            .room_id(room.id())
-                            .agent_id(sender.agent_id())
-                            .insert(&conn);
-
+                        shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
                         room
                     })
                     .expect("Failed to insert room");

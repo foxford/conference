@@ -159,14 +159,11 @@ impl EventHandler for DeleteHandler {
                 if stream.sent_by() == &payload.subject {
                     // Stop the stream.
                     db::janus_rtc_stream::stop(stream.id(), &conn)?;
-
-                    // Put stream readers into `ready` status since the stream has gone.
-                    db::agent::BulkStatusUpdateQuery::new(db::agent::Status::Ready)
-                        .room_id(room_id)
-                        .status(db::agent::Status::Connected)
-                        .execute(&conn)?;
                 }
             }
+
+            // Disconnect stream readers since the stream has gone.
+            db::agent_connection::BulkDisconnectByRoomQuery::new(room_id).execute(&conn)?;
 
             // Send agent.leave requests to those backends where the agent is connected to.
             let mut backend_ids = streams

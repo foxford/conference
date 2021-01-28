@@ -11,6 +11,7 @@ use crate::db::janus_backend::Object as JanusBackend;
 use crate::db::recording::Object as Recording;
 use crate::db::room::{Object as Room, RoomBackend};
 use crate::db::rtc::Object as Rtc;
+use crate::diesel::Identifiable;
 
 use super::{agent::TestAgent, factory, SVC_AUDIENCE, USR_AUDIENCE};
 
@@ -74,8 +75,18 @@ pub(crate) fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uui
     factory::Agent::new()
         .agent_id(agent_id)
         .room_id(room_id)
-        .status(AgentStatus::Connected)
+        .status(AgentStatus::Ready)
         .insert(conn)
+}
+
+pub(crate) fn insert_connected_agent(
+    conn: &PgConnection,
+    agent_id: &AgentId,
+    room_id: Uuid,
+) -> Agent {
+    let agent = insert_agent(conn, agent_id, room_id);
+    factory::AgentConnection::new(*agent.id(), 123).insert(conn);
+    agent
 }
 
 pub(crate) fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {

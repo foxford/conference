@@ -224,7 +224,7 @@ fn append_janus_stats(
     context: &impl GlobalContext,
     now: DateTime<Utc>,
 ) -> anyhow::Result<()> {
-    use crate::db::agent;
+    use crate::db::agent_connection;
     use anyhow::Context;
 
     match context.get_conn() {
@@ -261,8 +261,7 @@ fn append_janus_stats(
             ));
 
             // The number of agents connect to an RTC.
-            let connected_agents_count = agent::CountQuery::new()
-                .status(agent::Status::Connected)
+            let connected_agents_count = agent_connection::CountQuery::new()
                 .execute(&conn)
                 .context("Failed to get connected agents count")?;
 
