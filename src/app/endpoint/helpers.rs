@@ -13,6 +13,7 @@ use crate::app::context::Context;
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 use crate::app::API_VERSION;
 use crate::db;
+use crate::db::room::Object as Room;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -51,6 +52,7 @@ pub(crate) fn build_notification(
 pub(crate) enum RoomTimeRequirement {
     Any,
     NotClosed,
+    NotClosedOrUnboundedOpen,
     Open,
 }
 
@@ -78,7 +80,7 @@ fn find_room<C, Q>(
     context: &mut C,
     query: Q,
     opening_requirement: RoomTimeRequirement,
-) -> Result<db::room::Object, AppError>
+) -> Result<Room, AppError>
 where
     C: Context,
     Q: db::room::FindQueryable,
@@ -96,12 +98,29 @@ where
         // Room time doesn't matter.
         RoomTimeRequirement::Any => Ok(room),
         // Current time must be before room closing, including not yet opened rooms.
+        // Rooms without closing time are fine.
+        // Rooms without opening time are forbidden.
         RoomTimeRequirement::NotClosed => {
             let now = Utc::now();
-            let (_opened_at, closed_at) = room.time();
 
-            match closed_at {
-                Bound::Included(dt) | Bound::Excluded(dt) if *dt < now => {
+            match room.time() {
+                (Bound::Unbounded, _) => {
+                    Err(anyhow!("Room has no opening time")).error(AppErrorKind::RoomClosed)
+                }
+                (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if *dt < now => {
+                    Err(anyhow!("Room closed")).error(AppErrorKind::RoomClosed)
+                }
+                _ => Ok(room),
+            }
+        }
+        // Current time must be before room closing, including not yet opened rooms.
+        // Rooms without closing time are fine.
+        // Rooms without opening time are fine.
+        RoomTimeRequirement::NotClosedOrUnboundedOpen => {
+            let now = Utc::now();
+
+            match room.time() {
+                (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if *dt < now => {
                     Err(anyhow!("Room closed")).error(AppErrorKind::RoomClosed)
                 }
                 _ => Ok(room),
@@ -113,6 +132,9 @@ where
             let (opened_at, closed_at) = room.time();
 
             match opened_at {
+                Bound::Unbounded => {
+                    Err(anyhow!("Room has no opening time")).error(AppErrorKind::RoomClosed)
+                }
                 Bound::Included(dt) | Bound::Excluded(dt) if *dt >= now => {
                     Err(anyhow!("Room not opened")).error(AppErrorKind::RoomClosed)
                 }

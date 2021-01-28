@@ -1427,7 +1427,7 @@ mod test {
                         let room1 = factory::Room::new()
                             .audience(USR_AUDIENCE)
                             .time((
-                                Bound::Included(now),
+                                Bound::Included(now - Duration::minutes(1)),
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
                             .backend(RoomBackend::Janus)
@@ -1438,7 +1438,7 @@ mod test {
                         let room2 = factory::Room::new()
                             .audience(USR_AUDIENCE)
                             .time((
-                                Bound::Included(now),
+                                Bound::Included(now - Duration::minutes(1)),
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
                             .reserve(600)
@@ -1449,7 +1449,7 @@ mod test {
                         let room3 = factory::Room::new()
                             .audience(USR_AUDIENCE)
                             .time((
-                                Bound::Included(now),
+                                Bound::Included(now - Duration::minutes(1)),
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
                             .reserve(400)
