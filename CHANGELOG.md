@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.9 (February 1, 2021)
+
+### Features
+- Refactor JSEP validation & allow lists ([e1784b3](https://github.com/netology-group/conference/commit/e1784b36c1a357a5868e974ac65392ad2c933dad))
+
+
 ## v0.6.8 (January 28, 2021)
 
 ### Features
