@@ -16,6 +16,59 @@ use crate::db;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum Jsep {
+    // '{"type": "offer", "sdp": _}' or '{"type": "answer", "sdp": _}'
+    OfferOrAnswer {
+        #[serde(rename = "type")]
+        kind: JsepType,
+        sdp: String,
+    },
+    IceCandidate(IceCandidateSdp),
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum JsepType {
+    Offer,
+    Answer,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct IceCandidate {
+    #[serde(rename = "sdpMid")]
+    _sdp_mid: String,
+    #[serde(rename = "sdpMLineIndex")]
+    _sdp_m_line_index: u16,
+    #[serde(rename = "candidate")]
+    _candidate: String,
+    #[serde(rename = "usernameFragment")]
+    _username_fragment: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum IceCandidateSdpItem {
+    IceCandidate(IceCandidate),
+    // {"completed": true}
+    Completed {
+        #[serde(rename = "completed")]
+        _completed: bool,
+    },
+    // null
+    Null(Option<usize>),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum IceCandidateSdp {
+    // {"sdpMid": _, "sdpMLineIndex": _, "candidate": _}
+    Single(IceCandidateSdpItem),
+    // [{"sdpMid": _, "sdpMLineIndex": _, "candidate": _}, …, {"completed": true}]
+    List(Vec<IceCandidateSdpItem>),
+}
+
 #[derive(Debug, Serialize)]
 pub(crate) struct CreateResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -35,7 +88,7 @@ pub(crate) type CreateResponse = OutgoingResponse<CreateResponseData>;
 #[derive(Debug, Deserialize)]
 pub(crate) struct CreateRequest {
     handle_id: HandleId,
-    jsep: JsonValue,
+    jsep: Jsep,
     label: Option<String>,
 }
 
@@ -63,92 +116,105 @@ impl RequestHandler for CreateHandler {
             context.add_logger_tags(o!("rtc_stream_label" => label.to_owned()));
         }
 
-        let sdp_type = match parse_sdp_type(&payload.jsep) {
-            Ok(sdp_type) => sdp_type,
-            Err(err) => {
-                return Err(err.context("Failed to parse SDP type"))
-                    .error(AppErrorKind::InvalidSdpType)
-            }
-        };
+        let req = match payload.jsep {
+            Jsep::OfferOrAnswer { kind, ref sdp } => {
+                match kind {
+                    JsepType::Offer => {
+                        let is_recvonly = is_sdp_recvonly(sdp)
+                            .context("Invalid JSEP format")
+                            .error(AppErrorKind::InvalidJsepFormat)?;
 
-        let req = match sdp_type {
-            SdpType::Offer => {
-                let is_recvonly = is_sdp_recvonly(&payload.jsep)
-                    .context("Invalid JSEP format")
-                    .error(AppErrorKind::InvalidJsepFormat)?;
+                        if is_recvonly {
+                            context.add_logger_tags(o!("sdp_type" => "offer", "intent" => "read"));
 
-                if is_recvonly {
-                    context.add_logger_tags(o!("sdp_type" => "offer", "intent" => "read"));
+                            // Authorization
+                            let authz_time = authorize(context, &payload, reqp, "read").await?;
 
-                    // Authorization
-                    let authz_time = authorize(context, &payload, reqp, "read").await?;
+                            let jsep = serde_json::to_value(&payload.jsep)
+                                .context("Error serializing JSEP")
+                                .error(AppErrorKind::MessageBuildingFailed)?;
 
-                    context
-                        .janus_client()
-                        .read_stream_request(
-                            reqp.clone(),
-                            payload.handle_id.janus_session_id(),
-                            payload.handle_id.janus_handle_id(),
-                            payload.handle_id.rtc_id(),
-                            payload.jsep.clone(),
-                            payload.handle_id.backend_id(),
-                            context.start_timestamp(),
-                            authz_time,
-                        )
-                        .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
-                        .context("Error creating a backend request")
-                        .error(AppErrorKind::MessageBuildingFailed)?
-                } else {
-                    context.add_logger_tags(o!("sdp_type" => "offer", "intent" => "update"));
+                            context
+                                .janus_client()
+                                .read_stream_request(
+                                    reqp.clone(),
+                                    payload.handle_id.janus_session_id(),
+                                    payload.handle_id.janus_handle_id(),
+                                    payload.handle_id.rtc_id(),
+                                    jsep,
+                                    payload.handle_id.backend_id(),
+                                    context.start_timestamp(),
+                                    authz_time,
+                                )
+                                .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
+                                .context("Error creating a backend request")
+                                .error(AppErrorKind::MessageBuildingFailed)?
+                        } else {
+                            context
+                                .add_logger_tags(o!("sdp_type" => "offer", "intent" => "update"));
 
-                    // Authorization
-                    let authz_time = authorize(context, &payload, reqp, "update").await?;
+                            // Authorization
+                            let authz_time = authorize(context, &payload, reqp, "update").await?;
 
-                    // Updating the Real-Time Connection state
-                    {
-                        let label = payload
-                            .label
-                            .as_ref()
-                            .ok_or_else(|| anyhow!("Missing label"))
-                            .error(AppErrorKind::MessageParsingFailed)?;
+                            // Updating the Real-Time Connection state
+                            {
+                                let label = payload
+                                    .label
+                                    .as_ref()
+                                    .ok_or_else(|| anyhow!("Missing label"))
+                                    .error(AppErrorKind::MessageParsingFailed)?;
 
-                        let conn = context.get_conn()?;
+                                let conn = context.get_conn()?;
 
-                        db::janus_rtc_stream::InsertQuery::new(
-                            payload.handle_id.rtc_stream_id(),
-                            payload.handle_id.janus_handle_id(),
-                            payload.handle_id.rtc_id(),
-                            payload.handle_id.backend_id(),
-                            label,
-                            reqp.as_agent_id(),
-                        )
-                        .execute(&conn)?;
+                                db::janus_rtc_stream::InsertQuery::new(
+                                    payload.handle_id.rtc_stream_id(),
+                                    payload.handle_id.janus_handle_id(),
+                                    payload.handle_id.rtc_id(),
+                                    payload.handle_id.backend_id(),
+                                    label,
+                                    reqp.as_agent_id(),
+                                )
+                                .execute(&conn)?;
+                            }
+
+                            let jsep = serde_json::to_value(&payload.jsep)
+                                .context("Error serializing JSEP")
+                                .error(AppErrorKind::MessageBuildingFailed)?;
+
+                            context
+                                .janus_client()
+                                .create_stream_request(
+                                    reqp.clone(),
+                                    payload.handle_id.janus_session_id(),
+                                    payload.handle_id.janus_handle_id(),
+                                    payload.handle_id.rtc_id(),
+                                    jsep,
+                                    payload.handle_id.backend_id(),
+                                    context.start_timestamp(),
+                                    authz_time,
+                                )
+                                .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
+                                .context("Error creating a backend request")
+                                .error(AppErrorKind::MessageBuildingFailed)?
+                        }
                     }
-
-                    context
-                        .janus_client()
-                        .create_stream_request(
-                            reqp.clone(),
-                            payload.handle_id.janus_session_id(),
-                            payload.handle_id.janus_handle_id(),
-                            payload.handle_id.rtc_id(),
-                            payload.jsep.clone(),
-                            payload.handle_id.backend_id(),
-                            context.start_timestamp(),
-                            authz_time,
-                        )
-                        .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
-                        .context("Error creating a backend request")
-                        .error(AppErrorKind::MessageBuildingFailed)?
+                    JsepType::Answer => Err(anyhow!("sdp_type = 'answer' is not allowed"))
+                        .error(AppErrorKind::InvalidSdpType)?,
                 }
             }
-            SdpType::Answer => Err(anyhow!("sdp_type = 'answer' is not allowed"))
-                .error(AppErrorKind::InvalidSdpType)?,
-            SdpType::IceCandidate => {
+            Jsep::IceCandidate(_) => {
                 context.add_logger_tags(o!("sdp_type" => "ice_candidate", "intent" => "read"));
 
                 // Authorization
                 let authz_time = authorize(context, &payload, reqp, "read").await?;
+
+                info!(context.logger(), "[JSEP_PARSED] {:?}", payload.jsep);
+
+                let jsep = serde_json::to_value(&payload.jsep)
+                    .context("Error serializing JSEP")
+                    .error(AppErrorKind::MessageBuildingFailed)?;
+
+                info!(context.logger(), "[JSEP_DUMPED] {:?}", payload.jsep);
 
                 context
                     .janus_client()
@@ -156,7 +222,7 @@ impl RequestHandler for CreateHandler {
                         reqp.clone(),
                         payload.handle_id.janus_session_id(),
                         payload.handle_id.janus_handle_id(),
-                        payload.jsep.clone(),
+                        jsep,
                         payload.handle_id.backend_id(),
                         context.start_timestamp(),
                         authz_time,
@@ -200,49 +266,8 @@ async fn authorize<C: Context>(
         .map_err(AppError::from)
 }
 
-#[derive(Debug)]
-enum SdpType {
-    Offer,
-    Answer,
-    IceCandidate,
-}
-
-fn parse_sdp_type(jsep: &JsonValue) -> anyhow::Result<SdpType> {
-    // '{"type": "offer", "sdp": _}' or '{"type": "answer", "sdp": _}'
-    let sdp_type = jsep.get("type");
-
-    // '{"sdpMid": _, "sdpMLineIndex": _, "candidate": _}' or '{"completed": true}' or 'null'
-    let is_candidate = {
-        let candidate = jsep.get("candidate");
-        let completed = jsep.get("completed");
-        candidate
-            .map(|val| val.is_string())
-            .unwrap_or_else(|| false)
-            || completed
-                .map(|val| val.as_bool().unwrap_or_else(|| false))
-                .unwrap_or_else(|| false)
-            || jsep.is_null()
-    };
-
-    match (sdp_type, is_candidate) {
-        (Some(JsonValue::String(ref val)), false) if val == "offer" => Ok(SdpType::Offer),
-        // {"type": "answer", "sdp": _}
-        (Some(JsonValue::String(ref val)), false) if val == "answer" => Ok(SdpType::Answer),
-        // {"completed": true} or {"sdpMid": _, "sdpMLineIndex": _, "candidate": _}
-        (None, true) => Ok(SdpType::IceCandidate),
-        _ => Err(anyhow!("invalid jsep = '{}'", jsep)),
-    }
-}
-
-fn is_sdp_recvonly(jsep: &JsonValue) -> anyhow::Result<bool> {
+fn is_sdp_recvonly(sdp: &str) -> anyhow::Result<bool> {
     use webrtc_sdp::{attribute_type::SdpAttributeType, parse_sdp};
-
-    let sdp = jsep.get("sdp").ok_or_else(|| anyhow!("Missing SDP"))?;
-
-    let sdp = sdp
-        .as_str()
-        .ok_or_else(|| anyhow!("Invalid SDP: '{}'", sdp))?;
-
     let sdp = parse_sdp(sdp, false).context("Invalid SDP")?;
 
     // Returning true if all media section contains 'recvonly' attribute
@@ -378,9 +403,13 @@ mod test {
                     backend.id().to_owned(),
                 );
 
+                let jsep =
+                    serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                        .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     handle_id,
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER }),
+                    jsep,
                     label: Some(String::from("whatever")),
                 };
 
@@ -453,9 +482,13 @@ mod test {
                     backend.id().to_owned(),
                 );
 
+                let jsep =
+                    serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                        .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     handle_id,
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER }),
+                    jsep,
                     label: Some(String::from("whatever")),
                 };
 
@@ -527,9 +560,13 @@ mod test {
                     backend.id().to_owned(),
                 );
 
+                let jsep =
+                    serde_json::from_value::<Jsep>(json!({ "type": "answer", "sdp": SDP_ANSWER }))
+                        .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     handle_id,
-                    jsep: json!({ "type": "answer", "sdp": SDP_ANSWER }),
+                    jsep,
                     label: Some(String::from("whatever")),
                 };
 
@@ -554,9 +591,9 @@ mod test {
         #[derive(Debug, PartialEq, Deserialize)]
         struct RtcSignalCreateJanusRequestIceCandidateCandidate {
             #[serde(rename = "sdpMid")]
-            sdp_m_id: usize,
+            sdp_m_id: String,
             #[serde(rename = "sdpMLineIndex")]
-            sdp_m_line_index: usize,
+            sdp_m_line_index: u16,
             candidate: String,
         }
 
@@ -599,9 +636,16 @@ mod test {
                     backend.id().to_owned(),
                 );
 
+                let jsep = serde_json::from_value::<Jsep>(json!({
+                    "sdpMid": "v",
+                    "sdpMLineIndex": 0,
+                    "candidate": ICE_CANDIDATE
+                }))
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     handle_id,
-                    jsep: json!({ "sdpMid": 0, "sdpMLineIndex": 0, "candidate": ICE_CANDIDATE }),
+                    jsep,
                     label: None,
                 };
 
@@ -624,7 +668,7 @@ mod test {
                 assert_eq!(payload.janus, "trickle");
                 assert_eq!(payload.session_id, backend.session_id());
                 assert_eq!(payload.handle_id, backend.handle_id());
-                assert_eq!(payload.candidate.sdp_m_id, 0);
+                assert_eq!(payload.candidate.sdp_m_id, "v");
                 assert_eq!(payload.candidate.sdp_m_line_index, 0);
                 assert_eq!(payload.candidate.candidate, ICE_CANDIDATE);
             });
@@ -660,9 +704,16 @@ mod test {
                     backend.id().to_owned(),
                 );
 
+                let jsep = serde_json::from_value::<Jsep>(json!({
+                    "sdpMid": "v",
+                    "sdpMLineIndex": 0,
+                    "candidate": ICE_CANDIDATE
+                }))
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     handle_id,
-                    jsep: json!({ "sdpMid": 0, "sdpMLineIndex": 0, "candidate": ICE_CANDIDATE }),
+                    jsep,
                     label: None,
                 };
 
