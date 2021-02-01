@@ -37,10 +37,17 @@ pub(crate) type CreateResponse = OutgoingResponse<CreateResponseData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum CreateJsep {
+    Offer { sdp: String },
+    Answer,
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct CreateRequest {
     room_id: Uuid,
-    jsep: JsonValue,
+    jsep: CreateJsep,
 }
 
 pub(crate) struct CreateHandler;
@@ -55,20 +62,13 @@ impl RequestHandler for CreateHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         // Validate SDP type.
-        match parse_sdp_type(&payload.jsep) {
-            Ok(SdpType::Offer) => (),
-            Ok(sdp_type) => {
-                return Err(anyhow!(
-                    "SDP type '{}' is invalid for signal.create method",
-                    sdp_type
-                ))
-                .error(AppErrorKind::InvalidSdpType);
+        let sdp = match payload.jsep {
+            CreateJsep::Offer { ref sdp } => Ok(sdp),
+            CreateJsep::Answer => {
+                let err = anyhow!("SDP type 'answer' is invalid for signal.create method");
+                Err(err).error(AppErrorKind::InvalidSdpType)
             }
-            Err(err) => {
-                return Err(err.context("Failed to parse SDP type"))
-                    .error(AppErrorKind::InvalidSdpType);
-            }
-        }
+        }?;
 
         // The room must be open, have backend = 'janus' and the agent must be entered there.
         let room =
@@ -95,7 +95,7 @@ impl RequestHandler for CreateHandler {
         context.add_logger_tags(o!("backend_id" => backend.id().to_string()));
 
         // Check that the backend's capacity is not exceeded.
-        let is_reader = is_sdp_recvonly(&payload.jsep)
+        let is_reader = is_sdp_recvonly(sdp)
             .context("Invalid JSEP format")
             .error(AppErrorKind::InvalidSdpType)?;
 
@@ -107,11 +107,15 @@ impl RequestHandler for CreateHandler {
         }
 
         // Make janus handle creation request.
+        let jsep = serde_json::to_value(&payload.jsep)
+            .context("Error serializing JSEP")
+            .error(AppErrorKind::MessageBuildingFailed)?;
+
         let janus_request_result = context.janus_client().create_agent_handle_request(
             reqp.clone(),
             payload.room_id,
             backend.session_id(),
-            payload.jsep,
+            jsep,
             backend.id(),
             context.start_timestamp(),
         );
@@ -142,10 +146,44 @@ pub(crate) type TrickleResponse = OutgoingResponse<TrickleResponseData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, Deserialize, Serialize)]
+struct IceCandidate {
+    #[serde(rename = "sdpMid")]
+    _sdp_mid: String,
+    #[serde(rename = "sdpMLineIndex")]
+    _sdp_m_line_index: u16,
+    #[serde(rename = "candidate")]
+    _candidate: String,
+    #[serde(rename = "usernameFragment")]
+    _username_fragment: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum TrickleJsepItem {
+    IceCandidate(IceCandidate),
+    // {"completed": true}
+    Completed {
+        #[serde(rename = "completed")]
+        _completed: bool,
+    },
+    // null
+    Null(Option<usize>),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum TrickleJsep {
+    // {"sdpMid": _, "sdpMLineIndex": _, "candidate": _}
+    Single(TrickleJsepItem),
+    // [{"sdpMid": _, "sdpMLineIndex": _, "candidate": _}, …, {"completed": true}]
+    List(Vec<TrickleJsepItem>),
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct TrickleRequest {
     room_id: Uuid,
-    jsep: JsonValue,
+    jsep: TrickleJsep,
 }
 
 pub(crate) struct TrickleHandler;
@@ -159,22 +197,6 @@ impl RequestHandler for TrickleHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        // Validate SDP type.
-        match parse_sdp_type(&payload.jsep) {
-            Ok(SdpType::IceCandidate) => (),
-            Ok(sdp_type) => {
-                return Err(anyhow!(
-                    "SDP type '{}' is invalid for signal.create method",
-                    sdp_type
-                ))
-                .error(AppErrorKind::InvalidSdpType);
-            }
-            Err(err) => {
-                return Err(err.context("Failed to parse SDP type"))
-                    .error(AppErrorKind::InvalidSdpType);
-            }
-        }
-
         // Find room.
         let room =
             helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
@@ -184,12 +206,16 @@ impl RequestHandler for TrickleHandler {
             helpers::find_agent_connection_with_backend(context, reqp.as_agent_id(), &room)?;
 
         // Make janus trickle request.
+        let jsep = serde_json::to_value(&payload.jsep)
+            .context("Error serializing JSEP")
+            .error(AppErrorKind::MessageBuildingFailed)?;
+
         let janus_request_result = context.janus_client().trickle_request(
             reqp.clone(),
             backend.id(),
             backend.session_id(),
             agent_connection.handle_id(),
-            payload.jsep,
+            jsep,
             context.start_timestamp(),
         );
 
@@ -221,10 +247,12 @@ pub(crate) type UpdateResponse = OutgoingResponse<UpdateResponseData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+type UpdateJsep = CreateJsep;
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct UpdateRequest {
     room_id: Uuid,
-    jsep: JsonValue,
+    jsep: UpdateJsep,
 }
 
 pub(crate) struct UpdateHandler;
@@ -239,20 +267,13 @@ impl RequestHandler for UpdateHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         // Validate SDP type.
-        match parse_sdp_type(&payload.jsep) {
-            Ok(SdpType::Offer) => (),
-            Ok(sdp_type) => {
-                return Err(anyhow!(
-                    "SDP type '{}' is invalid for signal.create method",
-                    sdp_type
-                ))
-                .error(AppErrorKind::InvalidSdpType);
+        match payload.jsep {
+            CreateJsep::Offer { sdp: _ } => Ok(()),
+            CreateJsep::Answer => {
+                let err = anyhow!("SDP type 'answer' is invalid for signal.update method");
+                Err(err).error(AppErrorKind::InvalidSdpType)
             }
-            Err(err) => {
-                return Err(err.context("Failed to parse SDP type"))
-                    .error(AppErrorKind::InvalidSdpType);
-            }
-        }
+        }?;
 
         // Find room.
         let room =
@@ -263,12 +284,16 @@ impl RequestHandler for UpdateHandler {
             helpers::find_agent_connection_with_backend(context, reqp.as_agent_id(), &room)?;
 
         // Make janus `signal.update` request.
+        let jsep = serde_json::to_value(&payload.jsep)
+            .context("Error serializing JSEP")
+            .error(AppErrorKind::MessageBuildingFailed)?;
+
         let janus_request_result = context.janus_client().update_signal_request(
             reqp.clone(),
             backend.id(),
             backend.session_id(),
             agent_connection.handle_id(),
-            payload.jsep,
+            jsep,
             context.start_timestamp(),
         );
 
@@ -302,41 +327,8 @@ impl fmt::Display for SdpType {
     }
 }
 
-fn parse_sdp_type(jsep: &JsonValue) -> anyhow::Result<SdpType> {
-    // '{"type": "offer", "sdp": _}' or '{"type": "answer", "sdp": _}'
-    let sdp_type = jsep.get("type");
-
-    // '{"sdpMid": _, "sdpMLineIndex": _, "candidate": _}' or '{"completed": true}' or 'null'
-    let is_candidate = {
-        let candidate = jsep.get("candidate");
-        let completed = jsep.get("completed");
-
-        candidate.map(|val| val.is_string()).unwrap_or(false)
-            || completed
-                .map(|val| val.as_bool().unwrap_or(false))
-                .unwrap_or(false)
-            || jsep.is_null()
-    };
-
-    match (sdp_type, is_candidate) {
-        (Some(JsonValue::String(ref val)), false) if val == "offer" => Ok(SdpType::Offer),
-        // {"type": "answer", "sdp": _}
-        (Some(JsonValue::String(ref val)), false) if val == "answer" => Ok(SdpType::Answer),
-        // {"completed": true} or {"sdpMid": _, "sdpMLineIndex": _, "candidate": _}
-        (None, true) => Ok(SdpType::IceCandidate),
-        _ => Err(anyhow!("invalid jsep = '{}'", jsep)),
-    }
-}
-
-fn is_sdp_recvonly(jsep: &JsonValue) -> anyhow::Result<bool> {
+fn is_sdp_recvonly(sdp: &str) -> anyhow::Result<bool> {
     use webrtc_sdp::{attribute_type::SdpAttributeType, parse_sdp};
-
-    let sdp = jsep.get("sdp").ok_or_else(|| anyhow!("Missing SDP"))?;
-
-    let sdp = sdp
-        .as_str()
-        .ok_or_else(|| anyhow!("Invalid SDP: '{}'", sdp))?;
-
     let sdp = parse_sdp(sdp, false).context("Invalid SDP")?;
 
     // Returning true if all media section contains 'recvonly' attribute
@@ -573,9 +565,14 @@ mod tests {
                 // Make `signal.create` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<CreateJsep>(
+                    json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     room_id: room.id(),
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
+                    jsep,
                 };
 
                 let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -652,9 +649,14 @@ mod tests {
                 // Make `signal.create` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<CreateJsep>(
+                    json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     room_id: room.id(),
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
+                    jsep,
                 };
 
                 let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -754,9 +756,14 @@ mod tests {
                 // Make `signal.create` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<CreateJsep>(
+                    json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     room_id: room.id(),
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
+                    jsep,
                 };
 
                 let messages = handle_request::<CreateHandler>(&mut context, &agent4, payload)
@@ -839,9 +846,14 @@ mod tests {
                 // Make `signal.create` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<CreateJsep>(
+                    json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     room_id: room.id(),
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
+                    jsep,
                 };
 
                 let messages = handle_request::<CreateHandler>(&mut context, &agent2, payload)
@@ -899,9 +911,14 @@ mod tests {
                 // Make `signal.create` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<CreateJsep>(
+                    json!({ "type": "offer", "sdp": SDP_OFFER_RECVONLY }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     room_id: room.id(),
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER_RECVONLY }),
+                    jsep,
                 };
 
                 let err = handle_request::<CreateHandler>(&mut context, &agent2, payload)
@@ -950,9 +967,14 @@ mod tests {
                 // It should work for a writer even when the capacity has exceeded.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<CreateJsep>(
+                    json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     room_id: room.id(),
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
+                    jsep,
                 };
 
                 let messages = handle_request::<CreateHandler>(&mut context, &agent2, payload)
@@ -1005,9 +1027,14 @@ mod tests {
                 // Make `signal.create` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<CreateJsep>(
+                    json!({ "type": "offer", "sdp": SDP_OFFER_RECVONLY }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     room_id: room.id(),
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER_RECVONLY }),
+                    jsep,
                 };
 
                 let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1041,9 +1068,14 @@ mod tests {
                 // Make `signal.create` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<CreateJsep>(
+                    json!({ "type": "answer", "sdp": SDP_ANSWER }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     room_id: room.id(),
-                    jsep: json!({ "type": "answer", "sdp": SDP_ANSWER }),
+                    jsep,
                 };
 
                 let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1075,9 +1107,14 @@ mod tests {
                 // Make `signal.create` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<CreateJsep>(
+                    json!({ "type": "offer", "sdp": SDP_OFFER_RECVONLY }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     room_id: room.id(),
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER_RECVONLY }),
+                    jsep,
                 };
 
                 let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1111,9 +1148,14 @@ mod tests {
                 // Make `signal.create` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<CreateJsep>(
+                    json!({ "type": "offer", "sdp": SDP_OFFER_RECVONLY }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     room_id: room.id(),
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER_RECVONLY }),
+                    jsep,
                 };
 
                 let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1133,9 +1175,14 @@ mod tests {
 
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<CreateJsep>(
+                    json!({ "type": "offer", "sdp": SDP_OFFER_RECVONLY }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = CreateRequest {
                     room_id: Uuid::new_v4(),
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER_RECVONLY }),
+                    jsep,
                 };
 
                 let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1151,13 +1198,12 @@ mod tests {
     mod trickle {
         use serde_derive::Deserialize;
         use serde_json::json;
-        use svc_agent::mqtt::ResponseStatus;
 
         use crate::app::API_VERSION;
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
-        use super::{ICE_CANDIDATE, SDP_OFFER_SENDRECV};
+        use super::ICE_CANDIDATE;
 
         #[derive(Debug, PartialEq, Deserialize)]
         struct JanusTrickleRequest {
@@ -1171,7 +1217,7 @@ mod tests {
         #[derive(Debug, PartialEq, Deserialize)]
         struct JanusTrickleRequestCandidate {
             #[serde(rename = "sdpMid")]
-            sdp_m_id: usize,
+            sdp_m_id: String,
             #[serde(rename = "sdpMLineIndex")]
             sdp_m_line_index: usize,
             candidate: String,
@@ -1199,9 +1245,14 @@ mod tests {
                 // Make `signal.trickle` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<TrickleJsep>(
+                    json!({ "sdpMid": "0", "sdpMLineIndex": 0, "candidate": ICE_CANDIDATE }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = TrickleRequest {
                     room_id: room.id(),
-                    jsep: json!({ "sdpMid": 0, "sdpMLineIndex": 0, "candidate": ICE_CANDIDATE }),
+                    jsep,
                 };
 
                 let messages = handle_request::<TrickleHandler>(&mut context, &agent, payload)
@@ -1223,45 +1274,9 @@ mod tests {
                 assert_eq!(payload.janus, "trickle");
                 assert_eq!(payload.session_id, backend.session_id());
                 assert_eq!(payload.handle_id, 123);
-                assert_eq!(payload.candidate.sdp_m_id, 0);
+                assert_eq!(payload.candidate.sdp_m_id, "0");
                 assert_eq!(payload.candidate.sdp_m_line_index, 0);
                 assert_eq!(payload.candidate.candidate, ICE_CANDIDATE);
-            });
-        }
-
-        #[test]
-        fn trickle_signal_with_invalid_jsep() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let db = TestDb::new();
-
-                // Insert backend, room and enter agent there.
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
-
-                    let backend = shared_helpers::insert_janus_backend(&conn);
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room.id());
-                    room
-                };
-
-                // Make `signal.trickle` request.
-                let mut context = TestContext::new(db.clone(), TestAuthz::new());
-
-                let payload = TrickleRequest {
-                    room_id: room.id(),
-                    jsep: json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
-                };
-
-                let err = handle_request::<TrickleHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Signal trickle succeeded while expecting invalid SDP error");
-
-                assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
-                assert_eq!(err.kind(), "invalid_sdp_type");
             });
         }
     }
@@ -1298,15 +1313,6 @@ mod tests {
             sdp: String,
         }
 
-        impl Jsep {
-            fn new(kind: &str, sdp: &str) -> Self {
-                Self {
-                    kind: kind.to_owned(),
-                    sdp: sdp.to_owned(),
-                }
-            }
-        }
-
         #[test]
         fn update_signal() {
             async_std::task::block_on(async {
@@ -1328,11 +1334,15 @@ mod tests {
 
                 // Make `signal.update` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
-                let jsep = Jsep::new("offer", SDP_OFFER_SENDRECV);
+
+                let jsep = serde_json::from_value::<UpdateJsep>(
+                    json!({ "type": "offer", "sdp": SDP_OFFER_SENDRECV }),
+                )
+                .expect("Failed to build JSEP");
 
                 let payload = UpdateRequest {
                     room_id: room.id(),
-                    jsep: json!(jsep),
+                    jsep,
                 };
 
                 let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -1355,7 +1365,8 @@ mod tests {
                 assert_eq!(payload.session_id, backend.session_id());
                 assert_eq!(payload.handle_id, 123);
                 assert_eq!(payload.body.method, "signal.update");
-                assert_eq!(payload.jsep, jsep);
+                assert_eq!(payload.jsep.kind, "offer");
+                assert_eq!(payload.jsep.sdp, SDP_OFFER_SENDRECV);
             });
         }
 
@@ -1381,9 +1392,14 @@ mod tests {
                 // Make `signal.update` request.
                 let mut context = TestContext::new(db.clone(), TestAuthz::new());
 
+                let jsep = serde_json::from_value::<UpdateJsep>(
+                    json!({ "type": "answer", "sdp": SDP_ANSWER }),
+                )
+                .expect("Failed to build JSEP");
+
                 let payload = UpdateRequest {
                     room_id: room.id(),
-                    jsep: json!(Jsep::new("answer", SDP_ANSWER)),
+                    jsep,
                 };
 
                 let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
