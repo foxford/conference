@@ -12,7 +12,7 @@ fi
 if [[ ! ${NAMESPACE} ]]; then echo "NAMESPACE is required" 1>&2; exit 1; fi
 if [[ ! ${GITHUB_TOKEN} ]]; then echo "GITHUB_TOKEN is required" 1>&2; exit 1; fi
 BRANCH="${BRANCH:-master}"
-PROJECT="conference"
+PROJECT="${PROJECT:-conference}"
 
 SOURCE=${SOURCE:-"https://api.github.com/repos/netology-group/ulms-env/contents/k8s"}
 
