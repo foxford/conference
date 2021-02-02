@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.8.2 (February 2, 2021)
+
+### Features
+- Restrict working only with compliant janus API version ([c405ee9](https://github.com/netology-group/conference/commit/c405ee99ff7d4a8b5b99fef2bc897b480b5d080f))
+
+### Fixes
+- Fix room entrance ([df827ca](https://github.com/netology-group/conference/commit/df827ca3aa5ef522b42e29362e75be857d4be572))
+
+
 ## v0.8.1 (January 21, 2021)
 
 ### Fixes
