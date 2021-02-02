@@ -14,13 +14,12 @@ use uuid::Uuid;
 
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
+use crate::app::API_VERSION;
 use crate::db;
 use crate::db::room::RoomBackend;
 use crate::diesel::Connection;
 
 ///////////////////////////////////////////////////////////////////////////////
-
-const MQTT_GW_API_VERSION: &str = "v1";
 
 #[derive(Debug, Serialize)]
 struct SubscriptionRequest {
@@ -409,7 +408,7 @@ impl RequestHandler for EnterHandler {
         //        https://github.com/vernemq/vernemq/issues/1326.
         //        Then we won't need the local state on the broker at all and will be able
         //        to send a multicast request to the broker.
-        let outgoing_request = OutgoingRequest::unicast(payload, props, reqp, MQTT_GW_API_VERSION);
+        let outgoing_request = OutgoingRequest::unicast(payload, props, reqp, API_VERSION);
         let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_request)))
     }
@@ -473,7 +472,7 @@ impl RequestHandler for LeaveHandler {
         //        https://github.com/vernemq/vernemq/issues/1326.
         //        Then we won't need the local state on the broker at all and will be able
         //        to send a multicast request to the broker.
-        let outgoing_request = OutgoingRequest::unicast(payload, props, reqp, MQTT_GW_API_VERSION);
+        let outgoing_request = OutgoingRequest::unicast(payload, props, reqp, API_VERSION);
         let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_request)))
     }
@@ -1173,7 +1172,7 @@ mod test {
                 let expected_topic = format!(
                     "agents/{}/api/{}/in/{}",
                     agent.agent_id(),
-                    MQTT_GW_API_VERSION,
+                    API_VERSION,
                     context.config().id,
                 );
 
@@ -1391,7 +1390,7 @@ mod test {
                 let expected_topic = format!(
                     "agents/{}/api/{}/in/{}",
                     agent.agent_id(),
-                    MQTT_GW_API_VERSION,
+                    API_VERSION,
                     context.config().id,
                 );
 

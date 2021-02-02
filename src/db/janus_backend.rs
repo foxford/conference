@@ -4,6 +4,7 @@ use diesel::result::Error;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
+use crate::backend::janus::JANUS_API_VERSION;
 use crate::schema::janus_backend;
 
 pub(crate) type AllColumns = (
@@ -13,6 +14,7 @@ pub(crate) type AllColumns = (
     janus_backend::created_at,
     janus_backend::capacity,
     janus_backend::balancer_capacity,
+    janus_backend::api_version,
 );
 
 pub(crate) const ALL_COLUMNS: AllColumns = (
@@ -22,6 +24,7 @@ pub(crate) const ALL_COLUMNS: AllColumns = (
     janus_backend::created_at,
     janus_backend::capacity,
     janus_backend::balancer_capacity,
+    janus_backend::api_version,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -35,6 +38,7 @@ pub(crate) struct Object {
     created_at: DateTime<Utc>,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
+    api_version: String,
 }
 
 impl Object {
@@ -88,6 +92,7 @@ pub(crate) struct UpsertQuery<'a> {
     session_id: i64,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
+    api_version: String,
 }
 
 impl<'a> UpsertQuery<'a> {
@@ -98,6 +103,7 @@ impl<'a> UpsertQuery<'a> {
             session_id,
             capacity: None,
             balancer_capacity: None,
+            api_version: JANUS_API_VERSION.to_string(),
         }
     }
 
@@ -196,16 +202,18 @@ const MOST_LOADED_SQL: &str = r#"
     ON 1 = 1
     WHERE r2.id = $1
     AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) >= COALESCE(r2.reserve, 1)
+    AND   jb.api_version = $2
     ORDER BY COALESCE(jbl.load, 0) DESC
     LIMIT 1
 "#;
 
 pub(crate) fn most_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
     use diesel::prelude::*;
-    use diesel::sql_types::Uuid;
+    use diesel::sql_types::{Text, Uuid};
 
     diesel::sql_query(MOST_LOADED_SQL)
         .bind::<Uuid, _>(room_id)
+        .bind::<Text, _>(JANUS_API_VERSION)
         .get_result(conn)
         .optional()
 }
@@ -252,16 +260,18 @@ const LEAST_LOADED_SQL: &str = r#"
     LEFT JOIN room AS r2
     ON 1 = 1
     WHERE r2.id = $1
+    AND   jb.api_version = $2
     ORDER BY COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC
     LIMIT 1
 "#;
 
 pub(crate) fn least_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
     use diesel::prelude::*;
-    use diesel::sql_types::Uuid;
+    use diesel::sql_types::{Text, Uuid};
 
     diesel::sql_query(LEAST_LOADED_SQL)
         .bind::<Uuid, _>(room_id)
+        .bind::<Text, _>(JANUS_API_VERSION)
         .get_result(conn)
         .optional()
 }

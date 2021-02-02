@@ -21,7 +21,7 @@ use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPoo
 use crate::app::context::GlobalContext;
 use crate::app::error::{Error as AppError, ErrorKind as AppErrorKind};
 use crate::app::metrics::{DynamicStatsCollector, StatsRoute};
-use crate::backend::janus::Client as JanusClient;
+use crate::backend::janus::{Client as JanusClient, JANUS_API_VERSION};
 use crate::config::{self, Config, KruonisConfig};
 use crate::db::ConnectionPool;
 use context::{AppContext, JanusTopics};
@@ -181,7 +181,8 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
         .context("Error subscribing to multicast requests")?;
 
     // Janus status events
-    let subscription = Subscription::broadcast_events(&config.backend.id, API_VERSION, "status");
+    let subscription =
+        Subscription::broadcast_events(&config.backend.id, JANUS_API_VERSION, "status");
 
     agent
         .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
@@ -192,7 +193,8 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
         .context("Error building janus events subscription topic")?;
 
     // Janus events
-    let subscription = Subscription::broadcast_events(&config.backend.id, API_VERSION, "events");
+    let subscription =
+        Subscription::broadcast_events(&config.backend.id, JANUS_API_VERSION, "events");
 
     agent
         .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))

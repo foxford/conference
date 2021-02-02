@@ -33,6 +33,7 @@ table! {
         created_at -> Timestamptz,
         capacity -> Nullable<Int4>,
         balancer_capacity -> Nullable<Int4>,
+        api_version -> Text,
     }
 }
 
