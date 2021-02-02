@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.10 (February 2, 2021)
+
+### Features
+- Restrict working only with compliant janus API version ([3534b64](https://github.com/netology-group/conference/commit/3534b6474c743f268dfdd6403a2bc7dfa90da54e))
+
+
 ## v0.6.9 (February 1, 2021)
 
 ### Features
