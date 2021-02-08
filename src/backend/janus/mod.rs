@@ -581,20 +581,19 @@ fn handle_media_event<C: Context>(
     evp: &IncomingEventProperties,
 ) -> Result<MessageStream, AppError> {
     // Handle only video-related events to avoid duplication.
-    if inev.is_video() {
+    if !inev.is_video() {
         return Ok(Box::new(stream::empty()));
     }
 
     let conn = context.get_conn()?;
 
-    let (janus_rtc_stream, room) =
-        find_stream_with_room(context, &conn, inev.sender(), !inev.is_receiving())?;
-
-    if inev.is_receiving() {
-        start_stream(context, &conn, &janus_rtc_stream, &room, evp)
-    } else {
-        stop_stream(context, &conn, &janus_rtc_stream, &room, evp)
-    }
+    conn.transaction::<_, AppError, _>(|| {
+        if inev.is_receiving() {
+            start_stream(context, &conn, inev.sender(), evp)
+        } else {
+            stop_stream(context, &conn, inev.sender(), evp)
+        }
+    })
 }
 
 fn handle_detached_event<C: Context>(
@@ -603,56 +602,61 @@ fn handle_detached_event<C: Context>(
     evp: &IncomingEventProperties,
 ) -> Result<MessageStream, AppError> {
     let conn = context.get_conn()?;
-    let (janus_rtc_stream, room) = find_stream_with_room(context, &conn, inev.sender(), true)?;
-    stop_stream(context, &conn, &janus_rtc_stream, &room, evp)
-}
-
-fn find_stream_with_room<C: Context>(
-    context: &mut C,
-    conn: &PgConnection,
-    handle_id: i64,
-    is_started: bool,
-) -> Result<(janus_rtc_stream::Object, room::Object), AppError> {
-    let (janus_rtc_stream, room) = janus_rtc_stream::FindWithRoomQuery::new()
-        .handle_id(handle_id)
-        .is_started(is_started)
-        .is_stopped(false)
-        .execute(conn)?;
-
-    context.add_logger_tags(o!(
-        "room_id" => room.id().to_string(),
-        "rtc_id" => janus_rtc_stream.rtc_id().to_string(),
-        "rtc_stream_id" => janus_rtc_stream.id().to_string(),
-    ));
-
-    Ok((janus_rtc_stream, room))
+    conn.transaction::<_, AppError, _>(|| stop_stream(context, &conn, inev.sender(), evp))
 }
 
 fn start_stream<C: Context>(
     context: &mut C,
     conn: &PgConnection,
-    janus_rtc_stream: &janus_rtc_stream::Object,
-    room: &room::Object,
+    handle_id: i64,
     evp: &IncomingEventProperties,
 ) -> Result<MessageStream, AppError> {
-    let maybe_rtc_stream = conn.transaction::<_, diesel::result::Error, _>(|| {
-        if let (start, Bound::Unbounded) = room.time() {
-            crate::db::room::UpdateQuery::new(room.id())
-                .time(Some((
-                    *start,
-                    Bound::Excluded(Utc::now() + *MAX_WEBINAR_DURATION),
-                )))
-                .execute(&conn)?;
-        }
+    let stream_start_info = agent_connection::StreamStartInfoQuery::new(handle_id).execute(conn)?;
 
-        janus_rtc_stream::start(janus_rtc_stream.id(), conn)
-    })?;
+    context.add_logger_tags(o!(
+        "room_id" => stream_start_info.room_id().to_string(),
+        "rtc_id" => stream_start_info.rtc_id().to_string(),
+        "backend_id" => evp.as_agent_id().to_string(),
+    ));
 
-    if let Some(rtc_stream) = maybe_rtc_stream {
+    // Set room timeout.
+    if let (start, Bound::Unbounded) = stream_start_info.room_time() {
+        crate::db::room::UpdateQuery::new(stream_start_info.room_id())
+            .time(Some((
+                *start,
+                Bound::Excluded(Utc::now() + *MAX_WEBINAR_DURATION),
+            )))
+            .execute(conn)?;
+    }
+
+    // Update or create (if rtc.connect is not yet called) the stream.
+    let maybe_rtc_stream = janus_rtc_stream::FindWithRoomQuery::new()
+        .backend_id(evp.as_agent_id())
+        .handle_id(handle_id)
+        .is_started(false)
+        .is_stopped(false)
+        .execute(&conn)?;
+
+    let rtc_stream = if let Some((rtc_stream, _room)) = maybe_rtc_stream {
+        rtc_stream
+    } else {
+        janus_rtc_stream::InsertQuery::new(
+            handle_id,
+            stream_start_info.rtc_id(),
+            evp.as_agent_id(),
+            "pending",
+            stream_start_info.agent_id(),
+        )
+        .execute(conn)?
+    };
+
+    context.add_logger_tags(o!("rtc_stream_id" => rtc_stream.id().to_string()));
+
+    if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream.id(), conn)? {
         info!(context.logger(), "Stream started");
 
         let event = endpoint::rtc_stream::update_event(
-            room.id(),
+            stream_start_info.room_id(),
             rtc_stream,
             context.start_timestamp(),
             evp.tracking(),
@@ -669,10 +673,28 @@ fn start_stream<C: Context>(
 fn stop_stream<C: Context>(
     context: &mut C,
     conn: &PgConnection,
-    janus_rtc_stream: &janus_rtc_stream::Object,
-    room: &room::Object,
+    handle_id: i64,
     evp: &IncomingEventProperties,
 ) -> Result<MessageStream, AppError> {
+    let maybe_rtc_stream = janus_rtc_stream::FindWithRoomQuery::new()
+        .backend_id(evp.as_agent_id())
+        .handle_id(handle_id)
+        .is_started(true)
+        .is_stopped(false)
+        .execute(conn)?;
+
+    let (janus_rtc_stream, room) = match maybe_rtc_stream {
+        Some(entities) => entities,
+        None => return Ok(Box::new(stream::empty())),
+    };
+
+    context.add_logger_tags(o!(
+        "room_id" => room.id().to_string(),
+        "rtc_id" => janus_rtc_stream.rtc_id().to_string(),
+        "rtc_stream_id" => janus_rtc_stream.id().to_string(),
+        "backend_id" => janus_rtc_stream.backend_id().to_string(),
+    ));
+
     if let Some(rtc_stream) = janus_rtc_stream::stop(janus_rtc_stream.id(), conn)? {
         // Publish the update event only if the stream object has been changed.
         // If there's no actual media stream, the object wouldn't contain its start time.
