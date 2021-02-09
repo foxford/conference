@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.11 (February 9, 2021)
+
+### Fixes
+- Vacuum only rooms on compliant backends ([2f53692](https://github.com/netology-group/conference/commit/2f536925e88935eef7c4535eedc14e5e33cd2cb2))
+
+
 ## v0.6.10 (February 2, 2021)
 
 ### Features
