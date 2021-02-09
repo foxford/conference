@@ -10,6 +10,7 @@ use serde_json::Value as JsonValue;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
+use crate::backend::janus::JANUS_API_VERSION;
 use crate::db::janus_backend::Object as JanusBackend;
 use crate::db::recording::{Object as Recording, Status as RecordingStatus};
 use crate::schema::{janus_backend, recording, room, rtc};
@@ -224,6 +225,7 @@ pub(crate) fn finished_with_in_progress_recordings(
         .inner_join(rtc::table.inner_join(recording::table))
         .inner_join(janus_backend::table.on(janus_backend::id.nullable().eq(room::backend_id)))
         .filter(room::backend.eq(RoomBackend::Janus))
+        .filter(janus_backend::api_version.eq(JANUS_API_VERSION))
         .filter(sql("upper(\"room\".\"time\") < now()"))
         .filter(recording::status.eq(RecordingStatus::InProgress))
         .select((
