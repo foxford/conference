@@ -292,7 +292,7 @@ impl RequestHandler for ConnectHandler {
                 .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
                 .context("Error creating a backend request")
                 .error(AppErrorKind::MessageBuildingFailed)?,
-            // Create janus_rtc_stream and make `stream.create` request for writer.
+            // Update or create janus_rtc_stream and make `stream.create` request for writer.
             ConnectIntent::Write => {
                 let janus_rtc_stream = {
                     let label = payload
@@ -303,15 +303,29 @@ impl RequestHandler for ConnectHandler {
 
                     let conn = context.get_conn()?;
 
-                    db::janus_rtc_stream::InsertQuery::new(
-                        Uuid::new_v4(),
-                        agent_connection.handle_id(),
-                        payload.id,
-                        backend.id(),
-                        label,
-                        reqp.as_agent_id(),
-                    )
-                    .execute(&conn)?
+                    conn.transaction::<_, diesel::result::Error, _>(|| {
+                        let maybe_rtc_stream = db::janus_rtc_stream::FindWithRoomQuery::new()
+                            .backend_id(backend.id())
+                            .handle_id(agent_connection.handle_id())
+                            .is_started(true)
+                            .is_stopped(false)
+                            .execute(&conn)?;
+
+                        if let Some((janus_rtc_stream, _room)) = maybe_rtc_stream {
+                            db::janus_rtc_stream::UpdateQuery::new(janus_rtc_stream.id())
+                                .label(label)
+                                .execute(&conn)
+                        } else {
+                            db::janus_rtc_stream::InsertQuery::new(
+                                agent_connection.handle_id(),
+                                payload.id,
+                                backend.id(),
+                                label,
+                                reqp.as_agent_id(),
+                            )
+                            .execute(&conn)
+                        }
+                    })?
                 };
 
                 context.add_logger_tags(o!(

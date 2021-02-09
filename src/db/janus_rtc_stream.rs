@@ -68,7 +68,6 @@ impl Object {
         self.rtc_id
     }
 
-    #[cfg(test)]
     pub(crate) fn backend_id(&self) -> &AgentId {
         &self.backend_id
     }
@@ -233,15 +232,23 @@ impl<'a> ListWithRtcQuery<'a> {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Default)]
-pub(crate) struct FindWithRoomQuery {
+pub(crate) struct FindWithRoomQuery<'a> {
+    backend_id: Option<&'a AgentId>,
     handle_id: Option<i64>,
     is_started: Option<bool>,
     is_stopped: Option<bool>,
 }
 
-impl FindWithRoomQuery {
+impl<'a> FindWithRoomQuery<'a> {
     pub(crate) fn new() -> Self {
         Default::default()
+    }
+
+    pub(crate) fn backend_id(self, backend_id: &'a AgentId) -> Self {
+        Self {
+            backend_id: Some(backend_id),
+            ..self
+        }
     }
 
     pub(crate) fn handle_id(self, handle_id: i64) -> Self {
@@ -265,13 +272,17 @@ impl FindWithRoomQuery {
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<(Object, Room), Error> {
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<(Object, Room)>, Error> {
         use diesel::dsl::sql;
         use diesel::prelude::*;
 
         let mut q = janus_rtc_stream::table
             .inner_join(rtc::table.inner_join(room::table))
             .into_boxed();
+
+        if let Some(backend_id) = self.backend_id {
+            q = q.filter(janus_rtc_stream::backend_id.eq(backend_id));
+        }
 
         if let Some(handle_id) = self.handle_id {
             q = q.filter(janus_rtc_stream::handle_id.eq(handle_id));
@@ -291,6 +302,7 @@ impl FindWithRoomQuery {
 
         q.select((self::ALL_COLUMNS, super::room::ALL_COLUMNS))
             .get_result(conn)
+            .optional()
     }
 }
 
@@ -309,7 +321,6 @@ pub(crate) struct InsertQuery<'a> {
 
 impl<'a> InsertQuery<'a> {
     pub(crate) fn new(
-        id: Uuid,
         handle_id: i64,
         rtc_id: Uuid,
         backend_id: &'a AgentId,
@@ -317,7 +328,7 @@ impl<'a> InsertQuery<'a> {
         sent_by: &'a AgentId,
     ) -> Self {
         Self {
-            id,
+            id: Uuid::new_v4(),
             rtc_id,
             backend_id,
             handle_id,
@@ -333,6 +344,37 @@ impl<'a> InsertQuery<'a> {
         diesel::insert_into(janus_rtc_stream)
             .values(self)
             .get_result(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Default, Identifiable, AsChangeset)]
+#[table_name = "janus_rtc_stream"]
+pub(crate) struct UpdateQuery<'a> {
+    id: Uuid,
+    label: Option<&'a str>,
+}
+
+impl<'a> UpdateQuery<'a> {
+    pub(crate) fn new(id: Uuid) -> Self {
+        Self {
+            id,
+            ..Default::default()
+        }
+    }
+
+    pub(crate) fn label(self, label: &'a str) -> Self {
+        Self {
+            label: Some(label),
+            ..self
+        }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+        use diesel::prelude::*;
+
+        diesel::update(self).set(self).get_result(conn)
     }
 }
 

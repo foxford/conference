@@ -5,7 +5,8 @@ use uuid::Uuid;
 
 use crate::db::agent::{Object as Agent, Status as AgentStatus};
 use crate::db::janus_backend::{Object as JanusBackend, ALL_COLUMNS as JANUS_BACKEND_COLUMNS};
-use crate::schema::{agent, agent_connection, janus_backend, room};
+use crate::db::room::{RoomBackend, Time as RoomTime};
+use crate::schema::{agent, agent_connection, janus_backend, room, rtc};
 
 pub(crate) type AllColumns = (
     agent_connection::agent_id,
@@ -155,5 +156,71 @@ impl<'a> BulkDisconnectQuery<'a> {
         diesel::sql_query(BULK_DISCONNECT_SQL)
             .bind::<Agent_id, _>(self.backend_id)
             .execute(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct StreamStartInfo {
+    agent_id: AgentId,
+    rtc_id: Uuid,
+    room_id: Uuid,
+    room_time: RoomTime,
+}
+
+impl StreamStartInfo {
+    pub(crate) fn agent_id(&self) -> &AgentId {
+        &self.agent_id
+    }
+
+    pub(crate) fn rtc_id(&self) -> Uuid {
+        self.rtc_id
+    }
+
+    pub(crate) fn room_id(&self) -> Uuid {
+        self.room_id
+    }
+
+    pub(crate) fn room_time(&self) -> &RoomTime {
+        &self.room_time
+    }
+}
+
+type StreamStartInfoRow = (AgentId, Uuid, Uuid, RoomTime);
+
+impl From<StreamStartInfoRow> for StreamStartInfo {
+    fn from(row: StreamStartInfoRow) -> Self {
+        let (agent_id, rtc_id, room_id, room_time) = row;
+
+        Self {
+            agent_id,
+            rtc_id,
+            room_id,
+            room_time,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct StreamStartInfoQuery {
+    handle_id: i64,
+}
+
+impl StreamStartInfoQuery {
+    pub(crate) fn new(handle_id: i64) -> Self {
+        Self { handle_id }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<StreamStartInfo, Error> {
+        use diesel::prelude::*;
+
+        agent_connection::table
+            .inner_join(agent::table.inner_join(room::table.inner_join(rtc::table)))
+            .filter(agent_connection::handle_id.eq(self.handle_id))
+            .filter(agent::status.eq(AgentStatus::Ready))
+            .filter(room::backend.eq(RoomBackend::Janus))
+            .select((agent::agent_id, rtc::id, room::id, room::time))
+            .get_result(conn)
+            .map(|row: StreamStartInfoRow| row.into())
     }
 }
