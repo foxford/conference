@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.3 (February 9, 2021)
+
+### Fixes
+- Vacuum rooms only on compliant backends ([7e5ff79](https://github.com/netology-group/conference/commit/7e5ff79f11475e11538b2b244b681ac7daf058bf))
+- Fix race for janus_rtc_stream ([a79ce80](https://github.com/netology-group/conference/commit/a79ce80fd3663dcebe42367096b60032c59485f7))
+
+
 ## v0.8.2 (February 2, 2021)
 
 ### Features

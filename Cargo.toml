@@ -1,6 +1,6 @@
 [package]
 name = "conference"
-version = "0.8.2"
+version = "0.8.3"
 authors = ["Andrei Nesterov <ae.nesterov@gmail.com>"]
 edition = "2018"
 
