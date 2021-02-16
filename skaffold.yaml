@@ -1,4 +1,4 @@
-apiVersion: skaffold/v2beta4
+apiVersion: skaffold/v2beta11
 kind: Config
 build:
   artifacts:
@@ -13,6 +13,7 @@ build:
   local:
     push: true
     useDockerCLI: true
+    tryImportMissing: true
 deploy:
   kustomize:
     paths:
