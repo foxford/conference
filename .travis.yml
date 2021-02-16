@@ -10,12 +10,7 @@ addons:
       - postgresql-11
       - postgresql-client-11
 
-cache:
-  directories:
-    - ${TRAVIS_HOME}/.cargo
-
-before_cache:
-  - rm -rf ${TRAVIS_HOME}/.cargo/registry
+cache: cargo
 
 services:
   - docker
