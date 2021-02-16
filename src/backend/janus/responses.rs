@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde_derive::Deserialize;
 use serde_json::Value as JsonValue;
 
@@ -26,16 +28,34 @@ pub(crate) struct HandleErrorResponse {
     error: ErrorResponseData,
 }
 
+impl HandleErrorResponse {
+    pub(crate) fn error(&self) -> &ErrorResponseData {
+        &self.error
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct SessionErrorResponse {
     transaction: String,
     error: ErrorResponseData,
 }
 
+impl SessionErrorResponse {
+    pub(crate) fn error(&self) -> &ErrorResponseData {
+        &self.error
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct ErrorResponseData {
     code: i32,
     reason: String,
+}
+
+impl fmt::Display for ErrorResponseData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} ({})", self.reason, self.code)
+    }
 }
 
 // A request to a plugin handle was received.
@@ -77,13 +97,13 @@ impl EventResponse {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct EventResponsePluginData {
-    data: JsonValue,
+    data: Option<JsonValue>,
     plugin: String,
 }
 
 impl EventResponsePluginData {
-    pub(crate) fn data(&self) -> &JsonValue {
-        &self.data
+    pub(crate) fn data(&self) -> Option<&JsonValue> {
+        self.data.as_ref()
     }
 }
 
