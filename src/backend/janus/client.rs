@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration as StdDuration;
@@ -25,6 +26,18 @@ struct RequestInfo {
     to: AgentId,
     start_timestamp: DateTime<Utc>,
     payload: JsonValue,
+}
+
+impl fmt::Display for RequestInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let method = self
+            .payload
+            .get("method")
+            .and_then(|m| m.as_str())
+            .unwrap_or("");
+
+        write!(f, "to = '{}', method = '{}'", self.to, method)
+    }
 }
 
 enum TransactionWatchdogMessage {
@@ -67,12 +80,11 @@ impl Client {
 
                 state = state
                     .into_iter()
-                    .filter(|(corr_data, info)| {
+                    .filter(|(_corr_data, info)| {
                         if info.start_timestamp + info.timeout < Utc::now() {
-                            let err =
-                                anyhow!("Janus request timed out ({}): {:?}", corr_data, info);
-
+                            let err = anyhow!("Janus request timed out; {}", info);
                             error!(crate::LOG, "{}", err);
+
                             if let Some(ref writer) = timeouts_writer {
                                 writer.record_janus_timeout(info.to.clone());
                             }

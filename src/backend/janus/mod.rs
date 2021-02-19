@@ -259,6 +259,8 @@ async fn handle_response_impl<C: Context>(
                     inresp
                         .plugin()
                         .data()
+                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                        .error(AppErrorKind::MessageParsingFailed)?
                         .get("status")
                         .ok_or_else(|| anyhow!("Missing 'status' in the response"))
                         .error(AppErrorKind::MessageParsingFailed)
@@ -297,6 +299,8 @@ async fn handle_response_impl<C: Context>(
                     inresp
                         .plugin()
                         .data()
+                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                        .error(AppErrorKind::MessageParsingFailed)?
                         .get("status")
                         .ok_or_else(|| anyhow!("Missing 'status' in the response"))
                         .error(AppErrorKind::MessageParsingFailed)
@@ -337,7 +341,11 @@ async fn handle_response_impl<C: Context>(
                     ));
 
                     // TODO: improve error handling
-                    let plugin_data = inresp.plugin().data();
+                    let plugin_data = inresp
+                        .plugin()
+                        .data()
+                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                        .error(AppErrorKind::MessageParsingFailed)?;
 
                     plugin_data
                         .get("status")
@@ -485,15 +493,15 @@ async fn handle_response_impl<C: Context>(
         }
         IncomingResponse::Error(ErrorResponse::Session(ref inresp)) => {
             let err = anyhow!(
-                "received an unexpected Error message (session): {:?}",
-                inresp
+                "received an unexpected Error message (session): {}",
+                inresp.error()
             );
             Err(err).error(AppErrorKind::MessageParsingFailed)
         }
         IncomingResponse::Error(ErrorResponse::Handle(ref inresp)) => {
             let err = anyhow!(
-                "received an unexpected Error message (handle): {:?}",
-                inresp
+                "received an unexpected Error message (handle): {}",
+                inresp.error()
             );
             Err(err).error(AppErrorKind::MessageParsingFailed)
         }
