@@ -3,8 +3,8 @@ use chrono::Utc;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{
-        IncomingEventProperties, OutgoingMessage, OutgoingRequest, OutgoingRequestProperties,
-        ShortTermTimingProperties, TrackingProperties,
+        OutgoingMessage, OutgoingRequest, OutgoingRequestProperties, ShortTermTimingProperties,
+        TrackingProperties,
     },
     AgentId,
 };
@@ -20,20 +20,17 @@ const METHOD: &str = "janus_conference_agent.leave";
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct TransactionData {
-    evp: IncomingEventProperties,
-}
+pub(crate) struct TransactionData;
 
 impl TransactionData {
-    pub(crate) fn new(evp: IncomingEventProperties) -> Self {
-        Self { evp }
+    pub(crate) fn new() -> Self {
+        Self
     }
 }
 
 impl Client {
     pub(crate) fn agent_leave_request(
         &self,
-        evp: IncomingEventProperties,
         session_id: i64,
         handle_id: i64,
         agent_id: &AgentId,
@@ -51,7 +48,7 @@ impl Client {
 
         props.set_tracking(tracking.to_owned());
 
-        let transaction = Transaction::AgentLeave(TransactionData::new(evp));
+        let transaction = Transaction::AgentLeave(TransactionData::new());
         let body = AgentLeaveRequestBody::new(agent_id.to_owned());
 
         let payload = MessageRequest::new(

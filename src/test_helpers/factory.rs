@@ -257,27 +257,6 @@ impl<'a> JanusRtcStream<'a> {
         }
     }
 
-    pub(crate) fn backend(self, backend: &'a db::janus_backend::Object) -> Self {
-        Self {
-            backend: Some(backend),
-            ..self
-        }
-    }
-
-    pub(crate) fn rtc(self, rtc: &'a db::rtc::Object) -> Self {
-        Self {
-            rtc: Some(rtc),
-            ..self
-        }
-    }
-
-    pub(crate) fn sent_by(self, sent_by: &'a AgentId) -> Self {
-        Self {
-            sent_by: Some(sent_by),
-            ..self
-        }
-    }
-
     pub(crate) fn insert(&self, conn: &PgConnection) -> db::janus_rtc_stream::Object {
         let default_backend;
 

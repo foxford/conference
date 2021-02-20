@@ -131,7 +131,7 @@ mod tests {
                     .expect("Agents listing failed");
 
                 // Assert response.
-                let (agents, respp) = find_response::<Vec<Agent>>(messages.as_slice());
+                let (agents, respp, _) = find_response::<Vec<Agent>>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::OK);
                 assert_eq!(agents.len(), 1);
                 assert_eq!(&agents[0].agent_id, agent.agent_id());

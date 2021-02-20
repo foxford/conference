@@ -23,6 +23,7 @@ pub(crate) enum ErrorKind {
     BackendRequestFailed,
     BackendRequestTimedOut,
     BackendNotFound,
+    BrokerRequestFailed,
     CapacityExceeded,
     ConfigKeyMissing,
     DbConnAcquisitionFailed,
@@ -117,6 +118,12 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 status: ResponseStatus::NOT_FOUND,
                 kind: "backend_not_found",
                 title: "Backend not found",
+                is_notify_sentry: true,
+            },
+            Self::BrokerRequestFailed => ErrorKindProperties {
+                status: ResponseStatus::UNPROCESSABLE_ENTITY,
+                kind: "broker_request_failed",
+                title: "Broker request failed",
                 is_notify_sentry: true,
             },
             Self::ConfigKeyMissing => ErrorKindProperties {

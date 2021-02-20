@@ -463,7 +463,7 @@ mod test {
                     .expect("Rtc creation failed");
 
                 // Assert response.
-                let (rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::CREATED);
                 assert_eq!(rtc.room_id(), room.id());
 
@@ -512,7 +512,7 @@ mod test {
                     .expect("Rtc creation failed");
 
                 // Assert response.
-                let (rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::CREATED);
                 assert_eq!(rtc.room_id(), room.id());
 
@@ -574,7 +574,7 @@ mod test {
                     .expect("Rtc creation failed");
 
                 // Assert response.
-                let (rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::CREATED);
                 assert_eq!(rtc.room_id(), room.id());
 
@@ -626,12 +626,12 @@ mod test {
                     .expect("RTC creation failed");
 
                 // Assert responses.
-                let (rtc1, respp1) = find_response::<Rtc>(messages1.as_slice());
+                let (rtc1, respp1, _) = find_response::<Rtc>(messages1.as_slice());
                 assert_eq!(respp1.status(), ResponseStatus::CREATED);
                 assert_eq!(rtc1.room_id(), room.id());
                 assert_eq!(rtc1.created_by(), agent1.agent_id());
 
-                let (rtc2, respp2) = find_response::<Rtc>(messages2.as_slice());
+                let (rtc2, respp2, _) = find_response::<Rtc>(messages2.as_slice());
                 assert_eq!(respp2.status(), ResponseStatus::CREATED);
                 assert_eq!(rtc2.room_id(), room.id());
                 assert_eq!(rtc2.created_by(), agent2.agent_id());
@@ -666,7 +666,7 @@ mod test {
                     .expect("RTC creation failed");
 
                 // Assert response.
-                let (rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::CREATED);
                 assert_eq!(rtc.room_id(), room.id());
                 assert_eq!(rtc.created_by(), agent.agent_id());
@@ -748,7 +748,7 @@ mod test {
                     .expect("RTC reading failed");
 
                 // Assert response.
-                let (resp_rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                let (resp_rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::OK);
                 assert_eq!(resp_rtc.room_id(), rtc.room_id());
             });
@@ -840,7 +840,7 @@ mod test {
                     .expect("Rtc listing failed");
 
                 // Assert response.
-                let (rtcs, respp) = find_response::<Vec<Rtc>>(messages.as_slice());
+                let (rtcs, respp, _) = find_response::<Vec<Rtc>>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::OK);
                 assert_eq!(rtcs.len(), 1);
                 assert_eq!(rtcs[0].id(), rtc.id());
