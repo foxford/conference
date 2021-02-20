@@ -71,28 +71,56 @@ request_routes!(
 
 ///////////////////////////////////////////////////////////////////////////////
 
+use serde_derive::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) enum CorrelationData {
+    SubscriptionCreate(subscription::CorrelationDataPayload),
+    SubscriptionDelete(subscription::CorrelationDataPayload),
+    MessageUnicast(message::CorrelationDataPayload),
+}
+
 #[async_trait]
 pub(crate) trait ResponseHandler {
     type Payload: Send + DeserializeOwned;
+    type CorrelationData: Sync;
 
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
         respp: &IncomingResponseProperties,
+        corr_data: &Self::CorrelationData,
     ) -> Result;
 }
 
-pub(crate) async fn route_response<C: Context>(
-    context: &mut C,
-    resp: &IncomingResponse<String>,
-    topic: &str,
-) -> Option<MessageStream> {
-    if topic == context.janus_topics().responses_topic() {
-        Some(janus::handle_response::<C>(context, resp).await)
-    } else {
-        Some(message::CallbackHandler::handle_envelope::<C>(context, resp).await)
+macro_rules! response_routes {
+    ($($c: tt => $h: ty),*) => {
+        #[allow(unused_variables)]
+        pub(crate) async fn route_response<C: Context>(
+            context: &mut C,
+            response: &IncomingResponse<String>,
+            corr_data: &CorrelationData,
+            topic: &str,
+        ) -> MessageStream {
+            // TODO: Refactor janus response handler to use common pattern.
+            if topic == context.janus_topics().responses_topic() {
+                janus::handle_response::<C>(context, response).await
+            } else {
+                match corr_data {
+                    $(
+                        CorrelationData::$c(cd) => <$h>::handle_envelope::<C>(context, response, cd).await,
+                    )*
+                }
+            }
+        }
     }
 }
+
+response_routes!(
+    SubscriptionCreate => subscription::CreateResponseHandler,
+    SubscriptionDelete => subscription::DeleteResponseHandler,
+    MessageUnicast => message::UnicastResponseHandler
+);
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -135,8 +163,7 @@ macro_rules! event_routes {
 event_routes!(
     "metric.pull" => metric::PullHandler,
     "room.notify_opened" => room::NotifyOpenedHandler,
-    "subscription.delete" => subscription::DeleteHandler,
-    "subscription.create" => subscription::CreateHandler
+    "subscription.delete" => subscription::DeleteEventHandler
 );
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -154,5 +181,6 @@ pub(crate) mod system;
 
 pub(self) mod prelude {
     pub(super) use super::{helpers, EventHandler, RequestHandler, ResponseHandler, Result};
+    pub(super) use crate::app::endpoint::CorrelationData;
     pub(super) use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 }

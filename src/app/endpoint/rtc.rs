@@ -392,7 +392,7 @@ mod test {
                     .expect("Rtc creation failed");
 
                 // Assert response.
-                let (rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::CREATED);
                 assert_eq!(rtc.room_id(), room.id());
 
@@ -450,7 +450,7 @@ mod test {
                     .expect("Rtc creation failed");
 
                 // Assert response.
-                let (rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::CREATED);
                 assert_eq!(rtc.room_id(), room.id());
 
@@ -531,7 +531,7 @@ mod test {
                     .expect("RTC reading failed");
 
                 // Assert response.
-                let (resp_rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                let (resp_rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::OK);
                 assert_eq!(resp_rtc.room_id(), rtc.room_id());
             });
@@ -623,7 +623,7 @@ mod test {
                     .expect("Rtc listing failed");
 
                 // Assert response.
-                let (rtcs, respp) = find_response::<Vec<Rtc>>(messages.as_slice());
+                let (rtcs, respp, _) = find_response::<Vec<Rtc>>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::OK);
                 assert_eq!(rtcs.len(), 1);
                 assert_eq!(rtcs[0].id(), rtc.id());

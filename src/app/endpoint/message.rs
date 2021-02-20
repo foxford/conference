@@ -1,6 +1,7 @@
+use anyhow::Context as AnyhowContext;
 use async_std::stream;
 use async_trait::async_trait;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use svc_agent::mqtt::{
     IncomingRequestProperties, IncomingResponseProperties, IntoPublishableMessage, OutgoingRequest,
@@ -13,9 +14,19 @@ use uuid::Uuid;
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::app::API_VERSION;
-use crate::util::{from_base64, to_base64};
 
 ////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct CorrelationDataPayload {
+    reqp: IncomingRequestProperties,
+}
+
+impl CorrelationDataPayload {
+    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
+        Self { reqp }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct UnicastRequest {
@@ -53,14 +64,17 @@ impl RequestHandler for UnicastHandler {
                 .map_err(|err| anyhow!("Error building responses subscription topic: {}", err))
                 .error(AppErrorKind::MessageBuildingFailed)?;
 
-        let correlation_data = to_base64(reqp)
-            .map_err(|err| err.context("Error encoding incoming request properties"))
+        let corr_data_payload = CorrelationDataPayload::new(reqp.to_owned());
+
+        let corr_data = CorrelationData::MessageUnicast(corr_data_payload)
+            .dump()
+            .context("Failed to dump correlation data")
             .error(AppErrorKind::MessageBuildingFailed)?;
 
         let props = reqp.to_request(
             reqp.method(),
             &response_topic,
-            &correlation_data,
+            &corr_data,
             ShortTermTimingProperties::until_now(context.start_timestamp()),
         );
 
@@ -137,20 +151,19 @@ impl RequestHandler for BroadcastHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct CallbackHandler;
+pub(crate) struct UnicastResponseHandler;
 
 #[async_trait]
-impl ResponseHandler for CallbackHandler {
+impl ResponseHandler for UnicastResponseHandler {
     type Payload = JsonValue;
+    type CorrelationData = CorrelationDataPayload;
 
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
         respp: &IncomingResponseProperties,
+        corr_data: &Self::CorrelationData,
     ) -> Result {
-        let reqp = from_base64::<IncomingRequestProperties>(respp.correlation_data())
-            .error(AppErrorKind::MessageParsingFailed)?;
-
         let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
 
         let long_term_timing = respp
@@ -160,14 +173,14 @@ impl ResponseHandler for CallbackHandler {
 
         let props = OutgoingResponseProperties::new(
             respp.status(),
-            reqp.correlation_data(),
+            corr_data.reqp.correlation_data(),
             long_term_timing,
             short_term_timing,
             respp.tracking().clone(),
             respp.local_tracking_label().clone(),
         );
 
-        let resp = OutgoingResponse::unicast(payload, props, &reqp, API_VERSION);
+        let resp = OutgoingResponse::unicast(payload, props, &corr_data.reqp, API_VERSION);
         let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_resp)))
     }
@@ -368,7 +381,7 @@ mod test {
                     .expect("Broadcast message sending failed");
 
                 // Assert response.
-                let (_, respp) = find_response::<JsonValue>(messages.as_slice());
+                let (_, respp, _) = find_response::<JsonValue>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::OK);
 
                 // Assert broadcast event.

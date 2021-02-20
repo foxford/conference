@@ -3,8 +3,8 @@ use chrono::Utc;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{
-        IncomingEventProperties, OutgoingMessage, OutgoingRequest, OutgoingRequestProperties,
-        ShortTermTimingProperties, TrackingProperties,
+        OutgoingMessage, OutgoingRequest, OutgoingRequestProperties, ShortTermTimingProperties,
+        TrackingProperties,
     },
     AgentId,
 };
@@ -20,20 +20,17 @@ const METHOD: &str = "janus_conference_agent.detach";
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct TransactionData {
-    evp: IncomingEventProperties,
-}
+pub(crate) struct TransactionData {}
 
 impl TransactionData {
-    pub(crate) fn new(evp: IncomingEventProperties) -> Self {
-        Self { evp }
+    pub(crate) fn new() -> Self {
+        Self {}
     }
 }
 
 impl Client {
     pub(crate) fn detach_request(
         &self,
-        evp: IncomingEventProperties,
         session_id: i64,
         handle_id: i64,
         to: &AgentId,
@@ -49,7 +46,7 @@ impl Client {
         );
 
         props.set_tracking(tracking.to_owned());
-        let transaction = Transaction::Detach(TransactionData::new(evp));
+        let transaction = Transaction::Detach(TransactionData::new());
         let payload = DetachRequest::new(&to_base64(&transaction)?, session_id, handle_id);
         self.register_transaction(to, start_timestamp, &props, &payload, self.timeout(METHOD));
         Ok(OutgoingRequest::unicast(

@@ -2,11 +2,16 @@ use async_std::prelude::*;
 use chrono::Utc;
 use serde::de::DeserializeOwned;
 use serde_json::json;
-use svc_agent::mqtt::{IncomingEventProperties, IncomingRequestProperties};
+use svc_agent::{
+    mqtt::{IncomingEventProperties, IncomingRequestProperties, IncomingResponseProperties},
+    AgentId,
+};
+use uuid::Uuid;
 
-use crate::app::endpoint::{EventHandler, RequestHandler};
+use crate::app::endpoint::{EventHandler, RequestHandler, ResponseHandler};
 use crate::app::error::Error as AppError;
 use crate::app::message_handler::MessageStream;
+use crate::app::API_VERSION;
 
 use self::agent::TestAgent;
 use self::context::TestContext;
@@ -25,29 +30,19 @@ pub(crate) async fn handle_request<H: RequestHandler>(
     agent: &TestAgent,
     payload: H::Payload,
 ) -> Result<Vec<OutgoingEnvelope>, AppError> {
-    let agent_id = agent.agent_id().to_string();
-    let now = Utc::now().timestamp().to_string();
-
-    let reqp_json = json!({
-        "type": "request",
-        "correlation_data": "ignore",
-        "method": "ignore",
-        "agent_id": agent_id,
-        "connection_mode": "default",
-        "connection_version": "v2",
-        "response_topic": format!("agents/{}/api/v2/in/event.{}", agent_id, SVC_AUDIENCE),
-        "broker_agent_id": format!("alpha.mqtt-gateway.{}", SVC_AUDIENCE),
-        "broker_timestamp": now,
-        "broker_processing_timestamp": now,
-        "broker_initial_processing_timestamp": now,
-        "tracking_id": "16911d40-0b13-11ea-8171-60f81db6d53e.14097484-0c8d-11ea-bb82-60f81db6d53e.147b2994-0c8d-11ea-8933-60f81db6d53e",
-        "session_tracking_label": "16cc4294-0b13-11ea-91ae-60f81db6d53e.16ee876e-0b13-11ea-8c32-60f81db6d53e 2565f962-0b13-11ea-9359-60f81db6d53e.25c2b97c-0b13-11ea-9f20-60f81db6d53e",
-    });
-
-    let reqp = serde_json::from_value::<IncomingRequestProperties>(reqp_json)
-        .expect("Failed to parse reqp");
-
+    let reqp = build_reqp(agent.agent_id(), "ignore");
     let messages = H::handle(context, payload, &reqp).await?;
+    Ok(parse_messages(messages).await)
+}
+
+pub(crate) async fn handle_response<H: ResponseHandler>(
+    context: &mut TestContext,
+    agent: &TestAgent,
+    payload: H::Payload,
+    corr_data: &H::CorrelationData,
+) -> Result<Vec<OutgoingEnvelope>, AppError> {
+    let respp = build_respp(agent.agent_id());
+    let messages = H::handle(context, payload, &respp, corr_data).await?;
     Ok(parse_messages(messages).await)
 }
 
@@ -56,26 +51,7 @@ pub(crate) async fn handle_event<H: EventHandler>(
     agent: &TestAgent,
     payload: H::Payload,
 ) -> Result<Vec<OutgoingEnvelope>, AppError> {
-    let agent_id = agent.agent_id().to_string();
-    let now = Utc::now().timestamp().to_string();
-
-    let evp_json = json!({
-        "type": "event",
-        "label": "ignore",
-        "agent_id": agent_id,
-        "connection_mode": "default",
-        "connection_version": "v2",
-        "broker_agent_id": format!("alpha.mqtt-gateway.{}", SVC_AUDIENCE),
-        "broker_timestamp": now,
-        "broker_processing_timestamp": now,
-        "broker_initial_processing_timestamp": now,
-        "tracking_id": "16911d40-0b13-11ea-8171-60f81db6d53e.14097484-0c8d-11ea-bb82-60f81db6d53e.147b2994-0c8d-11ea-8933-60f81db6d53e",
-        "session_tracking_label": "16cc4294-0b13-11ea-91ae-60f81db6d53e.16ee876e-0b13-11ea-8c32-60f81db6d53e 2565f962-0b13-11ea-9359-60f81db6d53e.25c2b97c-0b13-11ea-9f20-60f81db6d53e",
-    });
-
-    let evp =
-        serde_json::from_value::<IncomingEventProperties>(evp_json).expect("Failed to parse evp");
-
+    let evp = build_evp(agent.agent_id(), "ignore");
     let messages = H::handle(context, payload, &evp).await?;
     Ok(parse_messages(messages).await)
 }
@@ -130,13 +106,15 @@ where
     return None;
 }
 
-pub(crate) fn find_response<P>(messages: &[OutgoingEnvelope]) -> (P, &OutgoingResponseProperties)
+pub(crate) fn find_response<P>(
+    messages: &[OutgoingEnvelope],
+) -> (P, &OutgoingResponseProperties, &str)
 where
     P: DeserializeOwned,
 {
     for message in messages {
         if let OutgoingEnvelopeProperties::Response(respp) = message.properties() {
-            return (message.payload::<P>(), respp);
+            return (message.payload::<P>(), respp, message.topic());
         }
     }
 
@@ -177,6 +155,81 @@ where
     None
 }
 
+pub(crate) fn build_reqp(agent_id: &AgentId, method: &str) -> IncomingRequestProperties {
+    let now = Utc::now().timestamp_millis().to_string();
+
+    let reqp_json = json!({
+        "type": "request",
+        "correlation_data": "123456789",
+        "agent_id": agent_id,
+        "connection_mode": "default",
+        "connection_version": "v2",
+        "method": method,
+        "response_topic": format!(
+            "agents/{}/api/{}/in/conference.{}",
+            agent_id, API_VERSION, SVC_AUDIENCE
+        ),
+        "broker_agent_id": format!("alpha.mqtt-gateway.{}", SVC_AUDIENCE),
+        "broker_timestamp": now,
+        "broker_processing_timestamp": now,
+        "broker_initial_processing_timestamp": now,
+        "tracking_id": format!("{}.{}.{}", Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()),
+        "session_tracking_label": format!(
+            "{}.{} {}.{}",
+            Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()
+        ),
+    });
+
+    serde_json::from_value::<IncomingRequestProperties>(reqp_json).expect("Failed to parse reqp")
+}
+
+pub(crate) fn build_respp(agent_id: &AgentId) -> IncomingResponseProperties {
+    let now = Utc::now().timestamp_millis().to_string();
+
+    let respp_json = json!({
+        "type": "response",
+        "status": "200",
+        "correlation_data": "ignore",
+        "agent_id": agent_id,
+        "connection_mode": "default",
+        "connection_version": "v2",
+        "broker_agent_id": format!("alpha.mqtt-gateway.{}", SVC_AUDIENCE),
+        "broker_timestamp": now,
+        "broker_processing_timestamp": now,
+        "broker_initial_processing_timestamp": now,
+        "tracking_id": format!("{}.{}.{}", Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()),
+        "session_tracking_label": format!(
+            "{}.{} {}.{}",
+            Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()
+        ),
+    });
+
+    serde_json::from_value::<IncomingResponseProperties>(respp_json).expect("Failed to parse respp")
+}
+
+pub(crate) fn build_evp(agent_id: &AgentId, label: &str) -> IncomingEventProperties {
+    let now = Utc::now().timestamp_millis().to_string();
+
+    let evp_json = json!({
+        "type": "event",
+        "label": label,
+        "agent_id": agent_id,
+        "connection_mode": "default",
+        "connection_version": "v2",
+        "broker_agent_id": format!("alpha.mqtt-gateway.{}", SVC_AUDIENCE),
+        "broker_timestamp": now,
+        "broker_processing_timestamp": now,
+        "broker_initial_processing_timestamp": now,
+        "tracking_id": format!("{}.{}.{}", Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()),
+        "session_tracking_label": format!(
+            "{}.{} {}.{}",
+            Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()
+        ),
+    });
+
+    serde_json::from_value::<IncomingEventProperties>(evp_json).expect("Failed to parse evp")
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 pub(crate) mod prelude {
@@ -185,9 +238,9 @@ pub(crate) mod prelude {
 
     #[allow(unused_imports)]
     pub(crate) use super::{
-        agent::TestAgent, authz::TestAuthz, context::TestContext, db::TestDb, factory, find_event,
-        find_request, find_response, handle_event, handle_request, shared_helpers, SVC_AUDIENCE,
-        USR_AUDIENCE,
+        agent::TestAgent, authz::TestAuthz, build_evp, build_reqp, build_respp,
+        context::TestContext, db::TestDb, factory, find_event, find_request, find_response,
+        handle_event, handle_request, handle_response, shared_helpers, SVC_AUDIENCE, USR_AUDIENCE,
     };
 }
 

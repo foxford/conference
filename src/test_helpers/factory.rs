@@ -260,13 +260,6 @@ impl<'a> JanusRtcStream<'a> {
         }
     }
 
-    pub(crate) fn sent_by(self, sent_by: &'a AgentId) -> Self {
-        Self {
-            sent_by: Some(sent_by),
-            ..self
-        }
-    }
-
     pub(crate) fn insert(&self, conn: &PgConnection) -> db::janus_rtc_stream::Object {
         let default_backend;
 
