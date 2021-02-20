@@ -184,7 +184,7 @@ mod test {
                     .expect("Rtc streams listing failed");
 
                 // Assert response.
-                let (streams, respp) = find_response::<Vec<JanusRtcStream>>(messages.as_slice());
+                let (streams, respp, _) = find_response::<Vec<JanusRtcStream>>(messages.as_slice());
                 assert_eq!(respp.status(), ResponseStatus::OK);
                 assert_eq!(streams.len(), 1);
 

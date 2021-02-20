@@ -180,6 +180,15 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
         )
         .context("Error subscribing to multicast requests")?;
 
+    // Dynsub responses
+    agent
+        .subscribe(
+            &Subscription::unicast_responses_from(&config.broker_id),
+            QoS::AtLeastOnce,
+            None,
+        )
+        .context("Error subscribing to dynsub responses")?;
+
     // Janus status events
     let subscription =
         Subscription::broadcast_events(&config.backend.id, JANUS_API_VERSION, "status");

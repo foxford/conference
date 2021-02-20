@@ -51,11 +51,16 @@ impl OutgoingEventProperties {
 #[derive(Debug, Deserialize)]
 pub(crate) struct OutgoingResponseProperties {
     status: String,
+    correlation_data: String,
 }
 
 impl OutgoingResponseProperties {
     pub(crate) fn status(&self) -> ResponseStatus {
         ResponseStatus::from_bytes(self.status.as_bytes()).expect("Invalid status code")
+    }
+
+    pub(crate) fn correlation_data(&self) -> &str {
+        &self.correlation_data
     }
 }
 
