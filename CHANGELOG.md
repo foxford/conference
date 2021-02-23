@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.8.4 (February 24, 2021)
+
+### Changes
+- Improve janus related errors logging ([f243f52](https://github.com/netology-group/conference/commit/f243f520b313b4c19a817ddf8826432c8cc0c151))
+
+### Fixes
+- Fix recently opened rooms SQL ([79371c6](https://github.com/netology-group/conference/commit/79371c64d9bd96c8da58f6113c9a6684590a5097))
+
+
 ## v0.8.3 (February 9, 2021)
 
 ### Fixes
