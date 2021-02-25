@@ -610,7 +610,11 @@ fn handle_detached_event<C: Context>(
     evp: &IncomingEventProperties,
 ) -> Result<MessageStream, AppError> {
     let conn = context.get_conn()?;
-    conn.transaction::<_, AppError, _>(|| stop_stream(context, &conn, inev.sender(), evp))
+
+    conn.transaction::<_, AppError, _>(|| {
+        crate::db::agent_connection::DeleteQuery::new(inev.sender()).execute(&conn)?;
+        stop_stream(context, &conn, inev.sender(), evp)
+    })
 }
 
 fn start_stream<C: Context>(
