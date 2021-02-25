@@ -75,12 +75,18 @@ async fn handle_response_impl<C: Context>(
             match txn {
                 // Session has been created.
                 Transaction::CreateSession(tn) => {
+                    let session_id = inresp
+                        .data()
+                        .map(|data| data.id())
+                        .ok_or_else(|| anyhow!("Missing `data` in session creation response"))
+                        .error(AppErrorKind::MessageParsingFailed)?;
+
                     // Create service handle.
                     let backreq = context
                         .janus_client()
                         .create_service_handle_request(
                             respp,
-                            inresp.data().id(),
+                            session_id,
                             tn.capacity(),
                             tn.balancer_capacity(),
                             context.start_timestamp(),
@@ -92,8 +98,15 @@ async fn handle_response_impl<C: Context>(
                 }
                 // Service handle has been created.
                 Transaction::CreateServiceHandle(tn) => {
+                    let handle_id = inresp
+                        .data()
+                        .map(|data| data.id())
+                        .ok_or_else(|| {
+                            anyhow!("Missing `data` in service handle creation response")
+                        })
+                        .error(AppErrorKind::MessageParsingFailed)?;
+
                     let backend_id = respp.as_agent_id();
-                    let handle_id = inresp.data().id();
                     let conn = context.get_conn()?;
 
                     let mut q =
@@ -112,7 +125,12 @@ async fn handle_response_impl<C: Context>(
                 }
                 // Agent handle has been created.
                 Transaction::CreateAgentHandle(tn) => {
-                    let handle_id = inresp.data().id();
+                    let handle_id = inresp
+                        .data()
+                        .map(|data| data.id())
+                        .ok_or_else(|| anyhow!("Missing `data` in agent handle creation response"))
+                        .error(AppErrorKind::MessageParsingFailed)?;
+
                     let agent_id = tn.reqp().as_agent_id();
                     let room_id = tn.room_id();
                     let conn = context.get_conn()?;
