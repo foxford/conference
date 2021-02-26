@@ -128,6 +128,28 @@ impl UpsertQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug)]
+pub(crate) struct DeleteQuery {
+    handle_id: i64,
+}
+
+impl DeleteQuery {
+    pub(crate) fn new(handle_id: i64) -> Self {
+        Self { handle_id }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+        use crate::schema::agent_connection::dsl::*;
+        use diesel::prelude::*;
+
+        diesel::delete(agent_connection)
+            .filter(handle_id.eq(self.handle_id))
+            .execute(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 // Diesel doesn't support joins in UPDATE/DELETE queries so it's raw SQL.
 const BULK_DISCONNECT_SQL: &str = r#"
     DELETE FROM agent_connection AS ac
