@@ -111,7 +111,7 @@ impl EventResponsePluginData {
 #[derive(Debug, Deserialize)]
 pub(crate) struct SuccessResponse {
     transaction: String,
-    data: SuccessResponseData,
+    data: Option<SuccessResponseData>,
 }
 
 impl SuccessResponse {
@@ -119,8 +119,8 @@ impl SuccessResponse {
         &self.transaction
     }
 
-    pub(crate) fn data(&self) -> &SuccessResponseData {
-        &self.data
+    pub(crate) fn data(&self) -> Option<&SuccessResponseData> {
+        self.data.as_ref()
     }
 }
 
