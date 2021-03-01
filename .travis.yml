@@ -62,19 +62,25 @@ jobs:
         - diesel database setup --locked-schema
         - cargo test
 
-    - stage: deploy
-      name: Kubernetes
-      script: ./deploy.init.sh && ./deploy/travis-run.sh
-
-    - stage: deploy
+    - stage: build
       name: Docs
-      install: cargo install mdbook --vers 0.3.5 --force
-      script: mdbook build docs && ./deploy.init.sh && PROJECT='conference' ./deploy/s3-docs.sh
+      install: cargo install mdbook --vers ^0.4
+      script:
+        - ./deploy.init.sh
+        - mdbook build docs
+        - ./deploy/ci-mdbook.sh
+
+    - stage: build
+      name: Build
+      script:
+        - ./deploy.init.sh
+        - ./deploy/ci-install-tools.sh
+        - ./deploy/ci-build.sh
 
 stages:
   - name: check
-  - name: deploy
-    if: tag IS present
+  - name: build
+    if: branch = master AND type = push
 
 notifications:
   email: false
