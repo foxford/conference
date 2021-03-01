@@ -9,8 +9,8 @@ use uuid::Uuid;
 use crate::db::agent::{Object as Agent, Status as AgentStatus};
 use crate::db::janus_backend::Object as JanusBackend;
 use crate::db::recording::Object as Recording;
-use crate::db::room::{Object as Room, RoomBackend};
-use crate::db::rtc::Object as Rtc;
+use crate::db::room::Object as Room;
+use crate::db::rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy};
 use crate::diesel::Identifiable;
 
 use super::{agent::TestAgent, factory, SVC_AUDIENCE, USR_AUDIENCE};
@@ -26,7 +26,7 @@ pub(crate) fn insert_room(conn: &PgConnection) -> Room {
             Bound::Included(now),
             Bound::Excluded(now + Duration::hours(1)),
         ))
-        .backend(RoomBackend::Janus)
+        .rtc_sharing_policy(RtcSharingPolicy::Shared)
         .insert(conn)
 }
 
@@ -39,7 +39,7 @@ pub(crate) fn insert_room_with_backend_id(conn: &PgConnection, backend_id: &Agen
             Bound::Included(now),
             Bound::Excluded(now + Duration::hours(1)),
         ))
-        .backend(RoomBackend::Janus)
+        .rtc_sharing_policy(RtcSharingPolicy::Shared)
         .backend_id(backend_id)
         .insert(conn)
 }
@@ -53,7 +53,7 @@ pub(crate) fn insert_closed_room(conn: &PgConnection) -> Room {
             Bound::Included(now - Duration::hours(10)),
             Bound::Excluded(now - Duration::hours(8)),
         ))
-        .backend(RoomBackend::Janus)
+        .rtc_sharing_policy(RtcSharingPolicy::Shared)
         .insert(conn)
 }
 
@@ -66,8 +66,18 @@ pub(crate) fn insert_closed_room_with_backend(conn: &PgConnection, backend_id: &
             Bound::Included(now - Duration::hours(10)),
             Bound::Excluded(now - Duration::hours(8)),
         ))
-        .backend(RoomBackend::Janus)
+        .rtc_sharing_policy(RtcSharingPolicy::Shared)
         .backend_id(backend_id)
+        .insert(conn)
+}
+
+pub(crate) fn insert_room_with_owned(conn: &PgConnection) -> Room {
+    let now = Utc::now().trunc_subsecs(0);
+
+    factory::Room::new()
+        .audience(USR_AUDIENCE)
+        .time((Bound::Included(now), Bound::Unbounded))
+        .rtc_sharing_policy(RtcSharingPolicy::Owned)
         .insert(conn)
 }
 

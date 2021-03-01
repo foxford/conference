@@ -106,7 +106,6 @@ const BULK_DISCONNECT_BY_BACKEND_SQL: &str = r#"
           room AS r
     WHERE a.id = ac.agent_id
     AND   r.id = a.room_id
-    AND   r.backend = 'janus'
     AND   r.backend_id = $1
 "#;
 

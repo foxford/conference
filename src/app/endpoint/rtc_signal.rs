@@ -246,10 +246,10 @@ async fn authorize<C: Context>(
     let rtc_id = payload.handle_id.rtc_id();
     let room = helpers::find_room_by_rtc_id(context, rtc_id, helpers::RoomTimeRequirement::Open)?;
 
-    if room.backend() != db::room::RoomBackend::Janus {
+    if room.rtc_sharing_policy() == db::rtc::SharingPolicy::None {
         let err = anyhow!(
-            "'rtc_signal.create' is not implemented for the backend = '{}'.",
-            room.backend()
+            "'rtc_signal.create' is not implemented for the rtc_sharing_policy = '{}'.",
+            room.rtc_sharing_policy()
         );
 
         return Err(err).error(AppErrorKind::NotImplemented);

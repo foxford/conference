@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::backend::janus::JANUS_API_VERSION;
 use crate::db::janus_backend::Object as JanusBackend;
 use crate::db::recording::{Object as Recording, Status as RecordingStatus};
+use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
 use crate::schema::{janus_backend, recording, room, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -28,6 +29,7 @@ type AllColumns = (
     room::reserve,
     room::tags,
     room::backend_id,
+    room::rtc_sharing_policy,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -39,10 +41,12 @@ const ALL_COLUMNS: AllColumns = (
     room::reserve,
     room::tags,
     room::backend_id,
+    room::rtc_sharing_policy,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
 
+// Deprecated in favor of `crate::db::rtc::SharingPolicy`.
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 #[DieselType = "Room_backend"]
@@ -56,6 +60,24 @@ impl fmt::Display for RoomBackend {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let serialized = serde_json::to_string(self).map_err(|_| fmt::Error)?;
         write!(f, "{}", serialized)
+    }
+}
+
+impl From<RtcSharingPolicy> for RoomBackend {
+    fn from(rtc_sharing_policy: RtcSharingPolicy) -> Self {
+        match rtc_sharing_policy {
+            RtcSharingPolicy::Shared => Self::Janus,
+            _ => Self::None,
+        }
+    }
+}
+
+impl Into<RtcSharingPolicy> for RoomBackend {
+    fn into(self) -> RtcSharingPolicy {
+        match self {
+            Self::None => RtcSharingPolicy::None,
+            Self::Janus => RtcSharingPolicy::Shared,
+        }
     }
 }
 
@@ -78,6 +100,7 @@ pub(crate) struct Object {
     reserve: Option<i32>,
     tags: JsonValue,
     backend_id: Option<AgentId>,
+    rtc_sharing_policy: RtcSharingPolicy,
 }
 
 impl Object {
@@ -91,10 +114,6 @@ impl Object {
 
     pub(crate) fn time(&self) -> &Time {
         &self.time
-    }
-
-    pub(crate) fn backend(&self) -> RoomBackend {
-        self.backend
     }
 
     pub(crate) fn reserve(&self) -> Option<i32> {
@@ -115,6 +134,10 @@ impl Object {
 
     pub(crate) fn backend_id(&self) -> Option<&AgentId> {
         self.backend_id.as_ref()
+    }
+
+    pub(crate) fn rtc_sharing_policy(&self) -> RtcSharingPolicy {
+        self.rtc_sharing_policy
     }
 }
 
@@ -211,17 +234,19 @@ pub(crate) struct InsertQuery<'a> {
     reserve: Option<i32>,
     tags: Option<&'a JsonValue>,
     backend_id: Option<&'a AgentId>,
+    rtc_sharing_policy: RtcSharingPolicy,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(time: Time, audience: &'a str, backend: RoomBackend) -> Self {
+    pub(crate) fn new(time: Time, audience: &'a str, rtc_sharing_policy: RtcSharingPolicy) -> Self {
         Self {
             time,
             audience,
-            backend,
+            backend: rtc_sharing_policy.into(),
             reserve: None,
             tags: None,
             backend_id: None,
+            rtc_sharing_policy,
         }
     }
 
@@ -281,7 +306,6 @@ pub(crate) struct UpdateQuery<'a> {
     id: Uuid,
     time: Option<Time>,
     audience: Option<String>,
-    backend: Option<RoomBackend>,
     reserve: Option<Option<i32>>,
     tags: Option<JsonValue>,
     backend_id: Option<&'a AgentId>,
@@ -301,10 +325,6 @@ impl<'a> UpdateQuery<'a> {
 
     pub(crate) fn audience(self, audience: Option<String>) -> Self {
         Self { audience, ..self }
-    }
-
-    pub(crate) fn backend(self, backend: Option<RoomBackend>) -> Self {
-        Self { backend, ..self }
     }
 
     pub(crate) fn reserve(self, reserve: Option<Option<i32>>) -> Self {
