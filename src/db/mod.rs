@@ -28,6 +28,7 @@ pub mod sql {
     pub use super::agent::Agent_status;
     pub use super::recording::Recording_status;
     pub use super::room::Room_backend;
+    pub use super::rtc::Rtc_sharing_policy;
     pub use svc_agent::sql::{Account_id, Agent_id};
 }
 

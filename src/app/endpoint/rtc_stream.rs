@@ -48,10 +48,10 @@ impl RequestHandler for ListHandler {
         let room =
             helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
 
-        if room.backend() != db::room::RoomBackend::Janus {
+        if room.rtc_sharing_policy() == db::rtc::SharingPolicy::None {
             let err = anyhow!(
-                "'rtc_stream.list' is not implemented for '{}' backend",
-                room.backend()
+                "'rtc_stream.list' is not implemented for rtc_sharing_policy = '{}'",
+                room.rtc_sharing_policy()
             );
 
             return Err(err).error(AppErrorKind::NotImplemented)?;

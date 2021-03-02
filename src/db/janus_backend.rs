@@ -214,8 +214,7 @@ const MOST_LOADED_SQL: &str = r#"
         active_room AS (
             SELECT *
             FROM room
-            WHERE backend = 'janus'
-            AND   backend_id IS NOT NULL
+            WHERE backend_id IS NOT NULL
             AND   LOWER(time) <= NOW()
             AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
         ),
@@ -274,8 +273,7 @@ const LEAST_LOADED_SQL: &str = r#"
         active_room AS (
             SELECT *
             FROM room
-            WHERE backend = 'janus'
-            AND   backend_id IS NOT NULL
+            WHERE backend_id IS NOT NULL
             AND   LOWER(time) <= NOW()
             AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
         ),
@@ -338,8 +336,7 @@ const FREE_CAPACITY_SQL: &str = r#"
         active_room AS (
             SELECT *
             FROM room
-            WHERE backend = 'janus'
-            AND   backend_id IS NOT NULL
+            WHERE backend_id IS NOT NULL
             AND   LOWER(time) <= NOW()
             AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
         ),
@@ -463,8 +460,7 @@ WITH
     active_room AS (
         SELECT *
         FROM room
-        WHERE backend = 'janus'
-        AND   backend_id IS NOT NULL
+        WHERE backend_id IS NOT NULL
         AND   LOWER(time) <= NOW()
         AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
     ),
@@ -496,11 +492,10 @@ ON jb.id = jbl.backend_id;
 
 #[cfg(test)]
 mod tests {
-
     use chrono::{Duration, Utc};
     use std::ops::Bound;
 
-    use crate::db::room::RoomBackend;
+    use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
     use crate::test_helpers::prelude::*;
 
     #[test]
@@ -524,7 +519,7 @@ mod tests {
                     Bound::Included(now),
                     Bound::Excluded(now + Duration::hours(1)),
                 ))
-                .backend(RoomBackend::Janus)
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
                 .backend_id(backend1.id())
                 .reserve(200)
                 .insert(&conn);
@@ -536,7 +531,7 @@ mod tests {
                     Bound::Excluded(now + Duration::hours(1)),
                 ))
                 .reserve(300)
-                .backend(RoomBackend::Janus)
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
                 .backend_id(backend1.id())
                 .insert(&conn);
 
@@ -547,7 +542,7 @@ mod tests {
                     Bound::Excluded(now + Duration::hours(1)),
                 ))
                 .reserve(400)
-                .backend(RoomBackend::Janus)
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
                 .backend_id(backend2.id())
                 .insert(&conn);
 

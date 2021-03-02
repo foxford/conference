@@ -1,7 +1,10 @@
+use std::fmt;
+
 use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
 use serde_derive::{Deserialize, Serialize};
+use svc_agent::AgentId;
 use uuid::Uuid;
 
 use super::room::Object as Room;
@@ -9,8 +12,28 @@ use crate::schema::rtc;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type AllColumns = (rtc::id, rtc::room_id, rtc::created_at);
-pub(crate) const ALL_COLUMNS: AllColumns = (rtc::id, rtc::room_id, rtc::created_at);
+pub(crate) type AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
+
+pub(crate) const ALL_COLUMNS: AllColumns =
+    (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+#[DieselType = "Rtc_sharing_policy"]
+pub(crate) enum SharingPolicy {
+    None,
+    Shared,
+    Owned,
+}
+
+impl fmt::Display for SharingPolicy {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let serialized = serde_json::to_string(self).map_err(|_| fmt::Error)?;
+        write!(f, "{}", serialized)
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -24,6 +47,7 @@ pub(crate) struct Object {
     room_id: Uuid,
     #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
+    created_by: AgentId,
 }
 
 impl Object {
@@ -33,6 +57,10 @@ impl Object {
 
     pub(crate) fn room_id(&self) -> Uuid {
         self.room_id
+    }
+
+    pub(crate) fn created_by(&self) -> &AgentId {
+        &self.created_by
     }
 }
 
@@ -124,14 +152,19 @@ impl ListQuery {
 
 #[derive(Debug, Insertable)]
 #[table_name = "rtc"]
-pub(crate) struct InsertQuery {
+pub(crate) struct InsertQuery<'a> {
     id: Option<Uuid>,
     room_id: Uuid,
+    created_by: &'a AgentId,
 }
 
-impl InsertQuery {
-    pub(crate) fn new(room_id: Uuid) -> Self {
-        Self { id: None, room_id }
+impl<'a> InsertQuery<'a> {
+    pub(crate) fn new(room_id: Uuid, created_by: &'a AgentId) -> Self {
+        Self {
+            id: None,
+            room_id,
+            created_by,
+        }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {

@@ -17,7 +17,6 @@ Name     | Type       | Default    | Description
 id       | String     | _required_ | The room identifier. The room must not be expired.
 time     | [i64, i64) | _optional_ | A [lt, rt) range of unix time (seconds) or null (unbounded).
 audience | String     | _optional_ | The room audience.
-backend  | String     | _optional_ | The room backend. Available values: janus, none.
 reserve  | i32        | _optional_ | The number of slots for subscribers to reserve on the server.
 tags     | json       | {}         | Arbitrary tags object associated with the room.
 

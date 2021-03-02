@@ -78,6 +78,7 @@ table! {
         reserve -> Nullable<Int4>,
         tags -> Json,
         backend_id -> Nullable<Agent_id>,
+        rtc_sharing_policy -> Rtc_sharing_policy,
     }
 }
 
@@ -89,6 +90,7 @@ table! {
         id -> Uuid,
         room_id -> Uuid,
         created_at -> Timestamptz,
+        created_by -> Agent_id,
     }
 }
 

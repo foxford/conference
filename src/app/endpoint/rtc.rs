@@ -6,15 +6,16 @@ use async_trait::async_trait;
 use chrono::Duration;
 use chrono::Utc;
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
+use svc_agent::{
+    mqtt::{IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus},
+    Addressable,
 };
 use uuid::Uuid;
 
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::app::handle_id::HandleId;
-use crate::db;
+use crate::db::{self, rtc::SharingPolicy as RtcSharingPolicy};
 use crate::diesel::Connection;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -80,7 +81,10 @@ impl RequestHandler for CreateHandler {
                         .time(Some(new_time))
                         .execute(&conn)?;
                 }
-                let rtc = db::rtc::InsertQuery::new(room.id()).execute(&conn)?;
+
+                let rtc =
+                    db::rtc::InsertQuery::new(room.id(), reqp.as_agent_id()).execute(&conn)?;
+
                 Ok(rtc)
             })?
         };
@@ -273,12 +277,32 @@ impl RequestHandler for ConnectHandler {
             helpers::find_room_by_rtc_id(context, payload.id, helpers::RoomTimeRequirement::Open)?;
 
         // Authorize connecting to the rtc.
-        if room.backend() != db::room::RoomBackend::Janus {
-            return Err(anyhow!(
-                "'rtc.connect' is not implemented for '{}' backend",
-                room.backend(),
-            ))
-            .error(AppErrorKind::NotImplemented);
+        match room.rtc_sharing_policy() {
+            RtcSharingPolicy::None => {
+                return Err(anyhow!(
+                    "'rtc.connect' is not implemented for rtc_sharing_policy = '{}'",
+                    room.rtc_sharing_policy(),
+                ))
+                .error(AppErrorKind::NotImplemented);
+            }
+            RtcSharingPolicy::Shared => (),
+            RtcSharingPolicy::Owned => {
+                if payload.intent == ConnectIntent::Write {
+                    // Check that the RTC is owned by the same agent.
+                    let conn = context.get_conn()?;
+
+                    let rtc = db::rtc::FindQuery::new()
+                        .id(payload.id)
+                        .execute(&conn)?
+                        .ok_or_else(|| anyhow!("RTC not found"))
+                        .error(AppErrorKind::RtcNotFound)?;
+
+                    if rtc.created_by() != reqp.as_agent_id() {
+                        return Err(anyhow!("RTC doesn't belong to the agent"))
+                            .error(AppErrorKind::AccessDenied);
+                    }
+                }
+            }
         }
 
         let rtc_id = payload.id.to_string();
@@ -406,7 +430,7 @@ mod test {
         use chrono::{SubsecRound, Utc};
 
         use crate::db::room::FindQueryable;
-        use crate::db::rtc::Object as Rtc;
+        use crate::db::rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy};
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
@@ -468,7 +492,7 @@ mod test {
                                 Bound::Included(Utc::now().trunc_subsecs(0)),
                                 Bound::Unbounded,
                             ))
-                            .backend(crate::db::room::RoomBackend::Janus)
+                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .insert(&conn)
                     })
                     .unwrap();
@@ -499,6 +523,7 @@ mod test {
                     .execute(&conn)
                     .expect("Db query failed")
                     .expect("Room must exist");
+
                 assert_ne!(room.time().1, Bound::Unbounded);
             });
         }
@@ -560,6 +585,99 @@ mod test {
                     .expect_err("Unexpected success on rtc creation");
 
                 // This should fail with already exists
+                assert_eq!(err.status(), ResponseStatus::UNPROCESSABLE_ENTITY);
+                assert_eq!(err.kind(), "database_query_failed");
+            });
+        }
+
+        #[test]
+        fn create_rtc_for_different_agents_with_owned_sharing_policy() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
+
+                // Insert a room.
+                let room = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| shared_helpers::insert_room_with_owned(&conn))
+                    .unwrap();
+
+                // Allow agents to create RTCs in the room.
+                let agent1 = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let agent2 = TestAgent::new("web", "user456", USR_AUDIENCE);
+                let room_id = room.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs"];
+                authz.allow(agent1.account_id(), object.clone(), "create");
+                authz.allow(agent2.account_id(), object, "create");
+
+                // Make two rtc.create requests.
+                let mut context = TestContext::new(db, authz);
+                let payload = CreateRequest { room_id: room.id() };
+
+                let messages1 = handle_request::<CreateHandler>(&mut context, &agent1, payload)
+                    .await
+                    .expect("RTC creation failed");
+
+                let payload = CreateRequest { room_id: room.id() };
+
+                let messages2 = handle_request::<CreateHandler>(&mut context, &agent2, payload)
+                    .await
+                    .expect("RTC creation failed");
+
+                // Assert responses.
+                let (rtc1, respp1) = find_response::<Rtc>(messages1.as_slice());
+                assert_eq!(respp1.status(), ResponseStatus::CREATED);
+                assert_eq!(rtc1.room_id(), room.id());
+                assert_eq!(rtc1.created_by(), agent1.agent_id());
+
+                let (rtc2, respp2) = find_response::<Rtc>(messages2.as_slice());
+                assert_eq!(respp2.status(), ResponseStatus::CREATED);
+                assert_eq!(rtc2.room_id(), room.id());
+                assert_eq!(rtc2.created_by(), agent2.agent_id());
+            });
+        }
+
+        #[test]
+        fn create_rtc_for_the_same_agent_with_owned_sharing_policy() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
+
+                // Insert a room.
+                let room = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| shared_helpers::insert_room_with_owned(&conn))
+                    .unwrap();
+
+                // Allow agent to create RTCs in the room.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let room_id = room.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs"];
+                authz.allow(agent.account_id(), object, "create");
+
+                // Make the first rtc.create request.
+                let mut context = TestContext::new(db, authz);
+                let payload = CreateRequest { room_id: room.id() };
+
+                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect("RTC creation failed");
+
+                // Assert response.
+                let (rtc, respp) = find_response::<Rtc>(messages.as_slice());
+                assert_eq!(respp.status(), ResponseStatus::CREATED);
+                assert_eq!(rtc.room_id(), room.id());
+                assert_eq!(rtc.created_by(), agent.agent_id());
+
+                // Make the second rtc.create request and expect fail.
+                let payload = CreateRequest { room_id: room.id() };
+
+                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on RTC creation");
+
                 assert_eq!(err.status(), ResponseStatus::UNPROCESSABLE_ENTITY);
                 assert_eq!(err.kind(), "database_query_failed");
             });
@@ -794,7 +912,7 @@ mod test {
 
         use crate::backend::janus;
         use crate::db::agent::Status as AgentStatus;
-        use crate::db::room::RoomBackend;
+        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
         use crate::test_helpers::prelude::*;
         use crate::util::from_base64;
 
@@ -1038,7 +1156,7 @@ mod test {
                                 Bound::Included(now),
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
-                            .backend(RoomBackend::Janus)
+                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .reserve(15)
                             .insert(&conn);
 
@@ -1115,7 +1233,7 @@ mod test {
                                 Bound::Included(now),
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
-                            .backend(RoomBackend::Janus)
+                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .backend_id(&backend.id())
                             .reserve(2)
                             .insert(&conn);
@@ -1429,7 +1547,7 @@ mod test {
                                 Bound::Included(now - Duration::minutes(1)),
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
-                            .backend(RoomBackend::Janus)
+                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .backend_id(backend1.id())
                             .reserve(500)
                             .insert(&conn);
@@ -1441,7 +1559,7 @@ mod test {
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
                             .reserve(600)
-                            .backend(RoomBackend::Janus)
+                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .backend_id(backend2.id())
                             .insert(&conn);
 
@@ -1452,7 +1570,7 @@ mod test {
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
                             .reserve(400)
-                            .backend(RoomBackend::Janus)
+                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .insert(&conn);
 
                         // Insert rtcs for each room.
@@ -1553,7 +1671,7 @@ mod test {
                                 Bound::Included(now),
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
-                            .backend(RoomBackend::Janus)
+                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .backend_id(backend.id())
                             .reserve(500)
                             .insert(&conn);
@@ -1565,7 +1683,7 @@ mod test {
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
                             .reserve(600)
-                            .backend(RoomBackend::Janus)
+                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .backend_id(backend.id())
                             .insert(&conn);
 
@@ -1575,7 +1693,7 @@ mod test {
                                 Bound::Included(now),
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
-                            .backend(RoomBackend::Janus)
+                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .backend_id(backend.id())
                             .insert(&conn);
 
@@ -1661,6 +1779,159 @@ mod test {
                 //   2. thus there are unused slots anyway
                 // So its better to let them in
                 handle_request::<ConnectHandler>(&mut context, &new_reader, payload)
+                    .await
+                    .expect("RTC connect failed");
+            });
+        }
+
+        #[test]
+        fn connect_to_shared_rtc_created_by_someone_else() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
+
+                // Create an RTC.
+                let rtc = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| {
+                        let now = Utc::now();
+                        let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
+
+                        let backend = shared_helpers::insert_janus_backend(&conn);
+
+                        let room = factory::Room::new()
+                            .audience(USR_AUDIENCE)
+                            .time((Bound::Included(now), Bound::Unbounded))
+                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                            .backend_id(backend.id())
+                            .insert(&conn);
+
+                        factory::Rtc::new(room.id())
+                            .created_by(creator.agent_id().to_owned())
+                            .insert(&conn)
+                    })
+                    .unwrap();
+
+                // Allow agent to update the RTC.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let room_id = rtc.room_id().to_string();
+                let rtc_id = rtc.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                authz.allow(agent.account_id(), object, "update");
+
+                // Make rtc.connect request.
+                let mut context = TestContext::new(db, authz);
+
+                let payload = ConnectRequest {
+                    id: rtc.id(),
+                    intent: ConnectIntent::Write,
+                };
+
+                handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect("RTC connect failed");
+            });
+        }
+
+        #[test]
+        fn connect_to_owned_rtc_created_by_someone_else_for_writing() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
+
+                // Create an RTC.
+                let rtc = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| {
+                        let now = Utc::now();
+                        let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
+
+                        let backend = shared_helpers::insert_janus_backend(&conn);
+
+                        let room = factory::Room::new()
+                            .audience(USR_AUDIENCE)
+                            .time((Bound::Included(now), Bound::Unbounded))
+                            .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                            .backend_id(backend.id())
+                            .insert(&conn);
+
+                        factory::Rtc::new(room.id())
+                            .created_by(creator.agent_id().to_owned())
+                            .insert(&conn)
+                    })
+                    .unwrap();
+
+                // Allow agent to update the RTC.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let room_id = rtc.room_id().to_string();
+                let rtc_id = rtc.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                authz.allow(agent.account_id(), object, "update");
+
+                // Make rtc.connect request.
+                let mut context = TestContext::new(db, authz);
+
+                let payload = ConnectRequest {
+                    id: rtc.id(),
+                    intent: ConnectIntent::Write,
+                };
+
+                let err = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect_err("Unexpected success on RTC connection");
+
+                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+                assert_eq!(err.kind(), "access_denied");
+            });
+        }
+
+        #[test]
+        fn connect_to_owned_rtc_created_by_someone_else_for_reading() {
+            async_std::task::block_on(async {
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
+
+                // Create an RTC.
+                let rtc = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| {
+                        let now = Utc::now();
+                        let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
+
+                        let backend = shared_helpers::insert_janus_backend(&conn);
+
+                        let room = factory::Room::new()
+                            .audience(USR_AUDIENCE)
+                            .time((Bound::Included(now), Bound::Unbounded))
+                            .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                            .backend_id(backend.id())
+                            .insert(&conn);
+
+                        factory::Rtc::new(room.id())
+                            .created_by(creator.agent_id().to_owned())
+                            .insert(&conn)
+                    })
+                    .unwrap();
+
+                // Allow agent to read the RTC.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let room_id = rtc.room_id().to_string();
+                let rtc_id = rtc.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                authz.allow(agent.account_id(), object, "read");
+
+                // Make rtc.connect request.
+                let mut context = TestContext::new(db, authz);
+
+                let payload = ConnectRequest {
+                    id: rtc.id(),
+                    intent: ConnectIntent::Read,
+                };
+
+                handle_request::<ConnectHandler>(&mut context, &agent, payload)
                     .await
                     .expect("RTC connect failed");
             });

@@ -16,6 +16,7 @@ use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::db;
 use crate::db::room::RoomBackend;
+use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -43,16 +44,13 @@ pub(crate) struct CreateRequest {
     #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: String,
-    #[serde(default = "CreateRequest::default_backend")]
-    backend: RoomBackend,
+    // Deprecated in favor of `rtc_sharing_policy`.
+    #[serde(default)]
+    backend: Option<RoomBackend>,
+    #[serde(default)]
+    rtc_sharing_policy: Option<RtcSharingPolicy>,
     reserve: Option<i32>,
     tags: Option<JsonValue>,
-}
-
-impl CreateRequest {
-    fn default_backend() -> RoomBackend {
-        RoomBackend::None
-    }
 }
 
 pub(crate) struct CreateHandler;
@@ -67,6 +65,12 @@ impl RequestHandler for CreateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        // Prefer `rtc_sharing_policy` with fallback to `backend` and `None` as default.
+        let rtc_sharing_policy = payload
+            .rtc_sharing_policy
+            .or_else(|| payload.backend.map(|b| b.into()))
+            .unwrap_or(RtcSharingPolicy::None);
+
         // Authorize room creation on the tenant.
         let authz_time = context
             .authz()
@@ -76,7 +80,7 @@ impl RequestHandler for CreateHandler {
         // Create a room.
         let room = {
             let mut q =
-                db::room::InsertQuery::new(payload.time, &payload.audience, payload.backend);
+                db::room::InsertQuery::new(payload.time, &payload.audience, rtc_sharing_policy);
 
             if let Some(reserve) = payload.reserve {
                 q = q.reserve(reserve);
@@ -164,7 +168,6 @@ pub(crate) struct UpdateRequest {
     #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
     time: Option<db::room::Time>,
     audience: Option<String>,
-    backend: Option<db::room::RoomBackend>,
     reserve: Option<Option<i32>>,
     tags: Option<JsonValue>,
 }
@@ -240,7 +243,6 @@ impl RequestHandler for UpdateHandler {
             db::room::UpdateQuery::new(room.id())
                 .time(time)
                 .audience(payload.audience)
-                .backend(payload.backend)
                 .reserve(payload.reserve)
                 .tags(payload.tags)
                 .execute(&conn)?
@@ -515,7 +517,8 @@ mod test {
                 let payload = CreateRequest {
                     time: time.clone(),
                     audience: USR_AUDIENCE.to_owned(),
-                    backend: db::room::RoomBackend::Janus,
+                    backend: None,
+                    rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
                     reserve: Some(123),
                     tags: Some(json!({ "foo": "bar" })),
                 };
@@ -529,7 +532,7 @@ mod test {
                 assert_eq!(respp.status(), ResponseStatus::OK);
                 assert_eq!(room.audience(), USR_AUDIENCE);
                 assert_eq!(room.time(), &time);
-                assert_eq!(room.backend(), db::room::RoomBackend::Janus);
+                assert_eq!(room.rtc_sharing_policy(), db::rtc::SharingPolicy::Shared);
                 assert_eq!(room.reserve(), Some(123));
                 assert_eq!(room.tags(), &json!({ "foo": "bar" }));
 
@@ -539,7 +542,7 @@ mod test {
                 assert_eq!(evp.label(), "room.create");
                 assert_eq!(room.audience(), USR_AUDIENCE);
                 assert_eq!(room.time(), &time);
-                assert_eq!(room.backend(), db::room::RoomBackend::Janus);
+                assert_eq!(room.rtc_sharing_policy(), db::rtc::SharingPolicy::Shared);
                 assert_eq!(room.reserve(), Some(123));
                 assert_eq!(room.tags(), &json!({ "foo": "bar" }));
             });
@@ -555,7 +558,8 @@ mod test {
                 let payload = CreateRequest {
                     time: (Bound::Included(Utc::now()), Bound::Unbounded),
                     audience: USR_AUDIENCE.to_owned(),
-                    backend: db::room::RoomBackend::Janus,
+                    backend: None,
+                    rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
                     reserve: None,
                     tags: None,
                 };
@@ -610,7 +614,7 @@ mod test {
                 assert_eq!(respp.status(), ResponseStatus::OK);
                 assert_eq!(resp_room.audience(), room.audience());
                 assert_eq!(resp_room.time(), room.time());
-                assert_eq!(resp_room.backend(), room.backend());
+                assert_eq!(resp_room.rtc_sharing_policy(), room.rtc_sharing_policy());
             });
         }
 
@@ -687,7 +691,7 @@ mod test {
                     factory::Room::new()
                         .audience(USR_AUDIENCE)
                         .time((Bound::Unbounded, Bound::Unbounded))
-                        .backend(db::room::RoomBackend::Janus)
+                        .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
                         .insert(&conn)
                 };
 
@@ -711,7 +715,6 @@ mod test {
                     reserve: Some(Some(123)),
                     tags: Some(json!({"foo": "bar"})),
                     audience: None,
-                    backend: None,
                 };
 
                 let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -724,7 +727,10 @@ mod test {
                 assert_eq!(resp_room.id(), room.id());
                 assert_eq!(resp_room.audience(), room.audience());
                 assert_eq!(resp_room.time(), &time);
-                assert_eq!(resp_room.backend(), db::room::RoomBackend::Janus);
+                assert_eq!(
+                    resp_room.rtc_sharing_policy(),
+                    db::rtc::SharingPolicy::Shared
+                );
                 assert_eq!(resp_room.reserve(), Some(123));
                 assert_eq!(resp_room.tags(), &json!({"foo": "bar"}));
             });
@@ -749,7 +755,7 @@ mod test {
                             Bound::Included(now - Duration::hours(1)),
                             Bound::Excluded(now + Duration::hours(2)),
                         ))
-                        .backend(db::room::RoomBackend::Janus)
+                        .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
                         .insert(&conn)
                 };
 
@@ -773,7 +779,6 @@ mod test {
                     reserve: Some(Some(123)),
                     tags: Some(json!({"foo": "bar"})),
                     audience: None,
-                    backend: None,
                 };
 
                 handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -801,7 +806,7 @@ mod test {
                             Bound::Included(now - Duration::hours(1)),
                             Bound::Excluded(now + Duration::hours(5)),
                         ))
-                        .backend(db::room::RoomBackend::Janus)
+                        .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
                         .insert(&conn)
                 };
 
@@ -824,7 +829,6 @@ mod test {
                     time: Some(time),
                     reserve: Some(Some(123)),
                     audience: None,
-                    backend: None,
                     tags: None,
                 };
 
@@ -876,7 +880,7 @@ mod test {
                     factory::Room::new()
                         .audience(USR_AUDIENCE)
                         .time((Bound::Included(now - Duration::hours(1)), Bound::Unbounded))
-                        .backend(db::room::RoomBackend::Janus)
+                        .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
                         .insert(&conn)
                 };
 
@@ -899,7 +903,6 @@ mod test {
                     time: Some(time),
                     reserve: None,
                     audience: None,
-                    backend: None,
                     tags: None,
                 };
 
@@ -1004,7 +1007,7 @@ mod test {
                 assert_eq!(respp.status(), ResponseStatus::OK);
                 assert_eq!(resp_room.audience(), room.audience());
                 assert_eq!(resp_room.time(), room.time());
-                assert_eq!(resp_room.backend(), room.backend());
+                assert_eq!(resp_room.rtc_sharing_policy(), room.rtc_sharing_policy());
 
                 // Assert room absence in the DB.
                 let conn = context.get_conn().unwrap();

@@ -1,6 +1,6 @@
 use diesel::pg::PgConnection;
 use rand::Rng;
-use svc_agent::AgentId;
+use svc_agent::{AccountId, AgentId};
 use uuid::Uuid;
 
 use crate::db;
@@ -13,7 +13,7 @@ use super::shared_helpers::{insert_janus_backend, insert_room, insert_rtc};
 pub(crate) struct Room<'a> {
     audience: Option<String>,
     time: Option<db::room::Time>,
-    backend: db::room::RoomBackend,
+    rtc_sharing_policy: db::rtc::SharingPolicy,
     backend_id: Option<&'a AgentId>,
     reserve: Option<i32>,
 }
@@ -23,7 +23,7 @@ impl<'a> Room<'a> {
         Self {
             audience: None,
             time: None,
-            backend: db::room::RoomBackend::None,
+            rtc_sharing_policy: db::rtc::SharingPolicy::None,
             backend_id: None,
             reserve: None,
         }
@@ -50,8 +50,11 @@ impl<'a> Room<'a> {
         }
     }
 
-    pub(crate) fn backend(self, backend: db::room::RoomBackend) -> Self {
-        Self { backend, ..self }
+    pub(crate) fn rtc_sharing_policy(self, rtc_sharing_policy: db::rtc::SharingPolicy) -> Self {
+        Self {
+            rtc_sharing_policy,
+            ..self
+        }
     }
 
     pub(crate) fn backend_id(self, backend_id: &'a AgentId) -> Self {
@@ -65,7 +68,7 @@ impl<'a> Room<'a> {
         let audience = self.audience.expect("Audience not set");
         let time = self.time.expect("Time not set");
 
-        let mut q = db::room::InsertQuery::new(time, &audience, self.backend);
+        let mut q = db::room::InsertQuery::new(time, &audience, self.rtc_sharing_policy);
 
         if let Some(backend_id) = self.backend_id {
             q = q.backend_id(backend_id);
@@ -163,15 +166,23 @@ impl AgentConnection {
 
 pub(crate) struct Rtc {
     room_id: Uuid,
+    created_by: AgentId,
 }
 
 impl Rtc {
     pub(crate) fn new(room_id: Uuid) -> Self {
-        Self { room_id }
+        Self {
+            room_id,
+            created_by: AgentId::new("web", AccountId::new("nevermind", "example.com")),
+        }
+    }
+
+    pub(crate) fn created_by(self, created_by: AgentId) -> Self {
+        Self { created_by, ..self }
     }
 
     pub(crate) fn insert(&self, conn: &PgConnection) -> db::rtc::Object {
-        db::rtc::InsertQuery::new(self.room_id)
+        db::rtc::InsertQuery::new(self.room_id, &self.created_by)
             .execute(conn)
             .expect("Failed to insert janus_backend")
     }
