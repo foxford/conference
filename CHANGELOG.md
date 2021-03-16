@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.12 (March 17, 2021)
+
+### Changes
+- Moved to new dynsub scheme ([b7ceab9](https://github.com/netology-group/conference/commit/b7ceab9c45714447faf25140e1b5e3cc71025ae7))
+- Added RTC sharing policy and created_by ([ec9d72d](https://github.com/netology-group/conference/commit/ec9d72d20b632eba825c7347973958ffea4b1eb7))
+
 ## v0.6.11 (February 9, 2021)
 
 ### Fixes
