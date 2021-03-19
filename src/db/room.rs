@@ -99,6 +99,7 @@ pub(crate) struct Object {
     #[serde(skip_serializing_if = "Option::is_none")]
     reserve: Option<i32>,
     tags: JsonValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
     backend_id: Option<AgentId>,
     rtc_sharing_policy: RtcSharingPolicy,
 }

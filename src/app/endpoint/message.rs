@@ -1,8 +1,5 @@
-use std::result::Result as StdResult;
-
 use async_std::stream;
 use async_trait::async_trait;
-use diesel::pg::PgConnection;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use svc_agent::mqtt::{
@@ -16,7 +13,6 @@ use uuid::Uuid;
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::app::API_VERSION;
-use crate::db::{self, room::Object as Room};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -58,8 +54,8 @@ impl RequestHandler for UnicastHandler {
             )?;
 
             let conn = context.get_conn()?;
-            check_room_presence(&room, reqp.as_agent_id(), &conn)?;
-            check_room_presence(&room, &payload.agent_id, &conn)?;
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
+            helpers::check_room_presence(&room, &payload.agent_id, &conn)?;
         }
 
         let response_topic =
@@ -122,7 +118,7 @@ impl RequestHandler for BroadcastHandler {
             )?;
 
             let conn = context.get_conn()?;
-            check_room_presence(&room, &reqp.as_agent_id(), &conn)?;
+            helpers::check_room_presence(&room, &reqp.as_agent_id(), &conn)?;
             room
         };
 
@@ -187,25 +183,6 @@ impl ResponseHandler for UnicastResponseHandler {
         let resp = OutgoingResponse::unicast(payload, props, &corr_data.reqp, API_VERSION);
         let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_resp)))
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-fn check_room_presence(
-    room: &Room,
-    agent_id: &AgentId,
-    conn: &PgConnection,
-) -> StdResult<(), AppError> {
-    let results = db::agent::ListQuery::new()
-        .room_id(room.id())
-        .agent_id(agent_id)
-        .execute(conn)?;
-
-    if results.is_empty() {
-        Err(anyhow!("Agent is not online in the room")).error(AppErrorKind::AgentNotEnteredTheRoom)
-    } else {
-        Ok(())
     }
 }
 

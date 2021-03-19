@@ -101,7 +101,7 @@ impl RequestHandler for CreateHandler {
         );
 
         let notification = helpers::build_notification(
-            "room.create",
+            "rtc.create",
             &format!("rooms/{}/events", room.id()),
             rtc,
             reqp,
@@ -470,7 +470,7 @@ mod test {
                 // Assert notification.
                 let (rtc, evp, topic) = find_event::<Rtc>(messages.as_slice());
                 assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
-                assert_eq!(evp.label(), "room.create");
+                assert_eq!(evp.label(), "rtc.create");
                 assert_eq!(rtc.room_id(), room.id());
             });
         }

@@ -95,13 +95,14 @@ impl FindQuery {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Default)]
-pub(crate) struct ListQuery {
+pub(crate) struct ListQuery<'a> {
     room_id: Option<Uuid>,
+    created_by: Option<&'a [&'a AgentId]>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
-impl ListQuery {
+impl<'a> ListQuery<'a> {
     pub(crate) fn new() -> Self {
         Default::default()
     }
@@ -109,6 +110,13 @@ impl ListQuery {
     pub(crate) fn room_id(self, room_id: Uuid) -> Self {
         Self {
             room_id: Some(room_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn created_by(self, created_by: &'a [&'a AgentId]) -> Self {
+        Self {
+            created_by: Some(created_by),
             ..self
         }
     }
@@ -134,6 +142,10 @@ impl ListQuery {
 
         if let Some(room_id) = self.room_id {
             q = q.filter(rtc::room_id.eq(room_id));
+        }
+
+        if let Some(created_by) = self.created_by {
+            q = q.filter(rtc::created_by.eq_any(created_by))
         }
 
         if let Some(offset) = self.offset {

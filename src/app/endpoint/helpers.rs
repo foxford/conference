@@ -2,10 +2,14 @@ use std::ops::Bound;
 
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, Utc};
+use diesel::pg::PgConnection;
 use serde::Serialize;
-use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
-    OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
+use svc_agent::{
+    mqtt::{
+        IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
+        OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
+    },
+    AgentId,
 };
 use uuid::Uuid;
 
@@ -158,5 +162,22 @@ pub(crate) fn add_room_logger_tags<C: Context>(context: &mut C, room: &db::room:
 
     if let Some(scope) = room.tags().get("scope") {
         context.add_logger_tags(o!("scope" => scope.to_string()));
+    }
+}
+
+pub(crate) fn check_room_presence(
+    room: &db::room::Object,
+    agent_id: &AgentId,
+    conn: &PgConnection,
+) -> Result<(), AppError> {
+    let results = db::agent::ListQuery::new()
+        .room_id(room.id())
+        .agent_id(agent_id)
+        .execute(conn)?;
+
+    if results.is_empty() {
+        Err(anyhow!("Agent is not online in the room")).error(AppErrorKind::AgentNotEnteredTheRoom)
+    } else {
+        Ok(())
     }
 }
