@@ -94,12 +94,39 @@ table! {
     }
 }
 
+table! {
+    use diesel::sql_types::*;
+    use crate::db::sql::*;
+
+    rtc_reader_config (rtc_id, reader_id) {
+        rtc_id -> Uuid,
+        reader_id -> Agent_id,
+        receive_video -> Bool,
+        receive_audio -> Bool,
+    }
+}
+
+table! {
+    use diesel::sql_types::*;
+    use crate::db::sql::*;
+
+    rtc_writer_config (rtc_id) {
+        rtc_id -> Uuid,
+        send_video -> Bool,
+        send_audio -> Bool,
+        audio_remb -> Nullable<Int8>,
+        video_remb -> Nullable<Int8>,
+    }
+}
+
 joinable!(agent -> room (room_id));
 joinable!(agent_connection -> agent (agent_id));
 joinable!(janus_rtc_stream -> janus_backend (backend_id));
 joinable!(janus_rtc_stream -> rtc (rtc_id));
 joinable!(recording -> rtc (rtc_id));
 joinable!(rtc -> room (room_id));
+joinable!(rtc_reader_config -> rtc (rtc_id));
+joinable!(rtc_writer_config -> rtc (rtc_id));
 
 allow_tables_to_appear_in_same_query!(
     agent,
@@ -109,4 +136,6 @@ allow_tables_to_appear_in_same_query!(
     recording,
     room,
     rtc,
+    rtc_reader_config,
+    rtc_writer_config,
 );

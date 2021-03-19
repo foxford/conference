@@ -51,6 +51,10 @@ macro_rules! request_routes {
 // Request routes configuration: method => RequestHandler
 request_routes!(
     "agent.list" => agent::ListHandler,
+    "agent_reader_config.read" => agent_reader_config::ReadHandler,
+    "agent_reader_config.update" => agent_reader_config::UpdateHandler,
+    "agent_writer_config.read" => agent_writer_config::ReadHandler,
+    "agent_writer_config.update" => agent_writer_config::UpdateHandler,
     "message.broadcast" => message::BroadcastHandler,
     "message.unicast" => message::UnicastHandler,
     "room.create" => room::CreateHandler,
@@ -177,6 +181,8 @@ event_routes!(
 ///////////////////////////////////////////////////////////////////////////////
 
 mod agent;
+mod agent_reader_config;
+mod agent_writer_config;
 pub(crate) mod helpers;
 mod message;
 mod metric;

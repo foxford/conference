@@ -32,6 +32,7 @@ pub(crate) enum ErrorKind {
     InvalidRoomTime,
     InvalidSdpType,
     InvalidSubscriptionObject,
+    InvalidPayload,
     MessageBuildingFailed,
     MessageHandlingFailed,
     MessageParsingFailed,
@@ -154,6 +155,12 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 status: ResponseStatus::BAD_REQUEST,
                 kind: "invalid_jsep_format",
                 title: "Invalid JSEP format",
+                is_notify_sentry: false,
+            },
+            Self::InvalidPayload => ErrorKindProperties {
+                status: ResponseStatus::BAD_REQUEST,
+                kind: "invalid_payload",
+                title: "Invalid payload",
                 is_notify_sentry: false,
             },
             Self::InvalidRoomTime => ErrorKindProperties {

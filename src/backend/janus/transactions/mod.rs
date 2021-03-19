@@ -10,6 +10,8 @@ pub(crate) enum Transaction {
     CreateRtcHandle(create_rtc_handle::TransactionData),
     ReadStream(read_stream::TransactionData),
     Trickle(trickle::TransactionData),
+    UpdateReaderConfig,
+    UpdateWriterConfig,
     UploadStream(upload_stream::TransactionData),
 }
 
@@ -20,4 +22,6 @@ mod create_session;
 mod create_stream;
 mod read_stream;
 mod trickle;
+mod update_agent_reader_config;
+mod update_agent_writer_config;
 mod upload_stream;

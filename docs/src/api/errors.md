@@ -39,6 +39,7 @@ The following types are a part of the service's API and are guaranteed to mainta
 - `invalid_jsep_format` – Failed to determine whether the SDP is recvonly.
 - `invalid_sdp_type` – Failed to parse SDP type or an SDP answer is received.
 - `invalid_subscription_object` – An object for dynamic subscription is not of format `["rooms", UUID, "events"]`.
+- `invalid_payload` – A validation on a request payload as failed.
 - `message_building_failed` – An error occurred while building a message to another service.
 - `message_handling_failed` – An incoming message is likely to have non-valid JSON payload or missing required properties.
 - `message_parsing_failed` – Failed to parse a message from another service.

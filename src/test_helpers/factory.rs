@@ -336,3 +336,123 @@ impl<'a> Recording<'a> {
             .expect("Failed to insert recording")
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct RtcReaderConfig<'a> {
+    rtc: &'a db::rtc::Object,
+    reader_id: &'a AgentId,
+    receive_video: Option<bool>,
+    receive_audio: Option<bool>,
+}
+
+impl<'a> RtcReaderConfig<'a> {
+    pub(crate) fn new(rtc: &'a db::rtc::Object, reader_id: &'a AgentId) -> Self {
+        Self {
+            rtc,
+            reader_id,
+            receive_video: None,
+            receive_audio: None,
+        }
+    }
+
+    pub(crate) fn receive_video(self, receive_video: bool) -> Self {
+        Self {
+            receive_video: Some(receive_video),
+            ..self
+        }
+    }
+
+    pub(crate) fn receive_audio(self, receive_audio: bool) -> Self {
+        Self {
+            receive_audio: Some(receive_audio),
+            ..self
+        }
+    }
+
+    pub(crate) fn insert(&self, conn: &PgConnection) -> db::rtc_reader_config::Object {
+        let mut q = db::rtc_reader_config::UpsertQuery::new(self.rtc.id(), self.reader_id);
+
+        if let Some(receive_video) = self.receive_video {
+            q = q.receive_video(receive_video);
+        }
+
+        if let Some(receive_audio) = self.receive_audio {
+            q = q.receive_audio(receive_audio);
+        }
+
+        q.execute(conn).expect("Failed to insert RTC reader config")
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct RtcWriterConfig<'a> {
+    rtc: &'a db::rtc::Object,
+    send_video: Option<bool>,
+    send_audio: Option<bool>,
+    video_remb: Option<i64>,
+    audio_remb: Option<i64>,
+}
+
+impl<'a> RtcWriterConfig<'a> {
+    pub(crate) fn new(rtc: &'a db::rtc::Object) -> Self {
+        Self {
+            rtc,
+            send_video: None,
+            send_audio: None,
+            video_remb: None,
+            audio_remb: None,
+        }
+    }
+
+    pub(crate) fn send_video(self, send_video: bool) -> Self {
+        Self {
+            send_video: Some(send_video),
+            ..self
+        }
+    }
+
+    pub(crate) fn send_audio(self, send_audio: bool) -> Self {
+        Self {
+            send_audio: Some(send_audio),
+            ..self
+        }
+    }
+
+    pub(crate) fn video_remb(self, video_remb: i64) -> Self {
+        Self {
+            video_remb: Some(video_remb),
+            ..self
+        }
+    }
+
+    pub(crate) fn audio_remb(self, audio_remb: i64) -> Self {
+        Self {
+            audio_remb: Some(audio_remb),
+            ..self
+        }
+    }
+
+    pub(crate) fn insert(&self, conn: &PgConnection) -> db::rtc_writer_config::Object {
+        let mut q = db::rtc_writer_config::UpsertQuery::new(self.rtc.id());
+
+        if let Some(send_video) = self.send_video {
+            q = q.send_video(send_video);
+        }
+
+        if let Some(send_audio) = self.send_audio {
+            q = q.send_audio(send_audio);
+        }
+
+        if let Some(video_remb) = self.video_remb {
+            q = q.video_remb(video_remb);
+        }
+
+        if let Some(audio_remb) = self.audio_remb {
+            q = q.audio_remb(audio_remb);
+        }
+
+        q.execute(conn).expect("Failed to insert RTC writer config")
+    }
+}

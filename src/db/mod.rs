@@ -39,3 +39,5 @@ pub(crate) mod janus_rtc_stream;
 pub(crate) mod recording;
 pub(crate) mod room;
 pub(crate) mod rtc;
+pub(crate) mod rtc_reader_config;
+pub(crate) mod rtc_writer_config;

@@ -192,3 +192,161 @@ impl AgentLeaveRequestBody {
         }
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct UpdateReaderConfigRequestBody {
+    method: String,
+    configs: Vec<UpdateReaderConfigRequestBodyConfigItem>,
+}
+
+#[cfg(test)]
+impl UpdateReaderConfigRequestBody {
+    pub(crate) fn method(&self) -> &str {
+        &self.method
+    }
+
+    pub(crate) fn configs(&self) -> &[UpdateReaderConfigRequestBodyConfigItem] {
+        &self.configs
+    }
+}
+
+impl UpdateReaderConfigRequestBody {
+    pub(crate) fn new(configs: Vec<UpdateReaderConfigRequestBodyConfigItem>) -> Self {
+        Self {
+            method: String::from("reader_config.update"),
+            configs,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct UpdateReaderConfigRequestBodyConfigItem {
+    reader_id: AgentId,
+    stream_id: Uuid,
+    receive_video: bool,
+    receive_audio: bool,
+}
+
+impl UpdateReaderConfigRequestBodyConfigItem {
+    pub(crate) fn new(
+        reader_id: AgentId,
+        stream_id: Uuid,
+        receive_video: bool,
+        receive_audio: bool,
+    ) -> Self {
+        Self {
+            reader_id,
+            stream_id,
+            receive_video,
+            receive_audio,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reader_id(&self) -> &AgentId {
+        &self.reader_id
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stream_id(&self) -> Uuid {
+        self.stream_id
+    }
+
+    #[cfg(test)]
+    pub(crate) fn receive_video(&self) -> bool {
+        self.receive_video
+    }
+
+    #[cfg(test)]
+    pub(crate) fn receive_audio(&self) -> bool {
+        self.receive_audio
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct UpdateWriterConfigRequestBody {
+    method: String,
+    configs: Vec<UpdateWriterConfigRequestBodyConfigItem>,
+}
+
+impl UpdateWriterConfigRequestBody {
+    pub(crate) fn new(configs: Vec<UpdateWriterConfigRequestBodyConfigItem>) -> Self {
+        Self {
+            method: String::from("writer_config.update"),
+            configs,
+        }
+    }
+}
+
+#[cfg(test)]
+impl UpdateWriterConfigRequestBody {
+    pub(crate) fn method(&self) -> &str {
+        &self.method
+    }
+
+    pub(crate) fn configs(&self) -> &[UpdateWriterConfigRequestBodyConfigItem] {
+        &self.configs
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct UpdateWriterConfigRequestBodyConfigItem {
+    stream_id: Uuid,
+    send_video: bool,
+    send_audio: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    video_remb: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    audio_remb: Option<u32>,
+}
+
+impl UpdateWriterConfigRequestBodyConfigItem {
+    pub(crate) fn new(stream_id: Uuid, send_video: bool, send_audio: bool) -> Self {
+        Self {
+            stream_id,
+            send_video,
+            send_audio,
+            video_remb: None,
+            audio_remb: None,
+        }
+    }
+
+    pub(crate) fn set_video_remb(&mut self, video_remb: u32) -> &mut Self {
+        self.video_remb = Some(video_remb);
+        self
+    }
+
+    pub(crate) fn set_audio_remb(&mut self, audio_remb: u32) -> &mut Self {
+        self.audio_remb = Some(audio_remb);
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stream_id(&self) -> Uuid {
+        self.stream_id
+    }
+
+    #[cfg(test)]
+    pub(crate) fn send_video(&self) -> bool {
+        self.send_video
+    }
+
+    #[cfg(test)]
+    pub(crate) fn send_audio(&self) -> bool {
+        self.send_audio
+    }
+
+    #[cfg(test)]
+    pub(crate) fn video_remb(&self) -> Option<u32> {
+        self.video_remb
+    }
+
+    #[cfg(test)]
+    pub(crate) fn audio_remb(&self) -> Option<u32> {
+        self.audio_remb
+    }
+}
