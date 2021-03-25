@@ -35,7 +35,7 @@ pub(crate) type ConnectResponse = OutgoingResponse<ConnectResponseData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const MAX_WEBINAR_DURATION: i64 = 6;
+const MAX_WEBINAR_DURATION: i64 = 7;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct CreateRequest {
