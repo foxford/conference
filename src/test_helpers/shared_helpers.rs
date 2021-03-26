@@ -7,6 +7,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::db::agent::{Object as Agent, Status as AgentStatus};
+use crate::db::agent_connection::Object as AgentConnection;
 use crate::db::janus_backend::Object as JanusBackend;
 use crate::db::recording::Object as Recording;
 use crate::db::room::Object as Room;
@@ -57,7 +58,10 @@ pub(crate) fn insert_closed_room(conn: &PgConnection) -> Room {
         .insert(conn)
 }
 
-pub(crate) fn insert_closed_room_with_backend(conn: &PgConnection, backend_id: &AgentId) -> Room {
+pub(crate) fn insert_closed_room_with_backend_id(
+    conn: &PgConnection,
+    backend_id: &AgentId,
+) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -93,10 +97,10 @@ pub(crate) fn insert_connected_agent(
     conn: &PgConnection,
     agent_id: &AgentId,
     room_id: Uuid,
-) -> Agent {
+) -> (Agent, AgentConnection) {
     let agent = insert_agent(conn, agent_id, room_id);
-    factory::AgentConnection::new(*agent.id(), 123).insert(conn);
-    agent
+    let agent_connection = factory::AgentConnection::new(*agent.id(), 123).insert(conn);
+    (agent, agent_connection)
 }
 
 pub(crate) fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {

@@ -47,13 +47,15 @@ impl RequestHandler for UnicastHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         {
+            let conn = context.get_conn()?;
+
             let room = helpers::find_room_by_id(
                 context,
                 payload.room_id,
                 helpers::RoomTimeRequirement::Open,
+                &conn,
             )?;
 
-            let conn = context.get_conn()?;
             helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
             helpers::check_room_presence(&room, &payload.agent_id, &conn)?;
         }
@@ -111,13 +113,15 @@ impl RequestHandler for BroadcastHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let room = {
+            let conn = context.get_conn()?;
+
             let room = helpers::find_room_by_id(
                 context,
                 payload.room_id,
                 helpers::RoomTimeRequirement::Open,
+                &conn,
             )?;
 
-            let conn = context.get_conn()?;
             helpers::check_room_presence(&room, &reqp.as_agent_id(), &conn)?;
             room
         };

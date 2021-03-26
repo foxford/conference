@@ -64,33 +64,34 @@ pub(crate) fn find_room_by_id<C: Context>(
     context: &mut C,
     id: Uuid,
     opening_requirement: RoomTimeRequirement,
+    conn: &PgConnection,
 ) -> Result<db::room::Object, AppError> {
     context.add_logger_tags(o!("room_id" => id.to_string()));
     let query = db::room::FindQuery::new(id);
-    find_room(context, query, opening_requirement)
+    find_room(context, query, opening_requirement, conn)
 }
 
 pub(crate) fn find_room_by_rtc_id<C: Context>(
     context: &mut C,
     rtc_id: Uuid,
     opening_requirement: RoomTimeRequirement,
+    conn: &PgConnection,
 ) -> Result<db::room::Object, AppError> {
     context.add_logger_tags(o!("rtc_id" => rtc_id.to_string()));
     let query = db::room::FindByRtcIdQuery::new(rtc_id);
-    find_room(context, query, opening_requirement)
+    find_room(context, query, opening_requirement, conn)
 }
 
 fn find_room<C, Q>(
     context: &mut C,
     query: Q,
     opening_requirement: RoomTimeRequirement,
+    conn: &PgConnection,
 ) -> Result<Room, AppError>
 where
     C: Context,
     Q: db::room::FindQueryable,
 {
-    let conn = context.get_conn()?;
-
     let room = query
         .execute(&conn)?
         .ok_or_else(|| anyhow!("Room not found"))
@@ -157,14 +158,6 @@ where
     }
 }
 
-pub(crate) fn add_room_logger_tags<C: Context>(context: &mut C, room: &db::room::Object) {
-    context.add_logger_tags(o!("room_id" => room.id().to_string()));
-
-    if let Some(scope) = room.tags().get("scope") {
-        context.add_logger_tags(o!("scope" => scope.to_string()));
-    }
-}
-
 pub(crate) fn check_room_presence(
     room: &db::room::Object,
     agent_id: &AgentId,
@@ -179,5 +172,13 @@ pub(crate) fn check_room_presence(
         Err(anyhow!("Agent is not online in the room")).error(AppErrorKind::AgentNotEnteredTheRoom)
     } else {
         Ok(())
+    }
+}
+
+pub(crate) fn add_room_logger_tags<C: Context>(context: &mut C, room: &db::room::Object) {
+    context.add_logger_tags(o!("room_id" => room.id().to_string()));
+
+    if let Some(scope) = room.tags().get("scope") {
+        context.add_logger_tags(o!("scope" => scope.to_string()));
     }
 }

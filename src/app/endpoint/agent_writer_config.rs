@@ -106,20 +106,26 @@ impl RequestHandler for UpdateHandler {
                 .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let room =
-            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
-
-        if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-            return Err(anyhow!(
-                "Agent writer config is available only for rooms with owned RTC sharing policy"
-            ))
-            .error(AppErrorKind::InvalidPayload)?;
-        }
-
-        {
+        let room = {
             let conn = context.get_conn()?;
+
+            let room = helpers::find_room_by_id(
+                context,
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &conn,
+            )?;
+
+            if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+                return Err(anyhow!(
+                    "Agent writer config is available only for rooms with owned RTC sharing policy"
+                ))
+                .error(AppErrorKind::InvalidPayload)?;
+            }
+
             helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
-        }
+            room
+        };
 
         // Authorize agent writer config updating on the tenant.
         let room_id = room.id().to_string();
@@ -248,8 +254,14 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room =
-            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
+        let conn = context.get_conn()?;
+
+        let room = helpers::find_room_by_id(
+            context,
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            &conn,
+        )?;
 
         if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
             return Err(anyhow!(
@@ -258,7 +270,6 @@ impl RequestHandler for ReadHandler {
             .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let conn = context.get_conn()?;
         helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
 
         let rtc_writer_configs_with_rtcs =

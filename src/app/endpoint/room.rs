@@ -142,8 +142,16 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room =
-            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::Any)?;
+        let room = {
+            let conn = context.get_conn()?;
+
+            helpers::find_room_by_id(
+                context,
+                payload.id,
+                helpers::RoomTimeRequirement::Any,
+                &conn,
+            )?
+        };
 
         // Authorize room reading on the tenant.
         let room_id = room.id().to_string();
@@ -189,11 +197,16 @@ impl RequestHandler for UpdateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room = helpers::find_room_by_id(
-            context,
-            payload.id,
-            helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
-        )?;
+        let room = {
+            let conn = context.get_conn()?;
+
+            helpers::find_room_by_id(
+                context,
+                payload.id,
+                helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
+                &conn,
+            )?
+        };
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
@@ -314,8 +327,16 @@ impl RequestHandler for EnterHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room =
-            helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::NotClosed)?;
+        let room = {
+            let conn = context.get_conn()?;
+
+            helpers::find_room_by_id(
+                context,
+                payload.id,
+                helpers::RoomTimeRequirement::NotClosed,
+                &conn,
+            )?
+        };
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();
@@ -381,10 +402,14 @@ impl RequestHandler for LeaveHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let (room, presence) = {
-            let room =
-                helpers::find_room_by_id(context, payload.id, helpers::RoomTimeRequirement::Any)?;
-
             let conn = context.get_conn()?;
+
+            let room = helpers::find_room_by_id(
+                context,
+                payload.id,
+                helpers::RoomTimeRequirement::Any,
+                &conn,
+            )?;
 
             // Check room presence.
             let presence = db::agent::ListQuery::new()

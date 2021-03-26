@@ -367,8 +367,8 @@ mod tests {
             let backend1 = shared_helpers::insert_janus_backend(&conn);
             let backend2 = shared_helpers::insert_janus_backend(&conn);
 
-            let room1 = shared_helpers::insert_closed_room_with_backend(&conn, backend1.id());
-            let room2 = shared_helpers::insert_closed_room_with_backend(&conn, backend2.id());
+            let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
+            let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());
 
             // this room will have rtc but no rtc_stream simulating the case when janus_backend was removed
             // (for example crashed) and via cascade removed all streams hosted on it
@@ -377,7 +377,7 @@ mod tests {
             let backend3_id = TestAgent::new("alpha", "janus3", SVC_AUDIENCE);
 
             let room3 =
-                shared_helpers::insert_closed_room_with_backend(&conn, backend3_id.agent_id());
+                shared_helpers::insert_closed_room_with_backend_id(&conn, backend3_id.agent_id());
 
             let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
             let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);

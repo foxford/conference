@@ -270,11 +270,15 @@ mod test {
                         // Insert janus backend and rooms.
                         let backend = shared_helpers::insert_janus_backend(&conn);
 
-                        let room1 =
-                            shared_helpers::insert_closed_room_with_backend(&conn, &backend.id());
+                        let room1 = shared_helpers::insert_closed_room_with_backend_id(
+                            &conn,
+                            &backend.id(),
+                        );
 
-                        let room2 =
-                            shared_helpers::insert_closed_room_with_backend(&conn, &backend.id());
+                        let room2 = shared_helpers::insert_closed_room_with_backend_id(
+                            &conn,
+                            &backend.id(),
+                        );
 
                         // Insert rtcs.
                         let rtcs = vec![

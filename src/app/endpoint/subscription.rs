@@ -81,10 +81,16 @@ impl ResponseHandler for CreateResponseHandler {
 
         // Find room.
         let room_id = try_room_id(&corr_data.object)?;
-        helpers::find_room_by_id(context, room_id, helpers::RoomTimeRequirement::NotClosed)?;
 
         {
             let conn = context.get_conn()?;
+
+            helpers::find_room_by_id(
+                context,
+                room_id,
+                helpers::RoomTimeRequirement::NotClosed,
+                &conn,
+            )?;
 
             // Update agent state to `ready`.
             db::agent::UpdateQuery::new(&corr_data.subject, room_id)

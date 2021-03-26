@@ -91,8 +91,14 @@ impl RequestHandler for UpdateHandler {
                 .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let room =
-            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
+        let conn = context.get_conn()?;
+
+        let room = helpers::find_room_by_id(
+            context,
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            &conn,
+        )?;
 
         if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
             return Err(anyhow!(
@@ -101,7 +107,6 @@ impl RequestHandler for UpdateHandler {
             .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let conn = context.get_conn()?;
         helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
 
         let rtc_reader_configs_with_rtcs = conn.transaction::<_, AppError, _>(|| {
@@ -206,8 +211,14 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room =
-            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
+        let conn = context.get_conn()?;
+
+        let room = helpers::find_room_by_id(
+            context,
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            &conn,
+        )?;
 
         if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
             return Err(anyhow!(
@@ -216,7 +227,6 @@ impl RequestHandler for ReadHandler {
             .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let conn = context.get_conn()?;
         helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
 
         let rtc_reader_configs_with_rtcs =
