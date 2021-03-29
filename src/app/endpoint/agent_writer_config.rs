@@ -39,10 +39,6 @@ impl State {
                     config_item = config_item.video_remb(video_remb as u32);
                 }
 
-                if let Some(audio_remb) = rtc_writer_config.audio_remb() {
-                    config_item = config_item.audio_remb(audio_remb as u32);
-                }
-
                 config_item
             })
             .collect::<Vec<_>>();
@@ -57,7 +53,6 @@ pub(crate) struct StateConfigItem {
     send_video: Option<bool>,
     send_audio: Option<bool>,
     video_remb: Option<u32>,
-    audio_remb: Option<u32>,
 }
 
 impl StateConfigItem {
@@ -67,7 +62,6 @@ impl StateConfigItem {
             send_video: None,
             send_audio: None,
             video_remb: None,
-            audio_remb: None,
         }
     }
 
@@ -88,13 +82,6 @@ impl StateConfigItem {
     fn video_remb(self, video_remb: u32) -> Self {
         Self {
             video_remb: Some(video_remb),
-            ..self
-        }
-    }
-
-    fn audio_remb(self, audio_remb: u32) -> Self {
-        Self {
-            audio_remb: Some(audio_remb),
             ..self
         }
     }
@@ -182,10 +169,6 @@ impl RequestHandler for UpdateHandler {
 
                 if let Some(video_remb) = state_config_item.video_remb {
                     q = q.video_remb(video_remb.into());
-                }
-
-                if let Some(audio_remb) = state_config_item.audio_remb {
-                    q = q.audio_remb(audio_remb.into());
                 }
 
                 q.execute(&conn)?;
@@ -372,14 +355,12 @@ mod tests {
                         send_video: Some(true),
                         send_audio: Some(false),
                         video_remb: Some(300_000),
-                        audio_remb: Some(60_000),
                     },
                     StateConfigItem {
                         agent_id: agent3.agent_id().to_owned(),
                         send_video: Some(false),
                         send_audio: Some(false),
                         video_remb: None,
-                        audio_remb: None,
                     },
                 ],
             };
@@ -403,7 +384,6 @@ mod tests {
             assert_eq!(agent2_config.send_video, Some(true));
             assert_eq!(agent2_config.send_audio, Some(false));
             assert_eq!(agent2_config.video_remb, Some(300_000));
-            assert_eq!(agent2_config.audio_remb, Some(60_000));
 
             let agent3_config = state
                 .configs
@@ -414,7 +394,6 @@ mod tests {
             assert_eq!(agent3_config.send_video, Some(false));
             assert_eq!(agent3_config.send_audio, Some(false));
             assert_eq!(agent3_config.video_remb, None);
-            assert_eq!(agent3_config.audio_remb, None);
 
             // Assert notification.
             let (state, evp, _) = find_event::<State>(messages.as_slice());
@@ -431,7 +410,6 @@ mod tests {
             assert_eq!(agent2_config.send_video, Some(true));
             assert_eq!(agent2_config.send_audio, Some(false));
             assert_eq!(agent2_config.video_remb, Some(300_000));
-            assert_eq!(agent2_config.audio_remb, Some(60_000));
 
             let agent3_config = state
                 .configs
@@ -442,7 +420,6 @@ mod tests {
             assert_eq!(agent3_config.send_video, Some(false));
             assert_eq!(agent3_config.send_audio, Some(false));
             assert_eq!(agent3_config.video_remb, None);
-            assert_eq!(agent3_config.audio_remb, None);
 
             // Assert backend request.
             let (req, _reqp, topic) =
@@ -472,7 +449,6 @@ mod tests {
             assert_eq!(agent2_config.send_video(), true);
             assert_eq!(agent2_config.send_audio(), false);
             assert_eq!(agent2_config.video_remb(), Some(300_000));
-            assert_eq!(agent2_config.audio_remb(), Some(60_000));
 
             let agent3_config = configs
                 .iter()
@@ -482,7 +458,6 @@ mod tests {
             assert_eq!(agent3_config.send_video(), false);
             assert_eq!(agent3_config.send_audio(), false);
             assert_eq!(agent3_config.video_remb(), None);
-            assert_eq!(agent3_config.audio_remb(), None);
 
             // Make one more agent_writer_config.update request.
             let payload = State {
@@ -493,14 +468,12 @@ mod tests {
                         send_video: Some(true),
                         send_audio: Some(true),
                         video_remb: Some(1_000_000),
-                        audio_remb: Some(60_000),
                     },
                     StateConfigItem {
                         agent_id: agent3.agent_id().to_owned(),
                         send_video: None,
                         send_audio: Some(true),
                         video_remb: None,
-                        audio_remb: Some(30_000),
                     },
                 ],
             };
@@ -524,7 +497,6 @@ mod tests {
             assert_eq!(agent2_config.send_video, Some(true));
             assert_eq!(agent2_config.send_audio, Some(false));
             assert_eq!(agent2_config.video_remb, Some(300_000));
-            assert_eq!(agent2_config.audio_remb, Some(60_000));
 
             let agent3_config = state
                 .configs
@@ -535,7 +507,6 @@ mod tests {
             assert_eq!(agent3_config.send_video, Some(false));
             assert_eq!(agent3_config.send_audio, Some(true));
             assert_eq!(agent3_config.video_remb, None);
-            assert_eq!(agent3_config.audio_remb, Some(30_000));
 
             let agent4_config = state
                 .configs
@@ -546,7 +517,6 @@ mod tests {
             assert_eq!(agent4_config.send_video, Some(true));
             assert_eq!(agent4_config.send_audio, Some(true));
             assert_eq!(agent4_config.video_remb, Some(1_000_000));
-            assert_eq!(agent4_config.audio_remb, Some(60_000));
 
             // Assert notification.
             let (state, evp, _) = find_event::<State>(messages.as_slice());
@@ -563,7 +533,6 @@ mod tests {
             assert_eq!(agent2_config.send_video, Some(true));
             assert_eq!(agent2_config.send_audio, Some(false));
             assert_eq!(agent2_config.video_remb, Some(300_000));
-            assert_eq!(agent2_config.audio_remb, Some(60_000));
 
             let agent3_config = state
                 .configs
@@ -574,7 +543,6 @@ mod tests {
             assert_eq!(agent3_config.send_video, Some(false));
             assert_eq!(agent3_config.send_audio, Some(true));
             assert_eq!(agent3_config.video_remb, None);
-            assert_eq!(agent3_config.audio_remb, Some(30_000));
 
             let agent4_config = state
                 .configs
@@ -585,7 +553,6 @@ mod tests {
             assert_eq!(agent4_config.send_video, Some(true));
             assert_eq!(agent4_config.send_audio, Some(true));
             assert_eq!(agent4_config.video_remb, Some(1_000_000));
-            assert_eq!(agent4_config.audio_remb, Some(60_000));
 
             // Assert backend request.
             let (req, _reqp, topic) =
@@ -615,7 +582,6 @@ mod tests {
             assert_eq!(agent2_config.send_video(), true);
             assert_eq!(agent2_config.send_audio(), false);
             assert_eq!(agent2_config.video_remb(), Some(300_000));
-            assert_eq!(agent2_config.audio_remb(), Some(60_000));
 
             let agent3_config = configs
                 .iter()
@@ -625,7 +591,6 @@ mod tests {
             assert_eq!(agent3_config.send_video(), false);
             assert_eq!(agent3_config.send_audio(), true);
             assert_eq!(agent3_config.video_remb(), None);
-            assert_eq!(agent3_config.audio_remb(), Some(30_000));
 
             let agent4_config = configs
                 .iter()
@@ -635,7 +600,6 @@ mod tests {
             assert_eq!(agent4_config.send_video(), true);
             assert_eq!(agent4_config.send_audio(), true);
             assert_eq!(agent4_config.video_remb(), Some(1_000_000));
-            assert_eq!(agent4_config.audio_remb(), Some(60_000));
             Ok(())
         }
 
@@ -692,7 +656,6 @@ mod tests {
                         send_video: Some(false),
                         send_audio: Some(true),
                         video_remb: Some(300_000),
-                        audio_remb: Some(60_000),
                     }
                 })
                 .collect::<Vec<_>>();
@@ -884,7 +847,6 @@ mod tests {
                         .send_video(true)
                         .send_audio(true)
                         .video_remb(1_000_000)
-                        .audio_remb(60_000)
                         .insert(&conn);
 
                     let rtc3 = factory::Rtc::new(room.id())
@@ -895,7 +857,6 @@ mod tests {
                         .send_video(false)
                         .send_audio(false)
                         .video_remb(300_000)
-                        .audio_remb(50_000)
                         .insert(&conn);
 
                     room
@@ -926,7 +887,6 @@ mod tests {
             assert_eq!(agent2_config.send_video, Some(true));
             assert_eq!(agent2_config.send_audio, Some(true));
             assert_eq!(agent2_config.video_remb, Some(1_000_000));
-            assert_eq!(agent2_config.audio_remb, Some(60_000));
 
             let agent3_config = state
                 .configs
@@ -937,7 +897,6 @@ mod tests {
             assert_eq!(agent3_config.send_video, Some(false));
             assert_eq!(agent3_config.send_audio, Some(false));
             assert_eq!(agent3_config.video_remb, Some(300_000));
-            assert_eq!(agent3_config.audio_remb, Some(50_000));
 
             Ok(())
         }

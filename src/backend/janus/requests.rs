@@ -300,8 +300,6 @@ pub(crate) struct UpdateWriterConfigRequestBodyConfigItem {
     send_audio: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     video_remb: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    audio_remb: Option<u32>,
 }
 
 impl UpdateWriterConfigRequestBodyConfigItem {
@@ -311,17 +309,11 @@ impl UpdateWriterConfigRequestBodyConfigItem {
             send_video,
             send_audio,
             video_remb: None,
-            audio_remb: None,
         }
     }
 
     pub(crate) fn set_video_remb(&mut self, video_remb: u32) -> &mut Self {
         self.video_remb = Some(video_remb);
-        self
-    }
-
-    pub(crate) fn set_audio_remb(&mut self, audio_remb: u32) -> &mut Self {
-        self.audio_remb = Some(audio_remb);
         self
     }
 
@@ -343,10 +335,5 @@ impl UpdateWriterConfigRequestBodyConfigItem {
     #[cfg(test)]
     pub(crate) fn video_remb(&self) -> Option<u32> {
         self.video_remb
-    }
-
-    #[cfg(test)]
-    pub(crate) fn audio_remb(&self) -> Option<u32> {
-        self.audio_remb
     }
 }

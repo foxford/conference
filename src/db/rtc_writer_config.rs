@@ -11,7 +11,6 @@ type AllColumns = (
     rtc_writer_config::send_video,
     rtc_writer_config::send_audio,
     rtc_writer_config::video_remb,
-    rtc_writer_config::audio_remb,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -19,7 +18,6 @@ const ALL_COLUMNS: AllColumns = (
     rtc_writer_config::send_video,
     rtc_writer_config::send_audio,
     rtc_writer_config::video_remb,
-    rtc_writer_config::audio_remb,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -33,7 +31,6 @@ pub(crate) struct Object {
     send_video: bool,
     send_audio: bool,
     video_remb: Option<i64>,
-    audio_remb: Option<i64>,
 }
 
 impl Object {
@@ -47,10 +44,6 @@ impl Object {
 
     pub(crate) fn video_remb(&self) -> Option<i64> {
         self.video_remb
-    }
-
-    pub(crate) fn audio_remb(&self) -> Option<i64> {
-        self.audio_remb
     }
 }
 
@@ -86,7 +79,6 @@ pub(crate) struct UpsertQuery {
     send_video: Option<bool>,
     send_audio: Option<bool>,
     video_remb: Option<i64>,
-    audio_remb: Option<i64>,
 }
 
 impl UpsertQuery {
@@ -96,7 +88,6 @@ impl UpsertQuery {
             send_video: None,
             send_audio: None,
             video_remb: None,
-            audio_remb: None,
         }
     }
 
@@ -117,13 +108,6 @@ impl UpsertQuery {
     pub(crate) fn video_remb(self, video_remb: i64) -> Self {
         Self {
             video_remb: Some(video_remb),
-            ..self
-        }
-    }
-
-    pub(crate) fn audio_remb(self, audio_remb: i64) -> Self {
-        Self {
-            audio_remb: Some(audio_remb),
             ..self
         }
     }

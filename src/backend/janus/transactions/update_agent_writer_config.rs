@@ -52,10 +52,6 @@ impl Client {
                     req.set_video_remb(video_remb as u32);
                 }
 
-                if let Some(audio_remb) = rtc_writer_config.audio_remb() {
-                    req.set_audio_remb(audio_remb as u32);
-                }
-
                 req
             })
             .collect::<Vec<UpdateWriterConfigRequestBodyConfigItem>>();
