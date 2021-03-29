@@ -21,4 +21,3 @@ agent_id   | agent_id | _required_ | Writer identifier which the config applies 
 send_video |     bool | true       | Whether the writer is allowed to publish video.
 send_audio |     bool | true       | Whether the writer is allowed to publish audio.
 video_remb |      int | _required_ | Maximum video bitrate requested for the writer.
-audio_remb |      int | _required_ | Maximum audio bitrate requested for the writer.

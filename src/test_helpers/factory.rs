@@ -392,7 +392,6 @@ pub(crate) struct RtcWriterConfig<'a> {
     send_video: Option<bool>,
     send_audio: Option<bool>,
     video_remb: Option<i64>,
-    audio_remb: Option<i64>,
 }
 
 impl<'a> RtcWriterConfig<'a> {
@@ -402,7 +401,6 @@ impl<'a> RtcWriterConfig<'a> {
             send_video: None,
             send_audio: None,
             video_remb: None,
-            audio_remb: None,
         }
     }
 
@@ -427,13 +425,6 @@ impl<'a> RtcWriterConfig<'a> {
         }
     }
 
-    pub(crate) fn audio_remb(self, audio_remb: i64) -> Self {
-        Self {
-            audio_remb: Some(audio_remb),
-            ..self
-        }
-    }
-
     pub(crate) fn insert(&self, conn: &PgConnection) -> db::rtc_writer_config::Object {
         let mut q = db::rtc_writer_config::UpsertQuery::new(self.rtc.id());
 
@@ -447,10 +438,6 @@ impl<'a> RtcWriterConfig<'a> {
 
         if let Some(video_remb) = self.video_remb {
             q = q.video_remb(video_remb);
-        }
-
-        if let Some(audio_remb) = self.audio_remb {
-            q = q.audio_remb(audio_remb);
         }
 
         q.execute(conn).expect("Failed to insert RTC writer config")

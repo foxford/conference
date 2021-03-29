@@ -114,7 +114,6 @@ table! {
         rtc_id -> Uuid,
         send_video -> Bool,
         send_audio -> Bool,
-        audio_remb -> Nullable<Int8>,
         video_remb -> Nullable<Int8>,
     }
 }
