@@ -7,8 +7,9 @@ use serde_derive::{Deserialize, Serialize};
 use svc_agent::AgentId;
 use uuid::Uuid;
 
+use super::recording::Object as Recording;
 use super::room::Object as Room;
-use crate::schema::rtc;
+use crate::schema::{recording, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -157,6 +158,31 @@ impl<'a> ListQuery<'a> {
         }
 
         q.order_by(rtc::created_at.asc()).get_results(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Default)]
+pub(crate) struct ListWithRecordingQuery {
+    room_id: Uuid,
+}
+
+impl ListWithRecordingQuery {
+    pub(crate) fn new(room_id: Uuid) -> Self {
+        Self { room_id }
+    }
+
+    pub(crate) fn execute(
+        &self,
+        conn: &PgConnection,
+    ) -> Result<Vec<(Object, Option<Recording>)>, Error> {
+        use diesel::prelude::*;
+
+        rtc::table
+            .left_join(recording::table)
+            .filter(rtc::room_id.eq(self.room_id))
+            .get_results(conn)
     }
 }
 

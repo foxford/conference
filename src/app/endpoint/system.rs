@@ -5,9 +5,12 @@ use async_std::stream;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
-use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
-    OutgoingMessage, ShortTermTimingProperties, TrackingProperties,
+use svc_agent::{
+    mqtt::{
+        IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
+        OutgoingMessage, ShortTermTimingProperties, TrackingProperties,
+    },
+    AgentId,
 };
 use svc_authn::Authenticable;
 use uuid::Uuid;
@@ -45,6 +48,7 @@ struct RtcUploadEventData {
     started_at: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     uri: Option<String>,
+    created_by: AgentId,
 }
 
 pub(crate) type RoomUploadEvent = OutgoingMessage<RoomUploadEventData>;
@@ -136,11 +140,11 @@ pub(crate) fn upload_event<C: Context, I>(
     tracking: &TrackingProperties,
 ) -> StdResult<RoomUploadEvent, AppError>
 where
-    I: Iterator<Item = db::recording::Object>,
+    I: Iterator<Item = (db::recording::Object, db::rtc::Object)>,
 {
     let mut event_entries = Vec::new();
 
-    for recording in recordings {
+    for (recording, rtc) in recordings {
         let uri = match recording.status() {
             RecordingStatus::InProgress => {
                 let err = anyhow!(
@@ -164,6 +168,7 @@ where
             uri,
             segments: recording.segments().to_owned(),
             started_at: recording.started_at().to_owned(),
+            created_by: rtc.created_by().to_owned(),
         };
 
         event_entries.push(entry);
