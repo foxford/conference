@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.6.13 (April 1, 2021)
+
+### Features
+- Add agent reader & writer config endpoints ([256bd96](https://github.com/netology-group/conference/commit/256bd96db6754a6250044eb31ce0435a8146b266), [05c2c33](https://github.com/netology-group/conference/commit/05c2c330aae9b87dcdb01796d46c133700db5d07))
+
+### Changes
+- Increase max webinar duration to 7 hours ([736e16b](https://github.com/netology-group/conference/commit/736e16bbb61839f3aa75a1044d05330d4e592be4))
+
+
 ## v0.6.12 (March 17, 2021)
 
 ### Changes
