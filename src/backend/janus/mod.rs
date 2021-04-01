@@ -351,7 +351,9 @@ async fn handle_response_impl<C: Context>(
                                 })?;
 
                             // if vacuuming was already started by previous request - just do nothing
-                            let maybe_already_running = plugin_data.get("state").and_then(|v| v.as_str()) == Some(ALREADY_RUNNING_STATE);
+                            let maybe_already_running =
+                                plugin_data.get("state").and_then(|v| v.as_str())
+                                    == Some(ALREADY_RUNNING_STATE);
                             if maybe_already_running {
                                 return Ok(Box::new(stream::empty()) as MessageStream);
                             }
@@ -362,7 +364,9 @@ async fn handle_response_impl<C: Context>(
                                 .error(AppErrorKind::MessageParsingFailed)
                                 .and_then(|val| {
                                     let unix_ts = serde_json::from_value::<u64>(val.clone())
-                                        .map_err(|err| anyhow!("Invalid value for 'started_at': {}", err))
+                                        .map_err(|err| {
+                                            anyhow!("Invalid value for 'started_at': {}", err)
+                                        })
                                         .error(AppErrorKind::MessageParsingFailed)?;
 
                                     let naive_datetime = NaiveDateTime::from_timestamp(
@@ -388,7 +392,10 @@ async fn handle_response_impl<C: Context>(
                                         .collect())
                                 })?;
 
-                            let (room, rtcs, recs): (room::Object, Vec<rtc::Object>, Vec<recording::Object>) = {
+                            let (room, rtcs_with_recs): (
+                                room::Object,
+                                Vec<(rtc::Object, Option<recording::Object>)>,
+                            ) = {
                                 let conn = context.get_conn()?;
 
                                 recording::UpdateQuery::new(rtc_id)
@@ -409,49 +416,37 @@ async fn handle_response_impl<C: Context>(
                                     endpoint::helpers::RoomTimeRequirement::Any,
                                 )?;
 
-                                // TODO: move to db module
-                                use diesel::prelude::*;
-                                let rtcs = rtc::Object::belonging_to(&room).load(&conn)?;
-                                let recs = recording::Object::belonging_to(&rtcs).load(&conn)?;
+                                let rtcs_with_recs =
+                                    rtc::ListWithRecordingQuery::new(room.id()).execute(&conn)?;
 
-                                (room, rtcs, recs)
+                                (room, rtcs_with_recs)
                             };
 
                             // Ensure that all rtcs have a recording.
-                            let mut rtc_ids_with_recs = recs
-                                .iter()
-                                .map(|rec| rec.rtc_id());
+                            let rtcs_total = rtcs_with_recs.len();
 
-                            for rtc in rtcs {
-                                let id = rtc.id();
-                                if !rtc_ids_with_recs.any(|v| v == id) {
-                                    let mut logger = context.logger().new(o!(
-                                        "room_id" => room.id().to_string(),
-                                        "rtc_id" => rtc.id().to_string(),
-                                    ));
+                            let recs_with_rtcs = rtcs_with_recs
+                                .into_iter()
+                                .filter_map(|(rtc, maybe_recording)| {
+                                    maybe_recording.map(|recording| (recording, rtc))
+                                })
+                                .collect::<Vec<_>>();
 
-                                    if let Some(scope) = room.tags().get("scope") {
-                                        logger = logger.new(o!("scope" => scope.to_string()));
-                                    }
-
-                                    info!(
-                                        logger,
-                                        "postpone 'room.upload' event because still waiting for rtcs being uploaded";
-                                    );
-
-                                    return Ok(Box::new(stream::empty()) as MessageStream);
-                                }
+                            if recs_with_rtcs.len() < rtcs_total {
+                                return Ok(Box::new(stream::empty()) as MessageStream);
                             }
 
                             // Send room.upload event.
                             let event = endpoint::system::upload_event(
                                 context,
                                 &room,
-                                recs.into_iter(),
+                                recs_with_rtcs.into_iter(),
                                 respp.tracking(),
                             )?;
 
-                            let event_box = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
+                            let event_box =
+                                Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
+
                             Ok(Box::new(stream::once(event_box)) as MessageStream)
                         })
                 }
