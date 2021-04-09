@@ -283,24 +283,6 @@ impl<'a> InsertQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct DeleteQuery {
-    id: Uuid,
-}
-
-impl DeleteQuery {
-    pub(crate) fn new(id: Uuid) -> Self {
-        Self { id }
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-
-        diesel::delete(room::table.filter(room::id.eq(self.id))).execute(conn)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Default, Identifiable, AsChangeset)]
 #[table_name = "room"]
 pub(crate) struct UpdateQuery<'a> {
