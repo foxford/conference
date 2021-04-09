@@ -58,7 +58,6 @@ request_routes!(
     "message.broadcast" => message::BroadcastHandler,
     "message.unicast" => message::UnicastHandler,
     "room.create" => room::CreateHandler,
-    "room.delete" => room::DeleteHandler,
     "room.enter" => room::EnterHandler,
     "room.leave" => room::LeaveHandler,
     "room.read" => room::ReadHandler,
