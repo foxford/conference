@@ -11,6 +11,7 @@ created_at |        int | _required_ | Room creation timestamp in seconds.
 backend    |     string | _required_ | Room backend, either `janus` or `none`.
 reserve    |        int | _optional_ | The number of slots for agents reserved on the backend.
 tags       |       json | {}         | Arbitrary tags object associated with the room.
+class_id   |       uuid | _optional_ | Dispatcher class identifier which the room belongs to.
 
 
 Room can be unbounded, ie its closing timestamp is null.
