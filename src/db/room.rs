@@ -30,6 +30,7 @@ type AllColumns = (
     room::tags,
     room::backend_id,
     room::rtc_sharing_policy,
+    room::class_id,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -42,6 +43,7 @@ const ALL_COLUMNS: AllColumns = (
     room::tags,
     room::backend_id,
     room::rtc_sharing_policy,
+    room::class_id,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -102,6 +104,7 @@ pub(crate) struct Object {
     #[serde(skip_serializing_if = "Option::is_none")]
     backend_id: Option<AgentId>,
     rtc_sharing_policy: RtcSharingPolicy,
+    class_id: Option<Uuid>,
 }
 
 impl Object {
@@ -139,6 +142,10 @@ impl Object {
 
     pub(crate) fn rtc_sharing_policy(&self) -> RtcSharingPolicy {
         self.rtc_sharing_policy
+    }
+
+    pub(crate) fn class_id(&self) -> Option<Uuid> {
+        self.class_id
     }
 }
 
@@ -236,6 +243,7 @@ pub(crate) struct InsertQuery<'a> {
     tags: Option<&'a JsonValue>,
     backend_id: Option<&'a AgentId>,
     rtc_sharing_policy: RtcSharingPolicy,
+    class_id: Option<Uuid>,
 }
 
 impl<'a> InsertQuery<'a> {
@@ -248,6 +256,7 @@ impl<'a> InsertQuery<'a> {
             tags: None,
             backend_id: None,
             rtc_sharing_policy,
+            class_id: None,
         }
     }
 
@@ -273,6 +282,13 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
+    pub(crate) fn class_id(self, class_id: Uuid) -> Self {
+        Self {
+            class_id: Some(class_id),
+            ..self
+        }
+    }
+
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::room::dsl::room;
         use diesel::RunQueryDsl;
@@ -292,6 +308,7 @@ pub(crate) struct UpdateQuery<'a> {
     reserve: Option<Option<i32>>,
     tags: Option<JsonValue>,
     backend_id: Option<&'a AgentId>,
+    class_id: Option<Uuid>,
 }
 
 impl<'a> UpdateQuery<'a> {
@@ -320,6 +337,10 @@ impl<'a> UpdateQuery<'a> {
 
     pub(crate) fn backend_id(self, backend_id: Option<&'a AgentId>) -> Self {
         Self { backend_id, ..self }
+    }
+
+    pub(crate) fn class_id(self, class_id: Option<Uuid>) -> Self {
+        Self { class_id, ..self }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {

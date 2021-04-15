@@ -1,0 +1,1 @@
+ALTER TABLE room DROP COLUMN class_id;

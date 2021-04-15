@@ -106,7 +106,7 @@ impl RequestHandler for VacuumHandler {
                         recording.rtc_id(),
                         &config.backend,
                         &config.bucket,
-                        &record_name(&recording),
+                        &record_name(&recording, &room),
                     ),
                     backend.id(),
                     context.start_timestamp(),
@@ -159,7 +159,7 @@ where
             RecordingStatus::Ready => Some(format!(
                 "s3://{}/{}",
                 &upload_config(context, &room)?.bucket,
-                record_name(&recording)
+                record_name(&recording, &room)
             )),
         };
 
@@ -209,8 +209,19 @@ fn upload_config<'a, C: Context>(
         .error(AppErrorKind::ConfigKeyMissing)
 }
 
-fn record_name(recording: &Recording) -> String {
-    format!("{}.source.webm", recording.rtc_id())
+fn record_name(recording: &Recording, room: &Room) -> String {
+    let prefix = match room.rtc_sharing_policy() {
+        SharingPolicy::Owned => {
+            if let Some(class_id) = room.class_id() {
+                format!("{}/", class_id)
+            } else {
+                String::from("")
+            }
+        }
+        _ => String::from(""),
+    };
+
+    format!("{}{}.source.webm", prefix, recording.rtc_id())
 }
 
 ///////////////////////////////////////////////////////////////////////////////

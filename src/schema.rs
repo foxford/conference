@@ -79,6 +79,7 @@ table! {
         tags -> Json,
         backend_id -> Nullable<Agent_id>,
         rtc_sharing_policy -> Rtc_sharing_policy,
+        class_id -> Nullable<Uuid>,
     }
 }
 
