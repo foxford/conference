@@ -23,6 +23,7 @@ use crate::config::UploadConfig;
 use crate::db;
 use crate::db::recording::{Object as Recording, Status as RecordingStatus};
 use crate::db::room::Object as Room;
+use crate::db::rtc::SharingPolicy;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -191,9 +192,18 @@ fn upload_config<'a, C: Context>(
     context: &'a C,
     room: &Room,
 ) -> StdResult<&'a UploadConfig, AppError> {
-    context
-        .config()
-        .upload
+    let configs = &context.config().upload;
+
+    let config = match room.rtc_sharing_policy() {
+        SharingPolicy::Shared => &configs.shared,
+        SharingPolicy::Owned => &configs.owned,
+        SharingPolicy::None => {
+            let err = anyhow!("Uploading not available for rooms with 'none' RTC sharing policy");
+            return Err(err).error(AppErrorKind::NotImplemented);
+        }
+    };
+
+    config
         .get(room.audience())
         .ok_or_else(|| anyhow!("Missing upload configuration for the room's audience"))
         .error(AppErrorKind::ConfigKeyMissing)

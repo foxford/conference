@@ -44,9 +44,17 @@ fn build_config() -> Config {
             "transaction_watchdog_check_period": 1,
         },
         "upload": {
-            USR_AUDIENCE: {
-                "backend": "EXAMPLE",
-                "bucket": format!("origin.webinar.{}", USR_AUDIENCE),
+            "shared": {
+                USR_AUDIENCE: {
+                    "backend": "EXAMPLE",
+                    "bucket": format!("origin.webinar.{}", USR_AUDIENCE),
+                }
+            },
+            "owned": {
+                USR_AUDIENCE: {
+                    "backend": "EXAMPLE",
+                    "bucket": format!("origin.minigroup.{}", USR_AUDIENCE),
+                }
             }
         }
     });
