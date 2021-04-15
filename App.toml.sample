@@ -26,9 +26,13 @@ default_timeout = 5
 stream_upload_timeout = 600
 transaction_watchdog_check_period = 1
 
-[upload."example.net"]
-backend = "EXAMPLE"
-bucket = "origin.webinars.example.net"
+[upload.shared."example.net"]
+backend = "yandex"
+bucket = "origin.webinar.example.net"
+
+[upload.owned."example.net"]
+backend = "yandex"
+bucket = "origin.minigroup.example.net"
 
 [metrics.http]
 bind_address = "0.0.0.0:8087"

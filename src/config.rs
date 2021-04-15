@@ -16,7 +16,7 @@ pub(crate) struct Config {
     pub(crate) mqtt: AgentConfig,
     pub(crate) sentry: Option<SentryConfig>,
     pub(crate) backend: BackendConfig,
-    pub(crate) upload: UploadConfigMap,
+    pub(crate) upload: UploadConfigs,
     #[serde(default)]
     pub(crate) telemetry: TelemetryConfig,
     #[serde(default)]
@@ -45,6 +45,12 @@ pub(crate) struct BackendConfig {
     pub(crate) default_timeout: u64,
     pub(crate) stream_upload_timeout: u64,
     pub(crate) transaction_watchdog_check_period: u64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct UploadConfigs {
+    pub(crate) shared: UploadConfigMap,
+    pub(crate) owned: UploadConfigMap,
 }
 
 pub(crate) type UploadConfigMap = HashMap<String, UploadConfig>;
