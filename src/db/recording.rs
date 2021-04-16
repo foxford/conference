@@ -81,6 +81,28 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug)]
+pub(crate) struct FindQuery {
+    rtc_id: Uuid,
+}
+
+impl FindQuery {
+    pub(crate) fn new(rtc_id: Uuid) -> Self {
+        Self { rtc_id }
+    }
+
+    pub(crate) fn execute(self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+        use diesel::prelude::*;
+
+        recording::table
+            .filter(recording::rtc_id.eq(self.rtc_id))
+            .get_result(conn)
+            .optional()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, Insertable)]
 #[table_name = "recording"]
 pub(crate) struct InsertQuery {
@@ -96,10 +118,7 @@ impl InsertQuery {
         use crate::schema::recording::dsl::recording;
         use diesel::RunQueryDsl;
 
-        diesel::insert_into(recording)
-            .values(self)
-            .on_conflict_do_nothing()
-            .get_result(conn)
+        diesel::insert_into(recording).values(self).get_result(conn)
     }
 }
 

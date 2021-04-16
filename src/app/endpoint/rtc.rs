@@ -373,13 +373,20 @@ impl RequestHandler for ConnectHandler {
             };
 
             // Create recording if a writer connects for the first time.
-            if payload.intent == ConnectIntent::Write && room.backend_id().is_none() {
+            if payload.intent == ConnectIntent::Write {
                 conn.transaction::<_, diesel::result::Error, _>(|| {
-                    db::room::UpdateQuery::new(room.id())
-                        .backend_id(Some(backend.id()))
-                        .execute(&conn)?;
+                    if room.backend_id().is_none() {
+                        db::room::UpdateQuery::new(room.id())
+                            .backend_id(Some(backend.id()))
+                            .execute(&conn)?;
+                    }
 
-                    db::recording::InsertQuery::new(payload.id).execute(&conn)?;
+                    let recording = db::recording::FindQuery::new(payload.id).execute(&conn)?;
+
+                    if recording.is_none() {
+                        db::recording::InsertQuery::new(payload.id).execute(&conn)?;
+                    }
+
                     Ok(())
                 })?;
             }
