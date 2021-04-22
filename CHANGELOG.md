@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.6.14 (April 23, 2021)
+
+### Features
+- Add rtc.created_by to room.upload event ([6b4afcd](https://github.com/netology-group/conference/commit/6b4afcd0c01dbfab95176d1307e30941a93c5c35))
+- Separate upload configs for sharing policies ([611c384](https://github.com/netology-group/conference/commit/611c3845313771d17bd63a2ac3592d5726fd5dd3))
+- Add class_id to room ([8a0cf82](https://github.com/netology-group/conference/commit/8a0cf8226754f6bbeeade5b87cb649fffc9719a9))
+
+### Changes
+- Remove room.delete endpoint ([6b50b3b](https://github.com/netology-group/conference/commit/6b50b3bceb7d54fd43163a7fc6246ff91398654c))
+
+### Fixes
+- Fix inserting recording for the second RTC ([b61d33c](https://github.com/netology-group/conference/commit/b61d33c07fbb9d416b7647798351f9e6dc9e7673))
+
+
 ## v0.6.13 (April 1, 2021)
 
 ### Features
