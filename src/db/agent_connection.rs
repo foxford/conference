@@ -3,8 +3,20 @@ use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::db::agent::Object as Agent;
+use crate::db::agent::{Object as Agent, Status as AgentStatus};
 use crate::schema::{agent, agent_connection};
+
+type AllColumns = (
+    agent_connection::agent_id,
+    agent_connection::handle_id,
+    agent_connection::created_at,
+);
+
+const ALL_COLUMNS: AllColumns = (
+    agent_connection::agent_id,
+    agent_connection::handle_id,
+    agent_connection::created_at,
+);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -16,6 +28,36 @@ pub(crate) struct Object {
     agent_id: Uuid,
     handle_id: i64,
     created_at: DateTime<Utc>,
+}
+
+impl Object {
+    pub(crate) fn handle_id(&self) -> i64 {
+        self.handle_id
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct FindQuery<'a> {
+    agent_id: &'a AgentId,
+}
+
+impl<'a> FindQuery<'a> {
+    pub(crate) fn new(agent_id: &'a AgentId) -> Self {
+        Self { agent_id }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+        use diesel::prelude::*;
+
+        agent_connection::table
+            .inner_join(agent::table)
+            .filter(agent::status.eq(AgentStatus::Ready))
+            .filter(agent::agent_id.eq(self.agent_id))
+            .select(ALL_COLUMNS)
+            .get_result(conn)
+            .optional()
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////

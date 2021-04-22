@@ -54,8 +54,16 @@ impl RequestHandler for CreateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room =
-            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
+        let room = {
+            let conn = context.get_conn()?;
+
+            helpers::find_room_by_id(
+                context,
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &conn,
+            )?
+        };
 
         // Authorize room creation.
         let room_id = room.id().to_string();
@@ -131,8 +139,16 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room =
-            helpers::find_room_by_rtc_id(context, payload.id, helpers::RoomTimeRequirement::Open)?;
+        let room = {
+            let conn = context.get_conn()?;
+
+            helpers::find_room_by_rtc_id(
+                context,
+                payload.id,
+                helpers::RoomTimeRequirement::Open,
+                &conn,
+            )?
+        };
 
         // Authorize rtc reading.
         let rtc_id = payload.id.to_string();
@@ -188,8 +204,16 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room =
-            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
+        let room = {
+            let conn = context.get_conn()?;
+
+            helpers::find_room_by_id(
+                context,
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &conn,
+            )?
+        };
 
         // Authorize rtc listing.
         let room_id = room.id().to_string();
@@ -273,8 +297,16 @@ impl RequestHandler for ConnectHandler {
             "intent" => payload.intent.to_string(),
         ));
 
-        let room =
-            helpers::find_room_by_rtc_id(context, payload.id, helpers::RoomTimeRequirement::Open)?;
+        let room = {
+            let conn = context.get_conn()?;
+
+            helpers::find_room_by_rtc_id(
+                context,
+                payload.id,
+                helpers::RoomTimeRequirement::Open,
+                &conn,
+            )?
+        };
 
         // Authorize connecting to the rtc.
         match room.rtc_sharing_policy() {

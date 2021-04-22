@@ -116,6 +116,60 @@ impl RequestHandler for CreateHandler {
             context.add_logger_tags(o!("rtc_stream_label" => label.to_owned()));
         }
 
+        // Validate RTC and room presence.
+        let (room, rtc) = {
+            let conn = context.get_conn()?;
+
+            let rtc = db::rtc::FindQuery::new()
+                .id(payload.handle_id.rtc_id())
+                .execute(&conn)?
+                .ok_or_else(|| anyhow!("RTC not found"))
+                .error(AppErrorKind::RtcNotFound)?;
+
+            let room = helpers::find_room_by_id(
+                context,
+                rtc.room_id(),
+                helpers::RoomTimeRequirement::Open,
+                &conn,
+            )?;
+
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
+
+            // Validate backend and janus session id.
+            if let Some(backend_id) = room.backend_id() {
+                if payload.handle_id.backend_id() != backend_id {
+                    return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
+                        .error(AppErrorKind::InvalidHandleId);
+                }
+            } else {
+                return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
+            }
+
+            let janus_backend = db::janus_backend::FindQuery::new()
+                .id(payload.handle_id.backend_id())
+                .execute(&conn)?
+                .ok_or_else(|| anyhow!("Backend not found"))
+                .error(AppErrorKind::BackendNotFound)?;
+
+            if payload.handle_id.janus_session_id() != janus_backend.session_id() {
+                return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
+                    .error(AppErrorKind::InvalidHandleId)?;
+            }
+
+            // Validate agent connection and handle id.
+            let agent_connection = db::agent_connection::FindQuery::new(reqp.as_agent_id())
+                .execute(&conn)?
+                .ok_or_else(|| anyhow!("Agent not connected"))
+                .error(AppErrorKind::AgentNotConnected)?;
+
+            if payload.handle_id.janus_handle_id() != agent_connection.handle_id() {
+                return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
+                    .error(AppErrorKind::InvalidHandleId)?;
+            }
+
+            (room, rtc)
+        };
+
         let req = match payload.jsep {
             Jsep::OfferOrAnswer { kind, ref sdp } => {
                 match kind {
@@ -128,7 +182,8 @@ impl RequestHandler for CreateHandler {
                             context.add_logger_tags(o!("sdp_type" => "offer", "intent" => "read"));
 
                             // Authorization
-                            let authz_time = authorize(context, &payload, reqp, "read").await?;
+                            let authz_time =
+                                authorize(context, &payload, reqp, "read", &room).await?;
 
                             let jsep = serde_json::to_value(&payload.jsep)
                                 .context("Error serializing JSEP")
@@ -153,8 +208,16 @@ impl RequestHandler for CreateHandler {
                             context
                                 .add_logger_tags(o!("sdp_type" => "offer", "intent" => "update"));
 
+                            if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned
+                                && reqp.as_agent_id() != rtc.created_by()
+                            {
+                                return Err(anyhow!("Signaling to other's RTC with sendonly or sendrecv SDP is not allowed"))
+                                    .error(AppErrorKind::AccessDenied);
+                            }
+
                             // Authorization
-                            let authz_time = authorize(context, &payload, reqp, "update").await?;
+                            let authz_time =
+                                authorize(context, &payload, reqp, "update", &room).await?;
 
                             // Updating the Real-Time Connection state
                             {
@@ -206,7 +269,7 @@ impl RequestHandler for CreateHandler {
                 context.add_logger_tags(o!("sdp_type" => "ice_candidate", "intent" => "read"));
 
                 // Authorization
-                let authz_time = authorize(context, &payload, reqp, "read").await?;
+                let authz_time = authorize(context, &payload, reqp, "read", &room).await?;
 
                 info!(context.logger(), "[JSEP_PARSED] {:?}", payload.jsep);
 
@@ -242,9 +305,9 @@ async fn authorize<C: Context>(
     payload: &CreateRequest,
     reqp: &IncomingRequestProperties,
     action: &str,
+    room: &db::room::Object,
 ) -> StdResult<Duration, AppError> {
     let rtc_id = payload.handle_id.rtc_id();
-    let room = helpers::find_room_by_rtc_id(context, rtc_id, helpers::RoomTimeRequirement::Open)?;
 
     if room.rtc_sharing_policy() == db::rtc::SharingPolicy::None {
         let err = anyhow!(
@@ -285,6 +348,9 @@ fn is_sdp_recvonly(sdp: &str) -> anyhow::Result<bool> {
 #[cfg(test)]
 mod test {
     mod create {
+        use std::ops::Bound;
+
+        use chrono::Utc;
         use diesel::prelude::*;
         use serde::Deserialize;
         use serde_json::json;
@@ -293,6 +359,7 @@ mod test {
 
         use crate::app::handle_id::HandleId;
         use crate::backend::janus;
+        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
@@ -366,139 +433,147 @@ mod test {
             sdp: String,
         }
 
-        #[test]
-        fn create_rtc_signal_for_offer() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
+        #[async_std::test]
+        async fn offer() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let mut authz = TestAuthz::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                // Insert a janus backend and an rtc.
-                let (backend, rtc) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        (
-                            shared_helpers::insert_janus_backend(&conn),
-                            shared_helpers::insert_rtc(&conn),
-                        )
-                    })
-                    .unwrap();
+            // Insert room with backend and rtc and an agent connection.
+            let (backend, rtc, agent_connection) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
-                // Allow user to update the rtc.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(agent.account_id(), object, "update");
+                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        rtc.room_id(),
+                    );
 
-                // Make rtc_signal.create request.
-                let mut context = TestContext::new(db, authz);
-                let rtc_stream_id = Uuid::new_v4();
+                    (backend, rtc, agent_connection)
+                })
+                .unwrap();
 
-                let handle_id = HandleId::new(
-                    rtc_stream_id,
-                    rtc.id(),
-                    backend.handle_id(),
-                    backend.session_id(),
-                    backend.id().to_owned(),
-                );
+            // Allow user to update the rtc.
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "update");
 
-                let jsep =
-                    serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
-                        .expect("Failed to build JSEP");
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, authz);
+            let rtc_stream_id = Uuid::new_v4();
 
-                let payload = CreateRequest {
-                    handle_id,
-                    jsep,
-                    label: Some(String::from("whatever")),
-                };
+            let handle_id = HandleId::new(
+                rtc_stream_id,
+                rtc.id(),
+                agent_connection.handle_id(),
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
 
-                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Rtc signal creation failed");
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
 
-                // Assert outgoing broker request.
-                let (payload, _reqp, topic) =
-                    find_request::<RtcSignalCreateJanusRequestOffer>(messages.as_slice());
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: Some(String::from("whatever")),
+            };
 
-                let expected_topic = format!(
-                    "agents/{}/api/{}/in/{}",
-                    backend.id(),
-                    janus::JANUS_API_VERSION,
-                    context.config().id,
-                );
+            let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Rtc signal creation failed");
 
-                assert_eq!(topic, &expected_topic);
-                assert_eq!(payload.janus, "message");
-                assert_eq!(payload.session_id, backend.session_id());
-                assert_eq!(payload.handle_id, backend.handle_id());
-                assert_eq!(payload.body.method, "stream.create");
-                assert_eq!(payload.body.id, rtc.id());
-                assert_eq!(payload.jsep.r#type, "offer");
-                assert_eq!(payload.jsep.sdp, SDP_OFFER);
+            // Assert outgoing broker request.
+            let (payload, _reqp, topic) =
+                find_request::<RtcSignalCreateJanusRequestOffer>(messages.as_slice());
 
-                // Assert rtc stream presence in the DB.
-                let conn = context.get_conn().unwrap();
-                let query = crate::schema::janus_rtc_stream::table.find(rtc_stream_id);
+            let expected_topic = format!(
+                "agents/{}/api/{}/in/{}",
+                backend.id(),
+                janus::JANUS_API_VERSION,
+                context.config().id,
+            );
 
-                let rtc_stream: crate::db::janus_rtc_stream::Object =
-                    query.get_result(&conn).unwrap();
+            assert_eq!(topic, &expected_topic);
+            assert_eq!(payload.janus, "message");
+            assert_eq!(payload.session_id, backend.session_id());
+            assert_eq!(payload.handle_id, agent_connection.handle_id());
+            assert_eq!(payload.body.method, "stream.create");
+            assert_eq!(payload.body.id, rtc.id());
+            assert_eq!(payload.jsep.r#type, "offer");
+            assert_eq!(payload.jsep.sdp, SDP_OFFER);
 
-                assert_eq!(rtc_stream.handle_id(), backend.handle_id());
-                assert_eq!(rtc_stream.rtc_id(), rtc.id());
-                assert_eq!(rtc_stream.backend_id(), backend.id());
-                assert_eq!(rtc_stream.label(), "whatever");
-                assert_eq!(rtc_stream.sent_by(), agent.agent_id());
-            });
+            // Assert rtc stream presence in the DB.
+            let conn = context.get_conn().unwrap();
+            let query = crate::schema::janus_rtc_stream::table.find(rtc_stream_id);
+
+            let rtc_stream: crate::db::janus_rtc_stream::Object = query.get_result(&conn).unwrap();
+
+            assert_eq!(rtc_stream.handle_id(), agent_connection.handle_id());
+            assert_eq!(rtc_stream.rtc_id(), rtc.id());
+            assert_eq!(rtc_stream.backend_id(), backend.id());
+            assert_eq!(rtc_stream.label(), "whatever");
+            assert_eq!(rtc_stream.sent_by(), agent.agent_id());
+            Ok(())
         }
 
-        #[test]
-        fn create_rtc_signal_for_offer_unauthorized() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn offer_unauthorized() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                // Insert a janus backend and an rtc.
-                let (backend, rtc) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        (
-                            shared_helpers::insert_janus_backend(&conn),
-                            shared_helpers::insert_rtc(&conn),
-                        )
-                    })
-                    .unwrap();
+            // Insert room with backend and rtc and an agent connection.
+            let (backend, rtc, agent_connection) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
-                // Make rtc_signal.create request.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let rtc_stream_id = Uuid::new_v4();
+                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        rtc.room_id(),
+                    );
 
-                let handle_id = HandleId::new(
-                    rtc_stream_id,
-                    rtc.id(),
-                    backend.handle_id(),
-                    backend.session_id(),
-                    backend.id().to_owned(),
-                );
+                    (backend, rtc, agent_connection)
+                })
+                .unwrap();
 
-                let jsep =
-                    serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
-                        .expect("Failed to build JSEP");
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = CreateRequest {
-                    handle_id,
-                    jsep,
-                    label: Some(String::from("whatever")),
-                };
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                agent_connection.handle_id(),
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
 
-                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc creation");
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
 
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            });
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: Some(String::from("whatever")),
+            };
+
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
+
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
+            Ok(())
         }
 
         const SDP_ANSWER: &str = r#"
@@ -531,52 +606,58 @@ mod test {
         a=rtcp-fb:120 ccm fir
         "#;
 
-        #[test]
-        fn create_rtc_signal_for_answer() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn answer() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                // Insert a janus backend and an rtc.
-                let (backend, rtc) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        (
-                            shared_helpers::insert_janus_backend(&conn),
-                            shared_helpers::insert_rtc(&conn),
-                        )
-                    })
-                    .unwrap();
+            // Insert room with backend and rtc and an agent connection.
+            let (backend, rtc, agent_connection) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
-                // Make rtc_signal.create request.
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        rtc.room_id(),
+                    );
 
-                let handle_id = HandleId::new(
-                    Uuid::new_v4(),
-                    rtc.id(),
-                    backend.handle_id(),
-                    backend.session_id(),
-                    backend.id().to_owned(),
-                );
+                    (backend, rtc, agent_connection)
+                })
+                .unwrap();
 
-                let jsep =
-                    serde_json::from_value::<Jsep>(json!({ "type": "answer", "sdp": SDP_ANSWER }))
-                        .expect("Failed to build JSEP");
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = CreateRequest {
-                    handle_id,
-                    jsep,
-                    label: Some(String::from("whatever")),
-                };
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                agent_connection.handle_id(),
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
 
-                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc creation");
+            let jsep =
+                serde_json::from_value::<Jsep>(json!({ "type": "answer", "sdp": SDP_ANSWER }))
+                    .expect("Failed to build JSEP");
 
-                assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
-                assert_eq!(err.kind(), "invalid_sdp_type");
-            });
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: Some(String::from("whatever")),
+            };
+
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
+
+            assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
+            assert_eq!(err.kind(), "invalid_sdp_type");
+            Ok(())
         }
 
         #[derive(Debug, PartialEq, Deserialize)]
@@ -599,131 +680,658 @@ mod test {
 
         const ICE_CANDIDATE: &str = "candidate:0 1 UDP 2113667327 198.51.100.7 49203 typ host";
 
-        #[test]
-        fn create_rtc_signal_for_candidate() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
+        #[async_std::test]
+        async fn candidate() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let mut authz = TestAuthz::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                // Insert a janus backend and an rtc.
-                let (backend, rtc) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        (
-                            shared_helpers::insert_janus_backend(&conn),
-                            shared_helpers::insert_rtc(&conn),
-                        )
-                    })
-                    .unwrap();
+            // Insert room with backend and rtc and an agent connection.
+            let (backend, rtc, agent_connection) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
-                // Allow user to read the rtc.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(agent.account_id(), object, "read");
+                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        rtc.room_id(),
+                    );
 
-                // Make rtc_signal.create request.
-                let mut context = TestContext::new(db, authz);
-                let rtc_stream_id = Uuid::new_v4();
+                    (backend, rtc, agent_connection)
+                })
+                .unwrap();
 
-                let handle_id = HandleId::new(
-                    rtc_stream_id,
-                    rtc.id(),
-                    backend.handle_id(),
-                    backend.session_id(),
-                    backend.id().to_owned(),
-                );
+            // Allow user to read the rtc.
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "read");
 
-                let jsep = serde_json::from_value::<Jsep>(json!({
-                    "sdpMid": "v",
-                    "sdpMLineIndex": 0,
-                    "candidate": ICE_CANDIDATE
-                }))
-                .expect("Failed to build JSEP");
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, authz);
 
-                let payload = CreateRequest {
-                    handle_id,
-                    jsep,
-                    label: None,
-                };
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                agent_connection.handle_id(),
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
 
-                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Rtc signal creation failed");
+            let jsep = serde_json::from_value::<Jsep>(json!({
+                "sdpMid": "v",
+                "sdpMLineIndex": 0,
+                "candidate": ICE_CANDIDATE
+            }))
+            .expect("Failed to build JSEP");
 
-                // Assert outgoing broker request.
-                let (payload, _reqp, topic) =
-                    find_request::<RtcSignalCreateJanusRequestIceCandidate>(messages.as_slice());
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: None,
+            };
 
-                let expected_topic = format!(
-                    "agents/{}/api/{}/in/{}",
-                    backend.id(),
-                    janus::JANUS_API_VERSION,
-                    context.config().id,
-                );
+            let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Rtc signal creation failed");
 
-                assert_eq!(topic, expected_topic);
-                assert_eq!(payload.janus, "trickle");
-                assert_eq!(payload.session_id, backend.session_id());
-                assert_eq!(payload.handle_id, backend.handle_id());
-                assert_eq!(payload.candidate.sdp_m_id, "v");
-                assert_eq!(payload.candidate.sdp_m_line_index, 0);
-                assert_eq!(payload.candidate.candidate, ICE_CANDIDATE);
-            });
+            // Assert outgoing broker request.
+            let (payload, _reqp, topic) =
+                find_request::<RtcSignalCreateJanusRequestIceCandidate>(messages.as_slice());
+
+            let expected_topic = format!(
+                "agents/{}/api/{}/in/{}",
+                backend.id(),
+                janus::JANUS_API_VERSION,
+                context.config().id,
+            );
+
+            assert_eq!(topic, expected_topic);
+            assert_eq!(payload.janus, "trickle");
+            assert_eq!(payload.session_id, backend.session_id());
+            assert_eq!(payload.handle_id, agent_connection.handle_id());
+            assert_eq!(payload.candidate.sdp_m_id, "v");
+            assert_eq!(payload.candidate.sdp_m_line_index, 0);
+            assert_eq!(payload.candidate.candidate, ICE_CANDIDATE);
+            Ok(())
         }
 
-        #[test]
-        fn create_rtc_signal_for_candidate_unauthorized() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn candidate_unauthorized() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                // Insert a janus backend and an rtc.
-                let (backend, rtc) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        (
-                            shared_helpers::insert_janus_backend(&conn),
-                            shared_helpers::insert_rtc(&conn),
-                        )
-                    })
-                    .unwrap();
+            // Insert room with backend and rtc and an agent connection.
+            let (backend, rtc, agent_connection) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
-                // Make rtc_signal.create request.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let rtc_stream_id = Uuid::new_v4();
+                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        rtc.room_id(),
+                    );
 
-                let handle_id = HandleId::new(
-                    rtc_stream_id,
-                    rtc.id(),
-                    backend.handle_id(),
-                    backend.session_id(),
-                    backend.id().to_owned(),
-                );
+                    (backend, rtc, agent_connection)
+                })
+                .unwrap();
 
-                let jsep = serde_json::from_value::<Jsep>(json!({
-                    "sdpMid": "v",
-                    "sdpMLineIndex": 0,
-                    "candidate": ICE_CANDIDATE
-                }))
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                agent_connection.handle_id(),
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
+
+            let jsep = serde_json::from_value::<Jsep>(json!({
+                "sdpMid": "v",
+                "sdpMLineIndex": 0,
+                "candidate": ICE_CANDIDATE
+            }))
+            .expect("Failed to build JSEP");
+
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: None,
+            };
+
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
+
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
+            Ok(())
+        }
+
+        #[async_std::test]
+        async fn wrong_rtc_id() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            // Insert room with backend and entered agent.
+            let backend = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                    backend
+                })
+                .unwrap();
+
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                Uuid::new_v4(),
+                12345,
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
+
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
                 .expect("Failed to build JSEP");
 
-                let payload = CreateRequest {
-                    handle_id,
-                    jsep,
-                    label: None,
-                };
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: None,
+            };
 
-                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc creation");
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
 
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "rtc_not_found");
+            Ok(())
+        }
+
+        #[async_std::test]
+        async fn rtc_id_from_another_room() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            // Insert room with backend and RTC and an RTC in another room.
+            let (backend, rtc, agent_connection) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+
+                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        rtc.room_id(),
+                    );
+
+                    let other_rtc = shared_helpers::insert_rtc(&conn);
+                    (backend, other_rtc, agent_connection)
+                })
+                .unwrap();
+
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                agent_connection.handle_id(),
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
+
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
+
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: None,
+            };
+
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
+            Ok(())
+        }
+
+        #[async_std::test]
+        async fn wrong_backend_id() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            // Insert room with backend, rtc and connected agent and another backend.
+            let (backend, rtc, agent_connection) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+
+                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        rtc.room_id(),
+                    );
+
+                    let other_backend = shared_helpers::insert_janus_backend(&conn);
+                    (other_backend, rtc, agent_connection)
+                })
+                .unwrap();
+
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                agent_connection.handle_id(),
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
+
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
+
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: None,
+            };
+
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
+
+            assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
+            assert_eq!(err.kind(), "invalid_handle_id");
+            Ok(())
+        }
+
+        #[async_std::test]
+        async fn offline_backend() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let backend = TestAgent::new("offline-instance", "janus-gateway", SVC_AUDIENCE);
+
+            // Insert room with backend, rtc and connected agent.
+            let (rtc, agent_connection) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let room =
+                        shared_helpers::insert_room_with_backend_id(&conn, backend.agent_id());
+
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+
+                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        rtc.room_id(),
+                    );
+
+                    (rtc, agent_connection)
+                })
+                .unwrap();
+
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                agent_connection.handle_id(),
+                12345,
+                backend.agent_id().to_owned(),
+            );
+
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
+
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: None,
+            };
+
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "backend_not_found");
+            Ok(())
+        }
+
+        #[async_std::test]
+        async fn not_entered() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            // Insert room with backend, rtc and connected agent and another backend.
+            let (backend, rtc) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+                    (backend, rtc)
+                })
+                .unwrap();
+
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                12345,
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
+
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
+
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: None,
+            };
+
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
+            Ok(())
+        }
+
+        #[async_std::test]
+        async fn not_connected() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            // Insert room with backend, rtc and entered agent.
+            let (backend, rtc) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                    (backend, rtc)
+                })
+                .unwrap();
+
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                12345,
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
+
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
+
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: None,
+            };
+
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
+
+            assert_eq!(err.status(), ResponseStatus::UNPROCESSABLE_ENTITY);
+            assert_eq!(err.kind(), "agent_not_connected");
+            Ok(())
+        }
+
+        #[async_std::test]
+        async fn wrong_handle_id() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            // Insert room with backend, rtc and a connect agent.
+            let (backend, rtc) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+                    shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room.id());
+                    (backend, rtc)
+                })
+                .unwrap();
+
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                789,
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
+
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
+
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: None,
+            };
+
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
+
+            assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
+            assert_eq!(err.kind(), "invalid_handle_id");
+            Ok(())
+        }
+
+        #[async_std::test]
+        async fn spoof_handle_id() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
+            let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
+
+            // Insert room with backend, rtc and 2 connect agents.
+            let (backend, rtc, agent2_connection) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+                    shared_helpers::insert_connected_agent(&conn, agent1.agent_id(), room.id());
+
+                    let agent = shared_helpers::insert_agent(&conn, agent2.agent_id(), room.id());
+
+                    let agent2_connection =
+                        factory::AgentConnection::new(*agent.id(), 456).insert(&conn);
+
+                    (backend, rtc, agent2_connection)
+                })
+                .unwrap();
+
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                agent2_connection.handle_id(),
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
+
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
+
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: None,
+            };
+
+            let err = handle_request::<CreateHandler>(&mut context, &agent1, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
+
+            assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
+            assert_eq!(err.kind(), "invalid_handle_id");
+            Ok(())
+        }
+
+        #[async_std::test]
+        async fn closed_room() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            // Insert closed room with backend, rtc and connected agent.
+            let (backend, rtc, agent_connection) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+
+                    let room =
+                        shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
+
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+
+                    let (_, agent_connection) =
+                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room.id());
+
+                    (backend, rtc, agent_connection)
+                })
+                .unwrap();
+
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                agent_connection.handle_id(),
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
+
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
+
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: None,
+            };
+
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_closed");
+            Ok(())
+        }
+
+        #[async_std::test]
+        async fn spoof_owned_rtc() -> std::io::Result<()> {
+            let db = TestDb::new();
+            let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
+            let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
+            let now = Utc::now();
+
+            // Insert room with backend, rtc owned by agent2 and connect agent1.
+            let (backend, rtc, agent_connection) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(&conn);
+
+                    let room = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((Bound::Included(now), Bound::Unbounded))
+                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                        .backend_id(backend.id())
+                        .insert(&conn);
+
+                    let rtc = factory::Rtc::new(room.id())
+                        .created_by(agent2.agent_id().to_owned())
+                        .insert(&conn);
+
+                    let (_, agent_connection) =
+                        shared_helpers::insert_connected_agent(&conn, agent1.agent_id(), room.id());
+
+                    (backend, rtc, agent_connection)
+                })
+                .unwrap();
+
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let handle_id = HandleId::new(
+                Uuid::new_v4(),
+                rtc.id(),
+                agent_connection.handle_id(),
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
+
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
+
+            let payload = CreateRequest {
+                handle_id,
+                jsep,
+                label: None,
+            };
+
+            let err = handle_request::<CreateHandler>(&mut context, &agent1, payload)
+                .await
+                .expect_err("Unexpected success on rtc signal creation");
+
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
+            Ok(())
         }
     }
 }

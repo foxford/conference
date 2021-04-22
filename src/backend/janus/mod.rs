@@ -414,6 +414,7 @@ async fn handle_response_impl<C: Context>(
                                     context,
                                     rtc.id(),
                                     endpoint::helpers::RoomTimeRequirement::Any,
+                                    &conn,
                                 )?;
 
                                 let rtcs_with_recs =
@@ -543,6 +544,7 @@ async fn handle_event_impl<C: Context>(
                     context,
                     rtc_stream.rtc_id(),
                     endpoint::helpers::RoomTimeRequirement::Open,
+                    &conn,
                 )?;
 
                 let event = endpoint::rtc_stream::update_event(
@@ -589,6 +591,7 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
             context,
             rtc_stream.rtc_id(),
             endpoint::helpers::RoomTimeRequirement::Open,
+            &conn,
         )?;
 
         // Publish the update event only if the stream object has been changed.

@@ -31,8 +31,16 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room =
-            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
+        let room = {
+            let conn = context.get_conn()?;
+
+            helpers::find_room_by_id(
+                context,
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &conn,
+            )?
+        };
 
         // Authorize agents listing in the room.
         let room_id = room.id().to_string();

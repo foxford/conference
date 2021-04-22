@@ -45,8 +45,16 @@ impl RequestHandler for ListHandler {
             context.add_logger_tags(o!("rtc_id" => rtc_id.to_string()));
         }
 
-        let room =
-            helpers::find_room_by_id(context, payload.room_id, helpers::RoomTimeRequirement::Open)?;
+        let room = {
+            let conn = context.get_conn()?;
+
+            helpers::find_room_by_id(
+                context,
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &conn,
+            )?
+        };
 
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::None {
             let err = anyhow!(

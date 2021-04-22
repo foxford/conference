@@ -17,6 +17,7 @@ struct ErrorKindProperties {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ErrorKind {
     AccessDenied,
+    AgentNotConnected,
     AgentNotEnteredTheRoom,
     AuthorizationFailed,
     BackendRecordingMissing,
@@ -28,6 +29,7 @@ pub(crate) enum ErrorKind {
     ConfigKeyMissing,
     DbConnAcquisitionFailed,
     DbQueryFailed,
+    InvalidHandleId,
     InvalidJsepFormat,
     InvalidRoomTime,
     InvalidSdpType,
@@ -83,6 +85,12 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 status: ResponseStatus::FORBIDDEN,
                 kind: "access_denied",
                 title: "Access denied",
+                is_notify_sentry: false,
+            },
+            Self::AgentNotConnected => ErrorKindProperties {
+                status: ResponseStatus::UNPROCESSABLE_ENTITY,
+                kind: "agent_not_connected",
+                title: "Agent not connected to the RTC",
                 is_notify_sentry: false,
             },
             Self::AgentNotEnteredTheRoom => ErrorKindProperties {
@@ -150,6 +158,12 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 kind: "database_query_failed",
                 title: "Database query failed",
                 is_notify_sentry: true,
+            },
+            Self::InvalidHandleId => ErrorKindProperties {
+                status: ResponseStatus::BAD_REQUEST,
+                kind: "invalid_handle_id",
+                title: "Invalid handle ID",
+                is_notify_sentry: false,
             },
             Self::InvalidJsepFormat => ErrorKindProperties {
                 status: ResponseStatus::BAD_REQUEST,
