@@ -51,7 +51,7 @@ pub(crate) struct CreateRequest {
     rtc_sharing_policy: Option<RtcSharingPolicy>,
     reserve: Option<i32>,
     tags: Option<JsonValue>,
-    class_id: Option<Uuid>,
+    classroom_id: Option<Uuid>,
 }
 
 pub(crate) struct CreateHandler;
@@ -91,8 +91,8 @@ impl RequestHandler for CreateHandler {
                 q = q.tags(tags);
             }
 
-            if let Some(class_id) = payload.class_id {
-                q = q.class_id(class_id);
+            if let Some(classroom_id) = payload.classroom_id {
+                q = q.classroom_id(classroom_id);
             }
 
             let conn = context.get_conn()?;
@@ -183,7 +183,7 @@ pub(crate) struct UpdateRequest {
     audience: Option<String>,
     reserve: Option<Option<i32>>,
     tags: Option<JsonValue>,
-    class_id: Option<Uuid>,
+    classroom_id: Option<Uuid>,
 }
 pub(crate) struct UpdateHandler;
 
@@ -264,7 +264,7 @@ impl RequestHandler for UpdateHandler {
                 .audience(payload.audience)
                 .reserve(payload.reserve)
                 .tags(payload.tags)
-                .class_id(payload.class_id)
+                .classroom_id(payload.classroom_id)
                 .execute(&conn)?
         };
 
@@ -493,7 +493,7 @@ mod test {
                 // Make room.create request.
                 let mut context = TestContext::new(db.clone(), authz);
                 let time = (Bound::Unbounded, Bound::Unbounded);
-                let class_id = Uuid::new_v4();
+                let classroom_id = Uuid::new_v4();
 
                 let payload = CreateRequest {
                     time: time.clone(),
@@ -502,7 +502,7 @@ mod test {
                     rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
                     reserve: Some(123),
                     tags: Some(json!({ "foo": "bar" })),
-                    class_id: Some(class_id),
+                    classroom_id: Some(classroom_id),
                 };
 
                 let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -517,7 +517,7 @@ mod test {
                 assert_eq!(room.rtc_sharing_policy(), db::rtc::SharingPolicy::Shared);
                 assert_eq!(room.reserve(), Some(123));
                 assert_eq!(room.tags(), &json!({ "foo": "bar" }));
-                assert_eq!(room.class_id(), Some(class_id));
+                assert_eq!(room.classroom_id(), Some(classroom_id));
 
                 // Assert notification.
                 let (room, evp, topic) = find_event::<Room>(messages.as_slice());
@@ -528,7 +528,7 @@ mod test {
                 assert_eq!(room.rtc_sharing_policy(), db::rtc::SharingPolicy::Shared);
                 assert_eq!(room.reserve(), Some(123));
                 assert_eq!(room.tags(), &json!({ "foo": "bar" }));
-                assert_eq!(room.class_id(), Some(class_id));
+                assert_eq!(room.classroom_id(), Some(classroom_id));
             });
         }
 
@@ -546,7 +546,7 @@ mod test {
                     rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
                     reserve: None,
                     tags: None,
-                    class_id: None,
+                    classroom_id: None,
                 };
 
                 let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -688,7 +688,7 @@ mod test {
 
                 // Make room.update request.
                 let mut context = TestContext::new(db, authz);
-                let class_id = Uuid::new_v4();
+                let classroom_id = Uuid::new_v4();
 
                 let time = (
                     Bound::Included(now + Duration::minutes(50)),
@@ -701,7 +701,7 @@ mod test {
                     reserve: Some(Some(123)),
                     tags: Some(json!({"foo": "bar"})),
                     audience: None,
-                    class_id: Some(class_id),
+                    classroom_id: Some(classroom_id),
                 };
 
                 let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -720,7 +720,7 @@ mod test {
                 );
                 assert_eq!(resp_room.reserve(), Some(123));
                 assert_eq!(resp_room.tags(), &json!({"foo": "bar"}));
-                assert_eq!(resp_room.class_id(), Some(class_id));
+                assert_eq!(resp_room.classroom_id(), Some(classroom_id));
             });
         }
 
@@ -767,7 +767,7 @@ mod test {
                     reserve: Some(Some(123)),
                     tags: Some(json!({"foo": "bar"})),
                     audience: None,
-                    class_id: None,
+                    classroom_id: None,
                 };
 
                 handle_request::<UpdateHandler>(&mut context, &agent, payload)
