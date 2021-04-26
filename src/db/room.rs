@@ -30,7 +30,7 @@ type AllColumns = (
     room::tags,
     room::backend_id,
     room::rtc_sharing_policy,
-    room::class_id,
+    room::classroom_id,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -43,7 +43,7 @@ const ALL_COLUMNS: AllColumns = (
     room::tags,
     room::backend_id,
     room::rtc_sharing_policy,
-    room::class_id,
+    room::classroom_id,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -104,7 +104,7 @@ pub(crate) struct Object {
     #[serde(skip_serializing_if = "Option::is_none")]
     backend_id: Option<AgentId>,
     rtc_sharing_policy: RtcSharingPolicy,
-    class_id: Option<Uuid>,
+    classroom_id: Option<Uuid>,
 }
 
 impl Object {
@@ -144,8 +144,8 @@ impl Object {
         self.rtc_sharing_policy
     }
 
-    pub(crate) fn class_id(&self) -> Option<Uuid> {
-        self.class_id
+    pub(crate) fn classroom_id(&self) -> Option<Uuid> {
+        self.classroom_id
     }
 }
 
@@ -243,7 +243,7 @@ pub(crate) struct InsertQuery<'a> {
     tags: Option<&'a JsonValue>,
     backend_id: Option<&'a AgentId>,
     rtc_sharing_policy: RtcSharingPolicy,
-    class_id: Option<Uuid>,
+    classroom_id: Option<Uuid>,
 }
 
 impl<'a> InsertQuery<'a> {
@@ -256,7 +256,7 @@ impl<'a> InsertQuery<'a> {
             tags: None,
             backend_id: None,
             rtc_sharing_policy,
-            class_id: None,
+            classroom_id: None,
         }
     }
 
@@ -282,9 +282,9 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub(crate) fn class_id(self, class_id: Uuid) -> Self {
+    pub(crate) fn classroom_id(self, classroom_id: Uuid) -> Self {
         Self {
-            class_id: Some(class_id),
+            classroom_id: Some(classroom_id),
             ..self
         }
     }
@@ -308,7 +308,7 @@ pub(crate) struct UpdateQuery<'a> {
     reserve: Option<Option<i32>>,
     tags: Option<JsonValue>,
     backend_id: Option<&'a AgentId>,
-    class_id: Option<Uuid>,
+    classroom_id: Option<Uuid>,
 }
 
 impl<'a> UpdateQuery<'a> {
@@ -339,8 +339,11 @@ impl<'a> UpdateQuery<'a> {
         Self { backend_id, ..self }
     }
 
-    pub(crate) fn class_id(self, class_id: Option<Uuid>) -> Self {
-        Self { class_id, ..self }
+    pub(crate) fn classroom_id(self, classroom_id: Option<Uuid>) -> Self {
+        Self {
+            classroom_id,
+            ..self
+        }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
