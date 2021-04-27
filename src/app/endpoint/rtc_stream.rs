@@ -66,11 +66,11 @@ impl RequestHandler for ListHandler {
         }
 
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id, "rtcs"];
+        let object = vec!["rooms", &room_id];
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "list")
+            .authorize(room.audience(), reqp, object, "read")
             .await?;
 
         let mut query = db::janus_rtc_stream::ListQuery::new().room_id(payload.room_id);
@@ -173,8 +173,8 @@ mod test {
                 // Allow user to list rtcs in the room.
                 let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 let room_id = rtc.room_id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs"];
-                authz.allow(agent.account_id(), object, "list");
+                let object = vec!["rooms", &room_id];
+                authz.allow(agent.account_id(), object, "read");
 
                 // Make rtc_stream.list request.
                 let mut context = TestContext::new(db, authz);

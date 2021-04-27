@@ -197,15 +197,17 @@ impl RequestHandler for UpdateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        let time_requirement = if payload.time.is_some() {
+            // Forbid changing time of a closed room.
+            helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen
+        } else {
+            helpers::RoomTimeRequirement::Any
+        };
+
         let room = {
             let conn = context.get_conn()?;
 
-            helpers::find_room_by_id(
-                context,
-                payload.id,
-                helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
-                &conn,
-            )?
+            helpers::find_room_by_id(context, payload.id, time_requirement, &conn)?
         };
 
         // Authorize room updating on the tenant.
@@ -340,11 +342,11 @@ impl RequestHandler for EnterHandler {
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id, "events"];
+        let object = vec!["rooms", &room_id];
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object.clone(), "subscribe")
+            .authorize(room.audience(), reqp, object, "read")
             .await?;
 
         // Register agent in `in_progress` state.
@@ -355,6 +357,7 @@ impl RequestHandler for EnterHandler {
 
         // Send dynamic subscription creation request to the broker.
         let subject = reqp.as_agent_id().to_owned();
+        let object = vec!["rooms", &room_id, "events"];
         let object = object
             .into_iter()
             .map(|s| s.to_owned())
@@ -937,6 +940,7 @@ mod test {
 
                 let payload = UpdateRequest {
                     id: room.id(),
+                    time: Some((Bound::Included(Utc::now()), Bound::Excluded(Utc::now()))),
                     ..Default::default()
                 };
 
@@ -978,11 +982,7 @@ mod test {
                 let mut authz = TestAuthz::new();
                 let room_id = room.id().to_string();
 
-                authz.allow(
-                    agent.account_id(),
-                    vec!["rooms", &room_id, "events"],
-                    "subscribe",
-                );
+                authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
 
                 // Make room.enter request.
                 let mut context = TestContext::new(db, authz);
@@ -1006,7 +1006,7 @@ mod test {
                 assert_eq!(topic, expected_topic);
                 assert_eq!(reqp.method(), "subscription.create");
                 assert_eq!(payload.subject, agent.agent_id().to_owned());
-                assert_eq!(payload.object, vec!["rooms", &room_id, "events"]);
+                assert_eq!(payload.object, vec!["rooms", &room_id]);
             });
         }
 
@@ -1073,11 +1073,7 @@ mod test {
                 let mut authz = TestAuthz::new();
                 let room_id = room.id().to_string();
 
-                authz.allow(
-                    agent.account_id(),
-                    vec!["rooms", &room_id, "events"],
-                    "subscribe",
-                );
+                authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
 
                 // Make room.enter request.
                 let mut context = TestContext::new(db, authz);
@@ -1115,11 +1111,7 @@ mod test {
                 let mut authz = TestAuthz::new();
                 let room_id = room.id().to_string();
 
-                authz.allow(
-                    agent.account_id(),
-                    vec!["rooms", &room_id, "events"],
-                    "subscribe",
-                );
+                authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
 
                 // Make room.enter request.
                 let mut context = TestContext::new(db, authz);
@@ -1160,11 +1152,7 @@ mod test {
                 let mut authz = TestAuthz::new();
                 let room_id = room.id().to_string();
 
-                authz.allow(
-                    agent.account_id(),
-                    vec!["rooms", &room_id, "events"],
-                    "subscribe",
-                );
+                authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
 
                 // Make room.enter request.
                 let mut context = TestContext::new(db, authz);

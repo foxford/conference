@@ -44,11 +44,11 @@ impl RequestHandler for ListHandler {
 
         // Authorize agents listing in the room.
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id, "agents"];
+        let object = vec!["rooms", &room_id];
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "list")
+            .authorize(room.audience(), reqp, object, "read")
             .await?;
 
         // Get agents list in the room.
@@ -119,11 +119,7 @@ mod tests {
                 let mut authz = TestAuthz::new();
                 let room_id = room.id().to_string();
 
-                authz.allow(
-                    agent.account_id(),
-                    vec!["rooms", &room_id, "agents"],
-                    "list",
-                );
+                authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
 
                 // Make agent.list request.
                 let mut context = TestContext::new(db, authz);
@@ -199,11 +195,7 @@ mod tests {
                 let mut authz = TestAuthz::new();
                 let room_id = room.id().to_string();
 
-                authz.allow(
-                    agent.account_id(),
-                    vec!["rooms", &room_id, "agents"],
-                    "list",
-                );
+                authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
 
                 // Make agent.list request.
                 let mut context = TestContext::new(db, authz);
