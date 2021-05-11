@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.6.15 (May 12, 2021)
+
+### Features
+- Add handle id validation ([2607305](https://github.com/netology-group/conference/commit/260730592a4fb04a9fe814220ff1475b737eb762))
+- Randomize ordering in balancer queries ([7f07691](https://github.com/netology-group/conference/commit/7f07691414646111768be32385a9cc02d95bc4cd))
+
+### Changes
+- Rename class_id to classroom_id ([b70c9bf](https://github.com/netology-group/conference/commit/b70c9bfe6a7b354b27a6b16861adf8b344ba4039))
+
 ## v0.6.14 (April 23, 2021)
 
 ### Features
