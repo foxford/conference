@@ -243,7 +243,7 @@ const MOST_LOADED_SQL: &str = r#"
     WHERE r2.id = $1
     AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) >= COALESCE(r2.reserve, 1)
     AND   jb.api_version = $2
-    ORDER BY COALESCE(jbl.load, 0) DESC
+    ORDER BY COALESCE(jbl.load, 0) DESC, RANDOM()
     LIMIT 1
 "#;
 
@@ -300,7 +300,9 @@ const LEAST_LOADED_SQL: &str = r#"
     ON 1 = 1
     WHERE r2.id = $1
     AND   jb.api_version = $2
-    ORDER BY COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC
+    ORDER BY
+        COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC,
+        RANDOM()
     LIMIT 1
 "#;
 
