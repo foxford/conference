@@ -199,16 +199,22 @@ impl<'a> DeleteQuery<'a> {
 // - room opening period;
 // - actual number of online agents;
 // - optional backend capacity;
-// - optional room reserve.
+// - optional room reserve;
+// - writer's bitrate;
+// - possible multiple RTCs in each room.
 const MOST_LOADED_SQL: &str = r#"
     WITH
         room_load AS (
             SELECT
                 a.room_id,
-                COUNT(a.id) AS taken
+                SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
             FROM agent AS a
             INNER JOIN agent_connection AS ac
             ON ac.agent_id = a.id
+            LEFT JOIN rtc
+            ON rtc.id = ac.rtc_id
+            LEFT JOIN rtc_writer_config AS rwc
+            ON rwc.rtc_id = rtc.id
             GROUP BY a.room_id
         ),
         active_room AS (
@@ -264,10 +270,14 @@ const LEAST_LOADED_SQL: &str = r#"
         room_load AS (
             SELECT
                 a.room_id,
-                COUNT(a.id) AS taken
+                SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
             FROM agent AS a
             INNER JOIN agent_connection AS ac
             ON ac.agent_id = a.id
+            LEFT JOIN rtc
+            ON rtc.id = ac.rtc_id
+            LEFT JOIN rtc_writer_config AS rwc
+            ON rwc.rtc_id = rtc.id
             GROUP BY a.room_id
         ),
         active_room AS (
@@ -325,15 +335,16 @@ const FREE_CAPACITY_SQL: &str = r#"
     WITH
         room_load AS (
             SELECT
-                r.id        AS room_id,
-                r.reserve,
-                COUNT(a.id) AS taken
+                a.room_id,
+                SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
             FROM agent AS a
-            INNER JOIN room AS r
-            ON r.id = a.room_id
             INNER JOIN agent_connection AS ac
             ON ac.agent_id = a.id
-            GROUP BY r.id
+            LEFT JOIN rtc
+            ON rtc.id = ac.rtc_id
+            LEFT JOIN rtc_writer_config AS rwc
+            ON rwc.rtc_id = rtc.id
+            GROUP BY a.room_id
         ),
         active_room AS (
             SELECT *
@@ -453,10 +464,14 @@ WITH
     room_load AS (
         SELECT
             a.room_id,
-            COUNT(a.id) AS taken
+            SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
         FROM agent AS a
         INNER JOIN agent_connection AS ac
         ON ac.agent_id = a.id
+        LEFT JOIN rtc
+        ON rtc.id = ac.rtc_id
+        LEFT JOIN rtc_writer_config AS rwc
+        ON rwc.rtc_id = rtc.id
         GROUP BY a.room_id
     ),
     active_room AS (
