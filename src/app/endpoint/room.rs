@@ -1006,7 +1006,7 @@ mod test {
                 assert_eq!(topic, expected_topic);
                 assert_eq!(reqp.method(), "subscription.create");
                 assert_eq!(payload.subject, agent.agent_id().to_owned());
-                assert_eq!(payload.object, vec!["rooms", &room_id]);
+                assert_eq!(payload.object, vec!["rooms", &room_id, "events"]);
             });
         }
 

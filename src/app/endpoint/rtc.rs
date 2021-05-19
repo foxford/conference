@@ -1010,22 +1010,40 @@ mod test {
                         let room1 =
                             shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
 
-                        let _rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+                        let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
 
                         let s1a1 = TestAgent::new("web", "s1a1", USR_AUDIENCE);
-                        shared_helpers::insert_connected_agent(&conn, s1a1.agent_id(), room1.id());
+
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            s1a1.agent_id(),
+                            room1.id(),
+                            rtc1.id(),
+                        );
 
                         // The second backend has 2 agents.
                         let room2 =
                             shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
 
-                        let _rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+                        let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
 
                         let s2a1 = TestAgent::new("web", "s2a1", USR_AUDIENCE);
-                        shared_helpers::insert_connected_agent(&conn, s2a1.agent_id(), room2.id());
+
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            s2a1.agent_id(),
+                            room2.id(),
+                            rtc2.id(),
+                        );
 
                         let s2a2 = TestAgent::new("web", "s2a2", USR_AUDIENCE);
-                        shared_helpers::insert_connected_agent(&conn, s2a2.agent_id(), room2.id());
+
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            s2a2.agent_id(),
+                            room2.id(),
+                            rtc2.id(),
+                        );
 
                         // The new rtc for which we will balance the stream.
                         let rtc3 = shared_helpers::insert_rtc(&conn);
@@ -1437,12 +1455,18 @@ mod test {
                         let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
                         // Insert active agents.
-                        shared_helpers::insert_connected_agent(&conn, writer.agent_id(), room.id());
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            writer.agent_id(),
+                            room.id(),
+                            rtc.id(),
+                        );
 
                         shared_helpers::insert_connected_agent(
                             &conn,
                             reader1.agent_id(),
                             room.id(),
+                            rtc.id(),
                         );
 
                         factory::Agent::new()
@@ -1613,28 +1637,57 @@ mod test {
                             .insert(&conn);
 
                         // Insert rtcs for each room.
-                        let _rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
-                        let _rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+                        let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+                        let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
                         let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
 
                         // Insert writer for room 1 @ backend 1
                         let agent = TestAgent::new("web", "writer1", USR_AUDIENCE);
-                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room1.id());
+
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            agent.agent_id(),
+                            room1.id(),
+                            rtc1.id(),
+                        );
 
                         // Insert two readers for room 1 @ backend 1
                         let agent = TestAgent::new("web", "reader1-1", USR_AUDIENCE);
-                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room1.id());
+
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            agent.agent_id(),
+                            room1.id(),
+                            rtc1.id(),
+                        );
 
                         let agent = TestAgent::new("web", "reader1-2", USR_AUDIENCE);
-                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room1.id());
+
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            agent.agent_id(),
+                            room1.id(),
+                            rtc1.id(),
+                        );
 
                         // Insert writer for room 2 @ backend 2
                         let agent = TestAgent::new("web", "writer2", USR_AUDIENCE);
-                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room2.id());
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            agent.agent_id(),
+                            room2.id(),
+                            rtc2.id(),
+                        );
 
                         // Insert reader for room 2 @ backend 2
                         let agent = TestAgent::new("web", "reader2", USR_AUDIENCE);
-                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room2.id());
+
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            agent.agent_id(),
+                            room2.id(),
+                            rtc2.id(),
+                        );
 
                         (rtc3, backend2)
                     })
@@ -1743,7 +1796,13 @@ mod test {
 
                         // Insert writer for room 1
                         let agent = TestAgent::new("web", "writer1", USR_AUDIENCE);
-                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room1.id());
+
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            agent.agent_id(),
+                            room1.id(),
+                            rtc1.id(),
+                        );
 
                         // Insert 450 readers for room 1
                         for i in 0..450 {
@@ -1754,16 +1813,29 @@ mod test {
                                 &conn,
                                 agent.agent_id(),
                                 room1.id(),
+                                rtc1.id(),
                             );
                         }
 
                         // Insert writer for room 3
                         let agent = TestAgent::new("web", "writer3", USR_AUDIENCE);
-                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room2.id());
+
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            agent.agent_id(),
+                            room2.id(),
+                            rtc3.id(),
+                        );
 
                         // Insert reader for room 3
                         let agent = TestAgent::new("web", "reader3", USR_AUDIENCE);
-                        shared_helpers::insert_connected_agent(&conn, agent.agent_id(), room3.id());
+
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            agent.agent_id(),
+                            room3.id(),
+                            rtc3.id(),
+                        );
 
                         ([rtc1, rtc2, rtc3], backend)
                     })
