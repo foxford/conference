@@ -97,9 +97,10 @@ pub(crate) fn insert_connected_agent(
     conn: &PgConnection,
     agent_id: &AgentId,
     room_id: Uuid,
+    rtc_id: Uuid,
 ) -> (Agent, AgentConnection) {
     let agent = insert_agent(conn, agent_id, room_id);
-    let agent_connection = factory::AgentConnection::new(*agent.id(), 123).insert(conn);
+    let agent_connection = factory::AgentConnection::new(*agent.id(), rtc_id, 123).insert(conn);
     (agent, agent_connection)
 }
 

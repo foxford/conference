@@ -144,19 +144,21 @@ impl<'a> Agent<'a> {
 
 pub(crate) struct AgentConnection {
     agent_id: Uuid,
+    rtc_id: Uuid,
     handle_id: i64,
 }
 
 impl AgentConnection {
-    pub(crate) fn new(agent_id: Uuid, handle_id: i64) -> Self {
+    pub(crate) fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: i64) -> Self {
         Self {
             agent_id,
+            rtc_id,
             handle_id,
         }
     }
 
     pub(crate) fn insert(&self, conn: &PgConnection) -> db::agent_connection::Object {
-        db::agent_connection::UpsertQuery::new(self.agent_id, self.handle_id)
+        db::agent_connection::UpsertQuery::new(self.agent_id, self.rtc_id, self.handle_id)
             .execute(conn)
             .expect("Failed to insert agent_connection")
     }

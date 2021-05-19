@@ -10,12 +10,14 @@ type AllColumns = (
     agent_connection::agent_id,
     agent_connection::handle_id,
     agent_connection::created_at,
+    agent_connection::rtc_id,
 );
 
 const ALL_COLUMNS: AllColumns = (
     agent_connection::agent_id,
     agent_connection::handle_id,
     agent_connection::created_at,
+    agent_connection::rtc_id,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -28,6 +30,7 @@ pub(crate) struct Object {
     agent_id: Uuid,
     handle_id: i64,
     created_at: DateTime<Utc>,
+    rtc_id: Uuid,
 }
 
 impl Object {
@@ -40,11 +43,12 @@ impl Object {
 
 pub(crate) struct FindQuery<'a> {
     agent_id: &'a AgentId,
+    rtc_id: Uuid,
 }
 
 impl<'a> FindQuery<'a> {
-    pub(crate) fn new(agent_id: &'a AgentId) -> Self {
-        Self { agent_id }
+    pub(crate) fn new(agent_id: &'a AgentId, rtc_id: Uuid) -> Self {
+        Self { agent_id, rtc_id }
     }
 
     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
@@ -54,6 +58,7 @@ impl<'a> FindQuery<'a> {
             .inner_join(agent::table)
             .filter(agent::status.eq(AgentStatus::Ready))
             .filter(agent::agent_id.eq(self.agent_id))
+            .filter(agent_connection::rtc_id.eq(self.rtc_id))
             .select(ALL_COLUMNS)
             .get_result(conn)
             .optional()
@@ -83,14 +88,16 @@ impl CountQuery {
 #[table_name = "agent_connection"]
 pub(crate) struct UpsertQuery {
     agent_id: Uuid,
+    rtc_id: Uuid,
     handle_id: i64,
     created_at: DateTime<Utc>,
 }
 
 impl UpsertQuery {
-    pub(crate) fn new(agent_id: Uuid, handle_id: i64) -> Self {
+    pub(crate) fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: i64) -> Self {
         Self {
             agent_id,
+            rtc_id,
             handle_id,
             created_at: Utc::now(),
         }
@@ -102,7 +109,7 @@ impl UpsertQuery {
 
         diesel::insert_into(agent_connection)
             .values(self)
-            .on_conflict(agent_id)
+            .on_conflict((agent_id, rtc_id))
             .do_update()
             .set(self)
             .get_result(conn)

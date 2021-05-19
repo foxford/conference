@@ -117,6 +117,7 @@ async fn handle_response_impl<C: Context>(
                     let handle_id = inresp.data().id();
                     let backend_id = respp.as_agent_id();
                     let room_id = tn.room_id();
+                    let rtc_id = tn.rtc_id();
                     let reqp = tn.reqp();
                     let agent_id = reqp.as_agent_id();
 
@@ -134,7 +135,7 @@ async fn handle_response_impl<C: Context>(
 
                             if let Some(agent) = maybe_agent.first() {
                                 // Create agent connection in the DB.
-                                agent_connection::UpsertQuery::new(*agent.id(), handle_id)
+                                agent_connection::UpsertQuery::new(*agent.id(), rtc_id, handle_id)
                                     .execute(&conn)?;
 
                                 Ok(())
