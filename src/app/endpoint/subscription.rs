@@ -266,7 +266,7 @@ fn leave_room<C: Context>(
         .active(true)
         .execute(&conn)?;
 
-    let mut is_publisher = false;
+    let mut maybe_stopped_rtc_id = None;
     let mut messages: Vec<Box<dyn IntoPublishableMessage + Send>> =
         Vec::with_capacity(streams.len() + 1);
 
@@ -275,13 +275,13 @@ fn leave_room<C: Context>(
         if stream.sent_by() == agent_id {
             // Stop the stream.
             db::janus_rtc_stream::stop(stream.id(), &conn)?;
-            is_publisher = true;
+            maybe_stopped_rtc_id = Some(stream.rtc_id());
         }
     }
 
     // Disconnect stream readers since the stream has gone.
-    if is_publisher {
-        db::agent_connection::BulkDisconnectByRoomQuery::new(room_id).execute(&conn)?;
+    if let Some(rtc_id) = maybe_stopped_rtc_id {
+        db::agent_connection::BulkDisconnectByRtcQuery::new(rtc_id).execute(&conn)?;
     }
 
     // Send agent.leave requests to those backends where the agent is connected to.
