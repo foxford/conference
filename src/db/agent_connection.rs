@@ -148,6 +148,27 @@ impl BulkDisconnectByRoomQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug)]
+pub(crate) struct BulkDisconnectByRtcQuery {
+    rtc_id: Uuid,
+}
+
+impl BulkDisconnectByRtcQuery {
+    pub(crate) fn new(rtc_id: Uuid) -> Self {
+        Self { rtc_id }
+    }
+
+    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+        use diesel::prelude::*;
+
+        diesel::delete(agent_connection::table)
+            .filter(agent_connection::rtc_id.eq(self.rtc_id))
+            .execute(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 // Diesel doesn't support joins in UPDATE/DELETE queries so it's raw SQL.
 const BULK_DISCONNECT_BY_BACKEND_SQL: &str = r#"
     DELETE FROM agent_connection AS ac
