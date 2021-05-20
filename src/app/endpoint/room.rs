@@ -180,7 +180,6 @@ pub(crate) struct UpdateRequest {
     #[serde(default)]
     #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
     time: Option<db::room::Time>,
-    audience: Option<String>,
     reserve: Option<Option<i32>>,
     tags: Option<JsonValue>,
     classroom_id: Option<Uuid>,
@@ -263,7 +262,6 @@ impl RequestHandler for UpdateHandler {
 
             db::room::UpdateQuery::new(room.id())
                 .time(time)
-                .audience(payload.audience)
                 .reserve(payload.reserve)
                 .tags(payload.tags)
                 .classroom_id(payload.classroom_id)
@@ -703,7 +701,6 @@ mod test {
                     time: Some(time),
                     reserve: Some(Some(123)),
                     tags: Some(json!({"foo": "bar"})),
-                    audience: None,
                     classroom_id: Some(classroom_id),
                 };
 
@@ -769,7 +766,6 @@ mod test {
                     time: Some(time),
                     reserve: Some(Some(123)),
                     tags: Some(json!({"foo": "bar"})),
-                    audience: None,
                     classroom_id: None,
                 };
 

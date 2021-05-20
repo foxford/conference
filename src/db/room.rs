@@ -304,7 +304,6 @@ impl<'a> InsertQuery<'a> {
 pub(crate) struct UpdateQuery<'a> {
     id: Uuid,
     time: Option<Time>,
-    audience: Option<String>,
     reserve: Option<Option<i32>>,
     tags: Option<JsonValue>,
     backend_id: Option<&'a AgentId>,
@@ -321,10 +320,6 @@ impl<'a> UpdateQuery<'a> {
 
     pub(crate) fn time(self, time: Option<Time>) -> Self {
         Self { time, ..self }
-    }
-
-    pub(crate) fn audience(self, audience: Option<String>) -> Self {
-        Self { audience, ..self }
     }
 
     pub(crate) fn reserve(self, reserve: Option<Option<i32>>) -> Self {
