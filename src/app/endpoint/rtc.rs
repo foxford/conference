@@ -35,8 +35,6 @@ pub(crate) type ConnectResponse = OutgoingResponse<ConnectResponseData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const MAX_WEBINAR_DURATION: i64 = 7;
-
 #[derive(Debug, Deserialize)]
 pub(crate) struct CreateRequest {
     room_id: Uuid,
@@ -79,15 +77,17 @@ impl RequestHandler for CreateHandler {
             let conn = context.get_conn()?;
 
             conn.transaction::<_, diesel::result::Error, _>(|| {
-                if let (start, Bound::Unbounded) = room.time() {
-                    let new_time = (
-                        *start,
-                        Bound::Excluded(Utc::now() + Duration::hours(MAX_WEBINAR_DURATION)),
-                    );
+                if let Some(max_room_duration) = context.config().max_room_duration {
+                    if let (start, Bound::Unbounded) = room.time() {
+                        let new_time = (
+                            *start,
+                            Bound::Excluded(Utc::now() + Duration::hours(max_room_duration)),
+                        );
 
-                    db::room::UpdateQuery::new(room.id())
-                        .time(Some(new_time))
-                        .execute(&conn)?;
+                        db::room::UpdateQuery::new(room.id())
+                            .time(Some(new_time))
+                            .execute(&conn)?;
+                    }
                 }
 
                 let rtc =

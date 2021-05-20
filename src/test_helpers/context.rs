@@ -56,7 +56,8 @@ fn build_config() -> Config {
                     "bucket": format!("origin.minigroup.{}", USR_AUDIENCE),
                 }
             }
-        }
+        },
+        "max_room_duration": 7,
     });
 
     serde_json::from_value::<Config>(config).expect("Failed to parse test config")
