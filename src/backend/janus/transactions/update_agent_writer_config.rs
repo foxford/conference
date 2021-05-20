@@ -26,11 +26,14 @@ impl Client {
         backend: &JanusBackend,
         rtc_writer_configs_with_rtcs: &[(RtcWriterConfig, Rtc)],
         start_timestamp: DateTime<Utc>,
-        authz_time: Duration,
+        maybe_authz_time: Option<Duration>,
     ) -> Result<OutgoingMessage<MessageRequest>> {
         let to = backend.id();
         let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-        short_term_timing.set_authorization_time(authz_time);
+        
+        if let Some(authz_time) = maybe_authz_time {
+            short_term_timing.set_authorization_time(authz_time);
+        }
 
         let props = reqp.to_request(
             METHOD,

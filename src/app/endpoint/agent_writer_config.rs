@@ -128,13 +128,22 @@ impl RequestHandler for UpdateHandler {
         };
 
         // Authorize agent writer config updating on the tenant.
-        let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id, "agents"];
+        let is_only_owned_config =
+            payload.configs.len() == 1 && &payload.configs[0].agent_id == reqp.as_agent_id();
 
-        let authz_time = context
-            .authz()
-            .authorize(room.audience(), reqp, object, "update")
-            .await?;
+        let maybe_authz_time = if is_only_owned_config {
+            None
+        } else {
+            let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id];
+
+            let authz_time = context
+                .authz()
+                .authorize(room.audience(), reqp, object, "update")
+                .await?;
+
+            Some(authz_time)
+        };
 
         let conn = context.get_conn()?;
 
@@ -195,7 +204,7 @@ impl RequestHandler for UpdateHandler {
             state.clone(),
             reqp,
             context.start_timestamp(),
-            Some(authz_time),
+            maybe_authz_time,
         );
 
         let notification = helpers::build_notification(
@@ -224,7 +233,7 @@ impl RequestHandler for UpdateHandler {
                     &backend,
                     &rtc_writer_configs_with_rtcs,
                     context.start_timestamp(),
-                    authz_time,
+                    maybe_authz_time,
                 )
                 .or_else(|err| Err(err).error(AppErrorKind::MessageBuildingFailed))?;
 
@@ -352,7 +361,7 @@ mod tests {
 
             // Allow agent to update agent_writer_config.
             let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id, "agents"];
+            let object = vec!["rooms", &room_id];
             authz.allow(agent1.account_id(), object, "update");
 
             // Make agent_writer_config.update request.

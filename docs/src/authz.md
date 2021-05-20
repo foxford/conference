@@ -26,8 +26,6 @@ object / action                           | create | read | update | list | subs
 ----------------------------------------- | ------ | ---- | ------ | ---- | ---------
 ["rooms"]                                 |      + |      |        |    + |
 ["rooms", ROOM_ID]                        |        |    + |      + |      |
-["rooms", ROOM_ID, "agents"]              |        |      |      + |    + |
-["rooms", ROOM_ID, "agents", AGENT_ID]    |        |    + |        |      |
 ["rooms", ROOM_ID, "rtcs"]                |      + |      |        |    + |
 ["rooms", ROOM_ID, "rtcs", RTC_ID]        |        |    + |      + |      |
 ["rooms", ROOM_ID, "events"]              |        |      |        |      |         +
