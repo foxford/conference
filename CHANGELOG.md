@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.6.17 (May 20, 2021)
+
+### Changes
+- Allow agent connections to multiple RTCs ([14b06b6](https://github.com/netology-group/conference/commit/14b06b69a703f410bff9c31a7831d3110eb83796))
+- Consider N^2 load for owned RTC sharing policy & writer bitrate ([676d2c1](https://github.com/netology-group/conference/commit/676d2c141b584c34583a1aede2d1570949ebb7f6))
+- Change authz object for agent writer config ([f94be0c](https://github.com/netology-group/conference/commit/f94be0c884ccaf365e4e62f99d6a2aa45bf48180))
+- Move max room duration into config ([ca721bb](https://github.com/netology-group/conference/commit/ca721bbc4ce992c144f1e6008e2f9d83b1e10784))
+- Remove room audience update option ([2477c88](https://github.com/netology-group/conference/commit/2477c88e5caf7bdbc3e269b9f5c1e26990490d22))
+
+### Fixes
+- Delete only connections related to the disconnected stream's RTC ([b0fb07f](https://github.com/netology-group/conference/commit/b0fb07f083059f5fcd3e984b982494c3b531b68b))
+
+## v0.6.16 (May 19, 2021)
+
+### Changes
+- Remove redundant authz objects, fix room update ([37038db](https://github.com/netology-group/conference/commit/37038db3cfcfc529339e872fc3ac4382f6bfd2ef))
+
 ## v0.6.15 (May 12, 2021)
 
 ### Features
