@@ -272,13 +272,9 @@ impl RequestHandler for CreateHandler {
                 // Authorization
                 let authz_time = authorize(context, &payload, reqp, "read", &room).await?;
 
-                info!(context.logger(), "[JSEP_PARSED] {:?}", payload.jsep);
-
                 let jsep = serde_json::to_value(&payload.jsep)
                     .context("Error serializing JSEP")
                     .error(AppErrorKind::MessageBuildingFailed)?;
-
-                info!(context.logger(), "[JSEP_DUMPED] {:?}", payload.jsep);
 
                 context
                     .janus_client()
