@@ -35,6 +35,7 @@ pub mod sql {
 pub(crate) mod agent;
 pub(crate) mod agent_connection;
 pub(crate) mod janus_backend;
+pub(crate) mod janus_backend_handle;
 pub(crate) mod janus_rtc_stream;
 pub(crate) mod recording;
 pub(crate) mod room;

@@ -4,6 +4,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::db::agent::{Object as Agent, Status as AgentStatus};
+use crate::db::janus_backend_handle::Object as JanusBackendHandle;
 use crate::schema::{agent, agent_connection};
 
 type AllColumns = (
@@ -11,6 +12,7 @@ type AllColumns = (
     agent_connection::handle_id,
     agent_connection::created_at,
     agent_connection::rtc_id,
+    agent_connection::janus_backend_handle_id,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -18,19 +20,24 @@ const ALL_COLUMNS: AllColumns = (
     agent_connection::handle_id,
     agent_connection::created_at,
     agent_connection::rtc_id,
+    agent_connection::janus_backend_handle_id,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Identifiable, Queryable, QueryableByName, Associations)]
 #[belongs_to(Agent, foreign_key = "agent_id")]
+#[belongs_to(JanusBackendHandle, foreign_key = "janus_backend_handle_id")]
 #[table_name = "agent_connection"]
 #[primary_key(agent_id)]
 pub(crate) struct Object {
     agent_id: Uuid,
+    // TODO: Deprecated in favor of `janus_backend_handle_id`.
+    //       Remove this field after ULMS-1293 is deployed.
     handle_id: i64,
     created_at: DateTime<Utc>,
     rtc_id: Uuid,
+    janus_backend_handle_id: Uuid,
 }
 
 impl Object {
@@ -91,15 +98,22 @@ pub(crate) struct UpsertQuery {
     rtc_id: Uuid,
     handle_id: i64,
     created_at: DateTime<Utc>,
+    janus_backend_handle_id: Uuid,
 }
 
 impl UpsertQuery {
-    pub(crate) fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: i64) -> Self {
+    pub(crate) fn new(
+        agent_id: Uuid,
+        rtc_id: Uuid,
+        handle_id: i64,
+        janus_backend_handle_id: Uuid,
+    ) -> Self {
         Self {
             agent_id,
             rtc_id,
             handle_id,
             created_at: Utc::now(),
+            janus_backend_handle_id,
         }
     }
 
