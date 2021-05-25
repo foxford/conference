@@ -4,10 +4,10 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) enum Transaction {
     AgentLeave(agent_leave::TransactionData),
-    CreateHandle(create_handle::TransactionData),
+    CreateControlHandle(create_control_handle::TransactionData),
+    CreatePoolHandle(create_pool_handle::TransactionData),
     CreateSession(create_session::TransactionData),
     CreateStream(create_stream::TransactionData),
-    CreateRtcHandle(create_rtc_handle::TransactionData),
     ReadStream(read_stream::TransactionData),
     Trickle(trickle::TransactionData),
     UpdateReaderConfig,
@@ -16,8 +16,8 @@ pub(crate) enum Transaction {
 }
 
 mod agent_leave;
-mod create_handle;
-mod create_rtc_handle;
+mod create_control_handle;
+mod create_pool_handle;
 mod create_session;
 mod create_stream;
 mod read_stream;

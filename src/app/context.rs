@@ -10,7 +10,7 @@ use svc_authz::ClientMap as Authz;
 
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 use crate::app::metrics::{DynamicStatsCollector, Metric};
-use crate::backend::janus::Client as JanusClient;
+use crate::backend::janus::{Client as JanusClient, HandlePool as JanusHandlePool};
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
 
@@ -25,6 +25,7 @@ pub(crate) trait GlobalContext: Sync {
     fn agent_id(&self) -> &AgentId;
     fn janus_client(&self) -> Arc<JanusClient>;
     fn janus_topics(&self) -> &JanusTopics;
+    fn janus_handle_pool(&self) -> Arc<JanusHandlePool>;
     fn queue_counter(&self) -> &Option<QueueCounterHandle>;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
     fn dynamic_stats(&self) -> Option<&DynamicStatsCollector>;
@@ -58,6 +59,7 @@ pub(crate) struct AppContext {
     agent_id: AgentId,
     janus_client: Arc<JanusClient>,
     janus_topics: JanusTopics,
+    janus_handle_pool: Arc<JanusHandlePool>,
     queue_counter: Option<QueueCounterHandle>,
     redis_pool: Option<RedisConnectionPool>,
     dynamic_stats: Option<Arc<DynamicStatsCollector>>,
@@ -69,8 +71,9 @@ impl AppContext {
         config: Config,
         authz: Authz,
         db: Db,
-        janus_client: JanusClient,
+        janus_client: Arc<JanusClient>,
         janus_topics: JanusTopics,
+        janus_handle_pool: Arc<JanusHandlePool>,
         stats_collector: Arc<DynamicStatsCollector>,
     ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
@@ -80,8 +83,9 @@ impl AppContext {
             authz,
             db,
             agent_id,
-            janus_client: Arc::new(janus_client),
+            janus_client,
             janus_topics,
+            janus_handle_pool,
             queue_counter: None,
             redis_pool: None,
             dynamic_stats: Some(stats_collector),
@@ -134,6 +138,10 @@ impl GlobalContext for AppContext {
 
     fn janus_topics(&self) -> &JanusTopics {
         &self.janus_topics
+    }
+
+    fn janus_handle_pool(&self) -> Arc<JanusHandlePool> {
+        self.janus_handle_pool.clone()
     }
 
     fn queue_counter(&self) -> &Option<QueueCounterHandle> {
@@ -198,6 +206,10 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 
     fn janus_topics(&self) -> &JanusTopics {
         self.global_context.janus_topics()
+    }
+
+    fn janus_handle_pool(&self) -> Arc<JanusHandlePool> {
+        self.global_context.janus_handle_pool()
     }
 
     fn queue_counter(&self) -> &Option<QueueCounterHandle> {

@@ -1,9 +1,9 @@
+use std::ops::Bound;
 use std::str::FromStr;
 
 use anyhow::Result;
 use async_std::stream;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use std::ops::Bound;
 use svc_agent::mqtt::{
     IncomingEvent as MQTTIncomingEvent, IncomingEventProperties, IncomingRequestProperties,
     IncomingResponse as MQTTIncomingResponse, IntoPublishableMessage, OutgoingResponse,
@@ -16,11 +16,10 @@ use uuid::Uuid;
 use crate::app::context::Context;
 use crate::app::endpoint;
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
-use crate::app::handle_id::HandleId;
 use crate::app::message_handler::MessageStream;
 use crate::app::API_VERSION;
-use crate::db::{agent, agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc};
-use crate::diesel::{Connection, Identifiable};
+use crate::db::{agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc};
+use crate::diesel::Connection;
 use crate::util::from_base64;
 
 use self::events::{IncomingEvent, StatusEvent};
@@ -75,12 +74,31 @@ async fn handle_response_impl<C: Context>(
                 .error(AppErrorKind::MessageParsingFailed)?;
 
             match txn {
-                // Session has been created
+                // Session has been created.
                 Transaction::CreateSession(tn) => {
-                    // Creating Handle
+                    // Initialize handle pool.
+                    let backend_id = respp.as_agent_id().to_owned();
+                    let session_id = inresp.data().id();
+                    let pool_size = tn.capacity() as usize;
+                    let janus_handle_pool = context.janus_handle_pool().clone();
+                    let logger = context.logger().clone();
+
+                    async_std::task::spawn(async move {
+                        let result =
+                            janus_handle_pool.create_handles(&backend_id, session_id, pool_size);
+
+                        if let Err(err) = result {
+                            error!(logger, "{}", err);
+
+                            AppError::new(AppErrorKind::BackendInitializationFailed, err)
+                                .notify_sentry(&logger);
+                        }
+                    });
+
+                    // Create control handle.
                     let backreq = context
                         .janus_client()
-                        .create_handle_request(
+                        .create_control_handle_request(
                             respp,
                             inresp.data().id(),
                             tn.capacity(),
@@ -92,87 +110,35 @@ async fn handle_response_impl<C: Context>(
                     let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>;
                     Ok(Box::new(stream::once(boxed_backreq)))
                 }
-                // Handle has been created
-                Transaction::CreateHandle(tn) => {
+                // Control handle has been created.
+                Transaction::CreateControlHandle(tn) => {
                     let backend_id = respp.as_agent_id();
                     let handle_id = inresp.data().id();
                     let conn = context.get_conn()?;
 
-                    let mut q =
-                        janus_backend::UpsertQuery::new(backend_id, handle_id, tn.session_id());
+                    janus_backend::UpsertQuery::new(backend_id, handle_id, tn.session_id())
+                        .capacity(tn.capacity())
+                        .balancer_capacity(tn.balancer_capacity())
+                        .execute(&conn)?;
 
-                    if let Some(capacity) = tn.capacity() {
-                        q = q.capacity(capacity);
-                    }
-
-                    if let Some(balancer_capacity) = tn.balancer_capacity() {
-                        q = q.balancer_capacity(balancer_capacity);
-                    }
-
-                    q.execute(&conn)?;
                     Ok(Box::new(stream::empty()))
                 }
-                // Rtc Handle has been created
-                Transaction::CreateRtcHandle(tn) => {
-                    let handle_id = inresp.data().id();
-                    let backend_id = respp.as_agent_id();
-                    let room_id = tn.room_id();
-                    let rtc_id = tn.rtc_id();
-                    let reqp = tn.reqp();
-                    let agent_id = reqp.as_agent_id();
+                // Pool handle has been created.
+                Transaction::CreatePoolHandle(_tn) => {
+                    let result = context
+                        .janus_handle_pool()
+                        .handle_created_callback(respp.as_agent_id(), inresp.data().id());
 
-                    {
-                        let conn = context.get_conn()?;
+                    if let Err(err) = result {
+                        error!(context.logger(), "{}", err);
 
-                        conn.transaction::<_, AppError, _>(|| {
-                            // Find agent in the DB who made the original `rtc.connect` request.
-                            let maybe_agent = agent::ListQuery::new()
-                                .agent_id(agent_id)
-                                .room_id(room_id)
-                                .status(agent::Status::Ready)
-                                .limit(1)
-                                .execute(&conn)?;
-
-                            if let Some(agent) = maybe_agent.first() {
-                                // Create agent connection in the DB.
-                                agent_connection::UpsertQuery::new(*agent.id(), rtc_id, handle_id)
-                                    .execute(&conn)?;
-
-                                Ok(())
-                            } else {
-                                context.add_logger_tags(o!(
-                                    "agent_id" => agent_id.to_string(),
-                                    "room_id" => room_id.to_string(),
-                                ));
-
-                                // Agent may be already gone.
-                                Err(anyhow!("Agent not found"))
-                                    .error(AppErrorKind::AgentNotEnteredTheRoom)
-                            }
-                        })?;
+                        AppError::new(AppErrorKind::BackendInitializationFailed, err)
+                            .notify_sentry(context.logger());
                     }
 
-                    // Returning Real-Time connection handle
-                    let resp = endpoint::rtc::ConnectResponse::unicast(
-                        endpoint::rtc::ConnectResponseData::new(HandleId::new(
-                            tn.rtc_stream_id(),
-                            tn.rtc_id(),
-                            handle_id,
-                            tn.session_id(),
-                            backend_id.to_owned(),
-                        )),
-                        reqp.to_response(
-                            ResponseStatus::OK,
-                            ShortTermTimingProperties::until_now(context.start_timestamp()),
-                        ),
-                        reqp,
-                        JANUS_API_VERSION,
-                    );
-
-                    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-                    Ok(Box::new(stream::once(boxed_resp)))
+                    Ok(Box::new(stream::empty()))
                 }
-                // An unsupported incoming Success message has been received
+                // An unsupported incoming Success message has been received.
                 _ => Ok(Box::new(stream::empty())),
             }
         }
@@ -693,8 +659,10 @@ async fn handle_status_event_impl<C: Context>(
 
 mod client;
 mod events;
+mod handle_pool;
 pub(crate) mod requests;
 mod responses;
 mod transactions;
 
 pub(crate) use client::Client;
+pub(crate) use handle_pool::HandlePool;

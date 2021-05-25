@@ -29,6 +29,7 @@ The following types are a part of the service's API and are guaranteed to mainta
 - `agent_not_connected` – The agent has not connected to the RTC.
 - `agent_not_entered_the_room` – The agent must preliminary make [room.enter](room/enter.md#room.enter) request.
 - `authorization_failed` – Authorization request failed due to a network error or another reason.
+- `backend_initialization_failed` – The backend has came online but there was an error on initialization.
 - `backend_recording_missing` – The backend responded that it doesn't have the recording for the RTC.
 - `backend_request_failed` – The backend responded with an error code.
 - `backend_request_timed_out` – The backend request didn't finished in a reasonable time.

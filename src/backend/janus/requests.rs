@@ -30,23 +30,15 @@ pub(crate) struct CreateHandleRequest {
     session_id: i64,
     plugin: String,
     janus: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    opaque_id: Option<String>,
 }
 
 impl CreateHandleRequest {
-    pub(crate) fn new(
-        transaction: &str,
-        session_id: i64,
-        plugin: &str,
-        opaque_id: Option<&str>,
-    ) -> Self {
+    pub(crate) fn new(transaction: &str, session_id: i64, plugin: &str) -> Self {
         Self {
             transaction: transaction.to_owned(),
             session_id,
             plugin: plugin.to_owned(),
             janus: "attach",
-            opaque_id: opaque_id.map(|val| val.to_owned()),
         }
     }
 }

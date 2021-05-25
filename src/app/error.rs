@@ -20,6 +20,7 @@ pub(crate) enum ErrorKind {
     AgentNotConnected,
     AgentNotEnteredTheRoom,
     AuthorizationFailed,
+    BackendInitializationFailed,
     BackendRecordingMissing,
     BackendRequestFailed,
     BackendRequestTimedOut,
@@ -104,6 +105,12 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 kind: "authorization_failed",
                 title: "Authorization failed",
                 is_notify_sentry: false,
+            },
+            Self::BackendInitializationFailed => ErrorKindProperties {
+                status: ResponseStatus::UNPROCESSABLE_ENTITY,
+                kind: "backend_initialization_failed",
+                title: "Janus initialization failed",
+                is_notify_sentry: true,
             },
             Self::BackendRecordingMissing => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,

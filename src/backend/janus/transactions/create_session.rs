@@ -22,34 +22,24 @@ const METHOD: &str = "janus_session.create";
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct TransactionData {
-    capacity: Option<i32>,
-    balancer_capacity: Option<i32>,
+    capacity: i32,
+    balancer_capacity: i32,
 }
 
 impl TransactionData {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(capacity: i32, balancer_capacity: i32) -> Self {
         Self {
-            capacity: None,
-            balancer_capacity: None,
+            capacity,
+            balancer_capacity,
         }
     }
 
-    pub(crate) fn capacity(&self) -> Option<i32> {
+    pub(crate) fn capacity(&self) -> i32 {
         self.capacity
     }
 
-    pub(crate) fn set_capacity(&mut self, capacity: i32) -> &mut Self {
-        self.capacity = Some(capacity);
-        self
-    }
-
-    pub(crate) fn balancer_capacity(&self) -> Option<i32> {
+    pub(crate) fn balancer_capacity(&self) -> i32 {
         self.balancer_capacity
-    }
-
-    pub(crate) fn set_balancer_capacity(&mut self, balancer_capacity: i32) -> &mut Self {
-        self.balancer_capacity = Some(balancer_capacity);
-        self
     }
 }
 
@@ -63,16 +53,7 @@ impl Client {
         start_timestamp: DateTime<Utc>,
     ) -> Result<OutgoingMessage<CreateSessionRequest>> {
         let to = evp.as_agent_id();
-        let mut tn_data = TransactionData::new();
-
-        if let Some(capacity) = payload.capacity() {
-            tn_data.set_capacity(capacity);
-        }
-
-        if let Some(balancer_capacity) = payload.balancer_capacity() {
-            tn_data.set_balancer_capacity(balancer_capacity);
-        }
-
+        let tn_data = TransactionData::new(payload.capacity(), payload.balancer_capacity());
         let transaction = Transaction::CreateSession(tn_data);
         let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
 

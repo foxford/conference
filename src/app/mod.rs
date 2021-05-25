@@ -21,7 +21,9 @@ use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPoo
 use crate::app::context::GlobalContext;
 use crate::app::error::{Error as AppError, ErrorKind as AppErrorKind};
 use crate::app::metrics::{DynamicStatsCollector, StatsRoute};
-use crate::backend::janus::{Client as JanusClient, JANUS_API_VERSION};
+use crate::backend::janus::{
+    Client as JanusClient, HandlePool as JanusHandlePool, JANUS_API_VERSION,
+};
 use crate::config::{self, Config, KruonisConfig};
 use crate::db::ConnectionPool;
 use context::{AppContext, JanusTopics};
@@ -100,12 +102,25 @@ pub(crate) async fn run(
         .expect("Failed to start msg-handler-timings thread");
 
     // Context
+    let janus_client = Arc::new(JanusClient::start(
+        &config.backend,
+        agent_id,
+        Some(stats_collector.clone()),
+    )?);
+
+    let janus_handle_pool = Arc::new(JanusHandlePool::start(
+        agent.clone(),
+        janus_client.clone(),
+        db.clone(),
+    ));
+
     let context = AppContext::new(
         config.clone(),
         authz,
         db.clone(),
-        JanusClient::start(&config.backend, agent_id, Some(stats_collector.clone()))?,
+        janus_client.clone(),
         janus_topics,
+        janus_handle_pool,
         stats_collector,
     )
     .add_queue_counter(agent.get_queue_counter())

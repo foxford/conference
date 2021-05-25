@@ -22,16 +22,16 @@ const METHOD: &str = "janus_handle.create";
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct TransactionData {
     session_id: i64,
-    capacity: Option<i32>,
-    balancer_capacity: Option<i32>,
+    capacity: i32,
+    balancer_capacity: i32,
 }
 
 impl TransactionData {
-    pub(crate) fn new(session_id: i64) -> Self {
+    pub(crate) fn new(session_id: i64, capacity: i32, balancer_capacity: i32) -> Self {
         Self {
             session_id,
-            capacity: None,
-            balancer_capacity: None,
+            capacity,
+            balancer_capacity,
         }
     }
 
@@ -39,54 +39,34 @@ impl TransactionData {
         self.session_id
     }
 
-    pub(crate) fn capacity(&self) -> Option<i32> {
+    pub(crate) fn capacity(&self) -> i32 {
         self.capacity
     }
 
-    pub(crate) fn set_capacity(&mut self, capacity: i32) -> &mut Self {
-        self.capacity = Some(capacity);
-        self
-    }
-
-    pub(crate) fn balancer_capacity(&self) -> Option<i32> {
+    pub(crate) fn balancer_capacity(&self) -> i32 {
         self.balancer_capacity
-    }
-
-    pub(crate) fn set_balancer_capacity(&mut self, balancer_capacity: i32) -> &mut Self {
-        self.balancer_capacity = Some(balancer_capacity);
-        self
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 impl Client {
-    pub(crate) fn create_handle_request(
+    pub(crate) fn create_control_handle_request(
         &self,
         respp: &IncomingResponseProperties,
         session_id: i64,
-        capacity: Option<i32>,
-        balancer_capacity: Option<i32>,
+        capacity: i32,
+        balancer_capacity: i32,
         start_timestamp: DateTime<Utc>,
     ) -> Result<OutgoingMessage<CreateHandleRequest>> {
         let to = respp.as_agent_id();
-        let mut tn_data = TransactionData::new(session_id);
-
-        if let Some(capacity) = capacity {
-            tn_data.set_capacity(capacity);
-        }
-
-        if let Some(balancer_capacity) = balancer_capacity {
-            tn_data.set_balancer_capacity(balancer_capacity);
-        }
-
-        let transaction = Transaction::CreateHandle(tn_data);
+        let tn_data = TransactionData::new(session_id, capacity, balancer_capacity);
+        let transaction = Transaction::CreateControlHandle(tn_data);
 
         let payload = CreateHandleRequest::new(
             &to_base64(&transaction)?,
             session_id,
             "janus.plugin.conference",
-            None,
         );
 
         let mut props = OutgoingRequestProperties::new(
