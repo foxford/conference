@@ -7,7 +7,7 @@ use chrono::Duration;
 use chrono::Utc;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
-    mqtt::{IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus},
+    mqtt::{IncomingRequestProperties, ResponseStatus},
     Addressable,
 };
 use uuid::Uuid;
@@ -16,22 +16,7 @@ use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::app::handle_id::HandleId;
 use crate::db::{self, rtc::SharingPolicy as RtcSharingPolicy};
-use crate::diesel::Connection;
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Serialize)]
-pub(crate) struct ConnectResponseData {
-    handle_id: HandleId,
-}
-
-impl ConnectResponseData {
-    pub(crate) fn new(handle_id: HandleId) -> Self {
-        Self { handle_id }
-    }
-}
-
-pub(crate) type ConnectResponse = OutgoingResponse<ConnectResponseData>;
+use crate::diesel::{Connection, Identifiable};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -280,6 +265,17 @@ impl ConnectRequest {
     }
 }
 
+#[derive(Debug, Serialize)]
+pub(crate) struct ConnectResponse {
+    handle_id: HandleId,
+}
+
+impl ConnectResponse {
+    pub(crate) fn new(handle_id: HandleId) -> Self {
+        Self { handle_id }
+    }
+}
+
 pub(crate) struct ConnectHandler;
 
 #[async_trait]
@@ -351,8 +347,8 @@ impl RequestHandler for ConnectHandler {
             .authorize(room.audience(), reqp, object, action)
             .await?;
 
-        // Choose backend to connect.
-        let backend = {
+        // Choose backend and handle to connect.
+        let (backend, janus_backend_handle) = {
             let conn = context.get_conn()?;
 
             // There are 3 cases:
@@ -433,31 +429,56 @@ impl RequestHandler for ConnectHandler {
                 .error(AppErrorKind::CapacityExceeded);
             }
 
-            backend
+            context.add_logger_tags(o!("backend_id" => backend.id().to_string()));
+
+            // Find free janus backend handle and assign it to the agent.
+            let janus_backend_handle = conn.transaction::<_, AppError, _>(|| {
+                let janus_backend_handle =
+                    db::janus_backend_handle::FindFreeQuery::new(backend.id())
+                        .execute(&conn)?
+                        .ok_or_else(|| anyhow!("No free handle found on the backend"))
+                        .error(AppErrorKind::CapacityExceeded)?;
+
+                let agents = db::agent::ListQuery::new()
+                    .agent_id(reqp.as_agent_id())
+                    .room_id(room.id())
+                    .status(db::agent::Status::Ready)
+                    .execute(&conn)?;
+
+                let agent = agents
+                    .first()
+                    .ok_or_else(|| anyhow!("Agent not found"))
+                    .error(AppErrorKind::AgentNotConnected)?;
+
+                db::agent_connection::UpsertQuery::new(
+                    *agent.id(),
+                    payload.id,
+                    janus_backend_handle.handle_id(),
+                    *janus_backend_handle.id(),
+                )
+                .execute(&conn)?;
+
+                Ok(janus_backend_handle)
+            })?;
+
+            (backend, janus_backend_handle)
         };
 
-        context.add_logger_tags(o!("backend_id" => backend.id().to_string()));
-
-        // Send janus handle creation request.
-        let janus_request_result = context.janus_client().create_rtc_handle_request(
-            reqp.clone(),
+        let handle_id = HandleId::new(
             Uuid::new_v4(),
             payload.id,
-            room.id(),
+            janus_backend_handle.handle_id(),
             backend.session_id(),
-            backend.id(),
-            context.start_timestamp(),
-            authz_time,
+            backend.id().to_owned(),
         );
 
-        match janus_request_result {
-            Ok(req) => {
-                let boxed_request = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
-                Ok(Box::new(stream::once(boxed_request)))
-            }
-            Err(err) => Err(err.context("Error creating a backend request"))
-                .error(AppErrorKind::MessageBuildingFailed),
-        }
+        Ok(Box::new(stream::once(helpers::build_response(
+            ResponseStatus::OK,
+            ConnectResponse::new(handle_id),
+            reqp,
+            context.start_timestamp(),
+            Some(authz_time),
+        ))))
     }
 }
 
