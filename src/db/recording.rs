@@ -16,6 +16,7 @@ pub(crate) type AllColumns = (
     recording::started_at,
     recording::segments,
     recording::status,
+    recording::janus_dumps_uris,
 );
 
 pub(crate) const ALL_COLUMNS: AllColumns = (
@@ -23,6 +24,7 @@ pub(crate) const ALL_COLUMNS: AllColumns = (
     recording::started_at,
     recording::segments,
     recording::status,
+    recording::janus_dumps_uris,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -59,6 +61,7 @@ pub(crate) struct Object {
     started_at: Option<DateTime<Utc>>,
     segments: Option<Vec<Segment>>,
     status: Status,
+    janus_dumps_uris: Option<Vec<String>>,
 }
 
 impl Object {
@@ -76,6 +79,11 @@ impl Object {
 
     pub(crate) fn status(&self) -> &Status {
         &self.status
+    }
+
+    /// Get a reference to the object's janus dumps uris.
+    pub(crate) fn janus_dumps_uris(&self) -> Option<&Vec<String>> {
+        self.janus_dumps_uris.as_ref()
     }
 }
 
@@ -132,6 +140,7 @@ pub(crate) struct UpdateQuery {
     status: Option<Status>,
     started_at: Option<DateTime<Utc>>,
     segments: Option<Vec<Segment>>,
+    janus_dumps_uris: Option<Vec<String>>,
 }
 
 impl UpdateQuery {
@@ -141,12 +150,20 @@ impl UpdateQuery {
             status: None,
             started_at: None,
             segments: None,
+            janus_dumps_uris: None,
         }
     }
 
     pub(crate) fn status(self, status: Status) -> Self {
         Self {
             status: Some(status),
+            ..self
+        }
+    }
+
+    pub(crate) fn janus_dumps_uris(self, dumps_uris: Option<Vec<String>>) -> Self {
+        Self {
+            janus_dumps_uris: dumps_uris,
             ..self
         }
     }
