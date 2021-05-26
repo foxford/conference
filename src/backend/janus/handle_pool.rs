@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{Context, Error, Result};
-use svc_agent::{mqtt::Agent, AgentId};
+use svc_agent::AgentId;
 
 use super::Client as JanusClient;
+use crate::app::context::MessagePublisher;
 use crate::db::{self, ConnectionPool as Db};
 
 const CREATE_REQUEST_BATCH_SIZE: usize = 100;
@@ -27,7 +28,11 @@ pub(crate) struct HandlePool {
 }
 
 impl HandlePool {
-    pub(crate) fn start(agent: Agent, janus_client: Arc<JanusClient>, db: Db) -> Self {
+    pub(crate) fn start<A: 'static + MessagePublisher>(
+        agent: A,
+        janus_client: Arc<JanusClient>,
+        db: Db,
+    ) -> Self {
         let (tx, rx) = crossbeam_channel::unbounded();
 
         async_std::task::spawn_blocking(move || {
@@ -66,15 +71,15 @@ impl HandlePool {
     }
 }
 
-struct HandlePoolMessageHandler {
+struct HandlePoolMessageHandler<A: MessagePublisher> {
     state: HashMap<AgentId, BackendState>,
-    agent: Agent,
+    agent: A,
     janus_client: Arc<JanusClient>,
     db: Db,
 }
 
-impl HandlePoolMessageHandler {
-    fn new(agent: Agent, janus_client: Arc<JanusClient>, db: Db) -> Self {
+impl<A: MessagePublisher> HandlePoolMessageHandler<A> {
+    fn new(agent: A, janus_client: Arc<JanusClient>, db: Db) -> Self {
         Self {
             state: HashMap::new(),
             agent,
@@ -84,14 +89,9 @@ impl HandlePoolMessageHandler {
     }
 
     fn start(&mut self, rx: crossbeam_channel::Receiver<Message>) {
-        loop {
-            match rx.recv() {
-                Ok(message) => {
-                    if let Err(err) = self.handle_message(message) {
-                        error!(crate::LOG, "Failed to handle handle pool message: {}", err);
-                    }
-                }
-                Err(err) => error!(crate::LOG, "Failed to receive handle pool message: {}", err),
+        while let Ok(message) = rx.recv() {
+            if let Err(err) = self.handle_message(message) {
+                error!(crate::LOG, "Failed to handle handle pool message: {}", err);
             }
         }
     }
@@ -161,12 +161,9 @@ impl HandlePoolMessageHandler {
                 .create_pool_handle_request(&backend_id, backend_state.session_id)
                 .map_err(|err| anyhow!("Failed to build pool handle creation request: {}", err))?;
 
-            self.agent
-                .clone()
-                .publish_publishable(Box::new(req))
-                .map_err(|err| {
-                    anyhow!("Failed to publish pool handle creation request: {}", err)
-                })?;
+            self.agent.clone().publish(Box::new(req)).map_err(|err| {
+                anyhow!("Failed to publish pool handle creation request: {}", err)
+            })?;
         }
 
         Ok(())

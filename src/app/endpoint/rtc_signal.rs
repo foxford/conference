@@ -448,6 +448,7 @@ mod test {
                     let (_, agent_connection) = shared_helpers::insert_connected_agent(
                         &conn,
                         agent.agent_id(),
+                        backend.id(),
                         rtc.room_id(),
                         rtc.id(),
                     );
@@ -538,6 +539,7 @@ mod test {
                     let (_, agent_connection) = shared_helpers::insert_connected_agent(
                         &conn,
                         agent.agent_id(),
+                        backend.id(),
                         rtc.room_id(),
                         rtc.id(),
                     );
@@ -622,6 +624,7 @@ mod test {
                     let (_, agent_connection) = shared_helpers::insert_connected_agent(
                         &conn,
                         agent.agent_id(),
+                        backend.id(),
                         rtc.room_id(),
                         rtc.id(),
                     );
@@ -698,6 +701,7 @@ mod test {
                     let (_, agent_connection) = shared_helpers::insert_connected_agent(
                         &conn,
                         agent.agent_id(),
+                        backend.id(),
                         rtc.room_id(),
                         rtc.id(),
                     );
@@ -778,6 +782,7 @@ mod test {
                     let (_, agent_connection) = shared_helpers::insert_connected_agent(
                         &conn,
                         agent.agent_id(),
+                        backend.id(),
                         rtc.room_id(),
                         rtc.id(),
                     );
@@ -882,6 +887,7 @@ mod test {
                     let (_, agent_connection) = shared_helpers::insert_connected_agent(
                         &conn,
                         agent.agent_id(),
+                        backend.id(),
                         rtc.room_id(),
                         rtc.id(),
                     );
@@ -937,6 +943,7 @@ mod test {
                     let (_, agent_connection) = shared_helpers::insert_connected_agent(
                         &conn,
                         agent.agent_id(),
+                        backend.id(),
                         rtc.room_id(),
                         rtc.id(),
                     );
@@ -981,24 +988,16 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let backend = TestAgent::new("offline-instance", "janus-gateway", SVC_AUDIENCE);
 
-            // Insert room with backend, rtc and connected agent.
-            let (rtc, agent_connection) = db
+            // Insert room with backend, rtc.
+            let rtc = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
                     let room =
                         shared_helpers::insert_room_with_backend_id(&conn, backend.agent_id());
 
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
-
-                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        rtc.room_id(),
-                        rtc.id(),
-                    );
-
-                    (rtc, agent_connection)
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                    shared_helpers::insert_rtc_with_room(&conn, &room)
                 })
                 .unwrap();
 
@@ -1008,7 +1007,7 @@ mod test {
             let handle_id = HandleId::new(
                 Uuid::new_v4(),
                 rtc.id(),
-                agent_connection.handle_id(),
+                54321,
                 12345,
                 backend.agent_id().to_owned(),
             );
@@ -1141,6 +1140,7 @@ mod test {
                     shared_helpers::insert_connected_agent(
                         &conn,
                         agent.agent_id(),
+                        backend.id(),
                         room.id(),
                         rtc.id(),
                     );
@@ -1196,14 +1196,23 @@ mod test {
                     shared_helpers::insert_connected_agent(
                         &conn,
                         agent1.agent_id(),
+                        backend.id(),
                         room.id(),
                         rtc.id(),
                     );
 
                     let agent = shared_helpers::insert_agent(&conn, agent2.agent_id(), room.id());
 
-                    let agent2_connection =
-                        factory::AgentConnection::new(*agent.id(), rtc.id(), 456).insert(&conn);
+                    let janus_backend_handle =
+                        factory::JanusBackendHandle::new(backend.id(), &[456]).insert(&conn);
+
+                    let agent2_connection = factory::AgentConnection::new(
+                        *agent.id(),
+                        rtc.id(),
+                        janus_backend_handle.handle_id(),
+                        *janus_backend_handle.id(),
+                    )
+                    .insert(&conn);
 
                     (backend, rtc, agent2_connection)
                 })
@@ -1258,6 +1267,7 @@ mod test {
                     let (_, agent_connection) = shared_helpers::insert_connected_agent(
                         &conn,
                         agent.agent_id(),
+                        backend.id(),
                         room.id(),
                         rtc.id(),
                     );
@@ -1323,6 +1333,7 @@ mod test {
                     let (_, agent_connection) = shared_helpers::insert_connected_agent(
                         &conn,
                         agent1.agent_id(),
+                        backend.id(),
                         room.id(),
                         rtc.id(),
                     );

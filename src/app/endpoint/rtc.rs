@@ -265,7 +265,7 @@ impl ConnectRequest {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct ConnectResponse {
     handle_id: HandleId,
 }
@@ -448,7 +448,7 @@ impl RequestHandler for ConnectHandler {
                 let agent = agents
                     .first()
                     .ok_or_else(|| anyhow!("Agent not found"))
-                    .error(AppErrorKind::AgentNotConnected)?;
+                    .error(AppErrorKind::AgentNotEnteredTheRoom)?;
 
                 db::agent_connection::UpsertQuery::new(
                     *agent.id(),
@@ -967,14 +967,11 @@ mod test {
 
         use chrono::{Duration, Utc};
         use rand::Rng;
-        use serde_json::Value as JsonValue;
-        use svc_agent::{AccountId, AgentId};
+        use svc_agent::AgentId;
 
-        use crate::backend::janus;
         use crate::db::agent::Status as AgentStatus;
         use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
         use crate::test_helpers::prelude::*;
-        use crate::util::from_base64;
 
         use super::super::*;
 
@@ -1017,6 +1014,7 @@ mod test {
             async_std::task::block_on(async {
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
                 // Insert an rtc and janus backend.
                 let (rtc, backend) = db
@@ -1038,6 +1036,7 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             s1a1.agent_id(),
+                            backend1.id(),
                             room1.id(),
                             rtc1.id(),
                         );
@@ -1053,6 +1052,7 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             s2a1.agent_id(),
+                            backend2.id(),
                             room2.id(),
                             rtc2.id(),
                         );
@@ -1062,19 +1062,20 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             s2a2.agent_id(),
+                            backend2.id(),
                             room2.id(),
                             rtc2.id(),
                         );
 
                         // The new rtc for which we will balance the stream.
                         let rtc3 = shared_helpers::insert_rtc(&conn);
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), rtc3.room_id());
 
                         (rtc3, backend2)
                     })
                     .unwrap();
 
                 // Allow user to read the rtc.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 let room_id = rtc.room_id().to_string();
                 let rtc_id = rtc.id().to_string();
                 let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
@@ -1092,37 +1093,12 @@ mod test {
                     .await
                     .expect("RTC connect failed");
 
-                // Assert outgoing request to Janus.
-                let (req, _reqp, topic) = find_request::<JanusAttachRequest>(messages.as_slice());
-
-                let expected_topic = format!(
-                    "agents/{}/api/{}/in/{}",
-                    backend.id(),
-                    janus::JANUS_API_VERSION,
-                    context.config().id,
-                );
-
-                assert_eq!(topic, &expected_topic);
-                assert_eq!(req.janus, "attach");
-                assert_eq!(req.plugin, "janus.plugin.conference");
-                assert_eq!(req.session_id, backend.session_id());
-
-                // `transaction` field is base64 encoded JSON. Decode and assert.
-                let txn_wrap: JsonValue = from_base64(&req.transaction).unwrap();
-                let txn_value = txn_wrap.get("CreateRtcHandle").unwrap().to_owned();
-                let txn: RtcConnectTransaction = serde_json::from_value(txn_value).unwrap();
-
-                assert_eq!(
-                    txn,
-                    RtcConnectTransaction {
-                        rtc_id: rtc.id().to_string(),
-                        session_id: backend.session_id(),
-                        reqp: RtcConnectTransactionReqp {
-                            method: "ignore".to_string(),
-                            agent_id: AgentId::new("web", AccountId::new("user123", USR_AUDIENCE)),
-                        }
-                    }
-                )
+                // Assert returned handle id.
+                let (resp, respp, _) = find_response::<ConnectResponse>(messages.as_slice());
+                assert_eq!(respp.status(), ResponseStatus::OK);
+                assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+                assert_eq!(resp.handle_id.janus_session_id(), backend.session_id());
+                assert_eq!(resp.handle_id.backend_id(), backend.id());
             });
         }
 
@@ -1131,6 +1107,7 @@ mod test {
             async_std::task::block_on(async {
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
                 // Insert an rtc and janus backend.
                 let (rtc, backend) = db
@@ -1143,13 +1120,14 @@ mod test {
                         let room =
                             shared_helpers::insert_room_with_backend_id(&conn, &backend2.id());
 
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+
                         let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
                         (rtc, backend2)
                     })
                     .unwrap();
 
                 // Allow user to read the rtc.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 let room_id = rtc.room_id().to_string();
                 let rtc_id = rtc.id().to_string();
                 let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
@@ -1167,18 +1145,12 @@ mod test {
                     .await
                     .expect("RTC connect failed");
 
-                // Ensure we're balanced to the backend with the stream.
-                let (req, _reqp, topic) = find_request::<JanusAttachRequest>(messages.as_slice());
-
-                let expected_topic = format!(
-                    "agents/{}/api/{}/in/{}",
-                    backend.id(),
-                    janus::JANUS_API_VERSION,
-                    context.config().id,
-                );
-
-                assert_eq!(topic, expected_topic);
-                assert_eq!(req.session_id, backend.session_id());
+                // Assert returned handle id.
+                let (resp, respp, _) = find_response::<ConnectResponse>(messages.as_slice());
+                assert_eq!(respp.status(), ResponseStatus::OK);
+                assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+                assert_eq!(resp.handle_id.janus_session_id(), backend.session_id());
+                assert_eq!(resp.handle_id.backend_id(), backend.id());
             });
         }
 
@@ -1188,8 +1160,9 @@ mod test {
                 let mut rng = rand::thread_rng();
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                let (rtc, backend) = db
+                let (rtc, backend, handle_ids) = db
                     .connection_pool()
                     .get()
                     .map(|conn| {
@@ -1204,16 +1177,19 @@ mod test {
                                 .capacity(20)
                                 .insert(&conn);
 
+                        let handle_ids1 = (0..20).map(|_| rng.gen()).collect::<Vec<_>>();
+                        factory::JanusBackendHandle::new(backend1.id(), &handle_ids1).insert(&conn);
+
                         let room1 =
                             shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
 
                         let _rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
 
-                        let agent = TestAgent::new("web", "user456", SVC_AUDIENCE);
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), room1.id());
+                        let agent1 = TestAgent::new("web", "user456", USR_AUDIENCE);
+                        shared_helpers::insert_agent(&conn, agent1.agent_id(), room1.id());
 
-                        let agent = TestAgent::new("web", "user456", USR_AUDIENCE);
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), room1.id());
+                        let agent2 = TestAgent::new("web", "user789", USR_AUDIENCE);
+                        shared_helpers::insert_agent(&conn, agent2.agent_id(), room1.id());
 
                         // The second backend is too small but has no load.
                         let backend2_id = {
@@ -1221,9 +1197,13 @@ mod test {
                             agent.agent_id().to_owned()
                         };
 
-                        factory::JanusBackend::new(backend2_id, rng.gen(), rng.gen())
-                            .capacity(5)
-                            .insert(&conn);
+                        let backend2 =
+                            factory::JanusBackend::new(backend2_id, rng.gen(), rng.gen())
+                                .capacity(5)
+                                .insert(&conn);
+
+                        let handle_ids2 = (0..5).map(|_| rng.gen()).collect::<Vec<_>>();
+                        factory::JanusBackendHandle::new(backend2.id(), &handle_ids2).insert(&conn);
 
                         // It should balance to the first one despite of the load.
                         let now = Utc::now();
@@ -1238,13 +1218,13 @@ mod test {
                             .reserve(15)
                             .insert(&conn);
 
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), room2.id());
                         let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
-                        (rtc2, backend1)
+                        (rtc2, backend1, handle_ids1)
                     })
                     .unwrap();
 
                 // Allow user to read the rtc.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 let room_id = rtc.room_id().to_string();
                 let rtc_id = rtc.id().to_string();
                 let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
@@ -1262,18 +1242,13 @@ mod test {
                     .await
                     .expect("RTC connect failed");
 
-                // Ensure we're balanced to the right backend.
-                let (req, _reqp, topic) = find_request::<JanusAttachRequest>(messages.as_slice());
-
-                let expected_topic = format!(
-                    "agents/{}/api/{}/in/{}",
-                    backend.id(),
-                    janus::JANUS_API_VERSION,
-                    context.config().id,
-                );
-
-                assert_eq!(topic, expected_topic);
-                assert_eq!(req.session_id, backend.session_id());
+                // Assert returned handle id.
+                let (resp, respp, _) = find_response::<ConnectResponse>(messages.as_slice());
+                assert_eq!(respp.status(), ResponseStatus::OK);
+                assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+                assert_eq!(resp.handle_id.janus_session_id(), backend.session_id());
+                assert!(handle_ids.contains(&resp.handle_id.janus_handle_id()));
+                assert_eq!(resp.handle_id.backend_id(), backend.id());
             });
         }
 
@@ -1302,6 +1277,9 @@ mod test {
                             .capacity(4)
                             .insert(&conn);
 
+                        let handle_ids = (0..4).map(|_| rng.gen()).collect::<Vec<_>>();
+                        factory::JanusBackendHandle::new(backend.id(), &handle_ids).insert(&conn);
+
                         // Insert rooms: 1 with reserve = 2 and the other without reserve.
                         let now = Utc::now();
 
@@ -1323,18 +1301,33 @@ mod test {
                         let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
                         let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
 
-                        // Insert active agents.
-                        shared_helpers::insert_agent(&conn, writer1.agent_id(), room1.id());
-                        shared_helpers::insert_agent(&conn, writer2.agent_id(), room2.id());
+                        // Insert agents.
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            writer1.agent_id(),
+                            backend.id(),
+                            room1.id(),
+                            rtc1.id(),
+                        );
 
-                        factory::Agent::new()
-                            .agent_id(reader1.agent_id())
-                            .room_id(room2.id())
-                            .status(AgentStatus::Ready)
-                            .insert(&conn);
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            writer2.agent_id(),
+                            backend.id(),
+                            room2.id(),
+                            rtc2.id(),
+                        );
 
-                        shared_helpers::insert_agent(&conn, reader2.agent_id(), room2.id());
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            reader2.agent_id(),
+                            backend.id(),
+                            room2.id(),
+                            rtc2.id(),
+                        );
 
+                        shared_helpers::insert_agent(&conn, reader1.agent_id(), room1.id());
+                        shared_helpers::insert_agent(&conn, reader1.agent_id(), room2.id());
                         (rtc1, rtc2)
                     })
                     .unwrap();
@@ -1347,38 +1340,26 @@ mod test {
                     authz.allow(reader1.account_id(), object, "read");
                 }
 
-                // Connect to the rtc in the room without reserve.
+                // Connect to the rtc in the room with free reserved slots.
                 let mut context = TestContext::new(db, authz);
 
-                let payload = ConnectRequest {
-                    id: rtc2.id(),
-                    intent: ConnectIntent::Read,
-                };
-
-                // Should be ok since we disregard reserves.
-                handle_request::<ConnectHandler>(&mut context, &reader1, payload)
-                    .await
-                    .expect("RTC connect failed");
-
-                // Delete agent
-                {
-                    let conn = context.get_conn().expect("Failed to acquire db conn");
-                    let row_count = db::agent::DeleteQuery::new()
-                        .agent_id(&reader1.agent_id())
-                        .room_id(rtc2.room_id())
-                        .execute(&conn)
-                        .expect("Failed to delete user from agents");
-                    // Check that we actually deleted something
-                    assert_eq!(row_count, 1);
-                }
-
-                // Connect to the rtc in the room with free reserved slots.
                 let payload = ConnectRequest {
                     id: rtc1.id(),
                     intent: ConnectIntent::Read,
                 };
 
                 // Expect success.
+                handle_request::<ConnectHandler>(&mut context, &reader1, payload)
+                    .await
+                    .expect("RTC connect failed");
+
+                // Connect to the rtc in the room without reserve.
+                let payload = ConnectRequest {
+                    id: rtc2.id(),
+                    intent: ConnectIntent::Read,
+                };
+
+                // Should be ok since we disregard reserves.
                 handle_request::<ConnectHandler>(&mut context, &reader1, payload)
                     .await
                     .expect("RTC connect failed");
@@ -1406,6 +1387,9 @@ mod test {
 
                         let backend = factory::JanusBackend::new(backend_id, rng.gen(), rng.gen())
                             .capacity(2)
+                            .insert(&conn);
+
+                        factory::JanusBackendHandle::new(backend.id(), &[rng.gen(), rng.gen()])
                             .insert(&conn);
 
                         // Insert room and rtc.
@@ -1479,6 +1463,7 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             writer.agent_id(),
+                            backend.id(),
                             room.id(),
                             rtc.id(),
                         );
@@ -1486,6 +1471,7 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             reader1.agent_id(),
+                            backend.id(),
                             room.id(),
                             rtc.id(),
                         );
@@ -1546,6 +1532,8 @@ mod test {
                             .capacity(1)
                             .insert(&conn);
 
+                        factory::JanusBackendHandle::new(backend.id(), &[rng.gen()]).insert(&conn);
+
                         // Insert rtc.
                         let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                         let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
@@ -1597,34 +1585,42 @@ mod test {
                     .map(|conn| {
                         let now = Utc::now();
 
-                        // We have two backends with cap=800 and balance_cap=700 each
-                        // We have two rooms with reserves 500 and 600, each at its own backend
-                        // Room with reserve 500 has 1 writer and 2 readers, ie its load is 3
-                        // Room with reserve 600 has 1 writer and 1 readers, ie its load is 2
+                        // We have two backends with cap=8 and balance_cap=7 each
+                        // We have two rooms with reserves 5 and 6, each at its own backend
+                        // Room with reserve 5 has 1 writer and 2 readers, ie its load is 3
+                        // Room with reserve 6 has 1 writer and 1 readers, ie its load is 2
                         // We want to balance a room with reserve 400
-                        // Since it doesnt fit anywhere it should go to backend with smallest current load,
+                        // Since it doesn't fit anywhere it should go to backend with smallest current load,
                         // ie to backend 2 (though it has only 100 free reserve, and backend1 has 200 free reserve)
 
                         // Insert alpha and beta backends.
                         let backend1 = {
                             let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
                             let id = agent.agent_id().to_owned();
+
                             factory::JanusBackend::new(id, rng.gen(), rng.gen())
-                                .balancer_capacity(700)
-                                .capacity(800)
+                                .balancer_capacity(7)
+                                .capacity(8)
                                 .insert(&conn)
                         };
+
+                        let handle_ids = (0..8).map(|_| rng.gen()).collect::<Vec<_>>();
+                        factory::JanusBackendHandle::new(backend1.id(), &handle_ids).insert(&conn);
 
                         let backend2 = {
                             let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
                             let id = agent.agent_id().to_owned();
+
                             factory::JanusBackend::new(id, rng.gen(), rng.gen())
-                                .balancer_capacity(700)
-                                .capacity(800)
+                                .balancer_capacity(7)
+                                .capacity(8)
                                 .insert(&conn)
                         };
 
-                        // Setup three rooms with 500, 600 and 400 reserves.
+                        let handle_ids = (0..8).map(|_| rng.gen()).collect::<Vec<_>>();
+                        factory::JanusBackendHandle::new(backend2.id(), &handle_ids).insert(&conn);
+
+                        // Setup three rooms with 5, 6 and 4 reserves.
                         let room1 = factory::Room::new()
                             .audience(USR_AUDIENCE)
                             .time((
@@ -1633,7 +1629,7 @@ mod test {
                             ))
                             .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .backend_id(backend1.id())
-                            .reserve(500)
+                            .reserve(5)
                             .insert(&conn);
 
                         let room2 = factory::Room::new()
@@ -1642,7 +1638,7 @@ mod test {
                                 Bound::Included(now - Duration::minutes(1)),
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
-                            .reserve(600)
+                            .reserve(6)
                             .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .backend_id(backend2.id())
                             .insert(&conn);
@@ -1653,7 +1649,7 @@ mod test {
                                 Bound::Included(now - Duration::minutes(1)),
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
-                            .reserve(400)
+                            .reserve(4)
                             .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .insert(&conn);
 
@@ -1668,6 +1664,7 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             agent.agent_id(),
+                            backend1.id(),
                             room1.id(),
                             rtc1.id(),
                         );
@@ -1678,6 +1675,7 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             agent.agent_id(),
+                            backend1.id(),
                             room1.id(),
                             rtc1.id(),
                         );
@@ -1687,6 +1685,7 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             agent.agent_id(),
+                            backend1.id(),
                             room1.id(),
                             rtc1.id(),
                         );
@@ -1696,6 +1695,7 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             agent.agent_id(),
+                            backend2.id(),
                             room2.id(),
                             rtc2.id(),
                         );
@@ -1706,10 +1706,12 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             agent.agent_id(),
+                            backend2.id(),
                             room2.id(),
                             rtc2.id(),
                         );
 
+                        shared_helpers::insert_agent(&conn, new_writer.agent_id(), room3.id());
                         (rtc3, backend2)
                     })
                     .unwrap();
@@ -1734,17 +1736,12 @@ mod test {
                     .await
                     .expect("RTC connect failed");
 
-                // Assert outgoing request goes to the expected backend.
-                let (_req, _reqp, topic) = find_request::<JanusAttachRequest>(messages.as_slice());
-
-                let expected_topic = format!(
-                    "agents/{}/api/{}/in/{}",
-                    backend.id(),
-                    janus::JANUS_API_VERSION,
-                    context.config().id,
-                );
-
-                assert_eq!(topic, &expected_topic);
+                // Assert returned handle id.
+                let (resp, respp, _) = find_response::<ConnectResponse>(messages.as_slice());
+                assert_eq!(respp.status(), ResponseStatus::OK);
+                assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+                assert_eq!(resp.handle_id.janus_session_id(), backend.session_id());
+                assert_eq!(resp.handle_id.backend_id(), backend.id());
             });
         }
 
@@ -1762,7 +1759,7 @@ mod test {
                     .map(|conn| {
                         let now = Utc::now();
 
-                        // Lets say we have a single backend with cap=800
+                        // Lets say we have a single backend with cap=8
                         // Somehow reserves of all rooms that were allocated to it overflow its capacity
                         // We should allow users to connect to rooms with reserves if reserve and cap allows them
                         // But not allow to connect to room with no reserve
@@ -1771,13 +1768,17 @@ mod test {
                         let backend = {
                             let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
                             let id = agent.agent_id().to_owned();
+
                             factory::JanusBackend::new(id, rng.gen(), rng.gen())
-                                .balancer_capacity(700)
-                                .capacity(800)
+                                .balancer_capacity(7)
+                                .capacity(8)
                                 .insert(&conn)
                         };
 
-                        // Setup three rooms with 500, 600 and none.
+                        let handle_ids = (0..8).map(|_| rng.gen()).collect::<Vec<_>>();
+                        factory::JanusBackendHandle::new(backend.id(), &handle_ids).insert(&conn);
+
+                        // Setup three rooms with 5, 6 and none.
                         let room1 = factory::Room::new()
                             .audience(USR_AUDIENCE)
                             .time((
@@ -1786,7 +1787,7 @@ mod test {
                             ))
                             .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .backend_id(backend.id())
-                            .reserve(500)
+                            .reserve(5)
                             .insert(&conn);
 
                         let room2 = factory::Room::new()
@@ -1795,7 +1796,7 @@ mod test {
                                 Bound::Included(now),
                                 Bound::Excluded(now + Duration::hours(1)),
                             ))
-                            .reserve(600)
+                            .reserve(6)
                             .rtc_sharing_policy(RtcSharingPolicy::Shared)
                             .backend_id(backend.id())
                             .insert(&conn);
@@ -1821,18 +1822,20 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             agent.agent_id(),
+                            backend.id(),
                             room1.id(),
                             rtc1.id(),
                         );
 
-                        // Insert 450 readers for room 1
-                        for i in 0..450 {
+                        // Insert 4 readers for room 1
+                        for i in 0..4 {
                             let agent =
                                 TestAgent::new("web", &format!("reader1-{}", i), USR_AUDIENCE);
 
                             shared_helpers::insert_connected_agent(
                                 &conn,
                                 agent.agent_id(),
+                                backend.id(),
                                 room1.id(),
                                 rtc1.id(),
                             );
@@ -1844,6 +1847,7 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             agent.agent_id(),
+                            backend.id(),
                             room2.id(),
                             rtc3.id(),
                         );
@@ -1854,9 +1858,15 @@ mod test {
                         shared_helpers::insert_connected_agent(
                             &conn,
                             agent.agent_id(),
+                            backend.id(),
                             room3.id(),
                             rtc3.id(),
                         );
+
+                        // Enter rooms.
+                        for room in &[room1, room2, room3] {
+                            shared_helpers::insert_agent(&conn, new_reader.agent_id(), room.id());
+                        }
 
                         ([rtc1, rtc2, rtc3], backend)
                     })
@@ -1885,18 +1895,12 @@ mod test {
                             .await
                             .expect("RTC connect failed");
 
-                    // Assert outgoing request goes to the expected backend.
-                    let (_req, _reqp, topic) =
-                        find_request::<JanusAttachRequest>(messages.as_slice());
-
-                    let expected_topic = format!(
-                        "agents/{}/api/{}/in/{}",
-                        backend.id(),
-                        janus::JANUS_API_VERSION,
-                        context.config().id,
-                    );
-
-                    assert_eq!(topic, &expected_topic);
+                    // Assert returned handle id.
+                    let (resp, respp, _) = find_response::<ConnectResponse>(messages.as_slice());
+                    assert_eq!(respp.status(), ResponseStatus::OK);
+                    assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+                    assert_eq!(resp.handle_id.janus_session_id(), backend.session_id());
+                    assert_eq!(resp.handle_id.backend_id(), backend.id());
                 }
 
                 let payload = ConnectRequest {
@@ -1907,7 +1911,7 @@ mod test {
                 // Last room has NO reserve AND there is free capacity BUT it was exhausted by first two rooms
                 // So in theory we should not be able to connect to this room due to capacity_exceeded error
                 // But we still let the user through because:
-                //   1. we almost never fill any server with users upto max capacity
+                //   1. we almost never fill any server with users up to max capacity
                 //   2. thus there are unused slots anyway
                 // So its better to let them in
                 handle_request::<ConnectHandler>(&mut context, &new_reader, payload)
@@ -1921,6 +1925,7 @@ mod test {
             async_std::task::block_on(async {
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
                 // Create an RTC.
                 let rtc = db
@@ -1929,7 +1934,6 @@ mod test {
                     .map(|conn| {
                         let now = Utc::now();
                         let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
-
                         let backend = shared_helpers::insert_janus_backend(&conn);
 
                         let room = factory::Room::new()
@@ -1939,6 +1943,8 @@ mod test {
                             .backend_id(backend.id())
                             .insert(&conn);
 
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+
                         factory::Rtc::new(room.id())
                             .created_by(creator.agent_id().to_owned())
                             .insert(&conn)
@@ -1946,7 +1952,6 @@ mod test {
                     .unwrap();
 
                 // Allow agent to update the RTC.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 let room_id = rtc.room_id().to_string();
                 let rtc_id = rtc.id().to_string();
                 let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
@@ -2024,6 +2029,7 @@ mod test {
             async_std::task::block_on(async {
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
                 // Create an RTC.
                 let rtc = db
@@ -2042,6 +2048,8 @@ mod test {
                             .backend_id(backend.id())
                             .insert(&conn);
 
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+
                         factory::Rtc::new(room.id())
                             .created_by(creator.agent_id().to_owned())
                             .insert(&conn)
@@ -2049,7 +2057,6 @@ mod test {
                     .unwrap();
 
                 // Allow agent to read the RTC.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                 let room_id = rtc.room_id().to_string();
                 let rtc_id = rtc.id().to_string();
                 let object = vec!["rooms", &room_id, "rtcs", &rtc_id];

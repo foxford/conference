@@ -96,11 +96,24 @@ pub(crate) fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uui
 pub(crate) fn insert_connected_agent(
     conn: &PgConnection,
     agent_id: &AgentId,
+    backend_id: &AgentId,
     room_id: Uuid,
     rtc_id: Uuid,
 ) -> (Agent, AgentConnection) {
+    let mut rng = rand::thread_rng();
     let agent = insert_agent(conn, agent_id, room_id);
-    let agent_connection = factory::AgentConnection::new(*agent.id(), rtc_id, 123).insert(conn);
+
+    let janus_backend_handle =
+        factory::JanusBackendHandle::new(backend_id, &[rng.gen()]).insert(&conn);
+
+    let agent_connection = factory::AgentConnection::new(
+        *agent.id(),
+        rtc_id,
+        janus_backend_handle.handle_id(),
+        *janus_backend_handle.id(),
+    )
+    .insert(conn);
+
     (agent, agent_connection)
 }
 
@@ -111,10 +124,18 @@ pub(crate) fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {
         .sample_iter(&rand::distributions::Alphanumeric)
         .take(5)
         .collect();
-    let label = format!("janus-gateway-{}", label_suffix);
 
+    let label = format!("janus-gateway-{}", label_suffix);
     let agent = TestAgent::new("alpha", &label, SVC_AUDIENCE);
-    factory::JanusBackend::new(agent.agent_id().to_owned(), rng.gen(), rng.gen()).insert(conn)
+
+    let backend = factory::JanusBackend::new(agent.agent_id().to_owned(), rng.gen(), rng.gen())
+        .capacity(10)
+        .balancer_capacity(10)
+        .insert(conn);
+
+    let handle_ids = (0..10).map(|_| rng.gen()).collect::<Vec<_>>();
+    factory::JanusBackendHandle::new(backend.id(), &handle_ids).insert(&conn);
+    backend
 }
 
 pub(crate) fn insert_rtc(conn: &PgConnection) -> Rtc {

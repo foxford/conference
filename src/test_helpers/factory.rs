@@ -146,21 +146,33 @@ pub(crate) struct AgentConnection {
     agent_id: Uuid,
     rtc_id: Uuid,
     handle_id: i64,
+    janus_backend_handle_id: Uuid,
 }
 
 impl AgentConnection {
-    pub(crate) fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: i64) -> Self {
+    pub(crate) fn new(
+        agent_id: Uuid,
+        rtc_id: Uuid,
+        handle_id: i64,
+        janus_backend_handle_id: Uuid,
+    ) -> Self {
         Self {
             agent_id,
             rtc_id,
             handle_id,
+            janus_backend_handle_id,
         }
     }
 
     pub(crate) fn insert(&self, conn: &PgConnection) -> db::agent_connection::Object {
-        db::agent_connection::UpsertQuery::new(self.agent_id, self.rtc_id, self.handle_id)
-            .execute(conn)
-            .expect("Failed to insert agent_connection")
+        db::agent_connection::UpsertQuery::new(
+            self.agent_id,
+            self.rtc_id,
+            self.handle_id,
+            self.janus_backend_handle_id,
+        )
+        .execute(conn)
+        .expect("Failed to insert agent_connection")
     }
 }
 
@@ -237,6 +249,30 @@ impl JanusBackend {
         }
 
         q.execute(conn).expect("Failed to insert janus_backend")
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) struct JanusBackendHandle<'a> {
+    backend_id: &'a AgentId,
+    handle_ids: &'a [i64],
+}
+
+impl<'a> JanusBackendHandle<'a> {
+    pub(crate) fn new(backend_id: &'a AgentId, handle_ids: &'a [i64]) -> Self {
+        Self {
+            backend_id,
+            handle_ids,
+        }
+    }
+
+    pub(crate) fn insert(&self, conn: &PgConnection) -> db::janus_backend_handle::Object {
+        db::janus_backend_handle::BulkInsertQuery::new(self.backend_id, self.handle_ids)
+            .execute(conn)
+            .expect("Failed to insert janus_backend_handle")
+            .pop()
+            .expect("Missing result row when inserting janus_backend_handle")
     }
 }
 

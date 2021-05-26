@@ -106,7 +106,7 @@ impl<'a> BulkInsertQuery<'a> {
         }
     }
 
-    pub(crate) fn execute(self, conn: &PgConnection) -> Result<(), Error> {
+    pub(crate) fn execute(self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
 
         let values = self
@@ -122,9 +122,7 @@ impl<'a> BulkInsertQuery<'a> {
 
         diesel::insert_into(janus_backend_handle::table)
             .values(values)
-            .execute(conn)?;
-
-        Ok(())
+            .get_results(conn)
     }
 }
 

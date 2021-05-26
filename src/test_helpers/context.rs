@@ -3,18 +3,20 @@ use std::sync::{atomic::AtomicI64, Arc};
 use chrono::{DateTime, Utc};
 use serde_json::json;
 use slog::{Logger, OwnedKV, SendSyncRefUnwindSafeKV};
-use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
+use svc_agent::{mqtt::agent::Address, queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
 use crate::app::context::{Context, GlobalContext, JanusTopics, MessageContext};
 use crate::app::metrics::DynamicStatsCollector;
-use crate::backend::janus::Client as JanusClient;
+use crate::app::API_VERSION;
+use crate::backend::janus::{Client as JanusClient, HandlePool as JanusHandlePool};
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
 
 use super::authz::TestAuthz;
 use super::db::TestDb;
+use super::message_publisher::TestMessagePublisher;
 use super::{SVC_AUDIENCE, USR_AUDIENCE};
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -73,6 +75,7 @@ pub(crate) struct TestContext {
     agent_id: AgentId,
     janus_client: Arc<JanusClient>,
     janus_topics: JanusTopics,
+    janus_handle_pool: Arc<JanusHandlePool>,
     logger: Logger,
     start_timestamp: DateTime<Utc>,
 }
@@ -82,16 +85,25 @@ impl TestContext {
         let config = build_config();
         let agent_id = AgentId::new(&config.agent_label, config.id.clone());
 
-        let janus_client = JanusClient::start(&config.backend, agent_id.clone(), None)
-            .expect("Failed to start janus client");
+        let janus_client = Arc::new(
+            JanusClient::start(&config.backend, agent_id.clone(), None)
+                .expect("Failed to start janus client"),
+        );
+
+        let janus_handle_pool = Arc::new(JanusHandlePool::start(
+            TestMessagePublisher::new(Address::new(agent_id.clone(), API_VERSION)),
+            janus_client.clone(),
+            db.connection_pool().clone(),
+        ));
 
         Self {
             config,
             authz: authz.into(),
             db,
             agent_id,
-            janus_client: Arc::new(janus_client),
+            janus_client,
             janus_topics: JanusTopics::new("ignore", "ignore", "ignore"),
+            janus_handle_pool,
             logger: crate::LOG.new(o!()),
             start_timestamp: Utc::now(),
         }
@@ -121,6 +133,10 @@ impl GlobalContext for TestContext {
 
     fn janus_topics(&self) -> &JanusTopics {
         &self.janus_topics
+    }
+
+    fn janus_handle_pool(&self) -> Arc<JanusHandlePool> {
+        self.janus_handle_pool.clone()
     }
 
     fn queue_counter(&self) -> &Option<QueueCounterHandle> {

@@ -249,5 +249,6 @@ pub(crate) mod authz;
 pub(crate) mod context;
 pub(crate) mod db;
 pub(crate) mod factory;
+pub(crate) mod message_publisher;
 pub(crate) mod outgoing_envelope;
 pub(crate) mod shared_helpers;

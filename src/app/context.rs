@@ -4,7 +4,11 @@ use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::r2d2::{ConnectionManager, PooledConnection};
 use slog::{Logger, OwnedKV, SendSyncRefUnwindSafeKV};
-use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
+use svc_agent::{
+    mqtt::{Agent, IntoPublishableMessage},
+    queue_counter::QueueCounterHandle,
+    AgentId, Error as SvcAgentError,
+};
 use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
@@ -284,5 +288,17 @@ impl JanusTopics {
 
     pub(crate) fn responses_topic(&self) -> &str {
         &self.responses_topic
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub(crate) trait MessagePublisher: Send + Clone {
+    fn publish(&mut self, message: Box<dyn IntoPublishableMessage>) -> Result<(), SvcAgentError>;
+}
+
+impl MessagePublisher for Agent {
+    fn publish(&mut self, message: Box<dyn IntoPublishableMessage>) -> Result<(), SvcAgentError> {
+        self.publish_publishable(message)
     }
 }
