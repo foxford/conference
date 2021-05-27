@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::thread;
 
 use anyhow::{Context, Error, Result};
 use svc_agent::AgentId;
@@ -35,7 +36,7 @@ impl HandlePool {
     ) -> Self {
         let (tx, rx) = crossbeam_channel::unbounded();
 
-        async_std::task::spawn_blocking(move || {
+        thread::spawn(move || {
             HandlePoolMessageHandler::new(agent, janus_client, db).start(rx);
         });
 
@@ -217,5 +218,49 @@ impl BackendState {
 
     fn is_ready_to_flush(&self) -> bool {
         self.handle_ids_buffer.len() >= INSERT_BULK_SIZE || self.handles_remained() == 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::db::janus_backend_handle;
+    use crate::test_helpers::prelude::*;
+
+    const HANDLE_IDS: &[i64] = &[123, 456];
+
+    #[test]
+    fn create_handles() {
+        let db = TestDb::new();
+
+        let backend = {
+            let conn = db
+                .connection_pool()
+                .get()
+                .expect("Failed to get DB connection");
+
+            shared_helpers::insert_janus_backend(&conn)
+        };
+
+        let context = TestContext::new(db.clone(), TestAuthz::new());
+        let pool = context.janus_handle_pool();
+
+        pool.create_handles(backend.id(), backend.session_id(), HANDLE_IDS.len())
+            .expect("Failed to create handles");
+
+        for handle_id in HANDLE_IDS {
+            pool.handle_created_callback(backend.id(), *handle_id)
+                .expect("Failed to handle handle created callback");
+        }
+
+        let conn = db
+            .connection_pool()
+            .get()
+            .expect("Failed to get DB connection");
+
+        for handle_id in HANDLE_IDS {
+            janus_backend_handle::FindQuery::new(backend.id(), *handle_id)
+                .execute(&conn)
+                .expect("Handle not found");
+        }
     }
 }
