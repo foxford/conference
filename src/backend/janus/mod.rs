@@ -125,9 +125,11 @@ async fn handle_response_impl<C: Context>(
                 }
                 // Pool handle has been created.
                 Transaction::CreatePoolHandle(_tn) => {
-                    let result = context
-                        .janus_handle_pool()
-                        .handle_created_callback(respp.as_agent_id(), inresp.data().id());
+                    let result = context.janus_handle_pool().handle_created_callback(
+                        respp.as_agent_id(),
+                        inresp.data().id(),
+                        Some(respp),
+                    );
 
                     if let Err(err) = result {
                         error!(context.logger(), "{}", err);

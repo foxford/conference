@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::thread;
 
 use anyhow::{Context, Error, Result};
-use svc_agent::AgentId;
+use svc_agent::{mqtt::IncomingResponseProperties, AgentId};
 
 use super::Client as JanusClient;
 use crate::app::context::MessagePublisher;
@@ -21,6 +21,7 @@ enum Message {
     Handle {
         backend_id: AgentId,
         handle_id: i64,
+        respp: Option<IncomingResponseProperties>,
     },
 }
 
@@ -62,11 +63,13 @@ impl HandlePool {
         &self,
         backend_id: &AgentId,
         handle_id: i64,
+        respp: Option<&IncomingResponseProperties>,
     ) -> Result<()> {
         self.tx
             .send(Message::Handle {
                 backend_id: backend_id.to_owned(),
                 handle_id,
+                respp: respp.map(ToOwned::to_owned),
             })
             .context("Failed to send handle message to handle pool message handler")
     }
@@ -107,7 +110,8 @@ impl<A: MessagePublisher> HandlePoolMessageHandler<A> {
             Message::Handle {
                 backend_id,
                 handle_id,
-            } => self.handle_handle(backend_id, handle_id),
+                respp,
+            } => self.handle_handle(backend_id, handle_id, respp.as_ref()),
         }
     }
 
@@ -118,7 +122,16 @@ impl<A: MessagePublisher> HandlePoolMessageHandler<A> {
         Ok(())
     }
 
-    fn handle_handle(&mut self, backend_id: AgentId, handle_id: i64) -> Result<()> {
+    fn handle_handle(
+        &mut self,
+        backend_id: AgentId,
+        handle_id: i64,
+        respp: Option<&IncomingResponseProperties>,
+    ) -> Result<()> {
+        if let Some(respp) = respp {
+            self.janus_client.finish_transaction(respp);
+        }
+
         let mut maybe_handle_ids = None;
         let mut maybe_handles_remained = None;
 
@@ -248,7 +261,7 @@ mod tests {
             .expect("Failed to create handles");
 
         for handle_id in HANDLE_IDS {
-            pool.handle_created_callback(backend.id(), *handle_id)
+            pool.handle_created_callback(backend.id(), *handle_id, None)
                 .expect("Failed to handle handle created callback");
         }
 
