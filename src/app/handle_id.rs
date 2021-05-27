@@ -6,7 +6,6 @@ use uuid::Uuid;
 
 #[derive(Debug)]
 pub(crate) struct HandleId {
-    rtc_stream_id: Uuid,
     rtc_id: Uuid,
     janus_handle_id: i64,
     janus_session_id: i64,
@@ -14,10 +13,6 @@ pub(crate) struct HandleId {
 }
 
 impl HandleId {
-    pub(crate) fn rtc_stream_id(&self) -> Uuid {
-        self.rtc_stream_id
-    }
-
     pub(crate) fn rtc_id(&self) -> Uuid {
         self.rtc_id
     }
@@ -37,14 +32,12 @@ impl HandleId {
 
 impl HandleId {
     pub(crate) fn new(
-        rtc_stream_id: Uuid,
         rtc_id: Uuid,
         janus_handle_id: i64,
         janus_session_id: i64,
         backend_id: AgentId,
     ) -> Self {
         Self {
-            rtc_stream_id,
             rtc_id,
             janus_handle_id,
             janus_session_id,
@@ -57,12 +50,8 @@ impl fmt::Display for HandleId {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmt,
-            "{}.{}.{}.{}.{}",
-            self.rtc_stream_id,
-            self.rtc_id,
-            self.janus_handle_id,
-            self.janus_session_id,
-            self.backend_id
+            "{}.{}.{}.{}",
+            self.rtc_id, self.janus_handle_id, self.janus_session_id, self.backend_id
         )
     }
 }
@@ -71,17 +60,14 @@ impl FromStr for HandleId {
     type Err = anyhow::Error;
 
     fn from_str(val: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = val.splitn(5, '.').collect();
+        let parts: Vec<&str> = val.splitn(4, '.').collect();
         match parts[..] {
-            [ref rtc_stream_id, ref rtc_id, ref janus_handle_id, ref janus_session_id, ref rest] => {
-                Ok(Self::new(
-                    Uuid::from_str(rtc_stream_id)?,
-                    Uuid::from_str(rtc_id)?,
-                    janus_handle_id.parse::<i64>()?,
-                    janus_session_id.parse::<i64>()?,
-                    rest.parse::<AgentId>()?,
-                ))
-            }
+            [ref rtc_id, ref janus_handle_id, ref janus_session_id, ref rest] => Ok(Self::new(
+                Uuid::from_str(rtc_id)?,
+                janus_handle_id.parse::<i64>()?,
+                janus_session_id.parse::<i64>()?,
+                rest.parse::<AgentId>()?,
+            )),
             _ => Err(anyhow!("Invalid handle id: {}", val)),
         }
     }

@@ -8,6 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::mqtt::{IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse};
 use svc_agent::Addressable;
+use uuid::Uuid;
 
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
@@ -106,7 +107,6 @@ impl RequestHandler for CreateHandler {
     ) -> Result {
         context.add_logger_tags(o!(
             "rtc_id" => payload.handle_id.rtc_id().to_string(),
-            "rtc_stream_id" => payload.handle_id.rtc_stream_id().to_string(),
             "janus_session_id" => payload.handle_id.janus_session_id(),
             "janus_handle_id" => payload.handle_id.janus_handle_id(),
             "backend_id" => payload.handle_id.backend_id().to_string(),
@@ -231,7 +231,7 @@ impl RequestHandler for CreateHandler {
                                 let conn = context.get_conn()?;
 
                                 db::janus_rtc_stream::InsertQuery::new(
-                                    payload.handle_id.rtc_stream_id(),
+                                    Uuid::new_v4(),
                                     payload.handle_id.janus_handle_id(),
                                     payload.handle_id.rtc_id(),
                                     payload.handle_id.backend_id(),
@@ -356,7 +356,7 @@ mod test {
 
         use crate::app::handle_id::HandleId;
         use crate::backend::janus;
-        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
+        use crate::db::{self, rtc::SharingPolicy as RtcSharingPolicy};
         use crate::test_helpers::prelude::*;
 
         use super::super::*;
@@ -465,10 +465,8 @@ mod test {
 
             // Make rtc_signal.create request.
             let mut context = TestContext::new(db, authz);
-            let rtc_stream_id = Uuid::new_v4();
 
             let handle_id = HandleId::new(
-                rtc_stream_id,
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -510,13 +508,17 @@ mod test {
 
             // Assert rtc stream presence in the DB.
             let conn = context.get_conn().unwrap();
-            let query = crate::schema::janus_rtc_stream::table.find(rtc_stream_id);
 
-            let rtc_stream: crate::db::janus_rtc_stream::Object = query.get_result(&conn).unwrap();
+            let rtc_streams = db::janus_rtc_stream::ListQuery::new()
+                .rtc_id(rtc.id())
+                .backend_id(backend.id())
+                .handle_id(agent_connection.handle_id())
+                .limit(1)
+                .execute(&conn)
+                .expect("Failed to find janus RTC stream");
 
-            assert_eq!(rtc_stream.handle_id(), agent_connection.handle_id());
-            assert_eq!(rtc_stream.rtc_id(), rtc.id());
-            assert_eq!(rtc_stream.backend_id(), backend.id());
+            let rtc_stream = rtc_streams.first().expect("Janus RTC stream not found");
+
             assert_eq!(rtc_stream.label(), "whatever");
             assert_eq!(rtc_stream.sent_by(), agent.agent_id());
             Ok(())
@@ -552,7 +554,6 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -637,7 +638,6 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -720,7 +720,6 @@ mod test {
             let mut context = TestContext::new(db, authz);
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -795,7 +794,6 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -845,7 +843,6 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
                 Uuid::new_v4(),
                 12345,
                 backend.session_id(),
@@ -901,7 +898,6 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -957,7 +953,6 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -1004,13 +999,7 @@ mod test {
             // Make rtc_signal.create request.
             let mut context = TestContext::new(db, TestAuthz::new());
 
-            let handle_id = HandleId::new(
-                Uuid::new_v4(),
-                rtc.id(),
-                54321,
-                12345,
-                backend.agent_id().to_owned(),
-            );
+            let handle_id = HandleId::new(rtc.id(), 54321, 12345, backend.agent_id().to_owned());
 
             let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
                 .expect("Failed to build JSEP");
@@ -1051,7 +1040,6 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
                 rtc.id(),
                 12345,
                 backend.session_id(),
@@ -1098,7 +1086,6 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
                 rtc.id(),
                 12345,
                 backend.session_id(),
@@ -1152,13 +1139,8 @@ mod test {
             // Make rtc_signal.create request.
             let mut context = TestContext::new(db, TestAuthz::new());
 
-            let handle_id = HandleId::new(
-                Uuid::new_v4(),
-                rtc.id(),
-                789,
-                backend.session_id(),
-                backend.id().to_owned(),
-            );
+            let handle_id =
+                HandleId::new(rtc.id(), 789, backend.session_id(), backend.id().to_owned());
 
             let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
                 .expect("Failed to build JSEP");
@@ -1222,7 +1204,6 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
                 rtc.id(),
                 agent2_connection.handle_id(),
                 backend.session_id(),
@@ -1280,7 +1261,6 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -1346,7 +1326,6 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),

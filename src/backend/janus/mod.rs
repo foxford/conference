@@ -1,9 +1,9 @@
 use std::ops::Bound;
-use std::str::FromStr;
 
 use anyhow::Result;
 use async_std::stream;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use diesel::pg::PgConnection;
 use svc_agent::mqtt::{
     IncomingEvent as MQTTIncomingEvent, IncomingEventProperties, IncomingRequestProperties,
     IncomingResponse as MQTTIncomingResponse, IntoPublishableMessage, OutgoingResponse,
@@ -22,7 +22,7 @@ use crate::db::{agent_connection, janus_backend, janus_rtc_stream, recording, ro
 use crate::diesel::Connection;
 use crate::util::from_base64;
 
-use self::events::{IncomingEvent, StatusEvent};
+use self::events::{HandleEvent, IncomingEvent, StatusEvent, WebRtcUpEvent};
 use self::responses::{ErrorResponse, IncomingResponse};
 use self::transactions::Transaction;
 
@@ -32,10 +32,6 @@ const STREAM_UPLOAD_METHOD: &str = "stream.upload";
 pub(crate) const JANUS_API_VERSION: &str = "v1";
 
 const ALREADY_RUNNING_STATE: &str = "already_running";
-
-pub(crate) trait OpaqueId {
-    fn opaque_id(&self) -> &str;
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -495,41 +491,9 @@ async fn handle_event_impl<C: Context>(
         .error(AppErrorKind::MessageParsingFailed)?;
 
     let evp = event.properties();
+
     match payload {
-        IncomingEvent::WebRtcUp(ref inev) => {
-            context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
-
-            let rtc_stream_id = Uuid::from_str(inev.opaque_id())
-                .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
-                .error(AppErrorKind::MessageParsingFailed)?;
-
-            let conn = context.get_conn()?;
-
-            // If the event relates to a publisher's handle,
-            // we will find the corresponding stream and send event w/ updated stream object
-            // to the room's topic.
-            if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
-                let room = endpoint::helpers::find_room_by_rtc_id(
-                    context,
-                    rtc_stream.rtc_id(),
-                    endpoint::helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
-
-                let event = endpoint::rtc_stream::update_event(
-                    room.id(),
-                    rtc_stream,
-                    context.start_timestamp(),
-                    evp.tracking(),
-                )?;
-
-                Ok(Box::new(stream::once(
-                    Box::new(event) as Box<dyn IntoPublishableMessage + Send>
-                )))
-            } else {
-                Ok(Box::new(stream::empty()))
-            }
-        }
+        IncomingEvent::WebRtcUp(ref inev) => handle_webrtc_up(context, inev, evp),
         IncomingEvent::HangUp(ref inev) => handle_hangup_detach(context, inev, evp),
         IncomingEvent::Detached(ref inev) => handle_hangup_detach(context, inev, evp),
         IncomingEvent::Media(_) | IncomingEvent::Timeout(_) | IncomingEvent::SlowLink(_) => {
@@ -539,23 +503,68 @@ async fn handle_event_impl<C: Context>(
     }
 }
 
-fn handle_hangup_detach<C: Context, E: OpaqueId>(
+fn handle_webrtc_up<C: Context>(
+    context: &mut C,
+    inev: &WebRtcUpEvent,
+    evp: &IncomingEventProperties,
+) -> Result<MessageStream, AppError> {
+    let conn = context.get_conn()?;
+
+    let maybe_rtc_stream = conn.transaction::<_, AppError, _>(|| {
+        if let Some(rtc_stream) = find_rtc_stream(&conn, inev, evp)? {
+            context.add_logger_tags(o!("rtc_stream_id" => rtc_stream.id().to_string()));
+            janus_rtc_stream::start(rtc_stream.id(), &conn).map_err(Into::into)
+        } else {
+            Ok(None)
+        }
+    })?;
+
+    // If the event relates to a publisher's handle,
+    // we will find the corresponding stream and send event w/ updated stream object
+    // to the room's topic.
+    if let Some(rtc_stream) = maybe_rtc_stream {
+        let room = endpoint::helpers::find_room_by_rtc_id(
+            context,
+            rtc_stream.rtc_id(),
+            endpoint::helpers::RoomTimeRequirement::Open,
+            &conn,
+        )?;
+
+        let event = endpoint::rtc_stream::update_event(
+            room.id(),
+            rtc_stream,
+            context.start_timestamp(),
+            evp.tracking(),
+        )?;
+
+        Ok(Box::new(stream::once(
+            Box::new(event) as Box<dyn IntoPublishableMessage + Send>
+        )))
+    } else {
+        Ok(Box::new(stream::empty()))
+    }
+}
+
+fn handle_hangup_detach<C: Context, E: HandleEvent>(
     context: &mut C,
     inev: &E,
     evp: &IncomingEventProperties,
 ) -> Result<MessageStream, AppError> {
-    context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_owned()));
-
-    let rtc_stream_id = Uuid::from_str(inev.opaque_id())
-        .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
-        .error(AppErrorKind::MessageParsingFailed)?;
-
     let conn = context.get_conn()?;
+
+    let maybe_rtc_stream = conn.transaction::<_, AppError, _>(|| {
+        if let Some(rtc_stream) = find_rtc_stream(&conn, inev, evp)? {
+            context.add_logger_tags(o!("rtc_stream_id" => rtc_stream.id().to_string()));
+            janus_rtc_stream::stop(rtc_stream.id(), &conn).map_err(Into::into)
+        } else {
+            Ok(None)
+        }
+    })?;
 
     // If the event relates to the publisher's handle,
     // we will find the corresponding stream and send an event w/ updated stream object
     // to the room's topic.
-    if let Some(rtc_stream) = janus_rtc_stream::stop(rtc_stream_id, &conn)? {
+    if let Some(rtc_stream) = maybe_rtc_stream {
         let room = endpoint::helpers::find_room_by_rtc_id(
             context,
             rtc_stream.rtc_id(),
@@ -583,6 +592,21 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
     }
 
     Ok(Box::new(stream::empty()))
+}
+
+fn find_rtc_stream<E: HandleEvent>(
+    conn: &PgConnection,
+    inev: &E,
+    evp: &IncomingEventProperties,
+) -> Result<Option<janus_rtc_stream::Object>, AppError> {
+    let mut rtc_streams = janus_rtc_stream::ListQuery::new()
+        .backend_id(evp.as_agent_id())
+        .handle_id(inev.handle_id())
+        .active(false)
+        .limit(1)
+        .execute(&conn)?;
+
+    Ok(rtc_streams.pop())
 }
 
 pub(crate) async fn handle_status_event<C: Context>(

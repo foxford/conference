@@ -105,16 +105,18 @@ const ACTIVE_SQL: &str = r#"(
 )"#;
 
 #[derive(Debug, Default)]
-pub(crate) struct ListQuery {
+pub(crate) struct ListQuery<'a> {
     room_id: Option<Uuid>,
+    handle_id: Option<i64>,
     rtc_id: Option<Uuid>,
+    backend_id: Option<&'a AgentId>,
     time: Option<Time>,
     active: Option<bool>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
-impl ListQuery {
+impl<'a> ListQuery<'a> {
     pub(crate) fn new() -> Self {
         Self::default()
     }
@@ -126,9 +128,23 @@ impl ListQuery {
         }
     }
 
+    pub(crate) fn handle_id(self, handle_id: i64) -> Self {
+        Self {
+            handle_id: Some(handle_id),
+            ..self
+        }
+    }
+
     pub(crate) fn rtc_id(self, rtc_id: Uuid) -> Self {
         Self {
             rtc_id: Some(rtc_id),
+            ..self
+        }
+    }
+
+    pub(crate) fn backend_id(self, backend_id: &'a AgentId) -> Self {
+        Self {
+            backend_id: Some(backend_id),
             ..self
         }
     }
@@ -166,20 +182,33 @@ impl ListQuery {
         use diesel::{dsl::sql, sql_types::Tstzrange};
 
         let mut q = janus_rtc_stream::table.into_boxed();
+
+        if let Some(handle_id) = self.handle_id {
+            q = q.filter(janus_rtc_stream::handle_id.eq(handle_id));
+        }
+
         if let Some(rtc_id) = self.rtc_id {
             q = q.filter(janus_rtc_stream::rtc_id.eq(rtc_id));
         }
+
+        if let Some(backend_id) = self.backend_id {
+            q = q.filter(janus_rtc_stream::backend_id.eq(backend_id));
+        }
+
         if let Some(time) = self.time {
             q = q.filter(sql("time && ").bind::<Tstzrange, _>(time));
         }
+
         match self.active {
             None => (),
             Some(true) => q = q.filter(sql(ACTIVE_SQL)),
             Some(false) => q = q.filter(sql(&format!("not {}", ACTIVE_SQL))),
         }
+
         if let Some(offset) = self.offset {
             q = q.offset(offset);
         }
+
         if let Some(limit) = self.limit {
             q = q.limit(limit);
         }

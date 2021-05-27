@@ -1,6 +1,8 @@
 use serde_derive::Deserialize;
 
-use super::OpaqueId;
+pub(crate) trait HandleEvent {
+    fn handle_id(&self) -> i64;
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -19,12 +21,11 @@ pub(crate) enum IncomingEvent {
 pub(crate) struct WebRtcUpEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
 }
 
-impl OpaqueId for WebRtcUpEvent {
-    fn opaque_id(&self) -> &str {
-        &self.opaque_id
+impl HandleEvent for WebRtcUpEvent {
+    fn handle_id(&self) -> i64 {
+        self.sender
     }
 }
 
@@ -34,13 +35,12 @@ impl OpaqueId for WebRtcUpEvent {
 pub(crate) struct HangUpEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
     reason: String,
 }
 
-impl OpaqueId for HangUpEvent {
-    fn opaque_id(&self) -> &str {
-        &self.opaque_id
+impl HandleEvent for HangUpEvent {
+    fn handle_id(&self) -> i64 {
+        self.sender
     }
 }
 
@@ -49,7 +49,6 @@ impl OpaqueId for HangUpEvent {
 pub(crate) struct MediaEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
     #[serde(rename = "type")]
     kind: String,
     receiving: bool,
@@ -67,7 +66,6 @@ pub(crate) struct TimeoutEvent {
 pub(crate) struct SlowLinkEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
     uplink: bool,
 }
 
@@ -77,12 +75,11 @@ pub(crate) struct SlowLinkEvent {
 pub(crate) struct DetachedEvent {
     session_id: i64,
     sender: i64,
-    opaque_id: String,
 }
 
-impl OpaqueId for DetachedEvent {
-    fn opaque_id(&self) -> &str {
-        &self.opaque_id
+impl HandleEvent for DetachedEvent {
+    fn handle_id(&self) -> i64 {
+        self.sender
     }
 }
 

@@ -465,7 +465,6 @@ impl RequestHandler for ConnectHandler {
         };
 
         let handle_id = HandleId::new(
-            Uuid::new_v4(),
             payload.id,
             janus_backend_handle.handle_id(),
             backend.session_id(),
