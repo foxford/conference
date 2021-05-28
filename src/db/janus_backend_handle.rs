@@ -65,12 +65,14 @@ impl<'a> FindFreeQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct FindQuery<'a> {
     backend_id: &'a AgentId,
     handle_id: i64,
 }
 
+#[cfg(test)]
 impl<'a> FindQuery<'a> {
     pub(crate) fn new(backend_id: &'a AgentId, handle_id: i64) -> Self {
         Self {

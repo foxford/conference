@@ -18,11 +18,15 @@ use crate::app::endpoint;
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 use crate::app::message_handler::MessageStream;
 use crate::app::API_VERSION;
-use crate::db::{agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc};
+use crate::db::{
+    agent_connection, janus_backend, janus_backend_handle, janus_rtc_stream, recording, room, rtc,
+};
 use crate::diesel::Connection;
 use crate::util::from_base64;
 
-use self::events::{HandleEvent, IncomingEvent, StatusEvent, WebRtcUpEvent};
+use self::events::{
+    DetachedEvent, HandleEvent, HangUpEvent, IncomingEvent, StatusEvent, WebRtcUpEvent,
+};
 use self::responses::{ErrorResponse, IncomingResponse};
 use self::transactions::Transaction;
 
@@ -494,8 +498,8 @@ async fn handle_event_impl<C: Context>(
 
     match payload {
         IncomingEvent::WebRtcUp(ref inev) => handle_webrtc_up(context, inev, evp),
-        IncomingEvent::HangUp(ref inev) => handle_hangup_detach(context, inev, evp),
-        IncomingEvent::Detached(ref inev) => handle_hangup_detach(context, inev, evp),
+        IncomingEvent::HangUp(ref inev) => handle_hang_up(context, inev, evp),
+        IncomingEvent::Detached(ref inev) => handle_detached(context, inev, evp),
         IncomingEvent::Media(_) | IncomingEvent::Timeout(_) | IncomingEvent::SlowLink(_) => {
             // Ignore these kinds of events.
             Ok(Box::new(stream::empty()))
@@ -545,9 +549,9 @@ fn handle_webrtc_up<C: Context>(
     }
 }
 
-fn handle_hangup_detach<C: Context, E: HandleEvent>(
+fn handle_hang_up<C: Context>(
     context: &mut C,
-    inev: &E,
+    inev: &HangUpEvent,
     evp: &IncomingEventProperties,
 ) -> Result<MessageStream, AppError> {
     let conn = context.get_conn()?;
@@ -590,6 +594,26 @@ fn handle_hangup_detach<C: Context, E: HandleEvent>(
             return Ok(Box::new(stream::once(boxed_event)));
         }
     }
+
+    Ok(Box::new(stream::empty()))
+}
+
+fn handle_detached<C: Context>(
+    context: &mut C,
+    inev: &DetachedEvent,
+    evp: &IncomingEventProperties,
+) -> Result<MessageStream, AppError> {
+    // Normally this shouldn't happen but if it does then log the error and sync DB state.
+    error!(
+        context.logger(),
+        "Handle detached";
+        "backend_id" => evp.as_agent_id().to_string(),
+        "handle_id" => inev.handle_id()
+    );
+
+    let conn = context.get_conn()?;
+
+    janus_backend_handle::DeleteQuery::new(evp.as_agent_id(), inev.handle_id()).execute(&conn)?;
 
     Ok(Box::new(stream::empty()))
 }
