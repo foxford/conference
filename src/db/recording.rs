@@ -16,7 +16,7 @@ pub(crate) type AllColumns = (
     recording::started_at,
     recording::segments,
     recording::status,
-    recording::janus_dumps_uris,
+    recording::mjr_dumps_uris,
 );
 
 pub(crate) const ALL_COLUMNS: AllColumns = (
@@ -24,7 +24,7 @@ pub(crate) const ALL_COLUMNS: AllColumns = (
     recording::started_at,
     recording::segments,
     recording::status,
-    recording::janus_dumps_uris,
+    recording::mjr_dumps_uris,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -61,7 +61,7 @@ pub(crate) struct Object {
     started_at: Option<DateTime<Utc>>,
     segments: Option<Vec<Segment>>,
     status: Status,
-    janus_dumps_uris: Option<Vec<String>>,
+    mjr_dumps_uris: Option<Vec<String>>,
 }
 
 impl Object {
@@ -82,8 +82,8 @@ impl Object {
     }
 
     /// Get a reference to the object's janus dumps uris.
-    pub(crate) fn janus_dumps_uris(&self) -> Option<&Vec<String>> {
-        self.janus_dumps_uris.as_ref()
+    pub(crate) fn mjr_dumps_uris(&self) -> Option<&Vec<String>> {
+        self.mjr_dumps_uris.as_ref()
     }
 }
 
@@ -140,7 +140,7 @@ pub(crate) struct UpdateQuery {
     status: Option<Status>,
     started_at: Option<DateTime<Utc>>,
     segments: Option<Vec<Segment>>,
-    janus_dumps_uris: Option<Vec<String>>,
+    mjr_dumps_uris: Option<Vec<String>>,
 }
 
 impl UpdateQuery {
@@ -150,7 +150,7 @@ impl UpdateQuery {
             status: None,
             started_at: None,
             segments: None,
-            janus_dumps_uris: None,
+            mjr_dumps_uris: None,
         }
     }
 
@@ -161,9 +161,9 @@ impl UpdateQuery {
         }
     }
 
-    pub(crate) fn janus_dumps_uris(self, dumps_uris: Option<Vec<String>>) -> Self {
+    pub(crate) fn mjr_dumps_uris(self, mjr_dumps_uris: Option<Vec<String>>) -> Self {
         Self {
-            janus_dumps_uris: dumps_uris,
+            mjr_dumps_uris,
             ..self
         }
     }

@@ -392,8 +392,8 @@ async fn handle_response_impl<C: Context>(
                                         })
                                         .collect())
                                 })?;
-                            let janus_dumps_uris = plugin_data
-                                .get("dumps_uris")
+                            let mjr_dumps_uris = plugin_data
+                                .get("mjr_dumps_uris")
                                 .map(|dumps| {
                                     serde_json::from_value::<Vec<String>>(dumps.clone())
                                         .map_err(|err| {
@@ -413,7 +413,7 @@ async fn handle_response_impl<C: Context>(
                                     .status(recording::Status::Ready)
                                     .started_at(started_at)
                                     .segments(segments)
-                                    .janus_dumps_uris(janus_dumps_uris)
+                                    .mjr_dumps_uris(mjr_dumps_uris)
                                     .execute(&conn)?;
 
                                 let rtc = rtc::FindQuery::new()

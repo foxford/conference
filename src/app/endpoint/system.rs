@@ -50,7 +50,7 @@ struct RtcUploadEventData {
     #[serde(skip_serializing_if = "Option::is_none")]
     uri: Option<String>,
     created_by: AgentId,
-    janus_dumps_uris: Option<Vec<String>>,
+    mjr_dumps_uris: Option<Vec<String>>,
 }
 
 pub(crate) type RoomUploadEvent = OutgoingMessage<RoomUploadEventData>;
@@ -171,7 +171,7 @@ where
             segments: recording.segments().to_owned(),
             started_at: recording.started_at().to_owned(),
             created_by: rtc.created_by().to_owned(),
-            janus_dumps_uris: recording.janus_dumps_uris().cloned(),
+            mjr_dumps_uris: recording.mjr_dumps_uris().cloned(),
         };
 
         event_entries.push(entry);

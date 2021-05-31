@@ -63,7 +63,7 @@ table! {
         started_at -> Nullable<Timestamptz>,
         segments -> Nullable<Array<Int8range>>,
         status -> Recording_status,
-        janus_dumps_uris -> Nullable<Array<Text>>,
+        mjr_dumps_uris -> Nullable<Array<Text>>,
     }
 }
 
