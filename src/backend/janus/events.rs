@@ -87,8 +87,8 @@ impl HandleEvent for DetachedEvent {
 #[derive(Debug, Deserialize)]
 pub(crate) struct StatusEvent {
     online: bool,
-    capacity: i32,
-    balancer_capacity: i32,
+    capacity: Option<i32>,
+    balancer_capacity: Option<i32>,
 }
 
 impl StatusEvent {
@@ -96,11 +96,11 @@ impl StatusEvent {
         self.online
     }
 
-    pub(crate) fn capacity(&self) -> i32 {
+    pub(crate) fn capacity(&self) -> Option<i32> {
         self.capacity
     }
 
-    pub(crate) fn balancer_capacity(&self) -> i32 {
+    pub(crate) fn balancer_capacity(&self) -> Option<i32> {
         self.balancer_capacity
     }
 }

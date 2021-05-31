@@ -53,7 +53,13 @@ impl Client {
         start_timestamp: DateTime<Utc>,
     ) -> Result<OutgoingMessage<CreateSessionRequest>> {
         let to = evp.as_agent_id();
-        let tn_data = TransactionData::new(payload.capacity(), payload.balancer_capacity());
+
+        let capacity = payload
+            .capacity()
+            .ok_or_else(|| anyhow!("Missing capacity"))?;
+
+        let balancer_capacity = payload.balancer_capacity().unwrap_or(capacity);
+        let tn_data = TransactionData::new(capacity, balancer_capacity);
         let transaction = Transaction::CreateSession(tn_data);
         let payload = CreateSessionRequest::new(&to_base64(&transaction)?);
 
