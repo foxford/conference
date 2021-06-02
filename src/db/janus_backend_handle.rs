@@ -5,21 +5,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::db::janus_backend::Object as JanusBackend;
-use crate::schema::{agent_connection, janus_backend_handle};
-
-type AllColumns = (
-    janus_backend_handle::id,
-    janus_backend_handle::backend_id,
-    janus_backend_handle::handle_id,
-    janus_backend_handle::created_at,
-);
-
-const ALL_COLUMNS: AllColumns = (
-    janus_backend_handle::id,
-    janus_backend_handle::backend_id,
-    janus_backend_handle::handle_id,
-    janus_backend_handle::created_at,
-);
+use crate::schema::janus_backend_handle;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -41,6 +27,21 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+const FIND_FREE_SQL: &str = r#"
+SELECT *
+FROM janus_backend_handle
+WHERE id = (
+    SELECT jbh.id
+    FROM janus_backend_handle AS jbh
+    LEFT JOIN agent_connection AS ac
+    ON ac.janus_backend_handle_id = jbh.id
+    WHERE ac.agent_id IS NULL
+    AND jbh.backend_id = $1
+    LIMIT 1
+)
+FOR UPDATE SKIP LOCKED
+"#;
+
 pub(crate) struct FindFreeQuery<'a> {
     backend_id: &'a AgentId,
 }
@@ -51,13 +52,11 @@ impl<'a> FindFreeQuery<'a> {
     }
 
     pub(crate) fn execute(self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+        use crate::db::sql::Agent_id;
         use diesel::prelude::*;
 
-        janus_backend_handle::table
-            .left_join(agent_connection::table)
-            .filter(agent_connection::agent_id.is_null())
-            .filter(janus_backend_handle::backend_id.eq(self.backend_id))
-            .select(ALL_COLUMNS)
+        diesel::sql_query(FIND_FREE_SQL)
+            .bind::<Agent_id, _>(self.backend_id)
             .get_result(conn)
             .optional()
     }
