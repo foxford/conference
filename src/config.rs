@@ -23,6 +23,7 @@ pub(crate) struct Config {
     pub(crate) kruonis: KruonisConfig,
     pub(crate) metrics: Option<MetricsConfig>,
     pub(crate) max_room_duration: Option<i64>,
+    pub(crate) janus_group: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

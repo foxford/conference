@@ -96,6 +96,10 @@ impl TestContext {
             start_timestamp: Utc::now(),
         }
     }
+
+    pub(crate) fn config_mut(&mut self) -> &mut Config {
+        &mut self.config
+    }
 }
 
 impl GlobalContext for TestContext {

@@ -92,6 +92,7 @@ pub(crate) struct StatusEvent {
     online: bool,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
+    group: Option<String>,
 }
 
 impl StatusEvent {
@@ -105,5 +106,9 @@ impl StatusEvent {
 
     pub(crate) fn balancer_capacity(&self) -> Option<i32> {
         self.balancer_capacity
+    }
+
+    pub(crate) fn group(&self) -> Option<&str> {
+        self.group.as_deref()
     }
 }

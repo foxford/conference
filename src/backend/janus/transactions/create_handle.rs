@@ -24,6 +24,7 @@ pub(crate) struct TransactionData {
     session_id: i64,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
+    group: Option<String>,
 }
 
 impl TransactionData {
@@ -32,6 +33,7 @@ impl TransactionData {
             session_id,
             capacity: None,
             balancer_capacity: None,
+            group: None,
         }
     }
 
@@ -56,6 +58,15 @@ impl TransactionData {
         self.balancer_capacity = Some(balancer_capacity);
         self
     }
+
+    pub(crate) fn group(&self) -> Option<&str> {
+        self.group.as_ref().map(AsRef::as_ref)
+    }
+
+    pub(crate) fn set_group(&mut self, group: &str) -> &mut Self {
+        self.group = Some(group.to_owned());
+        self
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -67,6 +78,7 @@ impl Client {
         session_id: i64,
         capacity: Option<i32>,
         balancer_capacity: Option<i32>,
+        group: Option<&str>,
         start_timestamp: DateTime<Utc>,
     ) -> Result<OutgoingMessage<CreateHandleRequest>> {
         let to = respp.as_agent_id();
@@ -78,6 +90,10 @@ impl Client {
 
         if let Some(balancer_capacity) = balancer_capacity {
             tn_data.set_balancer_capacity(balancer_capacity);
+        }
+
+        if let Some(group) = group {
+            tn_data.set_group(group);
         }
 
         let transaction = Transaction::CreateHandle(tn_data);
