@@ -140,9 +140,8 @@ impl<A: MessagePublisher> HandlePoolMessageHandler<A> {
 
             if backend_state.is_ready_to_flush() {
                 maybe_handle_ids = Some(backend_state.flush());
+                maybe_handles_remained = Some(backend_state.handles_remained());
             }
-
-            maybe_handles_remained = Some(backend_state.handles_remained());
         }
 
         if let Some(ref handle_ids) = maybe_handle_ids {
@@ -164,6 +163,8 @@ impl<A: MessagePublisher> HandlePoolMessageHandler<A> {
     }
 
     fn create_handles(&self, backend_id: AgentId, handles_count: usize) -> Result<()> {
+        info!(crate::LOG, "Creating {} handles on backend {}", handles_count, backend_id);
+
         let backend_state = self
             .state
             .get(&backend_id)
