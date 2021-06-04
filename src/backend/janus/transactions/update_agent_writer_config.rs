@@ -30,7 +30,7 @@ impl Client {
     ) -> Result<OutgoingMessage<MessageRequest>> {
         let to = backend.id();
         let mut short_term_timing = ShortTermTimingProperties::until_now(start_timestamp);
-        
+
         if let Some(authz_time) = maybe_authz_time {
             short_term_timing.set_authorization_time(authz_time);
         }

@@ -1,4 +1,5 @@
 use diesel::{pg::PgConnection, result::Error};
+use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::db::rtc::Object as Rtc;
@@ -11,6 +12,7 @@ type AllColumns = (
     rtc_writer_config::send_video,
     rtc_writer_config::send_audio,
     rtc_writer_config::video_remb,
+    rtc_writer_config::send_audio_updated_by,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -18,6 +20,7 @@ const ALL_COLUMNS: AllColumns = (
     rtc_writer_config::send_video,
     rtc_writer_config::send_audio,
     rtc_writer_config::video_remb,
+    rtc_writer_config::send_audio_updated_by,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -31,6 +34,7 @@ pub(crate) struct Object {
     send_video: bool,
     send_audio: bool,
     video_remb: Option<i64>,
+    send_audio_updated_by: Option<AgentId>,
 }
 
 impl Object {
@@ -44,6 +48,10 @@ impl Object {
 
     pub(crate) fn video_remb(&self) -> Option<i64> {
         self.video_remb
+    }
+
+    pub(crate) fn send_audio_updated_by(&self) -> Option<&AgentId> {
+        self.send_audio_updated_by.as_ref()
     }
 }
 
@@ -72,22 +80,21 @@ impl ListWithRtcQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Debug, Insertable, AsChangeset)]
+#[derive(Clone, Debug, Default, Insertable, AsChangeset)]
 #[table_name = "rtc_writer_config"]
-pub(crate) struct UpsertQuery {
+pub(crate) struct UpsertQuery<'a> {
     rtc_id: Uuid,
     send_video: Option<bool>,
     send_audio: Option<bool>,
     video_remb: Option<i64>,
+    send_audio_updated_by: Option<&'a AgentId>,
 }
 
-impl UpsertQuery {
+impl<'a> UpsertQuery<'a> {
     pub(crate) fn new(rtc_id: Uuid) -> Self {
         Self {
             rtc_id,
-            send_video: None,
-            send_audio: None,
-            video_remb: None,
+            ..Default::default()
         }
     }
 
@@ -108,6 +115,13 @@ impl UpsertQuery {
     pub(crate) fn video_remb(self, video_remb: i64) -> Self {
         Self {
             video_remb: Some(video_remb),
+            ..self
+        }
+    }
+
+    pub(crate) fn send_audio_updated_by(self, send_audio_updated_by: &'a AgentId) -> Self {
+        Self {
+            send_audio_updated_by: Some(send_audio_updated_by),
             ..self
         }
     }
