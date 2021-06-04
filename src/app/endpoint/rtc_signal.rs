@@ -190,6 +190,13 @@ impl RequestHandler for CreateHandler {
                                 .context("Error serializing JSEP")
                                 .error(AppErrorKind::MessageBuildingFailed)?;
 
+                            info!(
+                                context.logger(),
+                                "Sending stream.read";
+                                "handle_id" => payload.handle_id.janus_handle_id(),
+                                "rtc_id" => payload.handle_id.rtc_id().to_string(),
+                            );
+
                             context
                                 .janus_client()
                                 .read_stream_request(
@@ -244,6 +251,13 @@ impl RequestHandler for CreateHandler {
                             let jsep = serde_json::to_value(&payload.jsep)
                                 .context("Error serializing JSEP")
                                 .error(AppErrorKind::MessageBuildingFailed)?;
+
+                            info!(
+                                context.logger(),
+                                "Sending stream.create";
+                                "handle_id" => payload.handle_id.janus_handle_id(),
+                                "rtc_id" => payload.handle_id.rtc_id().to_string(),
+                            );
 
                             context
                                 .janus_client()

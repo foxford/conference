@@ -163,7 +163,10 @@ impl<A: MessagePublisher> HandlePoolMessageHandler<A> {
     }
 
     fn create_handles(&self, backend_id: AgentId, handles_count: usize) -> Result<()> {
-        info!(crate::LOG, "Creating {} handles on backend {}", handles_count, backend_id);
+        info!(
+            crate::LOG,
+            "Creating {} handles on backend {}", handles_count, backend_id
+        );
 
         let backend_state = self
             .state

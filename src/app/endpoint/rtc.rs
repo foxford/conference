@@ -471,6 +471,13 @@ impl RequestHandler for ConnectHandler {
             backend.id().to_owned(),
         );
 
+        info!(
+            context.logger(),
+            "Responding with HandleId";
+            "handle_id" => janus_backend_handle.handle_id(),
+            "rtc_id" => payload.id.to_string(),
+        );
+
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
             ConnectResponse::new(handle_id),
