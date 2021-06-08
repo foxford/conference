@@ -15,6 +15,7 @@ pub(crate) type AllColumns = (
     janus_backend::capacity,
     janus_backend::balancer_capacity,
     janus_backend::api_version,
+    janus_backend::group,
 );
 
 pub(crate) const ALL_COLUMNS: AllColumns = (
@@ -25,6 +26,7 @@ pub(crate) const ALL_COLUMNS: AllColumns = (
     janus_backend::capacity,
     janus_backend::balancer_capacity,
     janus_backend::api_version,
+    janus_backend::group,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -39,6 +41,7 @@ pub(crate) struct Object {
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     api_version: String,
+    group: Option<String>,
 }
 
 impl Object {
@@ -134,6 +137,7 @@ pub(crate) struct UpsertQuery<'a> {
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     api_version: String,
+    group: Option<&'a str>,
 }
 
 impl<'a> UpsertQuery<'a> {
@@ -145,6 +149,7 @@ impl<'a> UpsertQuery<'a> {
             capacity: None,
             balancer_capacity: None,
             api_version: JANUS_API_VERSION.to_string(),
+            group: None,
         }
     }
 
@@ -158,6 +163,13 @@ impl<'a> UpsertQuery<'a> {
     pub(crate) fn balancer_capacity(self, balancer_capacity: i32) -> Self {
         Self {
             balancer_capacity: Some(balancer_capacity),
+            ..self
+        }
+    }
+
+    pub(crate) fn group(self, group: &'a str) -> Self {
+        Self {
+            group: Some(group),
             ..self
         }
     }
@@ -249,17 +261,23 @@ const MOST_LOADED_SQL: &str = r#"
     WHERE r2.id = $1
     AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) >= COALESCE(r2.reserve, 1)
     AND   jb.api_version = $2
+    AND   ($3 IS NULL OR jb."group" = $3)
     ORDER BY COALESCE(jbl.load, 0) DESC, RANDOM()
     LIMIT 1
 "#;
 
-pub(crate) fn most_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
+pub(crate) fn most_loaded(
+    room_id: Uuid,
+    group: Option<&str>,
+    conn: &PgConnection,
+) -> Result<Option<Object>, Error> {
     use diesel::prelude::*;
-    use diesel::sql_types::{Text, Uuid};
+    use diesel::sql_types::{Nullable, Text, Uuid};
 
     diesel::sql_query(MOST_LOADED_SQL)
         .bind::<Uuid, _>(room_id)
         .bind::<Text, _>(JANUS_API_VERSION)
+        .bind::<Nullable<Text>, _>(group)
         .get_result(conn)
         .optional()
 }
@@ -310,19 +328,25 @@ const LEAST_LOADED_SQL: &str = r#"
     ON 1 = 1
     WHERE r2.id = $1
     AND   jb.api_version = $2
+    AND   ($3 IS NULL OR jb."group" = $3)
     ORDER BY
         COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC,
         RANDOM()
     LIMIT 1
 "#;
 
-pub(crate) fn least_loaded(room_id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
+pub(crate) fn least_loaded(
+    room_id: Uuid,
+    group: Option<&str>,
+    conn: &PgConnection,
+) -> Result<Option<Object>, Error> {
     use diesel::prelude::*;
-    use diesel::sql_types::{Text, Uuid};
+    use diesel::sql_types::{Nullable, Text, Uuid};
 
     diesel::sql_query(LEAST_LOADED_SQL)
         .bind::<Uuid, _>(room_id)
         .bind::<Text, _>(JANUS_API_VERSION)
+        .bind::<Nullable<Text>, _>(group)
         .get_result(conn)
         .optional()
 }

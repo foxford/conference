@@ -85,6 +85,7 @@ async fn handle_response_impl<C: Context>(
                             inresp.data().id(),
                             tn.capacity(),
                             tn.balancer_capacity(),
+                            tn.group(),
                             context.start_timestamp(),
                         )
                         .error(AppErrorKind::MessageBuildingFailed)?;
@@ -107,6 +108,10 @@ async fn handle_response_impl<C: Context>(
 
                     if let Some(balancer_capacity) = tn.balancer_capacity() {
                         q = q.balancer_capacity(balancer_capacity);
+                    }
+
+                    if let Some(group) = tn.group() {
+                        q = q.group(group);
                     }
 
                     q.execute(&conn)?;

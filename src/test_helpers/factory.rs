@@ -198,6 +198,7 @@ pub(crate) struct JanusBackend {
     session_id: i64,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
+    group: Option<String>,
 }
 
 impl JanusBackend {
@@ -208,6 +209,7 @@ impl JanusBackend {
             session_id,
             capacity: None,
             balancer_capacity: None,
+            group: None,
         }
     }
 
@@ -225,6 +227,13 @@ impl JanusBackend {
         }
     }
 
+    pub(crate) fn group(self, group: &str) -> Self {
+        Self {
+            group: Some(group.to_owned()),
+            ..self
+        }
+    }
+
     pub(crate) fn insert(&self, conn: &PgConnection) -> db::janus_backend::Object {
         let mut q = db::janus_backend::UpsertQuery::new(&self.id, self.handle_id, self.session_id);
 
@@ -234,6 +243,10 @@ impl JanusBackend {
 
         if let Some(balancer_capacity) = self.balancer_capacity {
             q = q.balancer_capacity(balancer_capacity);
+        }
+
+        if let Some(ref group) = self.group {
+            q = q.group(group);
         }
 
         q.execute(conn).expect("Failed to insert janus_backend")

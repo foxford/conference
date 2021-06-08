@@ -35,6 +35,7 @@ table! {
         capacity -> Nullable<Int4>,
         balancer_capacity -> Nullable<Int4>,
         api_version -> Text,
+        group -> Nullable<Text>,
     }
 }
 

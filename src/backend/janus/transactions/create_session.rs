@@ -20,18 +20,16 @@ const METHOD: &str = "janus_session.create";
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub(crate) struct TransactionData {
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
+    group: Option<String>,
 }
 
 impl TransactionData {
     pub(crate) fn new() -> Self {
-        Self {
-            capacity: None,
-            balancer_capacity: None,
-        }
+        Default::default()
     }
 
     pub(crate) fn capacity(&self) -> Option<i32> {
@@ -49,6 +47,15 @@ impl TransactionData {
 
     pub(crate) fn set_balancer_capacity(&mut self, balancer_capacity: i32) -> &mut Self {
         self.balancer_capacity = Some(balancer_capacity);
+        self
+    }
+
+    pub(crate) fn group(&self) -> Option<&str> {
+        self.group.as_ref().map(AsRef::as_ref)
+    }
+
+    pub(crate) fn set_group(&mut self, group: &str) -> &mut Self {
+        self.group = Some(group.to_owned());
         self
     }
 }
@@ -71,6 +78,10 @@ impl Client {
 
         if let Some(balancer_capacity) = payload.balancer_capacity() {
             tn_data.set_balancer_capacity(balancer_capacity);
+        }
+
+        if let Some(group) = payload.group() {
+            tn_data.set_group(group);
         }
 
         let transaction = Transaction::CreateSession(tn_data);
