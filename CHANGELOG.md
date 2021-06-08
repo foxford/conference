@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.18 (June 8, 2021)
+
+### Features
+- Add Janus grouping ([a9bce0a](https://github.com/netology-group/conference/commit/a9bce0ae7118737d6f8b7454899331e08b722fe8))
+
+
 ## v0.6.17 (May 20, 2021)
 
 ### Changes
@@ -12,10 +18,12 @@
 ### Fixes
 - Delete only connections related to the disconnected stream's RTC ([b0fb07f](https://github.com/netology-group/conference/commit/b0fb07f083059f5fcd3e984b982494c3b531b68b))
 
+
 ## v0.6.16 (May 19, 2021)
 
 ### Changes
 - Remove redundant authz objects, fix room update ([37038db](https://github.com/netology-group/conference/commit/37038db3cfcfc529339e872fc3ac4382f6bfd2ef))
+
 
 ## v0.6.15 (May 12, 2021)
 
@@ -25,6 +33,7 @@
 
 ### Changes
 - Rename class_id to classroom_id ([b70c9bf](https://github.com/netology-group/conference/commit/b70c9bfe6a7b354b27a6b16861adf8b344ba4039))
+
 
 ## v0.6.14 (April 23, 2021)
 
