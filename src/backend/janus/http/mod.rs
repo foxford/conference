@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use isahc::{http::Uri, AsyncReadResponseExt, HttpClient, Request};
-use uuid::Uuid;
-
 use self::create_handle::{CreateHandleRequest, CreateHandleResponse};
-use serde_json::json;
+use anyhow::anyhow;
+use isahc::{http::Uri, AsyncReadResponseExt, HttpClient, Request};
+use serde_json::{json, Value};
+use uuid::Uuid;
 pub mod create_handle;
 
 #[derive(Debug)]
@@ -33,6 +33,14 @@ impl JanusClient {
         }))?;
         let request =
             Request::post(format!("{}/{}", self.janus_url, request.session_id)).body(body)?;
-        Ok(self.http.send_async(request).await?.json().await?)
+        let create_handle_response: Value = self.http.send_async(request).await?.json().await?;
+        let id = create_handle_response
+            .get("data")
+            .ok_or_else(|| anyhow!("Missing data"))?
+            .get("id")
+            .ok_or_else(|| anyhow!("Missing id"))?
+            .as_i64()
+            .ok_or_else(|| anyhow!("id not i64"))?;
+        Ok(CreateHandleResponse { id })
     }
 }
