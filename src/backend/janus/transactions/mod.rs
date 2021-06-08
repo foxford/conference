@@ -7,7 +7,7 @@ pub(crate) enum Transaction {
     CreateHandle(create_handle::TransactionData),
     CreateSession(create_session::TransactionData),
     CreateStream(create_stream::TransactionData),
-    CreateRtcHandle(create_rtc_handle::TransactionData),
+    // CreateRtcHandle(create_rtc_handle::TransactionData),
     ReadStream(read_stream::TransactionData),
     Trickle(trickle::TransactionData),
     UpdateReaderConfig,

@@ -16,11 +16,10 @@ use uuid::Uuid;
 use crate::app::context::Context;
 use crate::app::endpoint;
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
-use crate::app::handle_id::HandleId;
 use crate::app::message_handler::MessageStream;
 use crate::app::API_VERSION;
-use crate::db::{agent, agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc};
-use crate::diesel::{Connection, Identifiable};
+use crate::db::{agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc};
+use crate::diesel::Connection;
 use crate::util::from_base64;
 
 use self::events::{IncomingEvent, StatusEvent};
@@ -111,66 +110,6 @@ async fn handle_response_impl<C: Context>(
 
                     q.execute(&conn)?;
                     Ok(Box::new(stream::empty()))
-                }
-                // Rtc Handle has been created
-                Transaction::CreateRtcHandle(tn) => {
-                    let handle_id = inresp.data().id();
-                    let backend_id = respp.as_agent_id();
-                    let room_id = tn.room_id();
-                    let rtc_id = tn.rtc_id();
-                    let reqp = tn.reqp();
-                    let agent_id = reqp.as_agent_id();
-
-                    {
-                        let conn = context.get_conn()?;
-
-                        conn.transaction::<_, AppError, _>(|| {
-                            // Find agent in the DB who made the original `rtc.connect` request.
-                            let maybe_agent = agent::ListQuery::new()
-                                .agent_id(agent_id)
-                                .room_id(room_id)
-                                .status(agent::Status::Ready)
-                                .limit(1)
-                                .execute(&conn)?;
-
-                            if let Some(agent) = maybe_agent.first() {
-                                // Create agent connection in the DB.
-                                agent_connection::UpsertQuery::new(*agent.id(), rtc_id, handle_id)
-                                    .execute(&conn)?;
-
-                                Ok(())
-                            } else {
-                                context.add_logger_tags(o!(
-                                    "agent_id" => agent_id.to_string(),
-                                    "room_id" => room_id.to_string(),
-                                ));
-
-                                // Agent may be already gone.
-                                Err(anyhow!("Agent not found"))
-                                    .error(AppErrorKind::AgentNotEnteredTheRoom)
-                            }
-                        })?;
-                    }
-
-                    // Returning Real-Time connection handle
-                    let resp = endpoint::rtc::ConnectResponse::unicast(
-                        endpoint::rtc::ConnectResponseData::new(HandleId::new(
-                            tn.rtc_stream_id(),
-                            tn.rtc_id(),
-                            handle_id,
-                            tn.session_id(),
-                            backend_id.to_owned(),
-                        )),
-                        reqp.to_response(
-                            ResponseStatus::OK,
-                            ShortTermTimingProperties::until_now(context.start_timestamp()),
-                        ),
-                        reqp,
-                        JANUS_API_VERSION,
-                    );
-
-                    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-                    Ok(Box::new(stream::once(boxed_resp)))
                 }
                 // An unsupported incoming Success message has been received
                 _ => Ok(Box::new(stream::empty())),

@@ -7,5 +7,5 @@ pub struct CreateHandleRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateHandleResponse {
-    pub handle_id: i64,
+    pub id: i64,
 }

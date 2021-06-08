@@ -7,17 +7,24 @@ use chrono::Duration;
 use chrono::Utc;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
-    mqtt::{IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus},
+    mqtt::{
+        IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
+        ShortTermTimingProperties,
+    },
     Addressable,
 };
 use uuid::Uuid;
 
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
-use crate::app::handle_id::HandleId;
-use crate::db::{self, rtc::SharingPolicy as RtcSharingPolicy};
-use crate::diesel::Connection;
-
+use crate::diesel::Identifiable;
+use crate::{app::context::Context, backend::janus::http::create_handle::CreateHandleRequest};
+use crate::{
+    app::endpoint,
+    db::{self, rtc::SharingPolicy as RtcSharingPolicy},
+};
+use crate::{app::endpoint::prelude::*, db::agent};
+use crate::{app::handle_id::HandleId, backend::janus::JANUS_API_VERSION};
+use crate::{db::agent_connection, diesel::Connection};
+use anyhow::Context as AnyhowContext;
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize)]
@@ -381,7 +388,7 @@ impl RequestHandler for ConnectHandler {
                             warn!(crate::LOG, "No capable backends to host the reserve; falling back to the least loaded backend: room_id = {}, rtc_id = {}, backend_id = {}", room_id, rtc_id, backend_id);
 
                             let mut extra = std::collections::BTreeMap::new();
-                            extra.insert(String::from("room_id"), Value::from(room_id));
+                            extra.insert(String::from("room_id"), Value::from(room_id.clone()));
                             extra.insert(String::from("rtc_id"), Value::from(rtc_id));
                             extra.insert(String::from("backend_id"), Value::from(backend_id));
 
@@ -438,26 +445,65 @@ impl RequestHandler for ConnectHandler {
 
         context.add_logger_tags(o!("backend_id" => backend.id().to_string()));
 
-        // Send janus handle creation request.
-        let janus_request_result = context.janus_client().create_rtc_handle_request(
-            reqp.clone(),
-            Uuid::new_v4(),
-            payload.id,
-            room.id(),
-            backend.session_id(),
-            backend.id(),
-            context.start_timestamp(),
-            authz_time,
+        let handle = context
+            .janus_http_client()
+            .create_handle(&CreateHandleRequest {
+                session_id: backend.session_id(),
+            })
+            .await
+            .context("Handle creating")
+            .error(AppErrorKind::BackendRequestFailed)?;
+
+        let agent_id = reqp.as_agent_id();
+        {
+            let conn = context.get_conn()?;
+
+            conn.transaction::<_, AppError, _>(|| {
+                // Find agent in the DB who made the original `rtc.connect` request.
+                let maybe_agent = agent::ListQuery::new()
+                    .agent_id(agent_id)
+                    .room_id(room.id())
+                    .status(agent::Status::Ready)
+                    .limit(1)
+                    .execute(&conn)?;
+
+                if let Some(agent) = maybe_agent.first() {
+                    // Create agent connection in the DB.
+                    agent_connection::UpsertQuery::new(*agent.id(), payload.id, handle.id)
+                        .execute(&conn)?;
+
+                    Ok(())
+                } else {
+                    context.add_logger_tags(o!(
+                        "agent_id" => agent_id.to_string(),
+                        "room_id" => room_id.to_string(),
+                    ));
+
+                    // Agent may be already gone.
+                    Err(anyhow!("Agent not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
+                }
+            })?;
+        }
+
+        // Returning Real-Time connection handle
+        let resp = endpoint::rtc::ConnectResponse::unicast(
+            endpoint::rtc::ConnectResponseData::new(HandleId::new(
+                Uuid::new_v4(),
+                payload.id,
+                handle.id,
+                backend.session_id(),
+                backend.id().clone(),
+            )),
+            reqp.to_response(
+                ResponseStatus::OK,
+                ShortTermTimingProperties::until_now(context.start_timestamp()),
+            ),
+            reqp,
+            JANUS_API_VERSION,
         );
 
-        match janus_request_result {
-            Ok(req) => {
-                let boxed_request = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
-                Ok(Box::new(stream::once(boxed_request)))
-            }
-            Err(err) => Err(err.context("Error creating a backend request"))
-                .error(AppErrorKind::MessageBuildingFailed),
-        }
+        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+        Ok(Box::new(stream::once(boxed_resp)))
     }
 }
 
