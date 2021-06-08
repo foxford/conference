@@ -444,11 +444,13 @@ impl RequestHandler for ConnectHandler {
         };
 
         context.add_logger_tags(o!("backend_id" => backend.id().to_string()));
+        let rtc_stream_id = Uuid::new_v4();
 
         let handle = context
             .janus_http_client()
             .create_handle(&CreateHandleRequest {
                 session_id: backend.session_id(),
+                opaque_id: rtc_stream_id.to_string(),
             })
             .await
             .context("Handle creating")
@@ -488,7 +490,7 @@ impl RequestHandler for ConnectHandler {
         // Returning Real-Time connection handle
         let resp = endpoint::rtc::ConnectResponse::unicast(
             endpoint::rtc::ConnectResponseData::new(HandleId::new(
-                Uuid::new_v4(),
+                rtc_stream_id,
                 payload.id,
                 handle.id,
                 backend.session_id(),

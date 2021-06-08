@@ -30,6 +30,7 @@ impl JanusClient {
             "transaction": Uuid::new_v4().to_string(),
             "session_id": request.session_id,
             "plugin": "janus.plugin.conference",
+            "opaque_id": request.opaque_id,
         }))?;
         let request =
             Request::post(format!("{}/{}", self.janus_url, request.session_id)).body(body)?;
