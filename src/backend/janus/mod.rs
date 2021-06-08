@@ -693,6 +693,7 @@ async fn handle_status_event_impl<C: Context>(
 
 mod client;
 mod events;
+pub mod http;
 pub(crate) mod requests;
 mod responses;
 mod transactions;

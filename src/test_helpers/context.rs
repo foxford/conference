@@ -142,6 +142,10 @@ impl GlobalContext for TestContext {
     fn running_requests(&self) -> Option<Arc<AtomicI64>> {
         None
     }
+
+    fn janus_http_client(&self) -> Arc<crate::backend::janus::http::JanusClient> {
+        todo!()
+    }
 }
 
 impl MessageContext for TestContext {

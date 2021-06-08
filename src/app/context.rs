@@ -10,6 +10,7 @@ use svc_authz::ClientMap as Authz;
 
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 use crate::app::metrics::{DynamicStatsCollector, Metric};
+use crate::backend::janus::http;
 use crate::backend::janus::Client as JanusClient;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
@@ -24,6 +25,7 @@ pub(crate) trait GlobalContext: Sync {
     fn db(&self) -> &Db;
     fn agent_id(&self) -> &AgentId;
     fn janus_client(&self) -> Arc<JanusClient>;
+    fn janus_http_client(&self) -> Arc<http::JanusClient>;
     fn janus_topics(&self) -> &JanusTopics;
     fn queue_counter(&self) -> &Option<QueueCounterHandle>;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
@@ -62,6 +64,7 @@ pub(crate) struct AppContext {
     redis_pool: Option<RedisConnectionPool>,
     dynamic_stats: Option<Arc<DynamicStatsCollector>>,
     running_requests: Option<Arc<AtomicI64>>,
+    janus_http_client: Arc<http::JanusClient>,
 }
 
 impl AppContext {
@@ -72,6 +75,7 @@ impl AppContext {
         janus_client: JanusClient,
         janus_topics: JanusTopics,
         stats_collector: Arc<DynamicStatsCollector>,
+        janus_http_client: Arc<http::JanusClient>,
     ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
 
@@ -86,6 +90,7 @@ impl AppContext {
             redis_pool: None,
             dynamic_stats: Some(stats_collector),
             running_requests: None,
+            janus_http_client,
         }
     }
 
@@ -155,6 +160,10 @@ impl GlobalContext for AppContext {
     fn running_requests(&self) -> Option<Arc<AtomicI64>> {
         self.running_requests.clone()
     }
+
+    fn janus_http_client(&self) -> Arc<http::JanusClient> {
+        self.janus_http_client.clone()
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -218,6 +227,10 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 
     fn running_requests(&self) -> Option<Arc<AtomicI64>> {
         self.global_context.running_requests()
+    }
+
+    fn janus_http_client(&self) -> Arc<http::JanusClient> {
+        self.global_context.janus_http_client()
     }
 }
 

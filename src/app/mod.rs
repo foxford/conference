@@ -98,7 +98,8 @@ pub(crate) async fn run(
             }
         })
         .expect("Failed to start msg-handler-timings thread");
-
+    let janus_http_client =
+        crate::backend::janus::http::JanusClient::new(config.backend.janus_url.parse()?);
     // Context
     let context = AppContext::new(
         config.clone(),
@@ -107,6 +108,7 @@ pub(crate) async fn run(
         JanusClient::start(&config.backend, agent_id, Some(stats_collector.clone()))?,
         janus_topics,
         stats_collector,
+        Arc::new(janus_http_client?),
     )
     .add_queue_counter(agent.get_queue_counter())
     .add_running_requests_counter(running_requests.clone());

@@ -46,6 +46,7 @@ pub(crate) struct BackendConfig {
     pub(crate) default_timeout: u64,
     pub(crate) stream_upload_timeout: u64,
     pub(crate) transaction_watchdog_check_period: u64,
+    pub(crate) janus_url: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
