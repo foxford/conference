@@ -207,8 +207,14 @@ impl RequestHandler for CreateHandler {
                                 payload.handle_id.rtc_id(),
                                 reqp.as_agent_id().clone(),
                             );
+                            let transaction = Transaction::ReadStream(
+                                super::janus::transactions::read_stream::TransactionData::new(
+                                    reqp.clone(),
+                                ),
+                            );
+
                             let payload = MessageRequest::new(
-                                &Uuid::new_v4().to_string(),
+                                &to_base64(&transaction).error(AppErrorKind::AccessDenied)?,
                                 payload.handle_id.janus_session_id(),
                                 payload.handle_id.janus_handle_id(),
                                 serde_json::to_value(&body)
@@ -222,50 +228,52 @@ impl RequestHandler for CreateHandler {
                                 .await
                                 .context("Stream read error")
                                 .error(AppErrorKind::MessageBuildingFailed)?;
-                            stream_read
-                                .plugin()
-                                .data()
-                                .ok_or_else(|| anyhow!("Missing 'data' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)?
-                                .get("status")
-                                .ok_or_else(|| anyhow!("Missing 'status' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)
-                                // We fail if the status isn't equal to 200
-                                .and_then(|status| {
-                                    context.add_logger_tags(o!("status" => status.as_u64()));
+                            return Ok(Box::new(stream::empty()));
 
-                                    if status == "200" {
-                                        Ok(())
-                                    } else {
-                                        Err(anyhow!("Received error status"))
-                                            .error(AppErrorKind::BackendRequestFailed)
-                                    }
-                                })
-                                .and_then(|_| {
-                                    // Getting answer (as JSEP)
-                                    let jsep = stream_read
-                                        .jsep()
-                                        .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                        .error(AppErrorKind::MessageParsingFailed)?;
+                            // stream_read
+                            //     .plugin()
+                            //     .data()
+                            //     .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                            //     .error(AppErrorKind::MessageParsingFailed)?
+                            //     .get("status")
+                            //     .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                            //     .error(AppErrorKind::MessageParsingFailed)
+                            //     // We fail if the status isn't equal to 200
+                            //     .and_then(|status| {
+                            //         context.add_logger_tags(o!("status" => status.as_u64()));
 
-                                    let timing = ShortTermTimingProperties::until_now(
-                                        context.start_timestamp(),
-                                    );
+                            //         if status == "200" {
+                            //             Ok(())
+                            //         } else {
+                            //             Err(anyhow!("Received error status"))
+                            //                 .error(AppErrorKind::BackendRequestFailed)
+                            //         }
+                            //     })
+                            //     .and_then(|_| {
+                            //         // Getting answer (as JSEP)
+                            //         let jsep = stream_read
+                            //             .jsep()
+                            //             .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                            //             .error(AppErrorKind::MessageParsingFailed)?;
 
-                                    let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                        endpoint::rtc_signal::CreateResponseData::new(Some(
-                                            jsep.clone(),
-                                        )),
-                                        reqp.to_response(ResponseStatus::OK, timing),
-                                        reqp.as_agent_id(),
-                                        JANUS_API_VERSION,
-                                    );
+                            //         let timing = ShortTermTimingProperties::until_now(
+                            //             context.start_timestamp(),
+                            //         );
 
-                                    let boxed_resp =
-                                        Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-                                    Ok(boxed_resp)
-                                    // Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
-                                })?
+                            //         let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                            //             endpoint::rtc_signal::CreateResponseData::new(Some(
+                            //                 jsep.clone(),
+                            //             )),
+                            //             reqp.to_response(ResponseStatus::OK, timing),
+                            //             reqp.as_agent_id(),
+                            //             JANUS_API_VERSION,
+                            //         );
+
+                            //         let boxed_resp =
+                            //             Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                            //         Ok(boxed_resp)
+                            //         // Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                            //     })?
                             // .or_else(|err| Ok(handle_response_error(context, &reqp, err)))?
                             // context
                             //     .janus_client()
