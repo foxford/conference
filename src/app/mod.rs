@@ -139,33 +139,29 @@ pub(crate) async fn run(
             let message_handler = message_handler.clone();
             let running_requests_ = running_requests.clone();
 
-            task::spawn(async move {
-                match message {
-                    AgentNotification::Message(message, metadata) => {
-                        running_requests_.fetch_add(1, Ordering::SeqCst);
-                        message_handler.handle(&message, &metadata.topic).await;
-                        running_requests_.fetch_add(-1, Ordering::SeqCst);
-                    }
-                    AgentNotification::Disconnection => {
-                        error!(crate::LOG, "Disconnected from broker")
-                    }
-                    AgentNotification::Reconnection => {
-                        error!(crate::LOG, "Reconnected to broker");
+            task::spawn_blocking(move || match message {
+                AgentNotification::Message(message, metadata) => {
+                    running_requests_.fetch_add(1, Ordering::SeqCst);
+                    async_std::task::block_on(message_handler.handle(&message, &metadata.topic));
+                    running_requests_.fetch_add(-1, Ordering::SeqCst);
+                }
+                AgentNotification::Disconnection => error!(crate::LOG, "Disconnected from broker"),
+                AgentNotification::Reconnection => {
+                    error!(crate::LOG, "Reconnected to broker");
 
-                        resubscribe(
-                            &mut message_handler.agent().to_owned(),
-                            message_handler.global_context().agent_id(),
-                            message_handler.global_context().config(),
-                        );
-                    }
-                    AgentNotification::Puback(_) => (),
-                    AgentNotification::Pubrec(_) => (),
-                    AgentNotification::Pubcomp(_) => (),
-                    AgentNotification::Suback(_) => (),
-                    AgentNotification::Unsuback(_) => (),
-                    AgentNotification::Abort(err) => {
-                        error!(crate::LOG, "{}", anyhow!("MQTT client aborted: {}", err))
-                    }
+                    resubscribe(
+                        &mut message_handler.agent().to_owned(),
+                        message_handler.global_context().agent_id(),
+                        message_handler.global_context().config(),
+                    );
+                }
+                AgentNotification::Puback(_) => (),
+                AgentNotification::Pubrec(_) => (),
+                AgentNotification::Pubcomp(_) => (),
+                AgentNotification::Suback(_) => (),
+                AgentNotification::Unsuback(_) => (),
+                AgentNotification::Abort(err) => {
+                    error!(crate::LOG, "{}", anyhow!("MQTT client aborted: {}", err))
                 }
             });
         }
