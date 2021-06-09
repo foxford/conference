@@ -510,11 +510,11 @@ async fn handle_event_impl<C: Context>(
         IncomingEvent::Event(inresp) => {
             context.add_logger_tags(o!("transaction" => inresp.transaction().to_string()));
 
-            let txn = from_base64::<Transaction>(&inresp.transaction())
-                .map_err(|err| err.context("Failed to parse transaction"))
-                .error(AppErrorKind::MessageParsingFailed)?;
+            let txn = from_base64::<Transaction>(&inresp.transaction());
+            // .map_err(|err| err.context("Failed to parse transaction"))
+            // .error(AppErrorKind::MessageParsingFailed)?;
             match txn {
-                Transaction::ReadStream(ref tn) => {
+                Ok(Transaction::ReadStream(ref tn)) => {
                     context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
 
                     inresp
@@ -559,7 +559,7 @@ async fn handle_event_impl<C: Context>(
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
                 }
-                Transaction::CreateStream(tn) => {
+                Ok(Transaction::CreateStream(tn)) => {
                     context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
 
                     inresp
@@ -603,7 +603,10 @@ async fn handle_event_impl<C: Context>(
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
                 }
-                _ => Err(anyhow!("Bad bad bad")).error(AppErrorKind::AccessDenied)?,
+                rest => {
+                    info!(crate::LOG, "Got rest: {:?}, inresp: {:?}", rest, inresp);
+                    Ok(Box::new(stream::empty()))
+                }
             }
         }
     }
