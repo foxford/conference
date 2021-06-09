@@ -275,13 +275,13 @@ impl Into<ErrorKindProperties> for ErrorKind {
 
 pub(crate) struct Error {
     kind: ErrorKind,
-    source: Box<dyn AsRef<dyn StdError + Send + Sync + 'static>>,
+    source: Box<dyn AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static>,
 }
 
 impl Error {
     pub(crate) fn new<E>(kind: ErrorKind, source: E) -> Self
     where
-        E: AsRef<dyn StdError + Send + Sync + 'static> + 'static,
+        E: AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static,
     {
         Self {
             kind,
@@ -376,7 +376,9 @@ pub(crate) trait ErrorExt<T> {
     fn error(self, kind: ErrorKind) -> Result<T, Error>;
 }
 
-impl<T, E: AsRef<dyn StdError + Send + Sync + 'static> + 'static> ErrorExt<T> for Result<T, E> {
+impl<T, E: AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static> ErrorExt<T>
+    for Result<T, E>
+{
     fn error(self, kind: ErrorKind) -> Result<T, Error> {
         self.map_err(|source| Error::new(kind, source))
     }
