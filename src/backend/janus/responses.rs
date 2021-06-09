@@ -73,7 +73,7 @@ impl AckResponse {
 
 // A response on a request sent to a plugin handle.
 #[derive(Debug, Deserialize)]
-pub(crate) struct EventResponse {
+pub struct EventResponse {
     transaction: String,
     session_id: i64,
     sender: i64,

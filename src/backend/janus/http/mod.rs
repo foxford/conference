@@ -1,11 +1,19 @@
 use std::sync::Arc;
 
-use self::create_handle::{CreateHandleRequest, CreateHandleResponse};
+use self::{
+    create_handle::{CreateHandleRequest, CreateHandleResponse},
+    create_stream::{CreateStreamRequest, CreateStreamResponse},
+    read_stream::{ReadStreamRequest, ReadStreamResponse},
+};
 use anyhow::anyhow;
 use isahc::{http::Uri, AsyncReadResponseExt, HttpClient, Request};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
+
 pub mod create_handle;
+pub mod create_stream;
+pub mod read_stream;
 
 #[derive(Debug)]
 pub struct JanusClient {
@@ -21,6 +29,38 @@ impl JanusClient {
         })
     }
 
+    pub async fn create_stream(
+        &self,
+        request: &CreateStreamRequest,
+    ) -> anyhow::Result<CreateStreamResponse> {
+        let request = Request::post(format!(
+            "{}/{}/{}",
+            self.janus_url,
+            request.session_id(),
+            request.handle_id()
+        ))
+        .body(serde_json::to_vec(&request)?)?;
+        let create_handle_response: CreateStreamResponse =
+            self.http.send_async(request).await?.json().await?;
+        Ok(create_handle_response)
+    }
+
+    pub async fn read_stream(
+        &self,
+        request: &ReadStreamRequest,
+    ) -> anyhow::Result<ReadStreamResponse> {
+        let request = Request::post(format!(
+            "{}/{}/{}",
+            self.janus_url,
+            request.session_id(),
+            request.handle_id()
+        ))
+        .body(serde_json::to_vec(&request)?)?;
+        let create_handle_response: CreateStreamResponse =
+            self.http.send_async(request).await?.json().await?;
+        Ok(create_handle_response)
+    }
+
     pub async fn create_handle(
         &self,
         request: &CreateHandleRequest,
@@ -34,14 +74,22 @@ impl JanusClient {
         }))?;
         let request =
             Request::post(format!("{}/{}", self.janus_url, request.session_id)).body(body)?;
-        let create_handle_response: Value = self.http.send_async(request).await?.json().await?;
-        let id = create_handle_response
-            .get("data")
-            .ok_or_else(|| anyhow!("Missing data"))?
-            .get("id")
-            .ok_or_else(|| anyhow!("Missing id"))?
-            .as_i64()
-            .ok_or_else(|| anyhow!("id not i64"))?;
-        Ok(CreateHandleResponse { id })
+        let create_handle_response: JanusResponse<CreateHandleResponse> =
+            self.http.send_async(request).await?.json().await?;
+
+        Ok(create_handle_response.data)
     }
+}
+
+#[derive(Deserialize)]
+struct JanusResponse<T> {
+    data: T,
+}
+
+#[derive(Serialize)]
+struct JanusRequest<T> {
+    transaction: String,
+    janus: &'static str,
+    #[serde(flatten)]
+    data: T,
 }

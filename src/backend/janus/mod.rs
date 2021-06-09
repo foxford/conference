@@ -122,7 +122,7 @@ async fn handle_response_impl<C: Context>(
 
             match txn {
                 // Conference Stream is being created
-                Transaction::CreateStream(_tn) => Ok(Box::new(stream::empty())),
+                // Transaction::CreateStream(_tn) => Ok(Box::new(stream::empty())),
                 // Trickle message has been received by Janus Gateway
                 Transaction::Trickle(tn) => {
                     let resp = endpoint::rtc_signal::CreateResponse::unicast(
@@ -151,96 +151,96 @@ async fn handle_response_impl<C: Context>(
 
             match txn {
                 // Conference Stream has been created (an answer received)
-                Transaction::CreateStream(ref tn) => {
-                    context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
+                // Transaction::CreateStream(ref tn) => {
+                //     context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
 
-                    inresp
-                        .plugin()
-                        .data()
-                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
-                        .error(AppErrorKind::MessageParsingFailed)?
-                        .get("status")
-                        .ok_or_else(|| anyhow!("Missing 'status' in the response"))
-                        .error(AppErrorKind::MessageParsingFailed)
-                        .and_then(|status| {
-                            context.add_logger_tags(o!("status" => status.as_u64()));
+                //     inresp
+                //         .plugin()
+                //         .data()
+                //         .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                //         .error(AppErrorKind::MessageParsingFailed)?
+                //         .get("status")
+                //         .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                //         .error(AppErrorKind::MessageParsingFailed)
+                //         .and_then(|status| {
+                //             context.add_logger_tags(o!("status" => status.as_u64()));
 
-                            if status == "200" {
-                                Ok(())
-                            } else {
-                                Err(anyhow!("Received error status"))
-                                    .error(AppErrorKind::BackendRequestFailed)
-                            }
-                        })
-                        .and_then(|_| {
-                            // Getting answer (as JSEP)
-                            let jsep = inresp
-                                .jsep()
-                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)?;
+                //             if status == "200" {
+                //                 Ok(())
+                //             } else {
+                //                 Err(anyhow!("Received error status"))
+                //                     .error(AppErrorKind::BackendRequestFailed)
+                //             }
+                //         })
+                //         .and_then(|_| {
+                //             // Getting answer (as JSEP)
+                //             let jsep = inresp
+                //                 .jsep()
+                //                 .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                //                 .error(AppErrorKind::MessageParsingFailed)?;
 
-                            let timing =
-                                ShortTermTimingProperties::until_now(context.start_timestamp());
+                //             let timing =
+                //                 ShortTermTimingProperties::until_now(context.start_timestamp());
 
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                                tn.reqp().to_response(ResponseStatus::OK, timing),
-                                tn.reqp().as_agent_id(),
-                                JANUS_API_VERSION,
-                            );
+                //             let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                //                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                //                 tn.reqp().to_response(ResponseStatus::OK, timing),
+                //                 tn.reqp().as_agent_id(),
+                //                 JANUS_API_VERSION,
+                //             );
 
-                            let boxed_resp =
-                                Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
-                        })
-                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
-                }
+                //             let boxed_resp =
+                //                 Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                //             Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                //         })
+                //         .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
+                // }
                 // Conference Stream has been read (an answer received)
-                Transaction::ReadStream(ref tn) => {
-                    context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
+                // Transaction::ReadStream(ref tn) => {
+                //     context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
 
-                    inresp
-                        .plugin()
-                        .data()
-                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
-                        .error(AppErrorKind::MessageParsingFailed)?
-                        .get("status")
-                        .ok_or_else(|| anyhow!("Missing 'status' in the response"))
-                        .error(AppErrorKind::MessageParsingFailed)
-                        // We fail if the status isn't equal to 200
-                        .and_then(|status| {
-                            context.add_logger_tags(o!("status" => status.as_u64()));
+                //     inresp
+                //         .plugin()
+                //         .data()
+                //         .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                //         .error(AppErrorKind::MessageParsingFailed)?
+                //         .get("status")
+                //         .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                //         .error(AppErrorKind::MessageParsingFailed)
+                //         // We fail if the status isn't equal to 200
+                //         .and_then(|status| {
+                //             context.add_logger_tags(o!("status" => status.as_u64()));
 
-                            if status == "200" {
-                                Ok(())
-                            } else {
-                                Err(anyhow!("Received error status"))
-                                    .error(AppErrorKind::BackendRequestFailed)
-                            }
-                        })
-                        .and_then(|_| {
-                            // Getting answer (as JSEP)
-                            let jsep = inresp
-                                .jsep()
-                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)?;
+                //             if status == "200" {
+                //                 Ok(())
+                //             } else {
+                //                 Err(anyhow!("Received error status"))
+                //                     .error(AppErrorKind::BackendRequestFailed)
+                //             }
+                //         })
+                //         .and_then(|_| {
+                //             // Getting answer (as JSEP)
+                //             let jsep = inresp
+                //                 .jsep()
+                //                 .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                //                 .error(AppErrorKind::MessageParsingFailed)?;
 
-                            let timing =
-                                ShortTermTimingProperties::until_now(context.start_timestamp());
+                //             let timing =
+                //                 ShortTermTimingProperties::until_now(context.start_timestamp());
 
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                                tn.reqp().to_response(ResponseStatus::OK, timing),
-                                tn.reqp().as_agent_id(),
-                                JANUS_API_VERSION,
-                            );
+                //             let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                //                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                //                 tn.reqp().to_response(ResponseStatus::OK, timing),
+                //                 tn.reqp().as_agent_id(),
+                //                 JANUS_API_VERSION,
+                //             );
 
-                            let boxed_resp =
-                                Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
-                        })
-                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
-                }
+                //             let boxed_resp =
+                //                 Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                //             Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                //         })
+                //         .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
+                // }
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
                 Transaction::UploadStream(ref tn) => {
                     context.add_logger_tags(o!(

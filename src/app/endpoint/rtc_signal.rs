@@ -6,13 +6,27 @@ use async_trait::async_trait;
 use chrono::Duration;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use svc_agent::mqtt::{IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse};
+use svc_agent::mqtt::{
+    IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
+    ShortTermTimingProperties,
+};
 use svc_agent::Addressable;
+use svc_error::Error as SvcError;
+use uuid::Uuid;
 
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
-use crate::app::handle_id::HandleId;
 use crate::db;
+use crate::{app::handle_id::HandleId, backend::janus::requests::CreateStreamRequestBody};
+use crate::{
+    app::{context::Context, endpoint},
+    backend::janus::JANUS_API_VERSION,
+};
+use crate::{
+    app::{endpoint::prelude::*, API_VERSION},
+    backend::janus::requests::{MessageRequest, ReadStreamRequestBody},
+    util::to_base64,
+};
+
+use super::MessageStream;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -189,22 +203,85 @@ impl RequestHandler for CreateHandler {
                             let jsep = serde_json::to_value(&payload.jsep)
                                 .context("Error serializing JSEP")
                                 .error(AppErrorKind::MessageBuildingFailed)?;
+                            let body = ReadStreamRequestBody::new(
+                                payload.handle_id.rtc_id(),
+                                reqp.as_agent_id().clone(),
+                            );
+                            let payload = MessageRequest::new(
+                                &Uuid::new_v4().to_string(),
+                                payload.handle_id.janus_session_id(),
+                                payload.handle_id.janus_handle_id(),
+                                serde_json::to_value(&body)
+                                    .map_err(anyhow::Error::from)
+                                    .error(AppErrorKind::MessageBuildingFailed)?,
+                                Some(jsep),
+                            );
+                            let stream_read = context
+                                .janus_http_client()
+                                .read_stream(&payload)
+                                .await
+                                .context("Stream read error")
+                                .error(AppErrorKind::MessageBuildingFailed)?;
+                            stream_read
+                                .plugin()
+                                .data()
+                                .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                                .error(AppErrorKind::MessageParsingFailed)?
+                                .get("status")
+                                .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                                .error(AppErrorKind::MessageParsingFailed)
+                                // We fail if the status isn't equal to 200
+                                .and_then(|status| {
+                                    context.add_logger_tags(o!("status" => status.as_u64()));
 
-                            context
-                                .janus_client()
-                                .read_stream_request(
-                                    reqp.clone(),
-                                    payload.handle_id.janus_session_id(),
-                                    payload.handle_id.janus_handle_id(),
-                                    payload.handle_id.rtc_id(),
-                                    jsep,
-                                    payload.handle_id.backend_id(),
-                                    context.start_timestamp(),
-                                    authz_time,
-                                )
-                                .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
-                                .context("Error creating a backend request")
-                                .error(AppErrorKind::MessageBuildingFailed)?
+                                    if status == "200" {
+                                        Ok(())
+                                    } else {
+                                        Err(anyhow!("Received error status"))
+                                            .error(AppErrorKind::BackendRequestFailed)
+                                    }
+                                })
+                                .and_then(|_| {
+                                    // Getting answer (as JSEP)
+                                    let jsep = stream_read
+                                        .jsep()
+                                        .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                                        .error(AppErrorKind::MessageParsingFailed)?;
+
+                                    let timing = ShortTermTimingProperties::until_now(
+                                        context.start_timestamp(),
+                                    );
+
+                                    let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                                        endpoint::rtc_signal::CreateResponseData::new(Some(
+                                            jsep.clone(),
+                                        )),
+                                        reqp.to_response(ResponseStatus::OK, timing),
+                                        reqp.as_agent_id(),
+                                        JANUS_API_VERSION,
+                                    );
+
+                                    let boxed_resp =
+                                        Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                                    Ok(boxed_resp)
+                                    // Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                                })?
+                            // .or_else(|err| Ok(handle_response_error(context, &reqp, err)))?
+                            // context
+                            //     .janus_client()
+                            //     .read_stream_request(
+                            //         reqp.clone(),
+                            //         payload.handle_id.janus_session_id(),
+                            //         payload.handle_id.janus_handle_id(),
+                            //         payload.handle_id.rtc_id(),
+                            //         jsep,
+                            //         payload.handle_id.backend_id(),
+                            //         context.start_timestamp(),
+                            //         authz_time,
+                            //     )
+                            //     .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
+                            //     .context("Error creating a backend request")
+                            //     .error(AppErrorKind::MessageBuildingFailed)?
                         } else {
                             context
                                 .add_logger_tags(o!("sdp_type" => "offer", "intent" => "update"));
@@ -244,22 +321,83 @@ impl RequestHandler for CreateHandler {
                             let jsep = serde_json::to_value(&payload.jsep)
                                 .context("Error serializing JSEP")
                                 .error(AppErrorKind::MessageBuildingFailed)?;
+                            let agent_id = reqp.as_agent_id().to_owned();
+                            let body =
+                                CreateStreamRequestBody::new(payload.handle_id.rtc_id(), agent_id);
 
-                            context
-                                .janus_client()
-                                .create_stream_request(
-                                    reqp.clone(),
-                                    payload.handle_id.janus_session_id(),
-                                    payload.handle_id.janus_handle_id(),
-                                    payload.handle_id.rtc_id(),
-                                    jsep,
-                                    payload.handle_id.backend_id(),
-                                    context.start_timestamp(),
-                                    authz_time,
-                                )
-                                .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
-                                .context("Error creating a backend request")
-                                .error(AppErrorKind::MessageBuildingFailed)?
+                            let payload = MessageRequest::new(
+                                &Uuid::new_v4().to_string(),
+                                payload.handle_id.janus_session_id(),
+                                payload.handle_id.janus_handle_id(),
+                                serde_json::to_value(&body)
+                                    .map_err(anyhow::Error::from)
+                                    .error(AppErrorKind::MessageBuildingFailed)?,
+                                Some(jsep),
+                            );
+                            let create_resp = context
+                                .janus_http_client()
+                                .create_stream(&payload)
+                                .await
+                                .context("Stream create error")
+                                .error(AppErrorKind::MessageBuildingFailed)?;
+                            create_resp
+                                .plugin()
+                                .data()
+                                .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                                .error(AppErrorKind::MessageParsingFailed)?
+                                .get("status")
+                                .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                                .error(AppErrorKind::MessageParsingFailed)
+                                .and_then(|status| {
+                                    context.add_logger_tags(o!("status" => status.as_u64()));
+
+                                    if status == "200" {
+                                        Ok(())
+                                    } else {
+                                        Err(anyhow!("Received error status"))
+                                            .error(AppErrorKind::BackendRequestFailed)
+                                    }
+                                })
+                                .and_then(|_| {
+                                    // Getting answer (as JSEP)
+                                    let jsep = create_resp
+                                        .jsep()
+                                        .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                                        .error(AppErrorKind::MessageParsingFailed)?;
+
+                                    let timing = ShortTermTimingProperties::until_now(
+                                        context.start_timestamp(),
+                                    );
+
+                                    let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                                        endpoint::rtc_signal::CreateResponseData::new(Some(
+                                            jsep.clone(),
+                                        )),
+                                        reqp.to_response(ResponseStatus::OK, timing),
+                                        reqp.as_agent_id(),
+                                        JANUS_API_VERSION,
+                                    );
+
+                                    let boxed_resp =
+                                        Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                                    Ok(boxed_resp)
+                                })?
+                            // .or_else(|err| Ok(handle_response_error(context, &reqp, err)))?
+                            // context
+                            //     .janus_client()
+                            //     .create_stream_request(
+                            //         reqp.clone(),
+                            //         payload.handle_id.janus_session_id(),
+                            //         payload.handle_id.janus_handle_id(),
+                            //         payload.handle_id.rtc_id(),
+                            //         jsep,
+                            //         payload.handle_id.backend_id(),
+                            //         context.start_timestamp(),
+                            //         authz_time,
+                            //     )
+                            //     .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
+                            //     .context("Error creating a backend request")
+                            //     .error(AppErrorKind::MessageBuildingFailed)?
                         }
                     }
                     JsepType::Answer => Err(anyhow!("sdp_type = 'answer' is not allowed"))
@@ -324,6 +462,32 @@ async fn authorize<C: Context>(
         .authorize(room.audience(), reqp, object, action)
         .await
         .map_err(AppError::from)
+}
+
+fn handle_response_error<C: Context>(
+    context: &mut C,
+    reqp: &IncomingRequestProperties,
+    app_error: AppError,
+) -> Box<dyn IntoPublishableMessage + Send> {
+    context.add_logger_tags(o!(
+        "status" => app_error.status().as_u16(),
+        "kind" => app_error.kind().to_owned(),
+    ));
+
+    error!(
+        context.logger(),
+        "Failed to handle a response from janus: {}",
+        app_error.source(),
+    );
+
+    app_error.notify_sentry(context.logger());
+
+    let svc_error: SvcError = app_error.to_svc_error();
+    let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
+    let respp = reqp.to_response(svc_error.status_code(), timing);
+    let resp = OutgoingResponse::unicast(svc_error, respp, reqp, API_VERSION);
+    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+    boxed_resp
 }
 
 fn is_sdp_recvonly(sdp: &str) -> anyhow::Result<bool> {

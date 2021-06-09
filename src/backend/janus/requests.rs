@@ -54,7 +54,7 @@ impl CreateHandleRequest {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize)]
-pub(crate) struct MessageRequest {
+pub struct MessageRequest {
     transaction: String,
     janus: &'static str,
     session_id: i64,
@@ -80,6 +80,16 @@ impl MessageRequest {
             body,
             jsep,
         }
+    }
+
+    /// Get a reference to the message request's session id.
+    pub(crate) fn session_id(&self) -> i64 {
+        self.session_id
+    }
+
+    /// Get a reference to the message request's handle id.
+    pub(crate) fn handle_id(&self) -> i64 {
+        self.handle_id
     }
 }
 
