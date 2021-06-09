@@ -40,9 +40,12 @@ impl JanusClient {
             request.handle_id()
         ))
         .body(serde_json::to_vec(&request)?)?;
-        let create_handle_response: CreateStreamResponse =
-            self.http.send_async(request).await?.json().await?;
-        Ok(create_handle_response)
+        let create_handle_response: String = self.http.send_async(request).await?.text().await?;
+        serde_json::from_str(&create_handle_response).map_err(|err| {
+            let err = anyhow!("Err: {:?}, raw: {}", err, create_handle_response);
+            warn!(crate::LOG, "raw {}", err);
+            err
+        })
     }
 
     pub async fn read_stream(
