@@ -225,12 +225,8 @@ impl RequestHandler for CreateHandler {
                                     .error(AppErrorKind::MessageBuildingFailed)?,
                                 Some(jsep),
                             );
-                            let stream_read = context
-                                .janus_http_client()
-                                .read_stream(&payload)
-                                .await
-                                .context("Stream read error")
-                                .error(AppErrorKind::MessageBuildingFailed)?;
+                            let client = context.janus_http_client();
+                            task::spawn(async move { client.read_stream(&payload).await });
                             return Ok(Box::new(stream::empty()));
 
                             // stream_read
@@ -349,12 +345,8 @@ impl RequestHandler for CreateHandler {
                                     .error(AppErrorKind::MessageBuildingFailed)?,
                                 Some(jsep),
                             );
-                            let create_resp = context
-                                .janus_http_client()
-                                .create_stream(&payload)
-                                .await
-                                .context("Stream create error")
-                                .error(AppErrorKind::MessageBuildingFailed)?;
+                            let client = context.janus_http_client();
+                            task::spawn(async move { client.create_stream(&payload).await });
                             return Ok(Box::new(stream::empty()));
                             // create_resp
                             //     .plugin()
