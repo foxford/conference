@@ -9,6 +9,7 @@ use anyhow::anyhow;
 use isahc::{http::Uri, AsyncReadResponseExt, HttpClient, Request};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use slog::warn;
 use uuid::Uuid;
 
 pub mod create_handle;
