@@ -1,7 +1,7 @@
 use std::result::Result as StdResult;
 
 use anyhow::Context as AnyhowContext;
-use async_std::stream;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::Duration;
 use serde_derive::{Deserialize, Serialize};
@@ -435,12 +435,8 @@ impl RequestHandler for CreateHandler {
                     payload.handle_id.janus_handle_id(),
                     jsep,
                 );
-                let resp = context
-                    .janus_http_client()
-                    .trickle_request(&payload)
-                    .await
-                    .context("Trickle")
-                    .error(AppErrorKind::AccessDenied)?;
+                let client = context.janus_http_client();
+                task::spawn(async move { client.trickle_request(&payload).await });
                 let resp = endpoint::rtc_signal::CreateResponse::unicast(
                     endpoint::rtc_signal::CreateResponseData::new(None),
                     reqp.to_response(

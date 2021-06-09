@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use async_std::stream;
+use anyhow::Context as AnyhowContext;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
@@ -9,12 +10,17 @@ use svc_agent::{
 };
 use uuid::Uuid;
 
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
 use crate::db;
 use crate::db::rtc::Object as Rtc;
 use crate::db::rtc_writer_config::Object as RtcWriterConfig;
 use crate::diesel::Connection;
+use crate::{
+    app::context::Context,
+    backend::janus::requests::{MessageRequest, UpdateWriterConfigRequestBody},
+};
+use crate::{
+    app::endpoint::prelude::*, backend::janus::requests::UpdateWriterConfigRequestBodyConfigItem,
+};
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
@@ -226,18 +232,48 @@ impl RequestHandler for UpdateHandler {
         };
 
         if let Some(backend) = maybe_backend {
-            let backend_request = context
-                .janus_client()
-                .update_agent_writer_config_request(
-                    reqp.to_owned(),
-                    &backend,
-                    &rtc_writer_configs_with_rtcs,
-                    context.start_timestamp(),
-                    maybe_authz_time,
-                )
-                .or_else(|err| Err(err).error(AppErrorKind::MessageBuildingFailed))?;
+            let items = rtc_writer_configs_with_rtcs
+                .iter()
+                .map(|(rtc_writer_config, rtc)| {
+                    let mut req = UpdateWriterConfigRequestBodyConfigItem::new(
+                        rtc.id(),
+                        rtc_writer_config.send_video(),
+                        rtc_writer_config.send_audio(),
+                    );
 
-            messages.push(Box::new(backend_request));
+                    if let Some(video_remb) = rtc_writer_config.video_remb() {
+                        req.set_video_remb(video_remb as u32);
+                    }
+
+                    req
+                })
+                .collect::<Vec<UpdateWriterConfigRequestBodyConfigItem>>();
+
+            let body = UpdateWriterConfigRequestBody::new(items);
+
+            let payload = MessageRequest::new(
+                &Uuid::new_v4().to_string(),
+                backend.session_id(),
+                backend.handle_id(),
+                serde_json::to_value(&body)
+                    .map_err(anyhow::Error::from)
+                    .error(AppErrorKind::AccessDenied)?,
+                None,
+            );
+            let client = context.janus_http_client();
+            task::spawn(async move { client.writer_update(&payload).await });
+            // let backend_request = context
+            //     .janus_client()
+            //     .update_agent_writer_config_request(
+            //         reqp.to_owned(),
+            //         &backend,
+            //         &rtc_writer_configs_with_rtcs,
+            //         context.start_timestamp(),
+            //         maybe_authz_time,
+            //     )
+            //     .or_else(|err| Err(err).error(AppErrorKind::MessageBuildingFailed))?;
+
+            // messages.push(Box::new(backend_request));
         }
 
         Ok(Box::new(stream::from_iter(messages)))

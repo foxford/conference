@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use async_std::stream;
+use anyhow::Context as AnyhowContext;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
@@ -9,12 +10,17 @@ use svc_agent::{
 };
 use uuid::Uuid;
 
-use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::db;
 use crate::db::rtc::Object as Rtc;
 use crate::db::rtc_reader_config::Object as RtcReaderConfig;
 use crate::diesel::Connection;
+use crate::{
+    app::context::Context,
+    backend::janus::requests::{
+        MessageRequest, UpdateReaderConfigRequestBody, UpdateReaderConfigRequestBodyConfigItem,
+    },
+};
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
@@ -175,17 +181,31 @@ impl RequestHandler for UpdateHandler {
         };
 
         if let Some(backend) = maybe_backend {
-            let backend_request = context
-                .janus_client()
-                .update_agent_reader_config_request(
-                    reqp.to_owned(),
-                    &backend,
-                    &rtc_reader_configs_with_rtcs,
-                    context.start_timestamp(),
-                )
-                .or_else(|err| Err(err).error(AppErrorKind::MessageBuildingFailed))?;
+            let items = rtc_reader_configs_with_rtcs
+                .iter()
+                .map(|(rtc_reader_config, rtc)| {
+                    UpdateReaderConfigRequestBodyConfigItem::new(
+                        rtc_reader_config.reader_id().to_owned(),
+                        rtc.id(),
+                        rtc_reader_config.receive_video(),
+                        rtc_reader_config.receive_audio(),
+                    )
+                })
+                .collect::<Vec<UpdateReaderConfigRequestBodyConfigItem>>();
 
-            messages.push(Box::new(backend_request));
+            let body = UpdateReaderConfigRequestBody::new(items);
+
+            let payload = MessageRequest::new(
+                &Uuid::new_v4().to_string(),
+                backend.session_id(),
+                backend.handle_id(),
+                serde_json::to_value(&body)
+                    .map_err(anyhow::Error::from)
+                    .error(AppErrorKind::AccessDenied)?,
+                None,
+            );
+            let client = context.janus_http_client();
+            task::spawn(async move { client.reader_update(&payload).await });
         }
 
         Ok(Box::new(stream::from_iter(messages)))

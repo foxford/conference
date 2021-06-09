@@ -12,12 +12,16 @@ use serde_json::{json, Value};
 use slog::warn;
 use uuid::Uuid;
 
-use super::requests::TrickleRequest;
+use super::requests::{
+    MessageRequest, TrickleRequest, UpdateReaderConfigRequestBody, UpdateWriterConfigRequestBody,
+};
 
 pub mod create_handle;
 pub mod create_stream;
 pub mod read_stream;
 pub mod trickle;
+pub mod update_agent_reader_config;
+pub mod update_agent_writer_config;
 
 #[derive(Debug)]
 pub struct JanusClient {
@@ -34,6 +38,45 @@ impl JanusClient {
     }
 
     pub async fn trickle_request(&self, request: &TrickleRequest) -> anyhow::Result<()> {
+        let request = Request::post(format!(
+            "{}/{}/{}",
+            self.janus_url,
+            request.session_id(),
+            request.handle_id()
+        ))
+        .body(serde_json::to_vec(&request)?)?;
+        let create_handle_response: String = self.http.send_async(request).await?.text().await?;
+        // warn!(crate::LOG, "resp: {}", create_handle_response);
+        Ok(())
+    }
+
+    pub async fn reader_update(&self, request: &MessageRequest) -> anyhow::Result<()> {
+        let request = Request::post(format!(
+            "{}/{}/{}",
+            self.janus_url,
+            request.session_id(),
+            request.handle_id()
+        ))
+        .body(serde_json::to_vec(&request)?)?;
+        let create_handle_response: String = self.http.send_async(request).await?.text().await?;
+        // warn!(crate::LOG, "resp: {}", create_handle_response);
+        Ok(())
+    }
+
+    pub async fn agent_leave(&self, request: &MessageRequest) -> anyhow::Result<()> {
+        let request = Request::post(format!(
+            "{}/{}/{}",
+            self.janus_url,
+            request.session_id(),
+            request.handle_id()
+        ))
+        .body(serde_json::to_vec(&request)?)?;
+        let create_handle_response: String = self.http.send_async(request).await?.text().await?;
+        // warn!(crate::LOG, "resp: {}", create_handle_response);
+        Ok(())
+    }
+
+    pub async fn writer_update(&self, request: &MessageRequest) -> anyhow::Result<()> {
         let request = Request::post(format!(
             "{}/{}/{}",
             self.janus_url,

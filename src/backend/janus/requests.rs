@@ -216,7 +216,7 @@ impl AgentLeaveRequestBody {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct UpdateReaderConfigRequestBody {
+pub struct UpdateReaderConfigRequestBody {
     method: String,
     configs: Vec<UpdateReaderConfigRequestBodyConfigItem>,
 }
@@ -288,7 +288,7 @@ impl UpdateReaderConfigRequestBodyConfigItem {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct UpdateWriterConfigRequestBody {
+pub struct UpdateWriterConfigRequestBody {
     method: String,
     configs: Vec<UpdateWriterConfigRequestBodyConfigItem>,
 }

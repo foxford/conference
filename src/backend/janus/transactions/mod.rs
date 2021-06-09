@@ -3,15 +3,15 @@ use serde_derive::{Deserialize, Serialize};
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) enum Transaction {
-    AgentLeave(agent_leave::TransactionData),
+    // AgentLeave(agent_leave::TransactionData),
     CreateHandle(create_handle::TransactionData),
     CreateSession(create_session::TransactionData),
     CreateStream(create_stream::TransactionData),
     // CreateRtcHandle(create_rtc_handle::TransactionData),
     ReadStream(read_stream::TransactionData),
     // Trickle(trickle::TransactionData),
-    UpdateReaderConfig,
-    UpdateWriterConfig,
+    // UpdateReaderConfig,
+    // UpdateWriterConfig,
     UploadStream(upload_stream::TransactionData),
 }
 

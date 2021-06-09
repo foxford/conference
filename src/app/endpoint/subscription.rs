@@ -1,6 +1,6 @@
 use std::result::Result as StdResult;
 
-use async_std::stream;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
@@ -14,9 +14,9 @@ use svc_agent::{
 };
 use uuid::Uuid;
 
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
 use crate::db;
+use crate::{app::context::Context, backend::janus::requests::AgentLeaveRequestBody};
+use crate::{app::endpoint::prelude::*, backend::janus::requests::MessageRequest};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -297,21 +297,34 @@ fn leave_room<C: Context>(
         .execute(&conn)?;
 
     for backend in backends {
-        let result = context.janus_client().agent_leave_request(
+        let body = AgentLeaveRequestBody::new(agent_id.to_owned());
+
+        let payload = MessageRequest::new(
+            &Uuid::new_v4().to_string(),
             backend.session_id(),
             backend.handle_id(),
-            &agent_id,
-            backend.id(),
-            tracking,
+            serde_json::to_value(&body)
+                .map_err(anyhow::Error::from)
+                .error(AppErrorKind::AccessDenied)?,
+            None,
         );
+        let client = context.janus_http_client();
+        task::spawn(async move { client.agent_leave(&payload).await });
+        // let result = context.janus_client().agent_leave_request(
+        //     backend.session_id(),
+        //     backend.handle_id(),
+        //     &agent_id,
+        //     backend.id(),
+        //     tracking,
+        // );
 
-        match result {
-            Ok(req) => messages.push(Box::new(req)),
-            Err(err) => {
-                return Err(err.context("Error creating a backend request"))
-                    .error(AppErrorKind::MessageBuildingFailed);
-            }
-        }
+        // match result {
+        //     Ok(req) => messages.push(Box::new(req)),
+        //     Err(err) => {
+        //         return Err(err.context("Error creating a backend request"))
+        //             .error(AppErrorKind::MessageBuildingFailed);
+        //     }
+        // }
     }
 
     Ok((true, messages))
