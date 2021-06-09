@@ -76,7 +76,6 @@ impl AckResponse {
 pub struct EventResponse {
     transaction: String,
     session_id: i64,
-    sender: i64,
     plugindata: EventResponsePluginData,
     jsep: Option<JsonValue>,
 }
