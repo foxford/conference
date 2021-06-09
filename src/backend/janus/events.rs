@@ -1,6 +1,6 @@
 use serde_derive::Deserialize;
 
-use super::OpaqueId;
+use super::{OpaqueId, responses::EventResponse};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -12,6 +12,7 @@ pub(crate) enum IncomingEvent {
     HangUp(HangUpEvent),
     SlowLink(SlowLinkEvent),
     Detached(DetachedEvent),
+    Event(EventResponse)
 }
 
 // Stream started or a viewer started to receive it.

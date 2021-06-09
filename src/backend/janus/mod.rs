@@ -507,6 +507,60 @@ async fn handle_event_impl<C: Context>(
             // Ignore these kinds of events.
             Ok(Box::new(stream::empty()))
         }
+        IncomingEvent::Event(inresp) => {
+            context.add_logger_tags(o!("transaction" => inresp.transaction().to_string()));
+
+            let txn = from_base64::<Transaction>(&inresp.transaction())
+                .map_err(|err| err.context("Failed to parse transaction"))
+                .error(AppErrorKind::MessageParsingFailed)?;
+            match txn {
+                Transaction::CreateStream(tn) => {
+                    context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
+
+                    inresp
+                        .plugin()
+                        .data()
+                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                        .error(AppErrorKind::MessageParsingFailed)?
+                        .get("status")
+                        .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                        .error(AppErrorKind::MessageParsingFailed)
+                        .and_then(|status| {
+                            context.add_logger_tags(o!("status" => status.as_u64()));
+
+                            if status == "200" {
+                                Ok(())
+                            } else {
+                                Err(anyhow!("Received error status"))
+                                    .error(AppErrorKind::BackendRequestFailed)
+                            }
+                        })
+                        .and_then(|_| {
+                            // Getting answer (as JSEP)
+                            let jsep = inresp
+                                .jsep()
+                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                                .error(AppErrorKind::MessageParsingFailed)?;
+
+                            let timing =
+                                ShortTermTimingProperties::until_now(context.start_timestamp());
+
+                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                                tn.reqp().to_response(ResponseStatus::OK, timing),
+                                tn.reqp().as_agent_id(),
+                                JANUS_API_VERSION,
+                            );
+
+                            let boxed_resp =
+                                Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                        })
+                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
+                }
+                _ => Err(anyhow!("Bad bad bad")).error(AppErrorKind::AccessDenied)?,
+            }
+        }
     }
 }
 
