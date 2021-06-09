@@ -7,14 +7,15 @@ use chrono::Duration;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
-    ShortTermTimingProperties,
+    IncomingRequestProperties, IntoPublishableMessage, OutgoingMessage, OutgoingResponse,
+    ResponseStatus, ShortTermTimingProperties,
 };
 use svc_agent::Addressable;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::db;
+use super::janus::transactions::Transaction;
+use super::MessageStream;
 use crate::{app::handle_id::HandleId, backend::janus::requests::CreateStreamRequestBody};
 use crate::{
     app::{context::Context, endpoint},
@@ -25,8 +26,7 @@ use crate::{
     backend::janus::requests::{MessageRequest, ReadStreamRequestBody},
     util::to_base64,
 };
-
-use super::MessageStream;
+use crate::{backend::janus::transactions::create_stream::TransactionData, db};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -325,8 +325,12 @@ impl RequestHandler for CreateHandler {
                             let body =
                                 CreateStreamRequestBody::new(payload.handle_id.rtc_id(), agent_id);
 
+                            let transaction =
+                                Transaction::CreateStream(TransactionData::new(reqp.clone()));
+
                             let payload = MessageRequest::new(
-                                &Uuid::new_v4().to_string(),
+                                &to_base64(&transaction)
+                                    .error(AppErrorKind::MessageBuildingFailed)?,
                                 payload.handle_id.janus_session_id(),
                                 payload.handle_id.janus_handle_id(),
                                 serde_json::to_value(&body)
@@ -340,48 +344,49 @@ impl RequestHandler for CreateHandler {
                                 .await
                                 .context("Stream create error")
                                 .error(AppErrorKind::MessageBuildingFailed)?;
-                            create_resp
-                                .plugin()
-                                .data()
-                                .ok_or_else(|| anyhow!("Missing 'data' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)?
-                                .get("status")
-                                .ok_or_else(|| anyhow!("Missing 'status' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)
-                                .and_then(|status| {
-                                    context.add_logger_tags(o!("status" => status.as_u64()));
+                            return Ok(Box::new(stream::empty()));
+                            // create_resp
+                            //     .plugin()
+                            //     .data()
+                            //     .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                            //     .error(AppErrorKind::MessageParsingFailed)?
+                            //     .get("status")
+                            //     .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                            //     .error(AppErrorKind::MessageParsingFailed)
+                            //     .and_then(|status| {
+                            //         context.add_logger_tags(o!("status" => status.as_u64()));
 
-                                    if status == "200" {
-                                        Ok(())
-                                    } else {
-                                        Err(anyhow!("Received error status"))
-                                            .error(AppErrorKind::BackendRequestFailed)
-                                    }
-                                })
-                                .and_then(|_| {
-                                    // Getting answer (as JSEP)
-                                    let jsep = create_resp
-                                        .jsep()
-                                        .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                        .error(AppErrorKind::MessageParsingFailed)?;
+                            //         if status == "200" {
+                            //             Ok(())
+                            //         } else {
+                            //             Err(anyhow!("Received error status"))
+                            //                 .error(AppErrorKind::BackendRequestFailed)
+                            //         }
+                            //     })
+                            //     .and_then(|_| {
+                            //         // Getting answer (as JSEP)
+                            //         let jsep = create_resp
+                            //             .jsep()
+                            //             .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                            //             .error(AppErrorKind::MessageParsingFailed)?;
 
-                                    let timing = ShortTermTimingProperties::until_now(
-                                        context.start_timestamp(),
-                                    );
+                            //         let timing = ShortTermTimingProperties::until_now(
+                            //             context.start_timestamp(),
+                            //         );
 
-                                    let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                        endpoint::rtc_signal::CreateResponseData::new(Some(
-                                            jsep.clone(),
-                                        )),
-                                        reqp.to_response(ResponseStatus::OK, timing),
-                                        reqp.as_agent_id(),
-                                        JANUS_API_VERSION,
-                                    );
+                            //         let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                            //             endpoint::rtc_signal::CreateResponseData::new(Some(
+                            //                 jsep.clone(),
+                            //             )),
+                            //             reqp.to_response(ResponseStatus::OK, timing),
+                            //             reqp.as_agent_id(),
+                            //             JANUS_API_VERSION,
+                            //         );
 
-                                    let boxed_resp =
-                                        Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-                                    Ok(boxed_resp)
-                                })?
+                            //         let boxed_resp =
+                            //             Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                            //         Ok(boxed_resp)
+                            //     })?
                             // .or_else(|err| Ok(handle_response_error(context, &reqp, err)))?
                             // context
                             //     .janus_client()

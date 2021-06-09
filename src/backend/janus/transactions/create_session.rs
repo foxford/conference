@@ -21,7 +21,7 @@ const METHOD: &str = "janus_session.create";
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct TransactionData {
+pub struct TransactionData {
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
 }

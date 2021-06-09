@@ -30,10 +30,7 @@ impl JanusClient {
         })
     }
 
-    pub async fn create_stream(
-        &self,
-        request: &CreateStreamRequest,
-    ) -> anyhow::Result<CreateStreamResponse> {
+    pub async fn create_stream(&self, request: &CreateStreamRequest) -> anyhow::Result<()> {
         let request = Request::post(format!(
             "{}/{}/{}",
             self.janus_url,
@@ -42,11 +39,13 @@ impl JanusClient {
         ))
         .body(serde_json::to_vec(&request)?)?;
         let create_handle_response: String = self.http.send_async(request).await?.text().await?;
-        serde_json::from_str(&create_handle_response).map_err(|err| {
-            let err = anyhow!("Err: {:?}, raw: {}", err, create_handle_response);
-            warn!(crate::LOG, "raw {}", err);
-            err
-        })
+        warn!(crate::LOG, "resp: {}", create_handle_response);
+        Ok(())
+        // serde_json::from_str(&create_handle_response).map_err(|err| {
+        //     let err = anyhow!("Err: {:?}, raw: {}", err, create_handle_response);
+        //     warn!(crate::LOG, "raw {}", err);
+        //     err
+        // })
     }
 
     pub async fn read_stream(
