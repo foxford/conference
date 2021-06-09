@@ -9,7 +9,7 @@ pub(crate) enum Transaction {
     CreateStream(create_stream::TransactionData),
     // CreateRtcHandle(create_rtc_handle::TransactionData),
     ReadStream(read_stream::TransactionData),
-    Trickle(trickle::TransactionData),
+    // Trickle(trickle::TransactionData),
     UpdateReaderConfig,
     UpdateWriterConfig,
     UploadStream(upload_stream::TransactionData),

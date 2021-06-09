@@ -16,7 +16,10 @@ use uuid::Uuid;
 
 use super::janus::transactions::Transaction;
 use super::MessageStream;
-use crate::{app::handle_id::HandleId, backend::janus::requests::CreateStreamRequestBody};
+use crate::{
+    app::handle_id::HandleId,
+    backend::janus::requests::{CreateStreamRequestBody, TrickleRequest},
+};
 use crate::{
     app::{context::Context, endpoint},
     backend::janus::JANUS_API_VERSION,
@@ -426,21 +429,44 @@ impl RequestHandler for CreateHandler {
                 let jsep = serde_json::to_value(&payload.jsep)
                     .context("Error serializing JSEP")
                     .error(AppErrorKind::MessageBuildingFailed)?;
+                let payload = TrickleRequest::new(
+                    &Uuid::new_v4().to_string(),
+                    payload.handle_id.janus_session_id(),
+                    payload.handle_id.janus_handle_id(),
+                    jsep,
+                );
+                let resp = context
+                    .janus_http_client()
+                    .trickle_request(&payload)
+                    .await
+                    .context("Trickle")
+                    .error(AppErrorKind::AccessDenied)?;
+                let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                    endpoint::rtc_signal::CreateResponseData::new(None),
+                    reqp.to_response(
+                        ResponseStatus::OK,
+                        ShortTermTimingProperties::until_now(context.start_timestamp()),
+                    ),
+                    reqp.as_agent_id(),
+                    JANUS_API_VERSION,
+                );
 
-                context
-                    .janus_client()
-                    .trickle_request(
-                        reqp.clone(),
-                        payload.handle_id.janus_session_id(),
-                        payload.handle_id.janus_handle_id(),
-                        jsep,
-                        payload.handle_id.backend_id(),
-                        context.start_timestamp(),
-                        authz_time,
-                    )
-                    .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
-                    .context("Error creating a backend request")
-                    .error(AppErrorKind::MessageBuildingFailed)?
+                let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                return Ok(Box::new(stream::once(boxed_resp)));
+                // context
+                //     .janus_client()
+                //     .trickle_request(
+                //         reqp.clone(),
+                //         payload.handle_id.janus_session_id(),
+                //         payload.handle_id.janus_handle_id(),
+                //         jsep,
+                //         payload.handle_id.backend_id(),
+                //         context.start_timestamp(),
+                //         authz_time,
+                //     )
+                //     .map(|req| Box::new(req) as Box<dyn IntoPublishableMessage + Send>)
+                //     .context("Error creating a backend request")
+                //     .error(AppErrorKind::MessageBuildingFailed)?
             }
         };
 

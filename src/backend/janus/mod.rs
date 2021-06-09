@@ -124,20 +124,20 @@ async fn handle_response_impl<C: Context>(
                 // Conference Stream is being created
                 // Transaction::CreateStream(_tn) => Ok(Box::new(stream::empty())),
                 // Trickle message has been received by Janus Gateway
-                Transaction::Trickle(tn) => {
-                    let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                        endpoint::rtc_signal::CreateResponseData::new(None),
-                        tn.reqp().to_response(
-                            ResponseStatus::OK,
-                            ShortTermTimingProperties::until_now(context.start_timestamp()),
-                        ),
-                        tn.reqp().as_agent_id(),
-                        JANUS_API_VERSION,
-                    );
+                // Transaction::Trickle(tn) => {
+                //     let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                //         endpoint::rtc_signal::CreateResponseData::new(None),
+                //         tn.reqp().to_response(
+                //             ResponseStatus::OK,
+                //             ShortTermTimingProperties::until_now(context.start_timestamp()),
+                //         ),
+                //         tn.reqp().as_agent_id(),
+                //         JANUS_API_VERSION,
+                //     );
 
-                    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-                    Ok(Box::new(stream::once(boxed_resp)))
-                }
+                //     let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                //     Ok(Box::new(stream::once(boxed_resp)))
+                // }
                 // An unsupported incoming Ack message has been received
                 _ => Ok(Box::new(stream::empty())),
             }

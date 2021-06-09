@@ -12,9 +12,12 @@ use serde_json::{json, Value};
 use slog::warn;
 use uuid::Uuid;
 
+use super::requests::TrickleRequest;
+
 pub mod create_handle;
 pub mod create_stream;
 pub mod read_stream;
+pub mod trickle;
 
 #[derive(Debug)]
 pub struct JanusClient {
@@ -28,6 +31,19 @@ impl JanusClient {
             http: Arc::new(HttpClient::new()?),
             janus_url,
         })
+    }
+
+    pub async fn trickle_request(&self, request: &TrickleRequest) -> anyhow::Result<()> {
+        let request = Request::post(format!(
+            "{}/{}/{}",
+            self.janus_url,
+            request.session_id(),
+            request.handle_id()
+        ))
+        .body(serde_json::to_vec(&request)?)?;
+        let create_handle_response: String = self.http.send_async(request).await?.text().await?;
+        warn!(crate::LOG, "resp: {}", create_handle_response);
+        Ok(())
     }
 
     pub async fn create_stream(&self, request: &CreateStreamRequest) -> anyhow::Result<()> {

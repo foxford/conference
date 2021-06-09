@@ -36,7 +36,11 @@ impl fmt::Display for RequestInfo {
             .and_then(|m| m.as_str())
             .unwrap_or("");
 
-        write!(f, "to = '{}', method = '{}'", self.to, method)
+        write!(
+            f,
+            "to = '{}', method = '{}', payload: {}",
+            self.to, method, self.payload
+        )
     }
 }
 
