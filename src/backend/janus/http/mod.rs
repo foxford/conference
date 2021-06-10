@@ -38,7 +38,7 @@ impl JanusClient {
     }
 
     pub async fn create_session(&self) -> anyhow::Result<i64> {
-        let request = Request::post(self.janus_url).body(())?;
+        let request = Request::post(&self.janus_url).body(())?;
         let response: Value = self.http.send_async(request).await?.json().await?;
         response
             .get("data")
