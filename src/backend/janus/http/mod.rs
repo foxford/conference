@@ -38,9 +38,15 @@ impl JanusClient {
     }
 
     pub async fn create_session(&self) -> anyhow::Result<i64> {
-        let request = Request::post(self.janus_url).body(());
+        let request = Request::post(self.janus_url).body(())?;
         let response: Value = self.http.send_async(request).await?.json().await?;
-        Ok(response.get("data").unwrap().get("id").unwrap().as_i64())
+        Ok(response
+            .get("data")
+            .unwrap()
+            .get("id")
+            .unwrap()
+            .as_i64()
+            .ok_or_else(|| anyhow!("Can't find session")))
     }
 
     pub async fn trickle_request(&self, request: &TrickleRequest) -> anyhow::Result<()> {
