@@ -687,6 +687,7 @@ async fn handle_status_event_impl<C: Context>(
         .error(AppErrorKind::MessageParsingFailed)?;
 
     if payload.online() {
+        let olala = dbg!(context.janus_http_client().create_session().await);
         let event = context
             .janus_client()
             .create_session_request(&payload, evp, context.start_timestamp())

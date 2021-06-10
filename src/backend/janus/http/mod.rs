@@ -37,6 +37,12 @@ impl JanusClient {
         })
     }
 
+    pub async fn create_session(&self) -> anyhow::Result<i64> {
+        let request = Request::post(self.janus_url).body(());
+        let response: Value = self.http.send_async(request).await?.json().await?;
+        Ok(response.get("data").unwrap().get("id").unwrap().as_i64())
+    }
+
     pub async fn trickle_request(&self, request: &TrickleRequest) -> anyhow::Result<()> {
         let request = Request::post(format!(
             "{}/{}/{}",
