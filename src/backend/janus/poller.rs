@@ -4,3 +4,5 @@ pub struct Poller {
     http_client: HttpClient,
     session_id: i64,
 }
+
+impl Poller {}
