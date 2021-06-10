@@ -118,6 +118,7 @@ table! {
         send_video -> Bool,
         send_audio -> Bool,
         video_remb -> Nullable<Int8>,
+        send_audio_updated_by -> Nullable<Agent_id>,
     }
 }
 
