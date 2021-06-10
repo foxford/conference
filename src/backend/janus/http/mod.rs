@@ -132,6 +132,7 @@ impl JanusClient {
             "plugin": "janus.plugin.conference",
             "opaque_id": request.opaque_id,
         }))?;
+        dbg!(request.session_id);
         let request =
             Request::post(format!("{}/{}", self.janus_url, request.session_id)).body(body)?;
         let create_handle_response: JanusResponse<CreateHandleResponse> =
