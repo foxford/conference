@@ -27,9 +27,12 @@ impl Poller {
     pub async fn start(self: Arc<Self>, session_id: i64) {
         loop {
             let get_task = async {
-                let request =
-                    Request::get(format!("{}/{}?maxev=5", self.janus_url, session_id)).body(())?;
-                let response = self.http_client.send_async(request).await?.text().await?;
+                let response = self
+                    .http_client
+                    .get_async(format!("{}/{}?maxev=5", self.janus_url, session_id))
+                    .await?
+                    .text()
+                    .await?;
                 if response.contains("keepalive") {
                     return Ok(());
                 }
@@ -44,7 +47,7 @@ impl Poller {
                 Ok::<_, anyhow::Error>(())
             };
             if let Err(err) = get_task.await {
-                async_std::task::sleep(Duration::from_millis(100));
+                async_std::task::sleep(Duration::from_millis(5000));
                 error!(crate::LOG, "Got error: {:#}", err)
             }
         }
