@@ -112,12 +112,12 @@ pub(crate) fn update_event(
     room_id: Uuid,
     object: db::janus_rtc_stream::Object,
     start_timestamp: DateTime<Utc>,
-    tracking: &TrackingProperties,
+    // tracking: &TrackingProperties,
 ) -> StdResult<ObjectUpdateEvent, AppError> {
     let uri = format!("rooms/{}/events", room_id);
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let mut props = OutgoingEventProperties::new("rtc_stream.update", timing);
-    props.set_tracking(tracking.to_owned());
+    // props.set_tracking(tracking.to_owned());
     Ok(OutgoingEvent::broadcast(object, props, &uri))
 }
 

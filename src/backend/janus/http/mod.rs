@@ -26,7 +26,7 @@ pub mod update_agent_writer_config;
 #[derive(Debug)]
 pub struct JanusClient {
     http: Arc<HttpClient>,
-    janus_url: Uri,
+    pub janus_url: Uri,
 }
 
 impl JanusClient {

@@ -8,18 +8,22 @@ use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
-use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 use crate::app::metrics::{DynamicStatsCollector, Metric};
 use crate::backend::janus::http;
 use crate::backend::janus::Client as JanusClient;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
+use crate::{
+    app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
+    backend::janus::poller::Poller,
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 
 pub(crate) trait Context: GlobalContext + MessageContext {}
 
 pub(crate) trait GlobalContext: Sync {
+    fn poller(&self) -> Arc<Poller>;
     fn authz(&self) -> &Authz;
     fn config(&self) -> &Config;
     fn db(&self) -> &Db;
@@ -65,6 +69,7 @@ pub(crate) struct AppContext {
     dynamic_stats: Option<Arc<DynamicStatsCollector>>,
     running_requests: Option<Arc<AtomicI64>>,
     janus_http_client: Arc<http::JanusClient>,
+    poller: Arc<Poller>,
 }
 
 impl AppContext {
@@ -76,6 +81,7 @@ impl AppContext {
         janus_topics: JanusTopics,
         stats_collector: Arc<DynamicStatsCollector>,
         janus_http_client: Arc<http::JanusClient>,
+        poller: Arc<Poller>,
     ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
 
@@ -91,6 +97,7 @@ impl AppContext {
             dynamic_stats: Some(stats_collector),
             running_requests: None,
             janus_http_client,
+            poller,
         }
     }
 
@@ -164,6 +171,10 @@ impl GlobalContext for AppContext {
     fn janus_http_client(&self) -> Arc<http::JanusClient> {
         self.janus_http_client.clone()
     }
+
+    fn poller(&self) -> Arc<Poller> {
+        self.poller.clone()
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -231,6 +242,10 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 
     fn janus_http_client(&self) -> Arc<http::JanusClient> {
         self.global_context.janus_http_client()
+    }
+
+    fn poller(&self) -> Arc<Poller> {
+        self.global_context.poller().clone()
     }
 }
 

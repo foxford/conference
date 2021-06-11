@@ -146,6 +146,10 @@ impl GlobalContext for TestContext {
     fn janus_http_client(&self) -> Arc<crate::backend::janus::http::JanusClient> {
         todo!()
     }
+
+    fn poller(&self) -> Arc<crate::backend::janus::poller::Poller> {
+        todo!()
+    }
 }
 
 impl MessageContext for TestContext {

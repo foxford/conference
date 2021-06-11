@@ -17,9 +17,15 @@ use svc_agent::{
 };
 use svc_error::Error as SvcError;
 
-use crate::app::context::{AppMessageContext, Context, GlobalContext, MessageContext};
-use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 use crate::app::{endpoint, API_VERSION};
+use crate::{
+    app::context::{AppMessageContext, Context, GlobalContext, MessageContext},
+    backend::janus,
+};
+use crate::{
+    app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
+    backend::janus::handle_event,
+};
 
 pub(crate) type MessageStream =
     Box<dyn Stream<Item = Box<dyn IntoPublishableMessage + Send>> + Send + Unpin>;
@@ -65,6 +71,16 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
             Err(e) => {
                 Self::report_error(&mut msg_context, message, e).await;
             }
+        }
+    }
+
+    pub(crate) async fn handle_evs(&self, message: janus::events::IncomingEvent) {
+        let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
+
+        let messages = handle_event(&mut msg_context, message).await;
+
+        if let Err(err) = self.publish_outgoing_messages(messages).await {
+            warn!(crate::LOG, "Got err {:#}", err);
         }
     }
 
@@ -181,6 +197,10 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         self.publish_outgoing_messages(outgoing_message_stream)
             .await
     }
+
+    // async fn handle_events(&self) {
+    //     self.
+    // }
 
     async fn handle_event(
         &self,

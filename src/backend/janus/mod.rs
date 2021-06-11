@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use anyhow::Result;
+use anyhow::{Context as AnyhowContext, Result};
 use async_std::stream;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use std::ops::Bound;
@@ -13,14 +13,14 @@ use svc_agent::Addressable;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::context::Context;
-use crate::app::endpoint;
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 use crate::app::message_handler::MessageStream;
 use crate::app::API_VERSION;
 use crate::db::{agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc};
 use crate::diesel::Connection;
 use crate::util::from_base64;
+use crate::{app::context::Context, backend::janus::http::create_handle::CreateHandleRequest};
+use crate::{app::endpoint, backend::janus::poller::Poller};
 
 use self::events::{IncomingEvent, StatusEvent};
 use self::responses::{ErrorResponse, IncomingResponse};
@@ -74,45 +74,48 @@ async fn handle_response_impl<C: Context>(
                 .error(AppErrorKind::MessageParsingFailed)?;
 
             match txn {
-                // Session has been created
-                Transaction::CreateSession(tn) => {
-                    // Creating Handle
-                    let backreq = context
-                        .janus_client()
-                        .create_handle_request(
-                            respp,
-                            inresp.data().id(),
-                            tn.capacity(),
-                            tn.balancer_capacity(),
-                            context.start_timestamp(),
-                        )
-                        .error(AppErrorKind::MessageBuildingFailed)?;
+                // // Session has been created
+                // Transaction::CreateSession(tn) => {
+                //     // Creating Handle
+                //     let backreq = context
+                //         .janus_client()
+                //         .create_handle_request(
+                //             respp,
+                //             inresp.data().id(),
+                //             tn.capacity(),
+                //             tn.balancer_capacity(),
+                //             context.start_timestamp(),
+                //         )
+                //         .error(AppErrorKind::MessageBuildingFailed)?;
 
-                    let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>;
-                    Ok(Box::new(stream::once(boxed_backreq)))
-                }
-                // Handle has been created
-                Transaction::CreateHandle(tn) => {
-                    let backend_id = respp.as_agent_id();
-                    let handle_id = inresp.data().id();
-                    let conn = context.get_conn()?;
+                //     let boxed_backreq = Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>;
+                //     Ok(Box::new(stream::once(boxed_backreq)))
+                // }
+                // // Handle has been created
+                // Transaction::CreateHandle(tn) => {
+                //     let backend_id = respp.as_agent_id();
+                //     let handle_id = inresp.data().id();
+                //     let conn = context.get_conn()?;
 
-                    let mut q =
-                        janus_backend::UpsertQuery::new(backend_id, handle_id, tn.session_id());
+                //     let mut q =
+                //         janus_backend::UpsertQuery::new(backend_id, handle_id, tn.session_id());
 
-                    if let Some(capacity) = tn.capacity() {
-                        q = q.capacity(capacity);
-                    }
+                //     if let Some(capacity) = tn.capacity() {
+                //         q = q.capacity(capacity);
+                //     }
 
-                    if let Some(balancer_capacity) = tn.balancer_capacity() {
-                        q = q.balancer_capacity(balancer_capacity);
-                    }
+                //     if let Some(balancer_capacity) = tn.balancer_capacity() {
+                //         q = q.balancer_capacity(balancer_capacity);
+                //     }
 
-                    q.execute(&conn)?;
+                //     q.execute(&conn)?;
+                //     Ok(Box::new(stream::empty()))
+                // }
+                // An unsupported incoming Success message has been received
+                tx => {
+                    warn!(crate::LOG, "Unknown tx: {:?}", tx);
                     Ok(Box::new(stream::empty()))
                 }
-                // An unsupported incoming Success message has been received
-                _ => Ok(Box::new(stream::empty())),
             }
         }
         IncomingResponse::Ack(ref inresp) => {
@@ -151,50 +154,50 @@ async fn handle_response_impl<C: Context>(
 
             match txn {
                 // Conference Stream has been created (an answer received)
-                Transaction::CreateStream(ref tn) => {
-                    context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
+                // Transaction::CreateStream(ref tn) => {
+                //     context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
 
-                    inresp
-                        .plugin()
-                        .data()
-                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
-                        .error(AppErrorKind::MessageParsingFailed)?
-                        .get("status")
-                        .ok_or_else(|| anyhow!("Missing 'status' in the response"))
-                        .error(AppErrorKind::MessageParsingFailed)
-                        .and_then(|status| {
-                            context.add_logger_tags(o!("status" => status.as_u64()));
+                //     inresp
+                //         .plugin()
+                //         .data()
+                //         .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                //         .error(AppErrorKind::MessageParsingFailed)?
+                //         .get("status")
+                //         .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                //         .error(AppErrorKind::MessageParsingFailed)
+                //         .and_then(|status| {
+                //             context.add_logger_tags(o!("status" => status.as_u64()));
 
-                            if status == "200" {
-                                Ok(())
-                            } else {
-                                Err(anyhow!("Received error status"))
-                                    .error(AppErrorKind::BackendRequestFailed)
-                            }
-                        })
-                        .and_then(|_| {
-                            // Getting answer (as JSEP)
-                            let jsep = inresp
-                                .jsep()
-                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)?;
+                //             if status == "200" {
+                //                 Ok(())
+                //             } else {
+                //                 Err(anyhow!("Received error status"))
+                //                     .error(AppErrorKind::BackendRequestFailed)
+                //             }
+                //         })
+                //         .and_then(|_| {
+                //             // Getting answer (as JSEP)
+                //             let jsep = inresp
+                //                 .jsep()
+                //                 .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                //                 .error(AppErrorKind::MessageParsingFailed)?;
 
-                            let timing =
-                                ShortTermTimingProperties::until_now(context.start_timestamp());
+                //             let timing =
+                //                 ShortTermTimingProperties::until_now(context.start_timestamp());
 
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
-                                tn.reqp().to_response(ResponseStatus::OK, timing),
-                                tn.reqp().as_agent_id(),
-                                JANUS_API_VERSION,
-                            );
+                //             let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                //                 endpoint::rtc_signal::CreateResponseData::new(Some(jsep.clone())),
+                //                 tn.reqp().to_response(ResponseStatus::OK, timing),
+                //                 tn.reqp().as_agent_id(),
+                //                 JANUS_API_VERSION,
+                //             );
 
-                            let boxed_resp =
-                                Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
-                        })
-                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
-                }
+                //             let boxed_resp =
+                //                 Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                //             Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                //         })
+                //         .or_else(|err| Ok(handle_response_error(context, &tn.reqp(), err)))
+                // }
                 // Conference Stream has been read (an answer received)
                 // Transaction::ReadStream(ref tn) => {
                 //     context.add_logger_tags(o!("method" => tn.reqp().method().to_string()));
@@ -392,7 +395,10 @@ async fn handle_response_impl<C: Context>(
                         })
                 }
                 // An unsupported incoming Event message has been received
-                _ => Ok(Box::new(stream::empty())),
+                tx => {
+                    warn!(crate::LOG, "Unknown tx: {:?}", tx);
+                    Ok(Box::new(stream::empty()))
+                }
             }
         }
         IncomingResponse::Error(ErrorResponse::Session(ref inresp)) => {
@@ -440,7 +446,7 @@ fn handle_response_error<C: Context>(
 
 pub(crate) async fn handle_event<C: Context>(
     context: &mut C,
-    event: &MQTTIncomingEvent<String>,
+    event: IncomingEvent,
 ) -> MessageStream {
     handle_event_impl(context, event)
         .await
@@ -457,15 +463,14 @@ pub(crate) async fn handle_event<C: Context>(
 
 async fn handle_event_impl<C: Context>(
     context: &mut C,
-    event: &MQTTIncomingEvent<String>,
+    payload: IncomingEvent,
 ) -> Result<MessageStream, AppError> {
-    context.add_logger_tags(o!("label" => event.properties().label().unwrap_or("").to_string()));
+    // context.add_logger_tags(o!("label" => event.properties().label().unwrap_or("").to_string()));
 
-    let payload = MQTTIncomingEvent::convert_payload::<IncomingEvent>(&event)
-        .map_err(|err| anyhow!("Failed to parse event: {}. Raw: {:?}", err, event))
-        .error(AppErrorKind::MessageParsingFailed)?;
+    // let payload = MQTTIncomingEvent::convert_payload::<IncomingEvent>(&event)
+    //     .map_err(|err| anyhow!("Failed to parse event: {}. Raw: {:?}", err, event))
+    //     .error(AppErrorKind::MessageParsingFailed)?;
 
-    let evp = event.properties();
     match payload {
         IncomingEvent::WebRtcUp(ref inev) => {
             context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
@@ -491,7 +496,7 @@ async fn handle_event_impl<C: Context>(
                     room.id(),
                     rtc_stream,
                     context.start_timestamp(),
-                    evp.tracking(),
+                    // evp.tracking(),
                 )?;
 
                 Ok(Box::new(stream::once(
@@ -501,8 +506,8 @@ async fn handle_event_impl<C: Context>(
                 Ok(Box::new(stream::empty()))
             }
         }
-        IncomingEvent::HangUp(ref inev) => handle_hangup_detach(context, inev, evp),
-        IncomingEvent::Detached(ref inev) => handle_hangup_detach(context, inev, evp),
+        IncomingEvent::HangUp(ref inev) => handle_hangup_detach(context, inev),
+        IncomingEvent::Detached(ref inev) => handle_hangup_detach(context, inev),
         IncomingEvent::Media(_) | IncomingEvent::Timeout(_) | IncomingEvent::SlowLink(_) => {
             // Ignore these kinds of events.
             Ok(Box::new(stream::empty()))
@@ -615,7 +620,6 @@ async fn handle_event_impl<C: Context>(
 fn handle_hangup_detach<C: Context, E: OpaqueId>(
     context: &mut C,
     inev: &E,
-    evp: &IncomingEventProperties,
 ) -> Result<MessageStream, AppError> {
     context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_owned()));
 
@@ -647,7 +651,7 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
                 room.id(),
                 rtc_stream,
                 context.start_timestamp(),
-                evp.tracking(),
+                // evp.tracking(),
             )?;
 
             let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
@@ -687,14 +691,36 @@ async fn handle_status_event_impl<C: Context>(
         .error(AppErrorKind::MessageParsingFailed)?;
 
     if payload.online() {
-        let olala = dbg!(context.janus_http_client().create_session().await);
-        let event = context
-            .janus_client()
-            .create_session_request(&payload, evp, context.start_timestamp())
-            .error(AppErrorKind::MessageBuildingFailed)?;
+        let client = context.janus_http_client();
+        let session = client
+            .create_session()
+            .await
+            .context("CreateSession")
+            .error(AppErrorKind::AccessDenied)?;
+        let handle = client
+            .create_handle(&CreateHandleRequest {
+                session_id: session,
+                opaque_id: Uuid::new_v4().to_string(),
+            })
+            .await
+            .context("Create first handle")
+            .error(AppErrorKind::AccessDenied)?;
+        let backend_id = evp.as_agent_id();
+        let conn = context.get_conn()?;
 
-        let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
-        Ok(Box::new(stream::once(boxed_event)))
+        let mut q = janus_backend::UpsertQuery::new(backend_id, session, handle.id);
+
+        if let Some(capacity) = payload.capacity() {
+            q = q.capacity(capacity);
+        }
+
+        if let Some(balancer_capacity) = payload.balancer_capacity() {
+            q = q.balancer_capacity(balancer_capacity);
+        }
+
+        q.execute(&conn)?;
+        async_std::task::spawn(context.poller().start(session));
+        Ok(Box::new(stream::empty()))
     } else {
         let conn = context.get_conn()?;
 
@@ -721,7 +747,7 @@ async fn handle_status_event_impl<C: Context>(
                 rtc.room_id(),
                 stream,
                 context.start_timestamp(),
-                evp.tracking(),
+                // evp.tracking(),
             )?;
 
             events.push(Box::new(event) as Box<dyn IntoPublishableMessage + Send>);
@@ -734,9 +760,9 @@ async fn handle_status_event_impl<C: Context>(
 ////////////////////////////////////////////////////////////////////////////////
 
 mod client;
-mod events;
+pub mod events;
 pub mod http;
-mod poller;
+pub mod poller;
 pub(crate) mod requests;
 mod responses;
 pub mod transactions;

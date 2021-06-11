@@ -18,12 +18,12 @@ use svc_agent::{
 use svc_authn::token::jws_compact;
 use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
 
-use crate::app::context::GlobalContext;
 use crate::app::error::{Error as AppError, ErrorKind as AppErrorKind};
 use crate::app::metrics::{DynamicStatsCollector, StatsRoute};
 use crate::backend::janus::{Client as JanusClient, JANUS_API_VERSION};
 use crate::config::{self, Config, KruonisConfig};
 use crate::db::ConnectionPool;
+use crate::{app::context::GlobalContext, backend::janus::poller::Poller};
 use context::{AppContext, JanusTopics};
 use message_handler::MessageHandler;
 
@@ -100,6 +100,7 @@ pub(crate) async fn run(
         .expect("Failed to start msg-handler-timings thread");
     let janus_http_client =
         crate::backend::janus::http::JanusClient::new(config.backend.janus_url.parse()?);
+    let (ev_tx, mut ev_rx) = futures_channel::mpsc::unbounded();
     // Context
     let context = AppContext::new(
         config.clone(),
@@ -109,6 +110,7 @@ pub(crate) async fn run(
         janus_topics,
         stats_collector,
         Arc::new(janus_http_client?),
+        Arc::new(Poller::new(ev_tx, config.backend.janus_url.parse()?)?),
     )
     .add_queue_counter(agent.get_queue_counter())
     .add_running_requests_counter(running_requests.clone());
@@ -131,6 +133,18 @@ pub(crate) async fn run(
     let term = Arc::new(AtomicBool::new(false));
     signal_hook::flag::register(signal_hook::SIGTERM, Arc::clone(&term))?;
     signal_hook::flag::register(signal_hook::SIGINT, Arc::clone(&term))?;
+    {
+        let message_handler = message_handler.clone();
+        async_std::task::spawn(async move {
+            loop {
+                let ev = ev_rx.next().await.unwrap();
+                let message_handler = message_handler.clone();
+                async_std::task::spawn(async move {
+                    message_handler.handle_evs(ev).await;
+                });
+            }
+        });
+    }
 
     while !term.load(Ordering::Relaxed) {
         let fut = async_std::future::timeout(term_check_period, mq_rx.next());

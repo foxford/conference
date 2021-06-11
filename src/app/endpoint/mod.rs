@@ -156,7 +156,8 @@ macro_rules! event_routes {
             topic: &str,
         ) -> Option<MessageStream> {
             if topic == context.janus_topics().events_topic() {
-                Some(janus::handle_event::<C>(context, event).await)
+                None
+                // Some(janus::handle_event::<C>(context, event).await)
             } else if topic == context.janus_topics().status_events_topic() {
                 Some(janus::handle_status_event::<C>(context, event).await)
             } else {
