@@ -708,7 +708,7 @@ async fn handle_status_event_impl<C: Context>(
         let backend_id = evp.as_agent_id();
         let conn = context.get_conn()?;
 
-        let mut q = janus_backend::UpsertQuery::new(backend_id, session, handle.id);
+        let mut q = janus_backend::UpsertQuery::new(backend_id, handle.id, session);
 
         if let Some(capacity) = payload.capacity() {
             q = q.capacity(capacity);

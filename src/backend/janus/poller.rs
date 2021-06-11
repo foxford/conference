@@ -47,7 +47,7 @@ impl Poller {
                 Ok::<_, anyhow::Error>(())
             };
             if let Err(err) = get_task.await {
-                async_std::task::sleep(Duration::from_millis(5000));
+                async_std::task::sleep(Duration::from_millis(100));
                 error!(crate::LOG, "Got error: {:#}", err)
             }
         }
