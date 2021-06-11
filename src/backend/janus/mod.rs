@@ -692,11 +692,11 @@ async fn handle_status_event_impl<C: Context>(
 
     if payload.online() {
         let client = context.janus_http_client();
-        let session = client
+        let session = dbg!(client
             .create_session()
             .await
             .context("CreateSession")
-            .error(AppErrorKind::AccessDenied)?;
+            .error(AppErrorKind::AccessDenied)?);
         let handle = client
             .create_handle(&CreateHandleRequest {
                 session_id: session,

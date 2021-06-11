@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use futures::channel;
 use isahc::{http::Uri, AsyncReadResponseExt, HttpClient, Request};
@@ -44,6 +44,7 @@ impl Poller {
                 Ok::<_, anyhow::Error>(())
             };
             if let Err(err) = get_task.await {
+                async_std::task::sleep(Duration::from_millis(100));
                 error!(crate::LOG, "Got error: {:#}", err)
             }
         }
