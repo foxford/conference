@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::{Context as AnyhowContext, Result};
+use async_std::channel::Sender;
 use async_std::stream::StreamExt;
-use async_std::sync::Sender;
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use serde_derive::Deserialize;
 
@@ -16,7 +16,7 @@ pub(crate) struct StatsRoute<C: GlobalContext> {
 
 #[derive(Debug, Clone)]
 struct StatsHandle {
-    tx: async_std::sync::Sender<StatsRouteCommand>,
+    tx: async_std::channel::Sender<StatsRouteCommand>,
 }
 
 enum StatsRouteCommand {
@@ -26,7 +26,7 @@ enum StatsRouteCommand {
 impl<C: GlobalContext + Send + 'static> StatsRoute<C> {
     pub fn start(config: crate::app::config::Config, message_handler: Arc<MessageHandler<C>>) {
         if let Some(metrics_conf) = config.metrics {
-            let (tx, mut rx) = async_std::sync::channel(1000);
+            let (tx, mut rx) = async_std::channel::bounded(1000);
             let handle = StatsHandle { tx };
 
             let route = Self { message_handler };
@@ -164,7 +164,7 @@ struct MetricHelper {
 
 impl StatsHandle {
     pub async fn get_stats(&self) -> Result<Result<String>> {
-        let (tx, rx) = async_std::sync::channel(1);
+        let (tx, rx) = async_std::channel::bounded(1);
         self.tx.send(StatsRouteCommand::GetStats(tx)).await;
         rx.recv().await.context("Stats handle recv error")
     }

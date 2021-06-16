@@ -6,14 +6,14 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0"
-async-std = { version = "= 1.6.0", features = ["attributes"] }
+async-std = { version="1", features=["attributes"] }
 async-trait = "0.1"
-base64 = "0.10"
-chrono = { version = "0.4", features = ["serde"] }
-config = "0.9"
-crossbeam-channel = "0.4"
-diesel = { version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
-diesel-derive-enum = { version = "0.4", features = ["postgres"] }
+base64 = "0.13"
+chrono = { version="0.4", features=["serde"] }
+config = "0.11"
+crossbeam-channel = "0.5"
+diesel = { version="1.4", features=["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
+diesel-derive-enum = { version="1", features=["postgres"] }
 futures = "0.3"
 futures-channel = "0.3"
 futures-util = "0.3"
@@ -21,20 +21,20 @@ http = "0.1"
 lazy_static = "1.4"
 openssl = "*"
 rand = "0.7"
-sentry = "0.18"
+sentry = "=0.18"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-signal-hook = "0.1"
+signal-hook = "0.3"
 slog = "2.5"
 slog-async = "2.5"
 slog-envlogger = "2.2"
 slog-json = "2.3"
 slog-serde = "1.0.0-alpha9"
-svc-agent = { version = "0.14", features = ["diesel", "queue-counter"] }
-svc-authn = { version = "0.6", features = ["jose", "diesel"] }
-svc-authz = "0.10"
-svc-error = { version = "0.1", features = [
+svc-agent = { version="0.17", features=["diesel", "queue-counter"] }
+svc-authn = { version="0.6", features=["jose", "diesel"] }
+svc-authz = "=0.10.4"
+svc-error = { version="0.1", features=[
     "diesel",
     "r2d2",
     "svc-agent",
@@ -42,9 +42,9 @@ svc-error = { version = "0.1", features = [
     "svc-authz",
     "sentry-extension",
 ] }
-uuid = { version = "0.6", features = ["v4", "serde"] }
-webrtc-sdp = "0.1"
-tide = "0.13.0"
-isahc = { version = "1", features = ["json"] }
+uuid = { version="0.6", features=["v4", "serde"] }
+webrtc-sdp = "0.3"
+tide = "0.16.0"
+isahc = { version="1", features=["json"] }
 # this is to prohibit tide and surf inside svc-authz from updating this dependency
-pin-project-lite = "=0.1.7"
+# pin-project-lite = "=0.1.7"

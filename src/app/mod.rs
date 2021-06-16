@@ -131,8 +131,8 @@ pub(crate) async fn run(
     // Message loop
     let term_check_period = Duration::from_secs(1);
     let term = Arc::new(AtomicBool::new(false));
-    signal_hook::flag::register(signal_hook::SIGTERM, Arc::clone(&term))?;
-    signal_hook::flag::register(signal_hook::SIGINT, Arc::clone(&term))?;
+    signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&term))?;
+    signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&term))?;
     {
         let message_handler = message_handler.clone();
         async_std::task::spawn(async move {
@@ -160,9 +160,6 @@ pub(crate) async fn run(
                         message_handler.handle(&message, &metadata.topic).await;
                         running_requests_.fetch_add(-1, Ordering::SeqCst);
                     }
-                    AgentNotification::Disconnection => {
-                        error!(crate::LOG, "Disconnected from broker")
-                    }
                     AgentNotification::Reconnection => {
                         error!(crate::LOG, "Reconnected to broker");
 
@@ -177,8 +174,16 @@ pub(crate) async fn run(
                     AgentNotification::Pubcomp(_) => (),
                     AgentNotification::Suback(_) => (),
                     AgentNotification::Unsuback(_) => (),
-                    AgentNotification::Abort(err) => {
-                        error!(crate::LOG, "{}", anyhow!("MQTT client aborted: {}", err))
+                    AgentNotification::ConnectionError => todo!(),
+                    AgentNotification::Connect(_) => todo!(),
+                    AgentNotification::Connack(_) => todo!(),
+                    AgentNotification::Pubrel(_) => todo!(),
+                    AgentNotification::Subscribe(_) => todo!(),
+                    AgentNotification::Unsubscribe(_) => todo!(),
+                    AgentNotification::PingReq => todo!(),
+                    AgentNotification::PingResp => todo!(),
+                    AgentNotification::Disconnect => {
+                        error!(crate::LOG, "Disconnected from broker")
                     }
                 }
             });
@@ -268,7 +273,7 @@ fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()>
         .context("Failed to build subscription topic")?;
 
     let props = OutgoingRequestProperties::new("kruonis.subscribe", &topic, "", timing);
-    let event = OutgoingRequest::multicast(json!({}), props, kruonis_id);
+    let event = OutgoingRequest::multicast(json!({}), props, kruonis_id, API_VERSION);
 
     agent.publish(event).context("Failed to publish message")?;
 

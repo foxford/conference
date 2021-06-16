@@ -5,9 +5,9 @@ use svc_agent::mqtt::{
     IncomingEventProperties, IntoPublishableMessage, OutgoingEvent, ShortTermTimingProperties,
 };
 
-use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::app::metrics::Metric2;
+use crate::app::{context::Context, API_VERSION};
 use crate::config::TelemetryConfig;
 
 #[derive(Debug, Deserialize)]
@@ -51,8 +51,10 @@ impl EventHandler for PullHandler {
                 let props = evp.to_event("metric.create", short_term_timing.clone());
                 let props2 = evp.to_event("metric.create", short_term_timing);
 
-                let outgoing_event = OutgoingEvent::multicast(metrics, props, account_id);
-                let outgoing_event2 = OutgoingEvent::multicast(metrics2, props2, account_id);
+                let outgoing_event =
+                    OutgoingEvent::multicast(metrics, props, account_id, API_VERSION);
+                let outgoing_event2 =
+                    OutgoingEvent::multicast(metrics2, props2, account_id, API_VERSION);
 
                 let boxed_events = vec![
                     Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send>,
