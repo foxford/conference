@@ -397,6 +397,16 @@ async fn handle_response_impl<C: Context>(
                                         })
                                         .collect())
                                 })?;
+                            let mjr_dumps_uris = plugin_data
+                                .get("mjr_dumps_uris")
+                                .map(|dumps| {
+                                    serde_json::from_value::<Vec<String>>(dumps.clone())
+                                        .map_err(|err| {
+                                            anyhow!("Invalid value for 'dumps_uris': {}", err)
+                                        })
+                                        .error(AppErrorKind::MessageParsingFailed)
+                                })
+                                .transpose()?;
 
                             let (room, rtcs_with_recs): (
                                 room::Object,
@@ -408,6 +418,7 @@ async fn handle_response_impl<C: Context>(
                                     .status(recording::Status::Ready)
                                     .started_at(started_at)
                                     .segments(segments)
+                                    .mjr_dumps_uris(mjr_dumps_uris)
                                     .execute(&conn)?;
 
                                 let rtc = rtc::FindQuery::new()
