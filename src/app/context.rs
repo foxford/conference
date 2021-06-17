@@ -10,12 +10,11 @@ use svc_authz::ClientMap as Authz;
 
 use crate::app::metrics::{DynamicStatsCollector, Metric};
 use crate::backend::janus::http;
-use crate::backend::janus::Client as JanusClient;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
 use crate::{
     app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
-    backend::janus::poller::Poller,
+    backend::janus::http::JanusClient,
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -23,12 +22,10 @@ use crate::{
 pub(crate) trait Context: GlobalContext + MessageContext {}
 
 pub(crate) trait GlobalContext: Sync {
-    fn poller(&self) -> Arc<Poller>;
     fn authz(&self) -> &Authz;
     fn config(&self) -> &Config;
     fn db(&self) -> &Db;
     fn agent_id(&self) -> &AgentId;
-    fn janus_client(&self) -> Arc<JanusClient>;
     fn janus_http_client(&self) -> Arc<http::JanusClient>;
     fn janus_topics(&self) -> &JanusTopics;
     fn queue_counter(&self) -> &Option<QueueCounterHandle>;
@@ -62,14 +59,12 @@ pub(crate) struct AppContext {
     authz: Authz,
     db: Db,
     agent_id: AgentId,
-    janus_client: Arc<JanusClient>,
     janus_topics: JanusTopics,
     queue_counter: Option<QueueCounterHandle>,
     redis_pool: Option<RedisConnectionPool>,
     dynamic_stats: Option<Arc<DynamicStatsCollector>>,
     running_requests: Option<Arc<AtomicI64>>,
     janus_http_client: Arc<http::JanusClient>,
-    poller: Arc<Poller>,
 }
 
 impl AppContext {
@@ -77,11 +72,9 @@ impl AppContext {
         config: Config,
         authz: Authz,
         db: Db,
-        janus_client: JanusClient,
         janus_topics: JanusTopics,
         stats_collector: Arc<DynamicStatsCollector>,
         janus_http_client: Arc<http::JanusClient>,
-        poller: Arc<Poller>,
     ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
 
@@ -90,14 +83,12 @@ impl AppContext {
             authz,
             db,
             agent_id,
-            janus_client: Arc::new(janus_client),
             janus_topics,
             queue_counter: None,
             redis_pool: None,
             dynamic_stats: Some(stats_collector),
             running_requests: None,
             janus_http_client,
-            poller,
         }
     }
 
@@ -140,10 +131,6 @@ impl GlobalContext for AppContext {
         &self.agent_id
     }
 
-    fn janus_client(&self) -> Arc<JanusClient> {
-        self.janus_client.clone()
-    }
-
     fn janus_topics(&self) -> &JanusTopics {
         &self.janus_topics
     }
@@ -170,10 +157,6 @@ impl GlobalContext for AppContext {
 
     fn janus_http_client(&self) -> Arc<http::JanusClient> {
         self.janus_http_client.clone()
-    }
-
-    fn poller(&self) -> Arc<Poller> {
-        self.poller.clone()
     }
 }
 
@@ -212,10 +195,6 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.agent_id()
     }
 
-    fn janus_client(&self) -> Arc<JanusClient> {
-        self.global_context.janus_client()
-    }
-
     fn janus_topics(&self) -> &JanusTopics {
         self.global_context.janus_topics()
     }
@@ -243,10 +222,6 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
     fn janus_http_client(&self) -> Arc<http::JanusClient> {
         self.global_context.janus_http_client()
     }
-
-    fn poller(&self) -> Arc<Poller> {
-        self.global_context.poller().clone()
-    }
 }
 
 impl<'a, C: GlobalContext> MessageContext for AppMessageContext<'a, C> {
@@ -273,8 +248,6 @@ impl<'a, C: GlobalContext> Context for AppMessageContext<'a, C> {}
 #[derive(Clone, Debug)]
 pub(crate) struct JanusTopics {
     status_events_topic: String,
-    events_topic: String,
-    responses_topic: String,
 }
 
 impl JanusTopics {
@@ -285,20 +258,10 @@ impl JanusTopics {
     ) -> Self {
         Self {
             status_events_topic: status_events_topic.to_owned(),
-            events_topic: events_topic.to_owned(),
-            responses_topic: responses_topic.to_owned(),
         }
     }
 
     pub(crate) fn status_events_topic(&self) -> &str {
         &self.status_events_topic
-    }
-
-    pub(crate) fn events_topic(&self) -> &str {
-        &self.events_topic
-    }
-
-    pub(crate) fn responses_topic(&self) -> &str {
-        &self.responses_topic
     }
 }

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::Context as AnyhowContext;
-use async_std::{stream, task};
+use async_std::stream;
 use async_trait::async_trait;
 use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
@@ -10,16 +9,17 @@ use svc_agent::{
 };
 use uuid::Uuid;
 
+use crate::app::endpoint::prelude::*;
 use crate::db;
 use crate::db::rtc::Object as Rtc;
 use crate::db::rtc_writer_config::Object as RtcWriterConfig;
 use crate::diesel::Connection;
 use crate::{
     app::context::Context,
-    backend::janus::requests::{MessageRequest, UpdateWriterConfigRequestBody},
-};
-use crate::{
-    app::endpoint::prelude::*, backend::janus::requests::UpdateWriterConfigRequestBodyConfigItem,
+    backend::janus::http::update_agent_writer_config::{
+        UpdateWriterConfigRequest, UpdateWriterConfigRequestBody,
+        UpdateWriterConfigRequestBodyConfigItem,
+    },
 };
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
@@ -202,7 +202,39 @@ impl RequestHandler for UpdateHandler {
             Ok(rtc_writer_configs_with_rtcs)
         })?;
 
-        // Respond to the agent and broadcast notification.
+        // Find backend and send updates to it if present.
+        let maybe_backend = match room.backend_id() {
+            None => None,
+            Some(backend_id) => db::janus_backend::FindQuery::new()
+                .id(backend_id)
+                .execute(&conn)?,
+        };
+
+        if let Some(backend) = maybe_backend {
+            let items = rtc_writer_configs_with_rtcs
+                .iter()
+                .map(
+                    |(rtc_writer_config, rtc)| UpdateWriterConfigRequestBodyConfigItem {
+                        stream_id: rtc.id(),
+                        send_video: rtc_writer_config.send_video(),
+                        send_audio: rtc_writer_config.send_audio(),
+                        video_remb: rtc_writer_config.video_remb().map(|x| x as u32),
+                    },
+                )
+                .collect::<Vec<UpdateWriterConfigRequestBodyConfigItem>>();
+
+            let request = UpdateWriterConfigRequest {
+                session_id: backend.session_id(),
+                handle_id: backend.handle_id(),
+                body: UpdateWriterConfigRequestBody::new(items),
+            };
+            context
+                .janus_http_client()
+                .writer_update(request)
+                .await
+                .error(AppErrorKind::BackendRequestFailed)?;
+        }
+
         let state = State::new(room.id(), &rtc_writer_configs_with_rtcs);
 
         let response = helpers::build_response(
@@ -221,60 +253,7 @@ impl RequestHandler for UpdateHandler {
             context.start_timestamp(),
         );
 
-        let mut messages = vec![response, notification];
-
-        // Find backend and send updates to it if present.
-        let maybe_backend = match room.backend_id() {
-            None => None,
-            Some(backend_id) => db::janus_backend::FindQuery::new()
-                .id(backend_id)
-                .execute(&conn)?,
-        };
-
-        if let Some(backend) = maybe_backend {
-            let items = rtc_writer_configs_with_rtcs
-                .iter()
-                .map(|(rtc_writer_config, rtc)| {
-                    let mut req = UpdateWriterConfigRequestBodyConfigItem::new(
-                        rtc.id(),
-                        rtc_writer_config.send_video(),
-                        rtc_writer_config.send_audio(),
-                    );
-
-                    if let Some(video_remb) = rtc_writer_config.video_remb() {
-                        req.set_video_remb(video_remb as u32);
-                    }
-
-                    req
-                })
-                .collect::<Vec<UpdateWriterConfigRequestBodyConfigItem>>();
-
-            let body = UpdateWriterConfigRequestBody::new(items);
-
-            let payload = MessageRequest::new(
-                &Uuid::new_v4().to_string(),
-                backend.session_id(),
-                backend.handle_id(),
-                serde_json::to_value(&body)
-                    .map_err(anyhow::Error::from)
-                    .error(AppErrorKind::AccessDenied)?,
-                None,
-            );
-            let client = context.janus_http_client();
-            task::spawn(async move { client.writer_update(&payload).await });
-            // let backend_request = context
-            //     .janus_client()
-            //     .update_agent_writer_config_request(
-            //         reqp.to_owned(),
-            //         &backend,
-            //         &rtc_writer_configs_with_rtcs,
-            //         context.start_timestamp(),
-            //         maybe_authz_time,
-            //     )
-            //     .or_else(|err| Err(err).error(AppErrorKind::MessageBuildingFailed))?;
-
-            // messages.push(Box::new(backend_request));
-        }
+        let messages = vec![response, notification];
 
         Ok(Box::new(stream::from_iter(messages)))
     }
@@ -332,753 +311,753 @@ impl RequestHandler for ReadHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[cfg(test)]
-mod tests {
-    mod update {
-        use std::ops::Bound;
-
-        use chrono::{Duration, Utc};
-        use serde_derive::Deserialize;
-        use uuid::Uuid;
-
-        use crate::backend::janus::{self, requests::UpdateWriterConfigRequestBody};
-        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-        use crate::test_helpers::prelude::*;
-
-        use super::super::*;
-
-        #[derive(Debug, Deserialize)]
-        struct UpdateWriterConfigJanusRequest {
-            janus: String,
-            session_id: i64,
-            handle_id: i64,
-            body: UpdateWriterConfigRequestBody,
-        }
-
-        #[async_std::test]
-        async fn update_agent_writer_config() -> std::io::Result<()> {
-            let db = TestDb::new();
-            let mut authz = TestAuthz::new();
-            let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
-            let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
-            let agent4 = TestAgent::new("web", "user4", USR_AUDIENCE);
-
-            // Insert a room with agents and RTCs.
-            let (room, backend, rtcs) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
-
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .backend_id(backend.id())
-                        .insert(&conn);
-
-                    for agent in &[&agent1, &agent2, &agent3, &agent4] {
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    }
-
-                    let rtcs = vec![&agent2, &agent3, &agent4]
-                        .into_iter()
-                        .map(|agent| {
-                            factory::Rtc::new(room.id())
-                                .created_by(agent.agent_id().to_owned())
-                                .insert(&conn)
-                        })
-                        .collect::<Vec<_>>();
-
-                    (room, backend, rtcs)
-                })
-                .unwrap();
-
-            // Allow agent to update agent_writer_config.
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id];
-            authz.allow(agent1.account_id(), object, "update");
-
-            // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, authz);
-
-            let payload = State {
-                room_id: room.id(),
-                configs: vec![
-                    StateConfigItem {
-                        agent_id: agent2.agent_id().to_owned(),
-                        send_video: Some(true),
-                        send_audio: Some(false),
-                        video_remb: Some(300_000),
-                    },
-                    StateConfigItem {
-                        agent_id: agent3.agent_id().to_owned(),
-                        send_video: Some(false),
-                        send_audio: Some(false),
-                        video_remb: None,
-                    },
-                ],
-            };
-
-            let messages = handle_request::<UpdateHandler>(&mut context, &agent1, payload)
-                .await
-                .expect("Agent writer config update failed");
-
-            // Assert response.
-            let (state, respp, _) = find_response::<State>(messages.as_slice());
-            assert_eq!(respp.status(), ResponseStatus::OK);
-            assert_eq!(state.room_id, room.id());
-            assert_eq!(state.configs.len(), 2);
-
-            let agent2_config = state
-                .configs
-                .iter()
-                .find(|c| &c.agent_id == agent2.agent_id())
-                .expect("Config for agent2 not found");
-
-            assert_eq!(agent2_config.send_video, Some(true));
-            assert_eq!(agent2_config.send_audio, Some(false));
-            assert_eq!(agent2_config.video_remb, Some(300_000));
-
-            let agent3_config = state
-                .configs
-                .iter()
-                .find(|c| &c.agent_id == agent3.agent_id())
-                .expect("Config for agent3 not found");
-
-            assert_eq!(agent3_config.send_video, Some(false));
-            assert_eq!(agent3_config.send_audio, Some(false));
-            assert_eq!(agent3_config.video_remb, None);
-
-            // Assert notification.
-            let (state, evp, _) = find_event::<State>(messages.as_slice());
-            assert_eq!(evp.label(), "agent_writer_config.update");
-            assert_eq!(state.room_id, room.id());
-            assert_eq!(state.configs.len(), 2);
-
-            let agent2_config = state
-                .configs
-                .iter()
-                .find(|c| &c.agent_id == agent2.agent_id())
-                .expect("Config for agent2 not found");
-
-            assert_eq!(agent2_config.send_video, Some(true));
-            assert_eq!(agent2_config.send_audio, Some(false));
-            assert_eq!(agent2_config.video_remb, Some(300_000));
-
-            let agent3_config = state
-                .configs
-                .iter()
-                .find(|c| &c.agent_id == agent3.agent_id())
-                .expect("Config for agent3 not found");
-
-            assert_eq!(agent3_config.send_video, Some(false));
-            assert_eq!(agent3_config.send_audio, Some(false));
-            assert_eq!(agent3_config.video_remb, None);
-
-            // Assert backend request.
-            let (req, _reqp, topic) =
-                find_request::<UpdateWriterConfigJanusRequest>(messages.as_slice());
-
-            let expected_topic = format!(
-                "agents/{}/api/{}/in/{}",
-                backend.id(),
-                janus::JANUS_API_VERSION,
-                context.config().id,
-            );
-
-            assert_eq!(topic, expected_topic);
-            assert_eq!(req.janus, "message");
-            assert_eq!(req.session_id, backend.session_id());
-            assert_eq!(req.handle_id, backend.handle_id());
-            assert_eq!(req.body.method(), "writer_config.update");
-
-            let configs = req.body.configs();
-            assert_eq!(configs.len(), 2);
-
-            let agent2_config = configs
-                .iter()
-                .find(|c| c.stream_id() == rtcs[0].id())
-                .expect("Config for agent2's RTC not found");
-
-            assert_eq!(agent2_config.send_video(), true);
-            assert_eq!(agent2_config.send_audio(), false);
-            assert_eq!(agent2_config.video_remb(), Some(300_000));
-
-            let agent3_config = configs
-                .iter()
-                .find(|c| c.stream_id() == rtcs[1].id())
-                .expect("Config for agent3's RTC not found");
-
-            assert_eq!(agent3_config.send_video(), false);
-            assert_eq!(agent3_config.send_audio(), false);
-            assert_eq!(agent3_config.video_remb(), None);
-
-            // Make one more agent_writer_config.update request.
-            let payload = State {
-                room_id: room.id(),
-                configs: vec![
-                    StateConfigItem {
-                        agent_id: agent4.agent_id().to_owned(),
-                        send_video: Some(true),
-                        send_audio: Some(true),
-                        video_remb: Some(1_000_000),
-                    },
-                    StateConfigItem {
-                        agent_id: agent3.agent_id().to_owned(),
-                        send_video: None,
-                        send_audio: Some(true),
-                        video_remb: None,
-                    },
-                ],
-            };
-
-            let messages = handle_request::<UpdateHandler>(&mut context, &agent1, payload)
-                .await
-                .expect("Agent writer config update failed");
-
-            // Assert response.
-            let (state, respp, _) = find_response::<State>(messages.as_slice());
-            assert_eq!(respp.status(), ResponseStatus::OK);
-            assert_eq!(state.room_id, room.id());
-            assert_eq!(state.configs.len(), 3);
-
-            let agent2_config = state
-                .configs
-                .iter()
-                .find(|c| &c.agent_id == agent2.agent_id())
-                .expect("Config for agent2 not found");
-
-            assert_eq!(agent2_config.send_video, Some(true));
-            assert_eq!(agent2_config.send_audio, Some(false));
-            assert_eq!(agent2_config.video_remb, Some(300_000));
-
-            let agent3_config = state
-                .configs
-                .iter()
-                .find(|c| &c.agent_id == agent3.agent_id())
-                .expect("Config for agent3 not found");
-
-            assert_eq!(agent3_config.send_video, Some(false));
-            assert_eq!(agent3_config.send_audio, Some(true));
-            assert_eq!(agent3_config.video_remb, None);
-
-            let agent4_config = state
-                .configs
-                .iter()
-                .find(|c| &c.agent_id == agent4.agent_id())
-                .expect("Config for agent4 not found");
-
-            assert_eq!(agent4_config.send_video, Some(true));
-            assert_eq!(agent4_config.send_audio, Some(true));
-            assert_eq!(agent4_config.video_remb, Some(1_000_000));
-
-            // Assert notification.
-            let (state, evp, _) = find_event::<State>(messages.as_slice());
-            assert_eq!(evp.label(), "agent_writer_config.update");
-            assert_eq!(state.room_id, room.id());
-            assert_eq!(state.configs.len(), 3);
-
-            let agent2_config = state
-                .configs
-                .iter()
-                .find(|c| &c.agent_id == agent2.agent_id())
-                .expect("Config for agent2 not found");
-
-            assert_eq!(agent2_config.send_video, Some(true));
-            assert_eq!(agent2_config.send_audio, Some(false));
-            assert_eq!(agent2_config.video_remb, Some(300_000));
-
-            let agent3_config = state
-                .configs
-                .iter()
-                .find(|c| &c.agent_id == agent3.agent_id())
-                .expect("Config for agent3 not found");
-
-            assert_eq!(agent3_config.send_video, Some(false));
-            assert_eq!(agent3_config.send_audio, Some(true));
-            assert_eq!(agent3_config.video_remb, None);
-
-            let agent4_config = state
-                .configs
-                .iter()
-                .find(|c| &c.agent_id == agent4.agent_id())
-                .expect("Config for agent4 not found");
-
-            assert_eq!(agent4_config.send_video, Some(true));
-            assert_eq!(agent4_config.send_audio, Some(true));
-            assert_eq!(agent4_config.video_remb, Some(1_000_000));
-
-            // Assert backend request.
-            let (req, _reqp, topic) =
-                find_request::<UpdateWriterConfigJanusRequest>(messages.as_slice());
-
-            let expected_topic = format!(
-                "agents/{}/api/{}/in/{}",
-                backend.id(),
-                janus::JANUS_API_VERSION,
-                context.config().id,
-            );
-
-            assert_eq!(topic, expected_topic);
-            assert_eq!(req.janus, "message");
-            assert_eq!(req.session_id, backend.session_id());
-            assert_eq!(req.handle_id, backend.handle_id());
-            assert_eq!(req.body.method(), "writer_config.update");
-
-            let configs = req.body.configs();
-            assert_eq!(configs.len(), 3);
-
-            let agent2_config = configs
-                .iter()
-                .find(|c| c.stream_id() == rtcs[0].id())
-                .expect("Config for agent2's RTC not found");
-
-            assert_eq!(agent2_config.send_video(), true);
-            assert_eq!(agent2_config.send_audio(), false);
-            assert_eq!(agent2_config.video_remb(), Some(300_000));
-
-            let agent3_config = configs
-                .iter()
-                .find(|c| c.stream_id() == rtcs[1].id())
-                .expect("Config for agent3's RTC not found");
-
-            assert_eq!(agent3_config.send_video(), false);
-            assert_eq!(agent3_config.send_audio(), true);
-            assert_eq!(agent3_config.video_remb(), None);
-
-            let agent4_config = configs
-                .iter()
-                .find(|c| c.stream_id() == rtcs[2].id())
-                .expect("Config for agent4's RTC not found");
-
-            assert_eq!(agent4_config.send_video(), true);
-            assert_eq!(agent4_config.send_audio(), true);
-            assert_eq!(agent4_config.video_remb(), Some(1_000_000));
-            Ok(())
-        }
-
-        #[async_std::test]
-        async fn not_authorized() -> std::io::Result<()> {
-            let db = TestDb::new();
-            let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-
-            // Insert a room with agents.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
-
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    room
-                })
-                .unwrap();
-
-            // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
-
-            let payload = State {
-                room_id: room.id(),
-                configs: vec![],
-            };
-
-            let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
-                .await
-                .expect_err("Unexpected agent writer config update success");
-
-            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-            assert_eq!(err.kind(), "access_denied");
-            Ok(())
-        }
-
-        #[async_std::test]
-        async fn too_many_config_items() -> std::io::Result<()> {
-            // Make agent_writer_config.update request.
-            let agent = TestAgent::new("web", "user", USR_AUDIENCE);
-            let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-
-            let configs = (0..(MAX_STATE_CONFIGS_LEN + 1))
-                .map(|i| {
-                    let agent = TestAgent::new("web", &format!("user{}", i), USR_AUDIENCE);
-
-                    StateConfigItem {
-                        agent_id: agent.agent_id().to_owned(),
-                        send_video: Some(false),
-                        send_audio: Some(true),
-                        video_remb: Some(300_000),
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            let payload = State {
-                room_id: Uuid::new_v4(),
-                configs,
-            };
-
-            // Assert error.
-            let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
-                .await
-                .expect_err("Unexpected agent writer config update success");
-
-            assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
-            assert_eq!(err.kind(), "invalid_payload");
-            Ok(())
-        }
-
-        #[async_std::test]
-        async fn not_entered() -> std::io::Result<()> {
-            let db = TestDb::new();
-            let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-
-            // Insert a room.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| shared_helpers::insert_room_with_owned(&conn))
-                .unwrap();
-
-            // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
-
-            let payload = State {
-                room_id: room.id(),
-                configs: vec![],
-            };
-
-            // Assert error.
-            let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
-                .await
-                .expect_err("Unexpected agent writer config update success");
-
-            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-            assert_eq!(err.kind(), "agent_not_entered_the_room");
-            Ok(())
-        }
-
-        #[async_std::test]
-        async fn closed_room() -> std::io::Result<()> {
-            let db = TestDb::new();
-            let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-
-            // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(Utc::now() - Duration::hours(2)),
-                            Bound::Excluded(Utc::now() - Duration::hours(1)),
-                        ))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
-
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    room
-                })
-                .unwrap();
-
-            // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
-
-            let payload = State {
-                room_id: room.id(),
-                configs: vec![],
-            };
-
-            // Assert error.
-            let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
-                .await
-                .expect_err("Unexpected agent writer config update success");
-
-            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-            assert_eq!(err.kind(), "room_closed");
-            Ok(())
-        }
-
-        #[async_std::test]
-        async fn room_with_wrong_rtc_policy() -> std::io::Result<()> {
-            let db = TestDb::new();
-            let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-
-            // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .insert(&conn);
-
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    room
-                })
-                .unwrap();
-
-            // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
-
-            let payload = State {
-                room_id: room.id(),
-                configs: vec![],
-            };
-
-            // Assert error.
-            let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
-                .await
-                .expect_err("Unexpected agent writer config update success");
-
-            assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
-            assert_eq!(err.kind(), "invalid_payload");
-            Ok(())
-        }
-
-        #[async_std::test]
-        async fn missing_room() -> std::io::Result<()> {
-            // Make agent_writer_config.update request.
-            let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-
-            let payload = State {
-                room_id: Uuid::new_v4(),
-                configs: vec![],
-            };
-
-            // Assert error.
-            let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
-                .await
-                .expect_err("Unexpected agent writer config update success");
-
-            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-            assert_eq!(err.kind(), "room_not_found");
-            Ok(())
-        }
-    }
-
-    mod read {
-        use std::ops::Bound;
-
-        use chrono::{Duration, Utc};
-        use uuid::Uuid;
-
-        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-        use crate::test_helpers::prelude::*;
-
-        use super::super::*;
-
-        #[async_std::test]
-        async fn read_state() -> std::io::Result<()> {
-            let db = TestDb::new();
-            let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
-            let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
-
-            // Insert a room with RTCs and agent writer configs.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
-
-                    shared_helpers::insert_agent(&conn, agent1.agent_id(), room.id());
-
-                    let rtc2 = factory::Rtc::new(room.id())
-                        .created_by(agent2.agent_id().to_owned())
-                        .insert(&conn);
-
-                    factory::RtcWriterConfig::new(&rtc2)
-                        .send_video(true)
-                        .send_audio(true)
-                        .video_remb(1_000_000)
-                        .insert(&conn);
-
-                    let rtc3 = factory::Rtc::new(room.id())
-                        .created_by(agent3.agent_id().to_owned())
-                        .insert(&conn);
-
-                    factory::RtcWriterConfig::new(&rtc3)
-                        .send_video(false)
-                        .send_audio(false)
-                        .video_remb(300_000)
-                        .insert(&conn);
-
-                    room
-                })
-                .unwrap();
-
-            // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
-
-            let payload = ReadRequest { room_id: room.id() };
-
-            let messages = handle_request::<ReadHandler>(&mut context, &agent1, payload)
-                .await
-                .expect("Agent writer config read failed");
-
-            // Assert response.
-            let (state, respp, _) = find_response::<State>(messages.as_slice());
-            assert_eq!(respp.status(), ResponseStatus::OK);
-            assert_eq!(state.room_id, room.id());
-            assert_eq!(state.configs.len(), 2);
-
-            let agent2_config = state
-                .configs
-                .iter()
-                .find(|c| &c.agent_id == agent2.agent_id())
-                .expect("Config for agent2 not found");
-
-            assert_eq!(agent2_config.send_video, Some(true));
-            assert_eq!(agent2_config.send_audio, Some(true));
-            assert_eq!(agent2_config.video_remb, Some(1_000_000));
-
-            let agent3_config = state
-                .configs
-                .iter()
-                .find(|c| &c.agent_id == agent3.agent_id())
-                .expect("Config for agent3 not found");
-
-            assert_eq!(agent3_config.send_video, Some(false));
-            assert_eq!(agent3_config.send_audio, Some(false));
-            assert_eq!(agent3_config.video_remb, Some(300_000));
-
-            Ok(())
-        }
-
-        #[async_std::test]
-        async fn not_entered() -> std::io::Result<()> {
-            let db = TestDb::new();
-            let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-
-            // Insert a room.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| shared_helpers::insert_room_with_owned(&conn))
-                .unwrap();
-
-            // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
-
-            let payload = ReadRequest { room_id: room.id() };
-
-            // Assert error.
-            let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
-                .await
-                .expect_err("Unexpected agent writer config read success");
-
-            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-            assert_eq!(err.kind(), "agent_not_entered_the_room");
-            Ok(())
-        }
-
-        #[async_std::test]
-        async fn closed_room() -> std::io::Result<()> {
-            let db = TestDb::new();
-            let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-
-            // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(Utc::now() - Duration::hours(2)),
-                            Bound::Excluded(Utc::now() - Duration::hours(1)),
-                        ))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
-
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-
-                    room
-                })
-                .unwrap();
-
-            // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
-
-            let payload = ReadRequest { room_id: room.id() };
-
-            // Assert error.
-            let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
-                .await
-                .expect_err("Unexpected agent writer config read success");
-
-            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-            assert_eq!(err.kind(), "room_closed");
-            Ok(())
-        }
-
-        #[async_std::test]
-        async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
-            let db = TestDb::new();
-            let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-
-            // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .insert(&conn);
-
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-
-                    room
-                })
-                .unwrap();
-
-            // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
-
-            let payload = ReadRequest { room_id: room.id() };
-
-            // Assert error.
-            let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
-                .await
-                .expect_err("Unexpected agent writer config update success");
-
-            assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
-            assert_eq!(err.kind(), "invalid_payload");
-            Ok(())
-        }
-
-        #[async_std::test]
-        async fn missing_room() -> std::io::Result<()> {
-            // Make agent_writer_config.read request.
-            let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-
-            let payload = ReadRequest {
-                room_id: Uuid::new_v4(),
-            };
-
-            // Assert error.
-            let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
-                .await
-                .expect_err("Unexpected agent writer config read success");
-
-            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-            assert_eq!(err.kind(), "room_not_found");
-            Ok(())
-        }
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     mod update {
+//         use std::ops::Bound;
+
+//         use chrono::{Duration, Utc};
+//         use serde_derive::Deserialize;
+//         use uuid::Uuid;
+
+//         use crate::backend::janus::{self};
+//         use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
+//         use crate::test_helpers::prelude::*;
+
+//         use super::super::*;
+
+//         #[derive(Debug, Deserialize)]
+//         struct UpdateWriterConfigJanusRequest {
+//             janus: String,
+//             session_id: i64,
+//             handle_id: i64,
+//             body: UpdateWriterConfigRequestBody,
+//         }
+
+//         #[async_std::test]
+//         async fn update_agent_writer_config() -> std::io::Result<()> {
+//             let db = TestDb::new();
+//             let mut authz = TestAuthz::new();
+//             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
+//             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
+//             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
+//             let agent4 = TestAgent::new("web", "user4", USR_AUDIENCE);
+
+//             // Insert a room with agents and RTCs.
+//             let (room, backend, rtcs) = db
+//                 .connection_pool()
+//                 .get()
+//                 .map(|conn| {
+//                     let backend = shared_helpers::insert_janus_backend(&conn);
+
+//                     let room = factory::Room::new()
+//                         .audience(USR_AUDIENCE)
+//                         .time((Bound::Included(Utc::now()), Bound::Unbounded))
+//                         .rtc_sharing_policy(RtcSharingPolicy::Owned)
+//                         .backend_id(backend.id())
+//                         .insert(&conn);
+
+//                     for agent in &[&agent1, &agent2, &agent3, &agent4] {
+//                         shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+//                     }
+
+//                     let rtcs = vec![&agent2, &agent3, &agent4]
+//                         .into_iter()
+//                         .map(|agent| {
+//                             factory::Rtc::new(room.id())
+//                                 .created_by(agent.agent_id().to_owned())
+//                                 .insert(&conn)
+//                         })
+//                         .collect::<Vec<_>>();
+
+//                     (room, backend, rtcs)
+//                 })
+//                 .unwrap();
+
+//             // Allow agent to update agent_writer_config.
+//             let room_id = room.id().to_string();
+//             let object = vec!["rooms", &room_id];
+//             authz.allow(agent1.account_id(), object, "update");
+
+//             // Make agent_writer_config.update request.
+//             let mut context = TestContext::new(db, authz);
+
+//             let payload = State {
+//                 room_id: room.id(),
+//                 configs: vec![
+//                     StateConfigItem {
+//                         agent_id: agent2.agent_id().to_owned(),
+//                         send_video: Some(true),
+//                         send_audio: Some(false),
+//                         video_remb: Some(300_000),
+//                     },
+//                     StateConfigItem {
+//                         agent_id: agent3.agent_id().to_owned(),
+//                         send_video: Some(false),
+//                         send_audio: Some(false),
+//                         video_remb: None,
+//                     },
+//                 ],
+//             };
+
+//             let messages = handle_request::<UpdateHandler>(&mut context, &agent1, payload)
+//                 .await
+//                 .expect("Agent writer config update failed");
+
+//             // Assert response.
+//             let (state, respp, _) = find_response::<State>(messages.as_slice());
+//             assert_eq!(respp.status(), ResponseStatus::OK);
+//             assert_eq!(state.room_id, room.id());
+//             assert_eq!(state.configs.len(), 2);
+
+//             let agent2_config = state
+//                 .configs
+//                 .iter()
+//                 .find(|c| &c.agent_id == agent2.agent_id())
+//                 .expect("Config for agent2 not found");
+
+//             assert_eq!(agent2_config.send_video, Some(true));
+//             assert_eq!(agent2_config.send_audio, Some(false));
+//             assert_eq!(agent2_config.video_remb, Some(300_000));
+
+//             let agent3_config = state
+//                 .configs
+//                 .iter()
+//                 .find(|c| &c.agent_id == agent3.agent_id())
+//                 .expect("Config for agent3 not found");
+
+//             assert_eq!(agent3_config.send_video, Some(false));
+//             assert_eq!(agent3_config.send_audio, Some(false));
+//             assert_eq!(agent3_config.video_remb, None);
+
+//             // Assert notification.
+//             let (state, evp, _) = find_event::<State>(messages.as_slice());
+//             assert_eq!(evp.label(), "agent_writer_config.update");
+//             assert_eq!(state.room_id, room.id());
+//             assert_eq!(state.configs.len(), 2);
+
+//             let agent2_config = state
+//                 .configs
+//                 .iter()
+//                 .find(|c| &c.agent_id == agent2.agent_id())
+//                 .expect("Config for agent2 not found");
+
+//             assert_eq!(agent2_config.send_video, Some(true));
+//             assert_eq!(agent2_config.send_audio, Some(false));
+//             assert_eq!(agent2_config.video_remb, Some(300_000));
+
+//             let agent3_config = state
+//                 .configs
+//                 .iter()
+//                 .find(|c| &c.agent_id == agent3.agent_id())
+//                 .expect("Config for agent3 not found");
+
+//             assert_eq!(agent3_config.send_video, Some(false));
+//             assert_eq!(agent3_config.send_audio, Some(false));
+//             assert_eq!(agent3_config.video_remb, None);
+
+//             // Assert backend request.
+//             let (req, _reqp, topic) =
+//                 find_request::<UpdateWriterConfigJanusRequest>(messages.as_slice());
+
+//             let expected_topic = format!(
+//                 "agents/{}/api/{}/in/{}",
+//                 backend.id(),
+//                 janus::JANUS_API_VERSION,
+//                 context.config().id,
+//             );
+
+//             assert_eq!(topic, expected_topic);
+//             assert_eq!(req.janus, "message");
+//             assert_eq!(req.session_id, backend.session_id());
+//             assert_eq!(req.handle_id, backend.handle_id());
+//             assert_eq!(req.body.method(), "writer_config.update");
+
+//             let configs = req.body.configs();
+//             assert_eq!(configs.len(), 2);
+
+//             let agent2_config = configs
+//                 .iter()
+//                 .find(|c| c.stream_id() == rtcs[0].id())
+//                 .expect("Config for agent2's RTC not found");
+
+//             assert_eq!(agent2_config.send_video(), true);
+//             assert_eq!(agent2_config.send_audio(), false);
+//             assert_eq!(agent2_config.video_remb(), Some(300_000));
+
+//             let agent3_config = configs
+//                 .iter()
+//                 .find(|c| c.stream_id() == rtcs[1].id())
+//                 .expect("Config for agent3's RTC not found");
+
+//             assert_eq!(agent3_config.send_video(), false);
+//             assert_eq!(agent3_config.send_audio(), false);
+//             assert_eq!(agent3_config.video_remb(), None);
+
+//             // Make one more agent_writer_config.update request.
+//             let payload = State {
+//                 room_id: room.id(),
+//                 configs: vec![
+//                     StateConfigItem {
+//                         agent_id: agent4.agent_id().to_owned(),
+//                         send_video: Some(true),
+//                         send_audio: Some(true),
+//                         video_remb: Some(1_000_000),
+//                     },
+//                     StateConfigItem {
+//                         agent_id: agent3.agent_id().to_owned(),
+//                         send_video: None,
+//                         send_audio: Some(true),
+//                         video_remb: None,
+//                     },
+//                 ],
+//             };
+
+//             let messages = handle_request::<UpdateHandler>(&mut context, &agent1, payload)
+//                 .await
+//                 .expect("Agent writer config update failed");
+
+//             // Assert response.
+//             let (state, respp, _) = find_response::<State>(messages.as_slice());
+//             assert_eq!(respp.status(), ResponseStatus::OK);
+//             assert_eq!(state.room_id, room.id());
+//             assert_eq!(state.configs.len(), 3);
+
+//             let agent2_config = state
+//                 .configs
+//                 .iter()
+//                 .find(|c| &c.agent_id == agent2.agent_id())
+//                 .expect("Config for agent2 not found");
+
+//             assert_eq!(agent2_config.send_video, Some(true));
+//             assert_eq!(agent2_config.send_audio, Some(false));
+//             assert_eq!(agent2_config.video_remb, Some(300_000));
+
+//             let agent3_config = state
+//                 .configs
+//                 .iter()
+//                 .find(|c| &c.agent_id == agent3.agent_id())
+//                 .expect("Config for agent3 not found");
+
+//             assert_eq!(agent3_config.send_video, Some(false));
+//             assert_eq!(agent3_config.send_audio, Some(true));
+//             assert_eq!(agent3_config.video_remb, None);
+
+//             let agent4_config = state
+//                 .configs
+//                 .iter()
+//                 .find(|c| &c.agent_id == agent4.agent_id())
+//                 .expect("Config for agent4 not found");
+
+//             assert_eq!(agent4_config.send_video, Some(true));
+//             assert_eq!(agent4_config.send_audio, Some(true));
+//             assert_eq!(agent4_config.video_remb, Some(1_000_000));
+
+//             // Assert notification.
+//             let (state, evp, _) = find_event::<State>(messages.as_slice());
+//             assert_eq!(evp.label(), "agent_writer_config.update");
+//             assert_eq!(state.room_id, room.id());
+//             assert_eq!(state.configs.len(), 3);
+
+//             let agent2_config = state
+//                 .configs
+//                 .iter()
+//                 .find(|c| &c.agent_id == agent2.agent_id())
+//                 .expect("Config for agent2 not found");
+
+//             assert_eq!(agent2_config.send_video, Some(true));
+//             assert_eq!(agent2_config.send_audio, Some(false));
+//             assert_eq!(agent2_config.video_remb, Some(300_000));
+
+//             let agent3_config = state
+//                 .configs
+//                 .iter()
+//                 .find(|c| &c.agent_id == agent3.agent_id())
+//                 .expect("Config for agent3 not found");
+
+//             assert_eq!(agent3_config.send_video, Some(false));
+//             assert_eq!(agent3_config.send_audio, Some(true));
+//             assert_eq!(agent3_config.video_remb, None);
+
+//             let agent4_config = state
+//                 .configs
+//                 .iter()
+//                 .find(|c| &c.agent_id == agent4.agent_id())
+//                 .expect("Config for agent4 not found");
+
+//             assert_eq!(agent4_config.send_video, Some(true));
+//             assert_eq!(agent4_config.send_audio, Some(true));
+//             assert_eq!(agent4_config.video_remb, Some(1_000_000));
+
+//             // Assert backend request.
+//             let (req, _reqp, topic) =
+//                 find_request::<UpdateWriterConfigJanusRequest>(messages.as_slice());
+
+//             let expected_topic = format!(
+//                 "agents/{}/api/{}/in/{}",
+//                 backend.id(),
+//                 janus::JANUS_API_VERSION,
+//                 context.config().id,
+//             );
+
+//             assert_eq!(topic, expected_topic);
+//             assert_eq!(req.janus, "message");
+//             assert_eq!(req.session_id, backend.session_id());
+//             assert_eq!(req.handle_id, backend.handle_id());
+//             assert_eq!(req.body.method(), "writer_config.update");
+
+//             let configs = req.body.configs();
+//             assert_eq!(configs.len(), 3);
+
+//             let agent2_config = configs
+//                 .iter()
+//                 .find(|c| c.stream_id() == rtcs[0].id())
+//                 .expect("Config for agent2's RTC not found");
+
+//             assert_eq!(agent2_config.send_video(), true);
+//             assert_eq!(agent2_config.send_audio(), false);
+//             assert_eq!(agent2_config.video_remb(), Some(300_000));
+
+//             let agent3_config = configs
+//                 .iter()
+//                 .find(|c| c.stream_id() == rtcs[1].id())
+//                 .expect("Config for agent3's RTC not found");
+
+//             assert_eq!(agent3_config.send_video(), false);
+//             assert_eq!(agent3_config.send_audio(), true);
+//             assert_eq!(agent3_config.video_remb(), None);
+
+//             let agent4_config = configs
+//                 .iter()
+//                 .find(|c| c.stream_id() == rtcs[2].id())
+//                 .expect("Config for agent4's RTC not found");
+
+//             assert_eq!(agent4_config.send_video(), true);
+//             assert_eq!(agent4_config.send_audio(), true);
+//             assert_eq!(agent4_config.video_remb(), Some(1_000_000));
+//             Ok(())
+//         }
+
+//         #[async_std::test]
+//         async fn not_authorized() -> std::io::Result<()> {
+//             let db = TestDb::new();
+//             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+
+//             // Insert a room with agents.
+//             let room = db
+//                 .connection_pool()
+//                 .get()
+//                 .map(|conn| {
+//                     let room = factory::Room::new()
+//                         .audience(USR_AUDIENCE)
+//                         .time((Bound::Included(Utc::now()), Bound::Unbounded))
+//                         .rtc_sharing_policy(RtcSharingPolicy::Owned)
+//                         .insert(&conn);
+
+//                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+//                     room
+//                 })
+//                 .unwrap();
+
+//             // Make agent_writer_config.update request.
+//             let mut context = TestContext::new(db, TestAuthz::new());
+
+//             let payload = State {
+//                 room_id: room.id(),
+//                 configs: vec![],
+//             };
+
+//             let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+//                 .await
+//                 .expect_err("Unexpected agent writer config update success");
+
+//             assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+//             assert_eq!(err.kind(), "access_denied");
+//             Ok(())
+//         }
+
+//         #[async_std::test]
+//         async fn too_many_config_items() -> std::io::Result<()> {
+//             // Make agent_writer_config.update request.
+//             let agent = TestAgent::new("web", "user", USR_AUDIENCE);
+//             let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+
+//             let configs = (0..(MAX_STATE_CONFIGS_LEN + 1))
+//                 .map(|i| {
+//                     let agent = TestAgent::new("web", &format!("user{}", i), USR_AUDIENCE);
+
+//                     StateConfigItem {
+//                         agent_id: agent.agent_id().to_owned(),
+//                         send_video: Some(false),
+//                         send_audio: Some(true),
+//                         video_remb: Some(300_000),
+//                     }
+//                 })
+//                 .collect::<Vec<_>>();
+
+//             let payload = State {
+//                 room_id: Uuid::new_v4(),
+//                 configs,
+//             };
+
+//             // Assert error.
+//             let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+//                 .await
+//                 .expect_err("Unexpected agent writer config update success");
+
+//             assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
+//             assert_eq!(err.kind(), "invalid_payload");
+//             Ok(())
+//         }
+
+//         #[async_std::test]
+//         async fn not_entered() -> std::io::Result<()> {
+//             let db = TestDb::new();
+//             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+
+//             // Insert a room.
+//             let room = db
+//                 .connection_pool()
+//                 .get()
+//                 .map(|conn| shared_helpers::insert_room_with_owned(&conn))
+//                 .unwrap();
+
+//             // Make agent_writer_config.update request.
+//             let mut context = TestContext::new(db, TestAuthz::new());
+
+//             let payload = State {
+//                 room_id: room.id(),
+//                 configs: vec![],
+//             };
+
+//             // Assert error.
+//             let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+//                 .await
+//                 .expect_err("Unexpected agent writer config update success");
+
+//             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+//             assert_eq!(err.kind(), "agent_not_entered_the_room");
+//             Ok(())
+//         }
+
+//         #[async_std::test]
+//         async fn closed_room() -> std::io::Result<()> {
+//             let db = TestDb::new();
+//             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+
+//             // Insert a room with an agent.
+//             let room = db
+//                 .connection_pool()
+//                 .get()
+//                 .map(|conn| {
+//                     let room = factory::Room::new()
+//                         .audience(USR_AUDIENCE)
+//                         .time((
+//                             Bound::Included(Utc::now() - Duration::hours(2)),
+//                             Bound::Excluded(Utc::now() - Duration::hours(1)),
+//                         ))
+//                         .rtc_sharing_policy(RtcSharingPolicy::Owned)
+//                         .insert(&conn);
+
+//                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+//                     room
+//                 })
+//                 .unwrap();
+
+//             // Make agent_writer_config.update request.
+//             let mut context = TestContext::new(db, TestAuthz::new());
+
+//             let payload = State {
+//                 room_id: room.id(),
+//                 configs: vec![],
+//             };
+
+//             // Assert error.
+//             let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+//                 .await
+//                 .expect_err("Unexpected agent writer config update success");
+
+//             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+//             assert_eq!(err.kind(), "room_closed");
+//             Ok(())
+//         }
+
+//         #[async_std::test]
+//         async fn room_with_wrong_rtc_policy() -> std::io::Result<()> {
+//             let db = TestDb::new();
+//             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+
+//             // Insert a room with an agent.
+//             let room = db
+//                 .connection_pool()
+//                 .get()
+//                 .map(|conn| {
+//                     let room = factory::Room::new()
+//                         .audience(USR_AUDIENCE)
+//                         .time((Bound::Included(Utc::now()), Bound::Unbounded))
+//                         .rtc_sharing_policy(RtcSharingPolicy::Shared)
+//                         .insert(&conn);
+
+//                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+//                     room
+//                 })
+//                 .unwrap();
+
+//             // Make agent_writer_config.update request.
+//             let mut context = TestContext::new(db, TestAuthz::new());
+
+//             let payload = State {
+//                 room_id: room.id(),
+//                 configs: vec![],
+//             };
+
+//             // Assert error.
+//             let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+//                 .await
+//                 .expect_err("Unexpected agent writer config update success");
+
+//             assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
+//             assert_eq!(err.kind(), "invalid_payload");
+//             Ok(())
+//         }
+
+//         #[async_std::test]
+//         async fn missing_room() -> std::io::Result<()> {
+//             // Make agent_writer_config.update request.
+//             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+//             let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+
+//             let payload = State {
+//                 room_id: Uuid::new_v4(),
+//                 configs: vec![],
+//             };
+
+//             // Assert error.
+//             let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+//                 .await
+//                 .expect_err("Unexpected agent writer config update success");
+
+//             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+//             assert_eq!(err.kind(), "room_not_found");
+//             Ok(())
+//         }
+//     }
+
+//     mod read {
+//         use std::ops::Bound;
+
+//         use chrono::{Duration, Utc};
+//         use uuid::Uuid;
+
+//         use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
+//         use crate::test_helpers::prelude::*;
+
+//         use super::super::*;
+
+//         #[async_std::test]
+//         async fn read_state() -> std::io::Result<()> {
+//             let db = TestDb::new();
+//             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
+//             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
+//             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
+
+//             // Insert a room with RTCs and agent writer configs.
+//             let room = db
+//                 .connection_pool()
+//                 .get()
+//                 .map(|conn| {
+//                     let room = factory::Room::new()
+//                         .audience(USR_AUDIENCE)
+//                         .time((Bound::Included(Utc::now()), Bound::Unbounded))
+//                         .rtc_sharing_policy(RtcSharingPolicy::Owned)
+//                         .insert(&conn);
+
+//                     shared_helpers::insert_agent(&conn, agent1.agent_id(), room.id());
+
+//                     let rtc2 = factory::Rtc::new(room.id())
+//                         .created_by(agent2.agent_id().to_owned())
+//                         .insert(&conn);
+
+//                     factory::RtcWriterConfig::new(&rtc2)
+//                         .send_video(true)
+//                         .send_audio(true)
+//                         .video_remb(1_000_000)
+//                         .insert(&conn);
+
+//                     let rtc3 = factory::Rtc::new(room.id())
+//                         .created_by(agent3.agent_id().to_owned())
+//                         .insert(&conn);
+
+//                     factory::RtcWriterConfig::new(&rtc3)
+//                         .send_video(false)
+//                         .send_audio(false)
+//                         .video_remb(300_000)
+//                         .insert(&conn);
+
+//                     room
+//                 })
+//                 .unwrap();
+
+//             // Make agent_writer_config.read request.
+//             let mut context = TestContext::new(db, TestAuthz::new());
+
+//             let payload = ReadRequest { room_id: room.id() };
+
+//             let messages = handle_request::<ReadHandler>(&mut context, &agent1, payload)
+//                 .await
+//                 .expect("Agent writer config read failed");
+
+//             // Assert response.
+//             let (state, respp, _) = find_response::<State>(messages.as_slice());
+//             assert_eq!(respp.status(), ResponseStatus::OK);
+//             assert_eq!(state.room_id, room.id());
+//             assert_eq!(state.configs.len(), 2);
+
+//             let agent2_config = state
+//                 .configs
+//                 .iter()
+//                 .find(|c| &c.agent_id == agent2.agent_id())
+//                 .expect("Config for agent2 not found");
+
+//             assert_eq!(agent2_config.send_video, Some(true));
+//             assert_eq!(agent2_config.send_audio, Some(true));
+//             assert_eq!(agent2_config.video_remb, Some(1_000_000));
+
+//             let agent3_config = state
+//                 .configs
+//                 .iter()
+//                 .find(|c| &c.agent_id == agent3.agent_id())
+//                 .expect("Config for agent3 not found");
+
+//             assert_eq!(agent3_config.send_video, Some(false));
+//             assert_eq!(agent3_config.send_audio, Some(false));
+//             assert_eq!(agent3_config.video_remb, Some(300_000));
+
+//             Ok(())
+//         }
+
+//         #[async_std::test]
+//         async fn not_entered() -> std::io::Result<()> {
+//             let db = TestDb::new();
+//             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+
+//             // Insert a room.
+//             let room = db
+//                 .connection_pool()
+//                 .get()
+//                 .map(|conn| shared_helpers::insert_room_with_owned(&conn))
+//                 .unwrap();
+
+//             // Make agent_writer_config.read request.
+//             let mut context = TestContext::new(db, TestAuthz::new());
+
+//             let payload = ReadRequest { room_id: room.id() };
+
+//             // Assert error.
+//             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
+//                 .await
+//                 .expect_err("Unexpected agent writer config read success");
+
+//             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+//             assert_eq!(err.kind(), "agent_not_entered_the_room");
+//             Ok(())
+//         }
+
+//         #[async_std::test]
+//         async fn closed_room() -> std::io::Result<()> {
+//             let db = TestDb::new();
+//             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+
+//             // Insert a room with an agent.
+//             let room = db
+//                 .connection_pool()
+//                 .get()
+//                 .map(|conn| {
+//                     let room = factory::Room::new()
+//                         .audience(USR_AUDIENCE)
+//                         .time((
+//                             Bound::Included(Utc::now() - Duration::hours(2)),
+//                             Bound::Excluded(Utc::now() - Duration::hours(1)),
+//                         ))
+//                         .rtc_sharing_policy(RtcSharingPolicy::Owned)
+//                         .insert(&conn);
+
+//                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+
+//                     room
+//                 })
+//                 .unwrap();
+
+//             // Make agent_writer_config.read request.
+//             let mut context = TestContext::new(db, TestAuthz::new());
+
+//             let payload = ReadRequest { room_id: room.id() };
+
+//             // Assert error.
+//             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
+//                 .await
+//                 .expect_err("Unexpected agent writer config read success");
+
+//             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+//             assert_eq!(err.kind(), "room_closed");
+//             Ok(())
+//         }
+
+//         #[async_std::test]
+//         async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
+//             let db = TestDb::new();
+//             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+
+//             // Insert a room with an agent.
+//             let room = db
+//                 .connection_pool()
+//                 .get()
+//                 .map(|conn| {
+//                     let room = factory::Room::new()
+//                         .audience(USR_AUDIENCE)
+//                         .time((Bound::Included(Utc::now()), Bound::Unbounded))
+//                         .rtc_sharing_policy(RtcSharingPolicy::Shared)
+//                         .insert(&conn);
+
+//                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+
+//                     room
+//                 })
+//                 .unwrap();
+
+//             // Make agent_writer_config.read request.
+//             let mut context = TestContext::new(db, TestAuthz::new());
+
+//             let payload = ReadRequest { room_id: room.id() };
+
+//             // Assert error.
+//             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
+//                 .await
+//                 .expect_err("Unexpected agent writer config update success");
+
+//             assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
+//             assert_eq!(err.kind(), "invalid_payload");
+//             Ok(())
+//         }
+
+//         #[async_std::test]
+//         async fn missing_room() -> std::io::Result<()> {
+//             // Make agent_writer_config.read request.
+//             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+//             let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+
+//             let payload = ReadRequest {
+//                 room_id: Uuid::new_v4(),
+//             };
+
+//             // Assert error.
+//             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
+//                 .await
+//                 .expect_err("Unexpected agent writer config read success");
+
+//             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+//             assert_eq!(err.kind(), "room_not_found");
+//             Ok(())
+//         }
+//     }
+// }

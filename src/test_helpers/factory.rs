@@ -3,7 +3,10 @@ use rand::Rng;
 use svc_agent::{AccountId, AgentId};
 use uuid::Uuid;
 
-use crate::db;
+use crate::{
+    backend::janus::http::{HandleId, SessionId},
+    db,
+};
 
 use super::agent::TestAgent;
 use super::shared_helpers::{insert_janus_backend, insert_room, insert_rtc};
@@ -145,11 +148,11 @@ impl<'a> Agent<'a> {
 pub(crate) struct AgentConnection {
     agent_id: Uuid,
     rtc_id: Uuid,
-    handle_id: i64,
+    handle_id: HandleId,
 }
 
 impl AgentConnection {
-    pub(crate) fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: i64) -> Self {
+    pub(crate) fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: HandleId) -> Self {
         Self {
             agent_id,
             rtc_id,
@@ -194,14 +197,14 @@ impl Rtc {
 
 pub(crate) struct JanusBackend {
     id: AgentId,
-    handle_id: i64,
-    session_id: i64,
+    handle_id: HandleId,
+    session_id: SessionId,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
 }
 
 impl JanusBackend {
-    pub(crate) fn new(id: AgentId, handle_id: i64, session_id: i64) -> Self {
+    pub(crate) fn new(id: AgentId, handle_id: HandleId, session_id: SessionId) -> Self {
         Self {
             id,
             handle_id,

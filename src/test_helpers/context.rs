@@ -9,7 +9,6 @@ use svc_authz::ClientMap as Authz;
 
 use crate::app::context::{Context, GlobalContext, JanusTopics, MessageContext};
 use crate::app::metrics::DynamicStatsCollector;
-use crate::backend::janus::Client as JanusClient;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
 
@@ -71,7 +70,6 @@ pub(crate) struct TestContext {
     authz: Authz,
     db: TestDb,
     agent_id: AgentId,
-    janus_client: Arc<JanusClient>,
     janus_topics: JanusTopics,
     logger: Logger,
     start_timestamp: DateTime<Utc>,
@@ -82,15 +80,11 @@ impl TestContext {
         let config = build_config();
         let agent_id = AgentId::new(&config.agent_label, config.id.clone());
 
-        let janus_client = JanusClient::start(&config.backend, agent_id.clone(), None)
-            .expect("Failed to start janus client");
-
         Self {
             config,
             authz: authz.into(),
             db,
             agent_id,
-            janus_client: Arc::new(janus_client),
             janus_topics: JanusTopics::new("ignore", "ignore", "ignore"),
             logger: crate::LOG.new(o!()),
             start_timestamp: Utc::now(),
@@ -113,10 +107,6 @@ impl GlobalContext for TestContext {
 
     fn agent_id(&self) -> &AgentId {
         &self.agent_id
-    }
-
-    fn janus_client(&self) -> Arc<JanusClient> {
-        self.janus_client.clone()
     }
 
     fn janus_topics(&self) -> &JanusTopics {
@@ -144,10 +134,6 @@ impl GlobalContext for TestContext {
     }
 
     fn janus_http_client(&self) -> Arc<crate::backend::janus::http::JanusClient> {
-        todo!()
-    }
-
-    fn poller(&self) -> Arc<crate::backend::janus::poller::Poller> {
         todo!()
     }
 }

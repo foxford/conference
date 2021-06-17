@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use serde_derive::Deserialize;
 use svc_agent::mqtt::{
     IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
-    ResponseStatus, ShortTermTimingProperties, TrackingProperties,
+    ResponseStatus, ShortTermTimingProperties,
 };
 use uuid::Uuid;
 
@@ -112,12 +112,10 @@ pub(crate) fn update_event(
     room_id: Uuid,
     object: db::janus_rtc_stream::Object,
     start_timestamp: DateTime<Utc>,
-    // tracking: &TrackingProperties,
 ) -> StdResult<ObjectUpdateEvent, AppError> {
     let uri = format!("rooms/{}/events", room_id);
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let mut props = OutgoingEventProperties::new("rtc_stream.update", timing);
-    // props.set_tracking(tracking.to_owned());
     Ok(OutgoingEvent::broadcast(object, props, &uri))
 }
 

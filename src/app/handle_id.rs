@@ -8,8 +8,8 @@ use uuid::Uuid;
 pub(crate) struct HandleId {
     rtc_stream_id: Uuid,
     rtc_id: Uuid,
-    janus_handle_id: i64,
-    janus_session_id: i64,
+    janus_handle_id: crate::backend::janus::http::HandleId,
+    janus_session_id: crate::backend::janus::http::SessionId,
     backend_id: AgentId,
 }
 
@@ -22,11 +22,11 @@ impl HandleId {
         self.rtc_id
     }
 
-    pub(crate) fn janus_handle_id(&self) -> i64 {
+    pub(crate) fn janus_handle_id(&self) -> crate::backend::janus::http::HandleId {
         self.janus_handle_id
     }
 
-    pub(crate) fn janus_session_id(&self) -> i64 {
+    pub(crate) fn janus_session_id(&self) -> crate::backend::janus::http::SessionId {
         self.janus_session_id
     }
 
@@ -39,8 +39,8 @@ impl HandleId {
     pub(crate) fn new(
         rtc_stream_id: Uuid,
         rtc_id: Uuid,
-        janus_handle_id: i64,
-        janus_session_id: i64,
+        janus_handle_id: crate::backend::janus::http::HandleId,
+        janus_session_id: crate::backend::janus::http::SessionId,
         backend_id: AgentId,
     ) -> Self {
         Self {
@@ -77,9 +77,9 @@ impl FromStr for HandleId {
                 Ok(Self::new(
                     Uuid::from_str(rtc_stream_id)?,
                     Uuid::from_str(rtc_id)?,
-                    janus_handle_id.parse::<i64>()?,
-                    janus_session_id.parse::<i64>()?,
-                    rest.parse::<AgentId>()?,
+                    janus_handle_id.parse()?,
+                    janus_session_id.parse()?,
+                    rest.parse()?,
                 ))
             }
             _ => Err(anyhow!("Invalid handle id: {}", val)),

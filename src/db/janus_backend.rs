@@ -4,7 +4,10 @@ use diesel::result::Error;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::backend::janus::JANUS_API_VERSION;
+use crate::backend::janus::{
+    http::{HandleId, SessionId},
+    JANUS_API_VERSION,
+};
 use crate::schema::janus_backend;
 
 pub(crate) type AllColumns = (
@@ -33,8 +36,8 @@ pub(crate) const ALL_COLUMNS: AllColumns = (
 #[table_name = "janus_backend"]
 pub(crate) struct Object {
     id: AgentId,
-    handle_id: i64,
-    session_id: i64,
+    handle_id: HandleId,
+    session_id: SessionId,
     created_at: DateTime<Utc>,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
@@ -46,11 +49,11 @@ impl Object {
         &self.id
     }
 
-    pub(crate) fn handle_id(&self) -> i64 {
+    pub(crate) fn handle_id(&self) -> HandleId {
         self.handle_id
     }
 
-    pub(crate) fn session_id(&self) -> i64 {
+    pub(crate) fn session_id(&self) -> SessionId {
         self.session_id
     }
 }
@@ -129,15 +132,15 @@ impl<'a> FindQuery<'a> {
 #[table_name = "janus_backend"]
 pub(crate) struct UpsertQuery<'a> {
     id: &'a AgentId,
-    handle_id: i64,
-    session_id: i64,
+    handle_id: HandleId,
+    session_id: SessionId,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     api_version: String,
 }
 
 impl<'a> UpsertQuery<'a> {
-    pub(crate) fn new(id: &'a AgentId, handle_id: i64, session_id: i64) -> Self {
+    pub(crate) fn new(id: &'a AgentId, handle_id: HandleId, session_id: SessionId) -> Self {
         Self {
             id,
             handle_id,

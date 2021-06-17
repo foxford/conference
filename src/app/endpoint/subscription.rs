@@ -1,6 +1,6 @@
 use std::result::Result as StdResult;
 
-use async_std::{stream, task};
+use async_std::stream;
 use async_trait::async_trait;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
@@ -14,9 +14,12 @@ use svc_agent::{
 };
 use uuid::Uuid;
 
+use crate::app::endpoint::prelude::*;
 use crate::db;
-use crate::{app::context::Context, backend::janus::requests::AgentLeaveRequestBody};
-use crate::{app::endpoint::prelude::*, backend::janus::requests::MessageRequest};
+use crate::{
+    app::context::Context,
+    backend::janus::http::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -136,33 +139,27 @@ impl ResponseHandler for DeleteResponseHandler {
     ) -> Result {
         ensure_broker(context, respp)?;
         let room_id = try_room_id(&corr_data.object)?;
-        let maybe_left = leave_room(context, &corr_data.subject, room_id, respp.tracking())?;
+        let maybe_left = leave_room(context, &corr_data.subject, room_id, respp.tracking()).await?;
+        if maybe_left {
+            let response = helpers::build_response(
+                ResponseStatus::OK,
+                json!({}),
+                &corr_data.reqp,
+                context.start_timestamp(),
+                None,
+            );
 
-        match maybe_left {
-            (false, _) => {
-                Err(anyhow!("The agent is not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
-            }
-            (true, mut messages) => {
-                let response = helpers::build_response(
-                    ResponseStatus::OK,
-                    json!({}),
-                    &corr_data.reqp,
-                    context.start_timestamp(),
-                    None,
-                );
+            let notification = helpers::build_notification(
+                "room.leave",
+                &format!("rooms/{}/events", room_id),
+                RoomEnterLeaveEvent::new(room_id, corr_data.subject.to_owned()),
+                &corr_data.reqp,
+                context.start_timestamp(),
+            );
 
-                let notification = helpers::build_notification(
-                    "room.leave",
-                    &format!("rooms/{}/events", room_id),
-                    RoomEnterLeaveEvent::new(room_id, corr_data.subject.to_owned()),
-                    &corr_data.reqp,
-                    context.start_timestamp(),
-                );
-
-                messages.push(response);
-                messages.push(notification);
-                Ok(Box::new(stream::from_iter(messages)))
-            }
+            Ok(Box::new(stream::from_iter(vec![response, notification])))
+        } else {
+            Err(anyhow!("The agent is not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
         }
     }
 }
@@ -186,24 +183,18 @@ impl EventHandler for DeleteEventHandler {
     ) -> Result {
         ensure_broker(context, evp)?;
         let room_id = try_room_id(&payload.object)?;
+        if leave_room(context, &payload.subject, room_id, evp.tracking()).await? {
+            let outgoing_event_payload =
+                RoomEnterLeaveEvent::new(room_id, payload.subject.to_owned());
+            let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
+            let props = evp.to_event("room.leave", short_term_timing);
+            let to_uri = format!("rooms/{}/events", room_id);
+            let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
+            let notification = Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send>;
 
-        match leave_room(context, &payload.subject, room_id, evp.tracking())? {
-            (false, _) => Ok(Box::new(stream::empty())),
-            (true, mut messages) => {
-                let outgoing_event_payload =
-                    RoomEnterLeaveEvent::new(room_id, payload.subject.to_owned());
-                let short_term_timing =
-                    ShortTermTimingProperties::until_now(context.start_timestamp());
-                let props = evp.to_event("room.leave", short_term_timing);
-                let to_uri = format!("rooms/{}/events", room_id);
-                let outgoing_event =
-                    OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
-                let notification =
-                    Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send>;
-
-                messages.push(notification);
-                Ok(Box::new(stream::from_iter(messages)))
-            }
+            Ok(Box::new(stream::once(notification)))
+        } else {
+            Ok(Box::new(stream::empty()))
         }
     }
 }
@@ -241,12 +232,12 @@ fn try_room_id(object: &[String]) -> StdResult<Uuid, AppError> {
     .error(AppErrorKind::InvalidSubscriptionObject)
 }
 
-fn leave_room<C: Context>(
+async fn leave_room<C: Context>(
     context: &mut C,
     agent_id: &AgentId,
     room_id: Uuid,
     tracking: &TrackingProperties,
-) -> StdResult<(bool, Vec<Box<dyn IntoPublishableMessage + Send>>), AppError> {
+) -> StdResult<bool, AppError> {
     // Delete agent from the DB.
     context.add_logger_tags(o!("room_id" => room_id.to_string()));
     let conn = context.get_conn()?;
@@ -257,7 +248,7 @@ fn leave_room<C: Context>(
         .execute(&conn)?;
 
     if row_count != 1 {
-        return Ok((false, vec![]));
+        return Ok(false);
     }
 
     // `agent.leave` requests to Janus instances that host active streams in this room.
@@ -267,8 +258,6 @@ fn leave_room<C: Context>(
         .execute(&conn)?;
 
     let mut maybe_stopped_rtc_id = None;
-    let mut messages: Vec<Box<dyn IntoPublishableMessage + Send>> =
-        Vec::with_capacity(streams.len() + 1);
 
     for stream in streams.iter() {
         // If the agent is a publisher.
@@ -295,39 +284,21 @@ fn leave_room<C: Context>(
     let backends = db::janus_backend::ListQuery::new()
         .ids(&backend_ids[..])
         .execute(&conn)?;
-
+    let mut leave_tasks = Vec::new();
     for backend in backends {
-        let body = AgentLeaveRequestBody::new(agent_id.to_owned());
-
-        let payload = MessageRequest::new(
-            &Uuid::new_v4().to_string(),
-            backend.session_id(),
-            backend.handle_id(),
-            serde_json::to_value(&body)
-                .map_err(anyhow::Error::from)
-                .error(AppErrorKind::AccessDenied)?,
-            None,
-        );
+        let request = AgentLeaveRequest {
+            body: AgentLeaveRequestBody::new(agent_id.to_owned()),
+            handle_id: backend.handle_id(),
+            session_id: backend.session_id(),
+        };
         let client = context.janus_http_client();
-        task::spawn(async move { client.agent_leave(&payload).await });
-        // let result = context.janus_client().agent_leave_request(
-        //     backend.session_id(),
-        //     backend.handle_id(),
-        //     &agent_id,
-        //     backend.id(),
-        //     tracking,
-        // );
-
-        // match result {
-        //     Ok(req) => messages.push(Box::new(req)),
-        //     Err(err) => {
-        //         return Err(err.context("Error creating a backend request"))
-        //             .error(AppErrorKind::MessageBuildingFailed);
-        //     }
-        // }
+        leave_tasks.push(async move { client.agent_leave(request).await });
     }
+    futures::future::try_join_all(leave_tasks)
+        .await
+        .error(AppErrorKind::BackendRequestFailed)?;
 
-    Ok((true, messages))
+    Ok(true)
 }
 
 ///////////////////////////////////////////////////////////////////////////////

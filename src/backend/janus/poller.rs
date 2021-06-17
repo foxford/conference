@@ -1,54 +1,28 @@
-use std::{sync::Arc, time::Duration};
+use slog::{error, warn};
 
-use futures::channel;
-use isahc::{http::Uri, AsyncReadResponseExt, HttpClient, Request};
-use slog::warn;
+use super::http::{IncomingEvent, JanusClient, PollResult, SessionId};
 
-use crate::backend::janus::events::IncomingEvent;
-
-pub(crate) struct Poller {
-    http_client: HttpClient,
-    janus_url: Uri,
-    sink: futures_channel::mpsc::UnboundedSender<IncomingEvent>,
-}
-
-impl Poller {
-    pub fn new(
-        sink: futures_channel::mpsc::UnboundedSender<IncomingEvent>,
-        janus_url: Uri,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
-            http_client: HttpClient::new()?,
-            sink,
-            janus_url,
-        })
-    }
-
-    pub async fn start(self: Arc<Self>, session_id: i64) {
-        loop {
-            let get_task = async {
-                let response = self
-                    .http_client
-                    .get_async(format!("{}/{}?maxev=5", self.janus_url, session_id))
-                    .await?
-                    .text()
-                    .await?;
-                if response.contains("keepalive") {
-                    return Ok(());
+pub async fn start_polling(
+    janus_client: JanusClient,
+    session_id: SessionId,
+    sink: async_std::channel::Sender<IncomingEvent>,
+) {
+    loop {
+        let poll_result = janus_client.poll(session_id).await;
+        match poll_result {
+            Ok(PollResult::SessionNotFound) => {
+                warn!(crate::LOG, "Session {} not found", session_id);
+            }
+            Ok(PollResult::Continue) => {
+                continue;
+            }
+            Ok(PollResult::Events(events)) => {
+                for event in events {
+                    sink.send(event).await.expect("Receiver must exist");
                 }
-                let deseriaized: Vec<IncomingEvent> =
-                    serde_json::from_str(&response).map_err(|err| {
-                        warn!(crate::LOG, "Err: {:?}, raw: {}", err, response);
-                        err
-                    })?;
-                for resp in deseriaized {
-                    self.sink.unbounded_send(resp).unwrap();
-                }
-                Ok::<_, anyhow::Error>(())
-            };
-            if let Err(err) = get_task.await {
-                error!(crate::LOG, "Got error: {:#}", err);
-                break;
+            }
+            Err(err) => {
+                error!(crate::LOG, "Polling error for {}: {:#}", session_id, err);
             }
         }
     }

@@ -104,25 +104,20 @@ macro_rules! response_routes {
             corr_data: &str,
             topic: &str,
         ) -> MessageStream {
-            // TODO: Refactor janus response handler to use common pattern.
-            if topic == context.janus_topics().responses_topic() {
-                janus::handle_response::<C>(context, response).await
-            } else {
-                let corr_data = match CorrelationData::parse(corr_data) {
-                    Ok(corr_data) => corr_data,
-                    Err(err) => {
-                        warn!(
-                            context.logger(),
-                            "Failed to parse response correlation data '{}': {}", corr_data, err
-                        );
-                        return Box::new(async_std::stream::empty()) as MessageStream;
-                    }
-                };
-                match corr_data {
-                    $(
-                        CorrelationData::$c(cd) => <$h>::handle_envelope::<C>(context, response, &cd).await,
-                    )*
+            let corr_data = match CorrelationData::parse(corr_data) {
+                Ok(corr_data) => corr_data,
+                Err(err) => {
+                    warn!(
+                        context.logger(),
+                        "Failed to parse response correlation data '{}': {:#}", corr_data, err
+                    );
+                    return Box::new(async_std::stream::empty()) as MessageStream;
                 }
+            };
+            match corr_data {
+                $(
+                    CorrelationData::$c(cd) => <$h>::handle_envelope::<C>(context, response, &cd).await,
+                )*
             }
         }
     }
@@ -155,10 +150,7 @@ macro_rules! event_routes {
             event: &IncomingEvent<String>,
             topic: &str,
         ) -> Option<MessageStream> {
-            if topic == context.janus_topics().events_topic() {
-                None
-                // Some(janus::handle_event::<C>(context, event).await)
-            } else if topic == context.janus_topics().status_events_topic() {
+            if topic == context.janus_topics().status_events_topic() {
                 Some(janus::handle_status_event::<C>(context, event).await)
             } else {
                 match event.properties().label() {

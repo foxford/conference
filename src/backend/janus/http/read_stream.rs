@@ -1,10 +1,37 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use svc_agent::{mqtt::IncomingRequestProperties, AgentId};
+use uuid::Uuid;
 
-use crate::backend::janus::{
-    requests::{MessageRequest, ReadStreamRequestBody},
-    responses::EventResponse,
-};
-use serde_json::Value as JsonValue;
+use super::{HandleId, Jsep, SessionId};
 
-pub type ReadStreamRequest = MessageRequest;
-pub type ReadStreamResponse = EventResponse;
+#[derive(Serialize, Debug)]
+pub struct ReadStreamRequest {
+    pub session_id: SessionId,
+    pub handle_id: HandleId,
+    pub body: ReadStreamRequestBody,
+    pub jsep: Jsep,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ReadStreamTransaction {
+    pub reqp: IncomingRequestProperties,
+}
+
+#[derive(Serialize, Debug)]
+pub struct ReadStreamRequestBody {
+    method: &'static str,
+    id: Uuid,
+    agent_id: AgentId,
+}
+
+impl ReadStreamRequestBody {
+    pub fn new(id: Uuid, agent_id: AgentId) -> Self {
+        Self {
+            method: "stream.read",
+            id,
+            agent_id,
+        }
+    }
+}
+
+// pub type ReadStreamResponse = EventResponse;

@@ -1,11 +1,35 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use svc_agent::{mqtt::IncomingRequestProperties, AgentId};
+use uuid::Uuid;
 
-use crate::backend::janus::{
-    requests::{CreateStreamRequestBody, MessageRequest},
-    responses::EventResponse,
-};
-use serde_json::Value as JsonValue;
+use super::{HandleId, Jsep, SessionId};
 
-pub type CreateStreamRequest = MessageRequest;
+#[derive(Serialize, Debug)]
+pub struct CreateStreamRequest {
+    pub session_id: SessionId,
+    pub handle_id: HandleId,
+    pub body: CreateStreamRequestBody,
+    pub jsep: Jsep,
+}
 
-pub type CreateStreamResponse = EventResponse;
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CreateStreamTransaction {
+    pub reqp: IncomingRequestProperties,
+}
+
+#[derive(Serialize, Debug)]
+pub struct CreateStreamRequestBody {
+    method: &'static str,
+    id: Uuid,
+    agent_id: AgentId,
+}
+
+impl CreateStreamRequestBody {
+    pub fn new(id: Uuid, agent_id: AgentId) -> Self {
+        Self {
+            method: "stream.create",
+            id,
+            agent_id,
+        }
+    }
+}

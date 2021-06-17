@@ -3,8 +3,11 @@ use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::db::agent::{Object as Agent, Status as AgentStatus};
 use crate::schema::{agent, agent_connection};
+use crate::{
+    backend::janus::http::HandleId,
+    db::agent::{Object as Agent, Status as AgentStatus},
+};
 
 type AllColumns = (
     agent_connection::agent_id,
@@ -28,13 +31,13 @@ const ALL_COLUMNS: AllColumns = (
 #[primary_key(agent_id)]
 pub(crate) struct Object {
     agent_id: Uuid,
-    handle_id: i64,
+    handle_id: HandleId,
     created_at: DateTime<Utc>,
     rtc_id: Uuid,
 }
 
 impl Object {
-    pub(crate) fn handle_id(&self) -> i64 {
+    pub(crate) fn handle_id(&self) -> HandleId {
         self.handle_id
     }
 }
@@ -89,12 +92,12 @@ impl CountQuery {
 pub(crate) struct UpsertQuery {
     agent_id: Uuid,
     rtc_id: Uuid,
-    handle_id: i64,
+    handle_id: HandleId,
     created_at: DateTime<Utc>,
 }
 
 impl UpsertQuery {
-    pub(crate) fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: i64) -> Self {
+    pub(crate) fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: HandleId) -> Self {
         Self {
             agent_id,
             rtc_id,

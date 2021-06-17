@@ -7,8 +7,8 @@ use std::ops::Bound;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::db::rtc::Object as Rtc;
 use crate::schema::{janus_rtc_stream, rtc};
+use crate::{backend::janus::http::HandleId, db::rtc::Object as Rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -43,7 +43,7 @@ const ALL_COLUMNS: AllColumns = (
 #[table_name = "janus_rtc_stream"]
 pub(crate) struct Object {
     id: Uuid,
-    handle_id: i64,
+    handle_id: HandleId,
     rtc_id: Uuid,
     backend_id: AgentId,
     label: String,
@@ -61,7 +61,7 @@ impl Object {
     }
 
     #[cfg(test)]
-    pub(crate) fn handle_id(&self) -> i64 {
+    pub(crate) fn handle_id(&self) -> HandleId {
         self.handle_id
     }
 
@@ -249,7 +249,7 @@ impl<'a> ListWithRtcQuery<'a> {
 #[table_name = "janus_rtc_stream"]
 pub(crate) struct InsertQuery<'a> {
     id: Uuid,
-    handle_id: i64,
+    handle_id: HandleId,
     rtc_id: Uuid,
     backend_id: &'a AgentId,
     label: &'a str,
@@ -259,7 +259,7 @@ pub(crate) struct InsertQuery<'a> {
 impl<'a> InsertQuery<'a> {
     pub(crate) fn new(
         id: Uuid,
-        handle_id: i64,
+        handle_id: HandleId,
         rtc_id: Uuid,
         backend_id: &'a AgentId,
         label: &'a str,
