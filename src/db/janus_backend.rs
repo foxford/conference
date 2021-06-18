@@ -38,7 +38,7 @@ pub(crate) const ALL_COLUMNS: AllColumns = (
 
 #[derive(Debug, Identifiable, Queryable, QueryableByName, Associations)]
 #[table_name = "janus_backend"]
-pub(crate) struct Object {
+pub struct Object {
     id: AgentId,
     handle_id: HandleId,
     session_id: SessionId,

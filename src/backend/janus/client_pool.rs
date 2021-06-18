@@ -1,15 +1,15 @@
-use super::client::{IncomingEvent, JanusClient, SessionId};
+use super::client::{IncomingEvent, JanusClient, PollResult, SessionId};
 use crate::db::janus_backend;
-use async_std::{channel::Sender, task::JoinHandle};
+use async_std::channel::Sender;
 use slog::{error, warn};
 use std::{
-    collections::HashMap,
+    collections::{hash_map::Entry, HashMap},
     sync::{Arc, RwLock},
     time::Duration,
 };
 use svc_agent::AgentId;
 
-#[derive(Debug, CLone)]
+#[derive(Debug, Clone)]
 pub struct Clients {
     clients: Arc<RwLock<HashMap<AgentId, ClientPoller>>>,
     events_sink: Sender<IncomingEvent>,
@@ -29,13 +29,33 @@ impl Clients {
     }
 
     pub fn put_client(&self, janus_backend: &janus_backend::Object) -> anyhow::Result<()> {
-        let client = JanusClient::new(janus_backend.janus_url());
-        let guard = self.clients.write().expect("Must not panic");
-        match guard.entry(janus_backend.id()) {}
+        let mut guard = self.clients.write().expect("Must not panic");
+        match guard.entry(janus_backend.id().clone()) {
+            Entry::Occupied(_) => Err(anyhow!("Client already exist")),
+            Entry::Vacant(v) => {
+                let this = self.clone();
+                let client = JanusClient::new(janus_backend.janus_url().parse()?)?;
+                let session_id = janus_backend.session_id();
+                let agent_id = janus_backend.id().clone();
+                v.insert(ClientPoller {
+                    session_id: janus_backend.session_id(),
+                    client: client.clone(),
+                });
+                async_std::task::spawn(async move {
+                    let sink = this.events_sink.clone();
+                    let _guard = PollerGuard {
+                        clients: this,
+                        agent_id,
+                    };
+                    start_polling(client, session_id, sink).await;
+                });
+                Ok(())
+            }
+        }
     }
 
     pub fn remove_client(&self, agent_id: &AgentId) {
-        let guard = self.clients.write().expect("Must not panic");
+        let mut guard = self.clients.write().expect("Must not panic");
         guard.remove(agent_id);
     }
 }
@@ -57,7 +77,7 @@ impl Drop for PollerGuard {
     }
 }
 
-pub async fn start_polling(
+async fn start_polling(
     janus_client: JanusClient,
     session_id: SessionId,
     sink: async_std::channel::Sender<IncomingEvent>,
@@ -67,6 +87,7 @@ pub async fn start_polling(
         match poll_result {
             Ok(PollResult::SessionNotFound) => {
                 warn!(crate::LOG, "Session {} not found", session_id);
+                break;
             }
             Ok(PollResult::Continue) => {
                 continue;
@@ -78,7 +99,7 @@ pub async fn start_polling(
             }
             Err(err) => {
                 error!(crate::LOG, "Polling error for {}: {:#}", session_id, err);
-                async_std::task::sleep(Duration::from_millis(100)).await
+                async_std::task::sleep(Duration::from_millis(500)).await
             }
         }
     }
