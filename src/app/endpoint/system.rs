@@ -53,6 +53,7 @@ struct RtcUploadEventData {
     #[serde(skip_serializing_if = "Option::is_none")]
     uri: Option<String>,
     created_by: AgentId,
+    mjr_dumps_uris: Option<Vec<String>>,
 }
 
 pub(crate) type RoomUploadEvent = OutgoingMessage<RoomUploadEventData>;
@@ -139,7 +140,6 @@ pub(crate) fn upload_event<C: Context, I>(
     context: &C,
     room: &db::room::Object,
     recordings: I,
-    tracking: &TrackingProperties,
 ) -> StdResult<RoomUploadEvent, AppError>
 where
     I: Iterator<Item = (db::recording::Object, db::rtc::Object)>,
@@ -171,6 +171,7 @@ where
             segments: recording.segments().to_owned(),
             started_at: recording.started_at().to_owned(),
             created_by: rtc.created_by().to_owned(),
+            mjr_dumps_uris: recording.mjr_dumps_uris().cloned(),
         };
 
         event_entries.push(entry);
@@ -179,7 +180,6 @@ where
     let uri = format!("audiences/{}/events", room.audience());
     let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
     let mut props = OutgoingEventProperties::new("room.upload", timing);
-    props.set_tracking(tracking.to_owned());
 
     let event = RoomUploadEventData {
         id: room.id(),

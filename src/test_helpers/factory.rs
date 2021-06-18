@@ -201,6 +201,7 @@ pub(crate) struct JanusBackend {
     session_id: SessionId,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
+    group: Option<String>,
 }
 
 impl JanusBackend {
@@ -211,6 +212,7 @@ impl JanusBackend {
             session_id,
             capacity: None,
             balancer_capacity: None,
+            group: None,
         }
     }
 
@@ -228,6 +230,13 @@ impl JanusBackend {
         }
     }
 
+    pub(crate) fn group(self, group: &str) -> Self {
+        Self {
+            group: Some(group.to_owned()),
+            ..self
+        }
+    }
+
     pub(crate) fn insert(&self, conn: &PgConnection) -> db::janus_backend::Object {
         let mut q = db::janus_backend::UpsertQuery::new(&self.id, self.handle_id, self.session_id);
 
@@ -237,6 +246,10 @@ impl JanusBackend {
 
         if let Some(balancer_capacity) = self.balancer_capacity {
             q = q.balancer_capacity(balancer_capacity);
+        }
+
+        if let Some(ref group) = self.group {
+            q = q.group(group);
         }
 
         q.execute(conn).expect("Failed to insert janus_backend")
@@ -397,6 +410,7 @@ pub(crate) struct RtcWriterConfig<'a> {
     send_video: Option<bool>,
     send_audio: Option<bool>,
     video_remb: Option<i64>,
+    send_audio_updated_by: Option<&'a AgentId>,
 }
 
 impl<'a> RtcWriterConfig<'a> {
@@ -406,6 +420,7 @@ impl<'a> RtcWriterConfig<'a> {
             send_video: None,
             send_audio: None,
             video_remb: None,
+            send_audio_updated_by: None,
         }
     }
 
@@ -430,6 +445,13 @@ impl<'a> RtcWriterConfig<'a> {
         }
     }
 
+    pub(crate) fn send_audio_updated_by(self, send_audio_updated_by: &'a AgentId) -> Self {
+        Self {
+            send_audio_updated_by: Some(send_audio_updated_by),
+            ..self
+        }
+    }
+
     pub(crate) fn insert(&self, conn: &PgConnection) -> db::rtc_writer_config::Object {
         let mut q = db::rtc_writer_config::UpsertQuery::new(self.rtc.id());
 
@@ -443,6 +465,10 @@ impl<'a> RtcWriterConfig<'a> {
 
         if let Some(video_remb) = self.video_remb {
             q = q.video_remb(video_remb);
+        }
+
+        if let Some(send_audio_updated_by) = self.send_audio_updated_by {
+            q = q.send_audio_updated_by(send_audio_updated_by);
         }
 
         q.execute(conn).expect("Failed to insert RTC writer config")

@@ -35,6 +35,7 @@ table! {
         capacity -> Nullable<Int4>,
         balancer_capacity -> Nullable<Int4>,
         api_version -> Text,
+        group -> Nullable<Text>,
     }
 }
 
@@ -63,6 +64,7 @@ table! {
         started_at -> Nullable<Timestamptz>,
         segments -> Nullable<Array<Int8range>>,
         status -> Recording_status,
+        mjr_dumps_uris -> Nullable<Array<Text>>,
     }
 }
 
@@ -117,6 +119,7 @@ table! {
         send_video -> Bool,
         send_audio -> Bool,
         video_remb -> Nullable<Int8>,
+        send_audio_updated_by -> Nullable<Agent_id>,
     }
 }
 

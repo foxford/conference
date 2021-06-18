@@ -219,7 +219,9 @@ pub(crate) fn finished_with_in_progress_recordings(
     room::table
         .inner_join(rtc::table.inner_join(recording::table))
         .inner_join(janus_backend::table.on(janus_backend::id.nullable().eq(room::backend_id)))
-        .filter(room::backend.eq(RoomBackend::Janus))
+        .filter(
+            room::rtc_sharing_policy.eq_any(&[RtcSharingPolicy::Shared, RtcSharingPolicy::Owned]),
+        )
         .filter(janus_backend::api_version.eq(JANUS_API_VERSION))
         .filter(sql("upper(\"room\".\"time\") < now()"))
         .filter(recording::status.eq(RecordingStatus::InProgress))

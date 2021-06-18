@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::{Context as AnyhowContext, Result};
 use async_std::stream;
-use chrono::Utc;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use std::ops::Bound;
 use svc_agent::mqtt::{
     IncomingEvent as MQTTIncomingEvent, IncomingRequestProperties, IntoPublishableMessage,
@@ -12,20 +12,20 @@ use svc_agent::Addressable;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::endpoint;
-use crate::app::message_handler::MessageStream;
 use crate::app::API_VERSION;
 use crate::db::{agent_connection, janus_backend, janus_rtc_stream};
 use crate::diesel::Connection;
-use crate::{app::context::Context, backend::janus::http::create_handle::CreateHandleRequest};
+use crate::{app::context::Context, db::recording};
+use crate::{app::endpoint, db::rtc};
 use crate::{
     app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
-    backend::janus::http::transactions::Transaction,
+    backend::janus::http::create_handle::CreateHandleRequest,
 };
+use crate::{app::message_handler::MessageStream, db::room};
 
 use serde::Deserialize;
 
-use self::http::IncomingEvent;
+use self::http::{transactions::Transaction, IncomingEvent};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -217,9 +217,164 @@ async fn handle_event_impl<C: Context>(
                 }
                 Transaction::UpdateReaderConfig => Ok(Box::new(stream::empty())),
                 Transaction::UpdateWriterConfig => Ok(Box::new(stream::empty())),
-                Transaction::UploadStream(transaction) => {
-                    //todo handle after merge
-                    Ok(Box::new(stream::empty()))
+                // Conference Stream has been uploaded to a storage backend (a confirmation)
+                Transaction::UploadStream(ref tn) => {
+                    context.add_logger_tags(o!(
+                        "rtc_id" => tn.rtc_id.to_string(),
+                    ));
+
+                    // TODO: improve error handling
+                    let plugin_data = resp
+                        .plugindata
+                        .data
+                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                        .error(AppErrorKind::MessageParsingFailed)?;
+
+                    plugin_data
+                        .get("status")
+                        .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                        .error(AppErrorKind::MessageParsingFailed)
+                        // We fail if the status isn't equal to 200
+                        .and_then(|status| {
+                            context.add_logger_tags(o!("status" => status.as_u64()));
+
+                            match status {
+                                val if val == "200" => Ok(()),
+                                val if val == "404" => {
+                                    let conn = context.get_conn()?;
+
+                                    recording::UpdateQuery::new(tn.rtc_id)
+                                        .status(recording::Status::Missing)
+                                        .execute(&conn)?;
+
+                                    Err(anyhow!("Janus is missing recording"))
+                                        .error(AppErrorKind::BackendRecordingMissing)
+                                }
+                                _ => Err(anyhow!("Received error status"))
+                                    .error(AppErrorKind::BackendRequestFailed),
+                            }
+                        })
+                        .and_then(|_| {
+                            let rtc_id = plugin_data
+                                .get("id")
+                                .ok_or_else(|| anyhow!("Missing 'id' in response"))
+                                .error(AppErrorKind::MessageParsingFailed)
+                                .and_then(|val| {
+                                    serde_json::from_value::<Uuid>(val.clone())
+                                        .map_err(|err| anyhow!("Invalid value for 'id': {}", err))
+                                        .error(AppErrorKind::MessageParsingFailed)
+                                })?;
+
+                            // if vacuuming was already started by previous request - just do nothing
+                            let maybe_already_running =
+                                plugin_data.get("state").and_then(|v| v.as_str())
+                                    == Some(ALREADY_RUNNING_STATE);
+                            if maybe_already_running {
+                                return Ok(Box::new(stream::empty()) as MessageStream);
+                            }
+
+                            let started_at = plugin_data
+                                .get("started_at")
+                                .ok_or_else(|| anyhow!("Missing 'started_at' in response"))
+                                .error(AppErrorKind::MessageParsingFailed)
+                                .and_then(|val| {
+                                    let unix_ts = serde_json::from_value::<u64>(val.clone())
+                                        .map_err(|err| {
+                                            anyhow!("Invalid value for 'started_at': {}", err)
+                                        })
+                                        .error(AppErrorKind::MessageParsingFailed)?;
+
+                                    let naive_datetime = NaiveDateTime::from_timestamp(
+                                        unix_ts as i64 / 1000,
+                                        ((unix_ts % 1000) * 1_000_000) as u32,
+                                    );
+
+                                    Ok(DateTime::<Utc>::from_utc(naive_datetime, Utc))
+                                })?;
+
+                            let segments = plugin_data
+                                .get("time")
+                                .ok_or_else(|| anyhow!("Missing time"))
+                                .error(AppErrorKind::MessageParsingFailed)
+                                .and_then(|segments| {
+                                    Ok(serde_json::from_value::<Vec<(i64, i64)>>(segments.clone())
+                                        .map_err(|err| anyhow!("Invalid value for 'time': {}", err))
+                                        .error(AppErrorKind::MessageParsingFailed)?
+                                        .into_iter()
+                                        .map(|(start, end)| {
+                                            (Bound::Included(start), Bound::Excluded(end))
+                                        })
+                                        .collect())
+                                })?;
+                            let mjr_dumps_uris = plugin_data
+                                .get("mjr_dumps_uris")
+                                .map(|dumps| {
+                                    serde_json::from_value::<Vec<String>>(dumps.clone())
+                                        .map_err(|err| {
+                                            anyhow!("Invalid value for 'dumps_uris': {}", err)
+                                        })
+                                        .error(AppErrorKind::MessageParsingFailed)
+                                })
+                                .transpose()?;
+
+                            let (room, rtcs_with_recs): (
+                                room::Object,
+                                Vec<(rtc::Object, Option<recording::Object>)>,
+                            ) = {
+                                let conn = context.get_conn()?;
+
+                                recording::UpdateQuery::new(rtc_id)
+                                    .status(recording::Status::Ready)
+                                    .started_at(started_at)
+                                    .segments(segments)
+                                    .mjr_dumps_uris(mjr_dumps_uris)
+                                    .execute(&conn)?;
+
+                                let rtc = rtc::FindQuery::new()
+                                    .id(rtc_id)
+                                    .execute(&conn)?
+                                    .ok_or_else(|| anyhow!("RTC not found"))
+                                    .error(AppErrorKind::RtcNotFound)?;
+
+                                let room = endpoint::helpers::find_room_by_rtc_id(
+                                    context,
+                                    rtc.id(),
+                                    endpoint::helpers::RoomTimeRequirement::Any,
+                                    &conn,
+                                )?;
+
+                                let rtcs_with_recs =
+                                    rtc::ListWithRecordingQuery::new(room.id()).execute(&conn)?;
+
+                                (room, rtcs_with_recs)
+                            };
+
+                            // Ensure that all rtcs have a recording.
+                            let rtcs_total = rtcs_with_recs.len();
+
+                            let recs_with_rtcs = rtcs_with_recs
+                                .into_iter()
+                                .filter_map(|(rtc, maybe_recording)| {
+                                    maybe_recording.map(|recording| (recording, rtc))
+                                })
+                                .collect::<Vec<_>>();
+
+                            if recs_with_rtcs.len() < rtcs_total {
+                                return Ok(Box::new(stream::empty()) as MessageStream);
+                            }
+
+                            // Send room.upload event.
+                            let event = endpoint::system::upload_event(
+                                context,
+                                &room,
+                                recs_with_rtcs.into_iter(),
+                            )?;
+
+                            let event_box =
+                                Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
+
+                            Ok(Box::new(stream::once(event_box)) as MessageStream)
+                        })
                 }
             }
         }
@@ -295,6 +450,7 @@ pub struct StatusEvent {
     pub online: bool,
     pub capacity: Option<i32>,
     pub balancer_capacity: Option<i32>,
+    pub group: Option<String>,
 }
 
 async fn handle_status_event_impl<C: Context>(
@@ -334,6 +490,10 @@ async fn handle_status_event_impl<C: Context>(
 
         if let Some(balancer_capacity) = payload.balancer_capacity {
             q = q.balancer_capacity(balancer_capacity);
+        }
+
+        if let Some(group) = payload.group.as_deref() {
+            q = q.group(group);
         }
 
         q.execute(&conn)?;

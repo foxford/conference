@@ -361,6 +361,7 @@ impl RequestHandler for ConnectHandler {
         // Choose backend to connect.
         let backend = {
             let conn = context.get_conn()?;
+            let group = context.config().janus_group.as_deref();
 
             // There are 3 cases:
             // 1. Connecting as writer for the first time. There's no `backend_id` in that case.
@@ -378,9 +379,9 @@ impl RequestHandler for ConnectHandler {
                     .execute(&conn)?
                     .ok_or_else(|| anyhow!("No backend found for stream"))
                     .error(AppErrorKind::BackendNotFound)?,
-                None => match db::janus_backend::most_loaded(room.id(), &conn)? {
+                None => match db::janus_backend::most_loaded(room.id(), group, &conn)? {
                     Some(backend) => backend,
-                    None => db::janus_backend::least_loaded(room.id(), &conn)?
+                    None => db::janus_backend::least_loaded(room.id(), group, &conn)?
                         .map(|backend| {
                             use sentry::protocol::{value::Value, Event, Level};
                             let backend_id = backend.id().to_string();
@@ -2008,6 +2009,80 @@ mod test {
                 };
 
                 handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                    .await
+                    .expect("RTC connect failed");
+            });
+        }
+
+        #[test]
+        fn connect_to_rtc_with_backend_grouping() {
+            async_std::task::block_on(async {
+                let mut rng = rand::thread_rng();
+                let db = TestDb::new();
+                let mut authz = TestAuthz::new();
+
+                let (rtc, backend) = {
+                    let conn = db
+                        .connection_pool()
+                        .get()
+                        .expect("Failed to get DB connection");
+
+                    // Insert two backends in different groups.
+                    let backend1_agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+
+                    let backend1 = factory::JanusBackend::new(
+                        backend1_agent.agent_id().to_owned(),
+                        crate::backend::janus::http::HandleId::random(),
+                        SessionId::random(),
+                    )
+                    .group("wrong")
+                    .insert(&conn);
+
+                    let backend2_agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
+
+                    let backend2 = factory::JanusBackend::new(
+                        backend2_agent.agent_id().to_owned(),
+                        crate::backend::janus::http::HandleId::random(),
+                        SessionId::random(),
+                    )
+                    .group("right")
+                    .insert(&conn);
+
+                    // Add some load to the first backend.
+                    let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
+                    let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+                    let someone = TestAgent::new("web", "user456", USR_AUDIENCE);
+
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        someone.agent_id(),
+                        rtc1.room_id(),
+                        rtc1.id(),
+                    );
+
+                    // Insert an RTC to connect to
+                    let rtc2 = shared_helpers::insert_rtc(&conn);
+                    (rtc2, backend2)
+                };
+
+                // Allow agent to read the RTC.
+                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                let room_id = rtc.room_id().to_string();
+                let rtc_id = rtc.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                authz.allow(agent.account_id(), object, "read");
+
+                // Configure the app to the `right` janus group.
+                let mut context = TestContext::new(db, authz);
+                context.config_mut().janus_group = Some(String::from("right"));
+
+                // Make rtc.connect request.
+                let payload = ConnectRequest {
+                    id: rtc.id(),
+                    intent: ConnectIntent::Read,
+                };
+
+                let _messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
                     .await
                     .expect("RTC connect failed");
             });
