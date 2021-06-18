@@ -72,7 +72,7 @@ pub(crate) async fn handle_event<C: Context>(
         .unwrap_or_else(|app_error| {
             error!(
                 context.logger(),
-                "Failed to handle an event from janus: {}", app_error
+                "Failed to handle an event from janus: {:#}", app_error
             );
 
             app_error.notify_sentry(context.logger());
@@ -89,7 +89,7 @@ async fn handle_event_impl<C: Context>(
             context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
 
             let rtc_stream_id = Uuid::from_str(inev.opaque_id())
-                .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
+                .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {:?}", err))
                 .error(AppErrorKind::MessageParsingFailed)?;
 
             let conn = context.get_conn()?;

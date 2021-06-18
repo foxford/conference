@@ -618,7 +618,6 @@ dependencies = [
  "serde 1.0.126",
  "serde_derive",
  "serde_json",
- "signal-hook",
  "slog 2.5.2",
  "slog-async",
  "slog-envlogger",

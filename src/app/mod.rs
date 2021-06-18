@@ -1,7 +1,5 @@
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
 
 use anyhow::{Context as AnyhowContext, Result};
 use async_std::task;
@@ -61,15 +59,15 @@ pub(crate) async fn run(
         .context("Failed to create an agent")?;
 
     // Event loop for incoming messages of MQTT Agent
-    let (mq_tx, mut mq_rx) = futures_channel::mpsc::unbounded::<AgentNotification>();
+    let (mq_tx, mq_rx) = async_std::channel::unbounded();
 
     thread::Builder::new()
         .name("conference-notifications-loop".to_owned())
         .spawn(move || {
             for message in rx {
-                if mq_tx.unbounded_send(message).is_err() {
-                    error!(crate::LOG, "Error sending message to the internal channel");
-                }
+                mq_tx
+                    .try_send(message)
+                    .expect("Messages receiver must be alive")
             }
         })
         .expect("Failed to start conference notifications loop");
@@ -86,14 +84,11 @@ pub(crate) async fn run(
     // Subscribe to topics
     let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
 
-    let running_requests = Arc::new(AtomicI64::new(0));
-
     let (ev_tx, mut ev_rx) = async_std::channel::unbounded();
     let clients = Clients::new(ev_tx);
     // Context
     let context = AppContext::new(config.clone(), authz, db.clone(), janus_topics, clients)
-        .add_queue_counter(agent.get_queue_counter())
-        .add_running_requests_counter(running_requests.clone());
+        .add_queue_counter(agent.get_queue_counter());
 
     let context = match redis_pool {
         Some(pool) => context.add_redis_pool(pool),
@@ -103,37 +98,30 @@ pub(crate) async fn run(
     // Message handler
     let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
 
-    // Message loop
-    let term_check_period = Duration::from_secs(1);
-    let term = Arc::new(AtomicBool::new(false));
-    signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&term))?;
-    signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&term))?;
-    {
+    let events_task = {
         let message_handler = message_handler.clone();
         async_std::task::spawn(async move {
             loop {
-                let ev = ev_rx.next().await.unwrap();
+                let ev = ev_rx
+                    .next()
+                    .await
+                    .expect("At least one events sender must be alive");
                 let message_handler = message_handler.clone();
                 async_std::task::spawn(async move {
                     message_handler.handle_events(ev).await;
                 });
             }
-        });
-    }
+        })
+    };
+    let messages_task = async_std::task::spawn(async move {
+        loop {
+            let message = mq_rx.recv().await.expect("Messages sender must be alive");
 
-    while !term.load(Ordering::Relaxed) {
-        let fut = async_std::future::timeout(term_check_period, mq_rx.next());
-
-        if let Ok(Some(message)) = fut.await {
             let message_handler = message_handler.clone();
-            let running_requests_ = running_requests.clone();
-
             task::spawn(async move {
                 match message {
                     AgentNotification::Message(message, metadata) => {
-                        running_requests_.fetch_add(1, Ordering::SeqCst);
                         message_handler.handle(&message, &metadata.topic).await;
-                        running_requests_.fetch_add(-1, Ordering::SeqCst);
                     }
                     AgentNotification::Reconnection => {
                         error!(crate::LOG, "Reconnected to broker");
@@ -149,22 +137,22 @@ pub(crate) async fn run(
                     AgentNotification::Pubcomp(_) => (),
                     AgentNotification::Suback(_) => (),
                     AgentNotification::Unsuback(_) => (),
-                    AgentNotification::ConnectionError => todo!(),
-                    AgentNotification::Connect(_) => todo!(),
-                    AgentNotification::Connack(_) => todo!(),
-                    AgentNotification::Pubrel(_) => todo!(),
-                    AgentNotification::Subscribe(_) => todo!(),
-                    AgentNotification::Unsubscribe(_) => todo!(),
-                    AgentNotification::PingReq => todo!(),
-                    AgentNotification::PingResp => todo!(),
+                    AgentNotification::ConnectionError => (),
+                    AgentNotification::Connect(_) => (),
+                    AgentNotification::Connack(_) => (),
+                    AgentNotification::Pubrel(_) => (),
+                    AgentNotification::Subscribe(_) => (),
+                    AgentNotification::Unsubscribe(_) => (),
+                    AgentNotification::PingReq => (),
+                    AgentNotification::PingResp => (),
                     AgentNotification::Disconnect => {
                         error!(crate::LOG, "Disconnected from broker")
                     }
                 }
             });
         }
-    }
-
+    });
+    futures::future::join_all([events_task, messages_task]).await;
     Ok(())
 }
 

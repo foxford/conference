@@ -75,7 +75,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         let messages = handle_event(&mut msg_context, message).await;
 
         if let Err(err) = self.publish_outgoing_messages(messages).await {
-            warn!(crate::LOG, "Got err {:#}", err);
+            warn!(msg_context.logger(), "Incoming event error: {:#}", err);
         }
     }
 
@@ -164,10 +164,6 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         self.publish_outgoing_messages(outgoing_message_stream)
             .await
     }
-
-    // async fn handle_events(&self) {
-    //     self.
-    // }
 
     async fn handle_event(
         &self,

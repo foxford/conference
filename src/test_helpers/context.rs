@@ -124,10 +124,6 @@ impl GlobalContext for TestContext {
         &None
     }
 
-    fn running_requests(&self) -> Option<Arc<AtomicI64>> {
-        None
-    }
-
     fn janus_clients(&self) -> crate::backend::janus::client_pool::Clients {
         todo!()
     }
