@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use std::thread;
+use std::{sync::Arc, thread};
 
 use anyhow::{Context as AnyhowContext, Result};
 use async_std::task;
 use chrono::Utc;
 use futures::StreamExt;
 use serde_json::json;
+use slog::{error, info};
 use svc_agent::{
     mqtt::{
         Agent, AgentBuilder, AgentNotification, ConnectionMode, OutgoingRequest,
@@ -16,12 +16,11 @@ use svc_agent::{
 use svc_authn::token::jws_compact;
 use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
 
-use crate::backend::janus::JANUS_API_VERSION;
-use crate::config::{self, Config, KruonisConfig};
-use crate::db::ConnectionPool;
 use crate::{
     app::error::{Error as AppError, ErrorKind as AppErrorKind},
-    backend::janus::client_pool::Clients,
+    backend::janus::{client_pool::Clients, JANUS_API_VERSION},
+    config::{self, Config, KruonisConfig},
+    db::ConnectionPool,
 };
 use context::{AppContext, GlobalContext, JanusTopics};
 use message_handler::MessageHandler;

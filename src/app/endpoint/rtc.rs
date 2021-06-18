@@ -1,12 +1,10 @@
-use std::fmt;
-use std::ops::Bound;
-
-use anyhow::Context as AnyhowContext;
+use anyhow::{anyhow, Context as AnyhowContext};
 use async_std::stream;
 use async_trait::async_trait;
-use chrono::Duration;
-use chrono::Utc;
-use serde_derive::{Deserialize, Serialize};
+use chrono::{Duration, Utc};
+use serde::{Deserialize, Serialize};
+use slog::{o, warn};
+use std::{fmt, ops::Bound};
 use svc_agent::{
     mqtt::{
         IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
@@ -16,15 +14,12 @@ use svc_agent::{
 };
 use uuid::Uuid;
 
-use crate::diesel::Identifiable;
-use crate::{app::context::Context, backend::janus::client::create_handle::CreateHandleRequest};
 use crate::{
-    app::endpoint,
-    db::{self, rtc::SharingPolicy as RtcSharingPolicy},
+    app::{context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId},
+    backend::janus::{client::create_handle::CreateHandleRequest, JANUS_API_VERSION},
+    db::{self, agent, agent_connection, rtc::SharingPolicy as RtcSharingPolicy},
+    diesel::{Connection, Identifiable},
 };
-use crate::{app::endpoint::prelude::*, db::agent};
-use crate::{app::handle_id::HandleId, backend::janus::JANUS_API_VERSION};
-use crate::{db::agent_connection, diesel::Connection};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -520,9 +515,13 @@ mod test {
     mod create {
         use chrono::{SubsecRound, Utc};
 
-        use crate::db::room::FindQueryable;
-        use crate::db::rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy};
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            db::{
+                room::FindQueryable,
+                rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy},
+            },
+            test_helpers::prelude::*,
+        };
 
         use super::super::*;
 
@@ -802,8 +801,7 @@ mod test {
     }
 
     mod read {
-        use crate::db::rtc::Object as Rtc;
-        use crate::test_helpers::prelude::*;
+        use crate::{db::rtc::Object as Rtc, test_helpers::prelude::*};
 
         use super::super::*;
 
@@ -890,8 +888,7 @@ mod test {
     }
 
     mod list {
-        use crate::db::rtc::Object as Rtc;
-        use crate::test_helpers::prelude::*;
+        use crate::{db::rtc::Object as Rtc, test_helpers::prelude::*};
 
         use super::super::*;
 
@@ -998,10 +995,11 @@ mod test {
 
         use chrono::{Duration, Utc};
 
-        use crate::backend::janus::client::SessionId;
-        use crate::db::agent::Status as AgentStatus;
-        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            backend::janus::client::SessionId,
+            db::{agent::Status as AgentStatus, rtc::SharingPolicy as RtcSharingPolicy},
+            test_helpers::prelude::*,
+        };
 
         use super::super::*;
 

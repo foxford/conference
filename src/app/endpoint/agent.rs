@@ -1,12 +1,13 @@
 use async_std::stream;
 use async_trait::async_trait;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use svc_agent::mqtt::{IncomingRequestProperties, ResponseStatus};
 use uuid::Uuid;
 
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
-use crate::db;
+use crate::{
+    app::{context::Context, endpoint::prelude::*},
+    db,
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -78,7 +79,7 @@ impl RequestHandler for ListHandler {
 #[cfg(test)]
 mod tests {
     mod list {
-        use serde_derive::Deserialize;
+        use serde::Deserialize;
         use svc_agent::AgentId;
         use uuid::Uuid;
 

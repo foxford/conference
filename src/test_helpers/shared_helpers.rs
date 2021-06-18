@@ -6,15 +6,17 @@ use rand::Rng;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::db::agent_connection::Object as AgentConnection;
-use crate::db::janus_backend::Object as JanusBackend;
-use crate::db::recording::Object as Recording;
-use crate::db::room::Object as Room;
-use crate::db::rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy};
-use crate::diesel::Identifiable;
 use crate::{
     backend::janus::client::{HandleId, SessionId},
-    db::agent::{Object as Agent, Status as AgentStatus},
+    db::{
+        agent::{Object as Agent, Status as AgentStatus},
+        agent_connection::Object as AgentConnection,
+        janus_backend::Object as JanusBackend,
+        recording::Object as Recording,
+        room::Object as Room,
+        rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy},
+    },
+    diesel::Identifiable,
 };
 
 use super::{agent::TestAgent, factory, SVC_AUDIENCE, USR_AUDIENCE};

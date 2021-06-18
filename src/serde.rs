@@ -112,8 +112,7 @@ pub mod ts_seconds_bound_tuple {
     use super::Time;
     use chrono::{DateTime, NaiveDateTime, Utc};
     use serde::{de, ser};
-    use std::fmt;
-    use std::ops::Bound;
+    use std::{fmt, ops::Bound};
 
     pub fn serialize<S>(value: &Time, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -261,7 +260,7 @@ mod test {
     use std::ops::Bound;
 
     use chrono::{DateTime, NaiveDateTime, Utc};
-    use serde_derive::{Deserialize, Serialize};
+    use serde::{Deserialize, Serialize};
     use serde_json::json;
 
     use super::Time;

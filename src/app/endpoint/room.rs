@@ -1,11 +1,10 @@
-use std::ops::Bound;
-
-use anyhow::Context as AnyhowContext;
+use anyhow::{anyhow, Context as AnyhowContext};
 use async_std::stream;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::ops::Bound;
 use svc_agent::{
     mqtt::{
         IncomingRequestProperties, IntoPublishableMessage, OutgoingRequest, ResponseStatus,
@@ -15,13 +14,15 @@ use svc_agent::{
 };
 use uuid::Uuid;
 
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
-use crate::app::endpoint::subscription::CorrelationDataPayload;
-use crate::app::API_VERSION;
-use crate::db;
-use crate::db::room::RoomBackend;
-use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
+use crate::{
+    app::{
+        context::Context,
+        endpoint::{prelude::*, subscription::CorrelationDataPayload},
+        API_VERSION,
+    },
+    db,
+    db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -460,7 +461,7 @@ impl RequestHandler for LeaveHandler {
 
 #[cfg(test)]
 mod test {
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
 
     use super::AgentId;
 
@@ -476,8 +477,7 @@ mod test {
         use chrono::Utc;
         use serde_json::json;
 
-        use crate::db::room::Object as Room;
-        use crate::test_helpers::prelude::*;
+        use crate::{db::room::Object as Room, test_helpers::prelude::*};
 
         use super::super::*;
 
@@ -561,8 +561,7 @@ mod test {
     }
 
     mod read {
-        use crate::db::room::Object as Room;
-        use crate::test_helpers::prelude::*;
+        use crate::{db::room::Object as Room, test_helpers::prelude::*};
 
         use super::super::*;
 
@@ -655,9 +654,10 @@ mod test {
         use serde_json::json;
         use uuid::Uuid;
 
-        use crate::db::room::Object as Room;
-        use crate::test_helpers::find_event_by_predicate;
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            db::room::Object as Room,
+            test_helpers::{find_event_by_predicate, prelude::*},
+        };
 
         use super::super::*;
 
@@ -955,8 +955,7 @@ mod test {
 
         use crate::test_helpers::prelude::*;
 
-        use super::super::*;
-        use super::DynSubRequest;
+        use super::{super::*, DynSubRequest};
 
         #[test]
         fn enter_room() {
@@ -1164,8 +1163,7 @@ mod test {
     mod leave {
         use crate::test_helpers::prelude::*;
 
-        use super::super::*;
-        use super::DynSubRequest;
+        use super::{super::*, DynSubRequest};
 
         #[test]
         fn leave_room() {

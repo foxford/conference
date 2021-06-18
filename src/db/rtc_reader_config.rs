@@ -2,8 +2,10 @@ use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::db::rtc::Object as Rtc;
-use crate::schema::{rtc, rtc_reader_config};
+use crate::{
+    db::rtc::Object as Rtc,
+    schema::{rtc, rtc_reader_config},
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 

@@ -8,8 +8,10 @@ use crate::{
     db,
 };
 
-use super::agent::TestAgent;
-use super::shared_helpers::{insert_janus_backend, insert_room, insert_rtc};
+use super::{
+    agent::TestAgent,
+    shared_helpers::{insert_janus_backend, insert_room, insert_rtc},
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 

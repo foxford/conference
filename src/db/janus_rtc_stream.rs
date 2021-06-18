@@ -1,14 +1,15 @@
-use chrono::serde::ts_seconds;
-use chrono::{DateTime, Utc};
-use diesel::pg::PgConnection;
-use diesel::result::Error;
-use serde_derive::{Deserialize, Serialize};
+use chrono::{serde::ts_seconds, DateTime, Utc};
+use diesel::{pg::PgConnection, result::Error};
+use serde::{Deserialize, Serialize};
 use std::ops::Bound;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::schema::{janus_rtc_stream, rtc};
-use crate::{backend::janus::client::HandleId, db::rtc::Object as Rtc};
+use crate::{
+    backend::janus::client::HandleId,
+    db::rtc::Object as Rtc,
+    schema::{janus_rtc_stream, rtc},
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -162,8 +163,7 @@ impl ListQuery {
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use diesel::prelude::*;
-        use diesel::{dsl::sql, sql_types::Tstzrange};
+        use diesel::{dsl::sql, prelude::*, sql_types::Tstzrange};
 
         let mut q = janus_rtc_stream::table.into_boxed();
         if let Some(rtc_id) = self.rtc_id {
@@ -226,8 +226,7 @@ impl<'a> ListWithRtcQuery<'a> {
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Rtc)>, Error> {
-        use diesel::dsl::sql;
-        use diesel::prelude::*;
+        use diesel::{dsl::sql, prelude::*};
 
         let mut q = janus_rtc_stream::table.inner_join(rtc::table).into_boxed();
 
@@ -290,8 +289,7 @@ impl<'a> InsertQuery<'a> {
 const START_TIME_SQL: &str = "(TSTZRANGE(NOW(), NULL, '[)'))";
 
 pub fn start(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
-    use diesel::dsl::sql;
-    use diesel::prelude::*;
+    use diesel::{dsl::sql, prelude::*};
 
     diesel::update(janus_rtc_stream::table.filter(janus_rtc_stream::id.eq(id)))
         .set(janus_rtc_stream::time.eq(sql(START_TIME_SQL)))
@@ -315,8 +313,7 @@ const STOP_TIME_SQL: &str = r#"
 "#;
 
 pub fn stop(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
-    use diesel::dsl::sql;
-    use diesel::prelude::*;
+    use diesel::{dsl::sql, prelude::*};
 
     diesel::update(janus_rtc_stream::table.filter(janus_rtc_stream::id.eq(id)))
         .set(janus_rtc_stream::time.eq(sql(STOP_TIME_SQL)))

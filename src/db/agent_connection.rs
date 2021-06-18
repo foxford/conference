@@ -3,10 +3,10 @@ use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::schema::{agent, agent_connection};
 use crate::{
     backend::janus::client::HandleId,
     db::agent::{Object as Agent, Status as AgentStatus},
+    schema::{agent, agent_connection},
 };
 
 type AllColumns = (
@@ -140,8 +140,7 @@ impl BulkDisconnectByRoomQuery {
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-        use diesel::sql_types::Uuid;
+        use diesel::{prelude::*, sql_types::Uuid};
 
         diesel::sql_query(BULK_DISCONNECT_BY_ROOM_SQL)
             .bind::<Uuid, _>(self.room_id)

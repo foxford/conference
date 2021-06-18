@@ -1,9 +1,19 @@
 use std::ops::Bound;
 
+use crate::{
+    app::{
+        context::Context,
+        error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
+        API_VERSION,
+    },
+    db,
+    db::room::Object as Room,
+};
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, Utc};
 use diesel::pg::PgConnection;
 use serde::Serialize;
+use slog::o;
 use svc_agent::{
     mqtt::{
         IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
@@ -12,12 +22,6 @@ use svc_agent::{
     AgentId,
 };
 use uuid::Uuid;
-
-use crate::app::context::Context;
-use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
-use crate::app::API_VERSION;
-use crate::db;
-use crate::db::room::Object as Room;
 
 ///////////////////////////////////////////////////////////////////////////////
 

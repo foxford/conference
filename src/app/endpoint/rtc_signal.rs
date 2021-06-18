@@ -1,32 +1,34 @@
-use std::result::Result as StdResult;
-
-use anyhow::Context as AnyhowContext;
+use anyhow::{anyhow, Context as AnyhowContext};
 use async_std::stream;
 use async_trait::async_trait;
 use chrono::Duration;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
-    ShortTermTimingProperties,
-};
-use svc_agent::Addressable;
-
-use crate::app::endpoint::prelude::*;
-use crate::{
-    app::handle_id::HandleId,
-    backend::janus::client::{
-        create_stream::{CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction},
-        read_stream::{ReadStreamRequest, ReadStreamRequestBody},
-        trickle::TrickleRequest,
-        Jsep, JsepType,
+use slog::o;
+use std::result::Result as StdResult;
+use svc_agent::{
+    mqtt::{
+        IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
+        ShortTermTimingProperties,
     },
+    Addressable,
 };
+
 use crate::{
-    app::{context::Context, endpoint},
-    backend::janus::JANUS_API_VERSION,
+    app::{context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId},
+    backend::janus::{
+        client::{
+            create_stream::{
+                CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction,
+            },
+            read_stream::{ReadStreamRequest, ReadStreamRequestBody, ReadStreamTransaction},
+            trickle::TrickleRequest,
+            Jsep, JsepType,
+        },
+        JANUS_API_VERSION,
+    },
+    db,
 };
-use crate::{backend::janus::client::read_stream::ReadStreamTransaction, db};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -316,9 +318,10 @@ mod test {
         use svc_agent::mqtt::ResponseStatus;
         use uuid::Uuid;
 
-        use crate::app::handle_id::HandleId;
-        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            app::handle_id::HandleId, db::rtc::SharingPolicy as RtcSharingPolicy,
+            test_helpers::prelude::*,
+        };
 
         use super::super::*;
 

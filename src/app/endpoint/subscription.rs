@@ -1,9 +1,10 @@
-use std::result::Result as StdResult;
-
+use anyhow::anyhow;
 use async_std::stream;
 use async_trait::async_trait;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use slog::o;
+use std::result::Result as StdResult;
 use svc_agent::{
     mqtt::{
         IncomingEventProperties, IncomingRequestProperties, IncomingResponseProperties,
@@ -13,11 +14,10 @@ use svc_agent::{
 };
 use uuid::Uuid;
 
-use crate::app::endpoint::prelude::*;
-use crate::db;
 use crate::{
-    app::context::Context,
+    app::{context::Context, endpoint::prelude::*},
     backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
+    db,
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -305,9 +305,11 @@ mod tests {
     mod create_response {
         use svc_agent::mqtt::ResponseStatus;
 
-        use crate::app::API_VERSION;
-        use crate::db::agent::{ListQuery as AgentListQuery, Status as AgentStatus};
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            app::API_VERSION,
+            db::agent::{ListQuery as AgentListQuery, Status as AgentStatus},
+            test_helpers::prelude::*,
+        };
 
         use super::super::*;
 
@@ -469,9 +471,9 @@ mod tests {
     mod delete_response {
         use svc_agent::mqtt::ResponseStatus;
 
-        use crate::app::API_VERSION;
-        use crate::db::agent::ListQuery as AgentListQuery;
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            app::API_VERSION, db::agent::ListQuery as AgentListQuery, test_helpers::prelude::*,
+        };
 
         use super::super::*;
 
@@ -624,8 +626,7 @@ mod tests {
     }
 
     mod delete_event {
-        use crate::db::agent::ListQuery as AgentListQuery;
-        use crate::test_helpers::prelude::*;
+        use crate::{db::agent::ListQuery as AgentListQuery, test_helpers::prelude::*};
 
         use super::super::*;
 

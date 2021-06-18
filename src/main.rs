@@ -1,28 +1,19 @@
 #[macro_use]
-extern crate anyhow;
-#[macro_use]
 extern crate diesel;
-#[macro_use]
-extern crate diesel_derive_enum;
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate slog;
 
 use std::env::var;
 
 use anyhow::Result;
-use slog::Drain;
+use once_cell::sync::Lazy;
+use slog::{o, Drain};
 use svc_authz::cache::{create_pool, Cache};
 
-lazy_static! {
-    static ref LOG: slog::Logger = {
-        let drain = slog_json::Json::default(std::io::stdout()).fuse();
-        let drain = slog_envlogger::new(drain).fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-        slog::Logger::root(drain, o!("version" => env!("CARGO_PKG_VERSION")))
-    };
-}
+pub static LOG: Lazy<slog::Logger> = Lazy::new(|| {
+    let drain = slog_json::Json::default(std::io::stdout()).fuse();
+    let drain = slog_envlogger::new(drain).fuse();
+    let drain = slog_async::Async::new(drain).build().fuse();
+    slog::Logger::root(drain, o!("version" => env!("CARGO_PKG_VERSION")))
+});
 
 // const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 

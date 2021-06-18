@@ -1,5 +1,4 @@
-use serde::de::DeserializeOwned;
-use serde_derive::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize};
 use svc_agent::mqtt::ResponseStatus;
 
 #[derive(Debug, Deserialize)]

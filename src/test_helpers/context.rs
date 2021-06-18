@@ -1,17 +1,16 @@
 use chrono::{DateTime, Utc};
 use serde_json::json;
-use slog::{Logger, OwnedKV, SendSyncRefUnwindSafeKV};
+use slog::{o, Logger, OwnedKV, SendSyncRefUnwindSafeKV};
 use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
-use svc_authz::cache::ConnectionPool as RedisConnectionPool;
-use svc_authz::ClientMap as Authz;
+use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 
-use crate::app::context::{Context, GlobalContext, JanusTopics, MessageContext};
-use crate::config::Config;
-use crate::db::ConnectionPool as Db;
+use crate::{
+    app::context::{Context, GlobalContext, JanusTopics, MessageContext},
+    config::Config,
+    db::ConnectionPool as Db,
+};
 
-use super::authz::TestAuthz;
-use super::db::TestDb;
-use super::{SVC_AUDIENCE, USR_AUDIENCE};
+use super::{authz::TestAuthz, db::TestDb, SVC_AUDIENCE, USR_AUDIENCE};
 
 ///////////////////////////////////////////////////////////////////////////////
 

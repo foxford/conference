@@ -1,9 +1,8 @@
-use std::fmt;
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
+use anyhow::anyhow;
 use svc_agent::AgentId;
 use uuid::Uuid;
-
 #[derive(Debug)]
 pub struct HandleId {
     rtc_stream_id: Uuid,

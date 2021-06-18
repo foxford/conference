@@ -1,7 +1,8 @@
-use diesel::pg::PgConnection;
-use diesel::r2d2::{ConnectionManager, Pool};
-use std::sync::Arc;
-use std::time::Duration;
+use diesel::{
+    pg::PgConnection,
+    r2d2::{ConnectionManager, Pool},
+};
+use std::{sync::Arc, time::Duration};
 
 pub type ConnectionPool = Arc<Pool<ConnectionManager<PgConnection>>>;
 
@@ -20,10 +21,10 @@ pub fn create_pool(url: &str, size: u32, idle_size: Option<u32>, timeout: u64) -
 }
 
 pub mod sql {
-    pub use super::agent::Agent_status;
-    pub use super::recording::Recording_status;
-    pub use super::room::Room_backend;
-    pub use super::rtc::Rtc_sharing_policy;
+    pub use super::{
+        agent::Agent_status, recording::Recording_status, room::Room_backend,
+        rtc::Rtc_sharing_policy,
+    };
     pub use svc_agent::sql::{Account_id, Agent_id};
 }
 

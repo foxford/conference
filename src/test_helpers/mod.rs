@@ -8,16 +8,20 @@ use svc_agent::{
 };
 use uuid::Uuid;
 
-use crate::app::endpoint::{EventHandler, RequestHandler, ResponseHandler};
-use crate::app::error::Error as AppError;
-use crate::app::message_handler::MessageStream;
-use crate::app::API_VERSION;
+use crate::app::{
+    endpoint::{EventHandler, RequestHandler, ResponseHandler},
+    error::Error as AppError,
+    message_handler::MessageStream,
+    API_VERSION,
+};
 
-use self::agent::TestAgent;
-use self::context::TestContext;
-use self::outgoing_envelope::{
-    OutgoingEnvelope, OutgoingEnvelopeProperties, OutgoingEventProperties,
-    OutgoingRequestProperties, OutgoingResponseProperties,
+use self::{
+    agent::TestAgent,
+    context::TestContext,
+    outgoing_envelope::{
+        OutgoingEnvelope, OutgoingEnvelopeProperties, OutgoingEventProperties,
+        OutgoingRequestProperties, OutgoingResponseProperties,
+    },
 };
 
 ///////////////////////////////////////////////////////////////////////////////

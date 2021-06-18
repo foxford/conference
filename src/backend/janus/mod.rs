@@ -1,27 +1,30 @@
-use std::str::FromStr;
-
-use anyhow::{Context as AnyhowContext, Result};
+use anyhow::{anyhow, Context as AnyhowContext, Result};
 use async_std::stream;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use std::ops::Bound;
-use svc_agent::mqtt::{
-    IncomingEvent as MQTTIncomingEvent, IncomingRequestProperties, IntoPublishableMessage,
-    OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
+use slog::{error, o};
+use std::{ops::Bound, str::FromStr};
+use svc_agent::{
+    mqtt::{
+        IncomingEvent as MQTTIncomingEvent, IncomingRequestProperties, IntoPublishableMessage,
+        OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
+    },
+    Addressable,
 };
-use svc_agent::Addressable;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::db::{agent_connection, janus_backend, janus_rtc_stream};
-use crate::diesel::Connection;
-use crate::{app::context::Context, db::recording};
-use crate::{app::endpoint, db::rtc};
 use crate::{
-    app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
-    backend::janus::client::create_handle::CreateHandleRequest,
+    app::{
+        context::Context,
+        endpoint,
+        error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
+        message_handler::MessageStream,
+        API_VERSION,
+    },
+    backend::janus::client::{create_handle::CreateHandleRequest, JanusClient},
+    db::{agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc},
+    diesel::Connection,
 };
-use crate::{app::message_handler::MessageStream, db::room};
-use crate::{app::API_VERSION, backend::janus::client::JanusClient};
 
 use serde::Deserialize;
 

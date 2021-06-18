@@ -1,29 +1,24 @@
 use std::collections::HashMap;
 
-use anyhow::Context as AnyhowContext;
+use crate::{
+    app::{context::Context, endpoint::prelude::*},
+    backend::janus::client::update_agent_reader_config::{
+        UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
+        UpdateReaderConfigRequestBodyConfigItem,
+    },
+    db,
+    db::{rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},
+    diesel::Connection,
+};
+use anyhow::{anyhow, Context as AnyhowContext};
 use async_std::stream;
 use async_trait::async_trait;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
     Addressable, AgentId,
 };
 use uuid::Uuid;
-
-use crate::db;
-use crate::db::rtc::Object as Rtc;
-use crate::db::rtc_reader_config::Object as RtcReaderConfig;
-use crate::diesel::Connection;
-use crate::{
-    app::context::Context,
-    backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
-};
-use crate::{
-    app::endpoint::prelude::*,
-    backend::janus::client::update_agent_reader_config::{
-        UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
-    },
-};
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
@@ -271,8 +266,7 @@ mod tests {
         use chrono::{Duration, Utc};
         use uuid::Uuid;
 
-        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-        use crate::test_helpers::prelude::*;
+        use crate::{db::rtc::SharingPolicy as RtcSharingPolicy, test_helpers::prelude::*};
 
         use super::super::*;
 
@@ -639,8 +633,7 @@ mod tests {
         use chrono::{Duration, Utc};
         use uuid::Uuid;
 
-        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-        use crate::test_helpers::prelude::*;
+        use crate::{db::rtc::SharingPolicy as RtcSharingPolicy, test_helpers::prelude::*};
 
         use super::super::*;
 

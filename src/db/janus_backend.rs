@@ -1,14 +1,15 @@
 use chrono::{DateTime, Utc};
-use diesel::pg::PgConnection;
-use diesel::result::Error;
+use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::backend::janus::{
-    client::{HandleId, SessionId},
-    JANUS_API_VERSION,
+use crate::{
+    backend::janus::{
+        client::{HandleId, SessionId},
+        JANUS_API_VERSION,
+    },
+    schema::janus_backend,
 };
-use crate::schema::janus_backend;
 
 pub type AllColumns = (
     janus_backend::id,
@@ -288,8 +289,10 @@ pub fn most_loaded(
     group: Option<&str>,
     conn: &PgConnection,
 ) -> Result<Option<Object>, Error> {
-    use diesel::prelude::*;
-    use diesel::sql_types::{Nullable, Text, Uuid};
+    use diesel::{
+        prelude::*,
+        sql_types::{Nullable, Text, Uuid},
+    };
 
     diesel::sql_query(MOST_LOADED_SQL)
         .bind::<Uuid, _>(room_id)
@@ -357,8 +360,10 @@ pub fn least_loaded(
     group: Option<&str>,
     conn: &PgConnection,
 ) -> Result<Option<Object>, Error> {
-    use diesel::prelude::*;
-    use diesel::sql_types::{Nullable, Text, Uuid};
+    use diesel::{
+        prelude::*,
+        sql_types::{Nullable, Text, Uuid},
+    };
 
     diesel::sql_query(LEAST_LOADED_SQL)
         .bind::<Uuid, _>(room_id)
@@ -452,8 +457,7 @@ struct FreeCapacityQueryRow {
 }
 
 pub fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Error> {
-    use diesel::prelude::*;
-    use diesel::sql_types::Uuid;
+    use diesel::{prelude::*, sql_types::Uuid};
 
     diesel::sql_query(FREE_CAPACITY_SQL)
         .bind::<Uuid, _>(rtc_id)
@@ -553,8 +557,7 @@ mod tests {
     use chrono::{Duration, Utc};
     use std::ops::Bound;
 
-    use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-    use crate::test_helpers::prelude::*;
+    use crate::{db::rtc::SharingPolicy as RtcSharingPolicy, test_helpers::prelude::*};
 
     #[test]
     fn reserve_load_for_each_backend() {

@@ -1,18 +1,19 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use diesel::pg::PgConnection;
-use diesel::r2d2::{ConnectionManager, PooledConnection};
-use slog::{Logger, OwnedKV, SendSyncRefUnwindSafeKV};
+use diesel::{
+    pg::PgConnection,
+    r2d2::{ConnectionManager, PooledConnection},
+};
+use slog::{o, Logger, OwnedKV, SendSyncRefUnwindSafeKV};
 use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
-use svc_authz::cache::ConnectionPool as RedisConnectionPool;
-use svc_authz::ClientMap as Authz;
+use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 
-use crate::config::Config;
-use crate::db::ConnectionPool as Db;
 use crate::{
     app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
     backend::janus::client_pool::Clients,
+    config::Config,
+    db::ConnectionPool as Db,
 };
 
 ///////////////////////////////////////////////////////////////////////////////

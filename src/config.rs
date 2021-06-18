@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use svc_agent::{mqtt::AgentConfig, AccountId};
 use svc_authn::jose::Algorithm;
 use svc_authz::ConfigMap as Authz;

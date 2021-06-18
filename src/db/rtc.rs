@@ -1,14 +1,13 @@
 use std::fmt;
 
-use chrono::serde::ts_seconds;
-use chrono::{DateTime, Utc};
+use chrono::{serde::ts_seconds, DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
-use serde_derive::{Deserialize, Serialize};
+use diesel_derive_enum::DbEnum;
+use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use super::recording::Object as Recording;
-use super::room::Object as Room;
+use super::{recording::Object as Recording, room::Object as Room};
 use crate::schema::{recording, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////

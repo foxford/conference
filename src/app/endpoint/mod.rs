@@ -1,19 +1,21 @@
 use std::result::Result as StdResult;
 
+pub(self) use crate::app::message_handler::MessageStream;
+use crate::{
+    app::{
+        context::Context,
+        error::Error as AppError,
+        message_handler::{EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler},
+    },
+    backend::janus,
+};
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
+use slog::warn;
 use svc_agent::mqtt::{
     IncomingEvent, IncomingEventProperties, IncomingRequest, IncomingRequestProperties,
     IncomingResponse, IncomingResponseProperties,
 };
-
-use crate::app::context::Context;
-use crate::app::error::Error as AppError;
-pub(self) use crate::app::message_handler::MessageStream;
-use crate::app::message_handler::{
-    EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler,
-};
-use crate::backend::janus;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -73,7 +75,7 @@ request_routes!(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CorrelationData {
@@ -185,6 +187,8 @@ pub mod system;
 
 pub(self) mod prelude {
     pub(super) use super::{helpers, EventHandler, RequestHandler, ResponseHandler, Result};
-    pub(super) use crate::app::endpoint::CorrelationData;
-    pub(super) use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
+    pub(super) use crate::app::{
+        endpoint::CorrelationData,
+        error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
+    };
 }

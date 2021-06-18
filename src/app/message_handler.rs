@@ -1,11 +1,12 @@
-use std::future::Future;
-use std::pin::Pin;
-
-use anyhow::Context as AnyhowContext;
-use async_std::prelude::*;
-use async_std::stream::{self, Stream};
+use anyhow::{anyhow, Context as AnyhowContext};
+use async_std::{
+    prelude::*,
+    stream::{self, Stream},
+};
 use chrono::{DateTime, Utc};
 use futures_util::pin_mut;
+use slog::{error, o, warn};
+use std::{future::Future, pin::Pin};
 use svc_agent::{
     mqtt::{
         Agent, IncomingEvent, IncomingMessage, IncomingRequest, IncomingRequestProperties,
@@ -16,14 +17,14 @@ use svc_agent::{
 };
 use svc_error::Error as SvcError;
 
-use crate::app::{endpoint, API_VERSION};
 use crate::{
-    app::context::{AppMessageContext, Context, GlobalContext, MessageContext},
-    backend::janus,
-};
-use crate::{
-    app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
-    backend::janus::handle_event,
+    app::{
+        context::{AppMessageContext, Context, GlobalContext, MessageContext},
+        endpoint,
+        error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
+        API_VERSION,
+    },
+    backend::{janus, janus::handle_event},
 };
 
 pub type MessageStream =

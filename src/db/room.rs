@@ -1,20 +1,22 @@
-use std::fmt;
-use std::ops::Bound;
+use std::{fmt, ops::Bound};
 
-use chrono::serde::ts_seconds;
-use chrono::{DateTime, Utc};
-use diesel::pg::PgConnection;
-use diesel::result::Error;
-use serde_derive::{Deserialize, Serialize};
+use chrono::{serde::ts_seconds, DateTime, Utc};
+use diesel::{pg::PgConnection, result::Error};
+use diesel_derive_enum::DbEnum;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::backend::janus::JANUS_API_VERSION;
-use crate::db::janus_backend::Object as JanusBackend;
-use crate::db::recording::{Object as Recording, Status as RecordingStatus};
-use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-use crate::schema::{janus_backend, recording, room, rtc};
+use crate::{
+    backend::janus::JANUS_API_VERSION,
+    db::{
+        janus_backend::Object as JanusBackend,
+        recording::{Object as Recording, Status as RecordingStatus},
+        rtc::SharingPolicy as RtcSharingPolicy,
+    },
+    schema::{janus_backend, recording, room, rtc},
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 

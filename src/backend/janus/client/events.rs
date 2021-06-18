@@ -1,5 +1,4 @@
-use serde::de;
-use serde_derive::Deserialize;
+use serde::{de, Deserialize};
 use serde_json::Value;
 
 use crate::{backend::janus::OpaqueId, util::from_base64};

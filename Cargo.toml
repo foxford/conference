@@ -5,7 +5,7 @@ authors = ["Andrei Nesterov <ae.nesterov@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-anyhow = "1.0"
+anyhow = "1"
 async-std = { version="1", features=["attributes"] }
 async-trait = "0.1"
 base64 = "0.13"
@@ -19,17 +19,15 @@ futures = "0.3"
 futures-channel = "0.3"
 futures-util = "0.3"
 http = "0.1"
-lazy_static = "1.4"
 openssl = "*"
 rand = "0.7"
 sentry = "=0.18"
-serde = "1.0"
-serde_derive = "1.0"
-serde_json = "1.0"
-slog = "2.5"
-slog-async = "2.5"
-slog-envlogger = "2.2"
-slog-json = "2.3"
+serde = { version="1", features=["derive"] }
+serde_json = "1"
+slog = "2"
+slog-async = "2"
+slog-envlogger = "2"
+slog-json = "2"
 slog-serde = "1.0.0-alpha9"
 svc-agent = { version="0.17", features=["diesel", "queue-counter"] }
 svc-authn = { version="0.6", features=["jose", "diesel"] }
@@ -44,8 +42,9 @@ svc-error = { version="0.1", features=[
 ] }
 uuid = { version="0.6", features=["v4", "serde"] }
 webrtc-sdp = "0.3"
-tide = "0.16.0"
+tide = "0.16"
 isahc = { version="1", features=["json"] }
 derive_more = "0.99"
+once_cell = "1"
 # this is to prohibit tide and surf inside svc-authz from updating this dependency
 # pin-project-lite = "=0.1.7"

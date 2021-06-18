@@ -1,7 +1,7 @@
-use chrono::serde::ts_seconds;
-use chrono::{DateTime, Utc};
+use chrono::{serde::ts_seconds, DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
-use serde_derive::{Deserialize, Serialize};
+use diesel_derive_enum::DbEnum;
+use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 use uuid::Uuid;
 

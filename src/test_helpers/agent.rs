@@ -1,5 +1,4 @@
-use svc_agent::mqtt::Address;
-use svc_agent::{AccountId, AgentId, Authenticable};
+use svc_agent::{mqtt::Address, AccountId, AgentId, Authenticable};
 
 use crate::app::API_VERSION;
 

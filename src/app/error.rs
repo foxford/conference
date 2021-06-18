@@ -1,10 +1,8 @@
-use std::error::Error as StdError;
-use std::fmt;
+use std::{error::Error as StdError, fmt};
 
-use slog::Logger;
+use slog::{warn, Logger};
 use svc_agent::mqtt::ResponseStatus;
 use svc_error::{extension::sentry, Error as SvcError};
-
 ////////////////////////////////////////////////////////////////////////////////
 
 struct ErrorKindProperties {

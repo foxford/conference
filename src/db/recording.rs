@@ -1,9 +1,9 @@
-use std::fmt;
-use std::ops::Bound;
+use std::{fmt, ops::Bound};
 
 use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
-use serde_derive::{Deserialize, Serialize};
+use diesel_derive_enum::DbEnum;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::rtc::Object as Rtc;

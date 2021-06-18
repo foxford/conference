@@ -1,28 +1,24 @@
 use std::collections::HashMap;
 
+use crate::{
+    app::{context::Context, endpoint::prelude::*},
+    backend::janus::client::update_agent_writer_config::{
+        UpdateWriterConfigRequest, UpdateWriterConfigRequestBody,
+        UpdateWriterConfigRequestBodyConfigItem,
+    },
+    db,
+    db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig},
+    diesel::Connection,
+};
+use anyhow::anyhow;
 use async_std::stream;
 use async_trait::async_trait;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
     Addressable, AgentId,
 };
 use uuid::Uuid;
-
-use crate::db;
-use crate::db::rtc::Object as Rtc;
-use crate::db::rtc_writer_config::Object as RtcWriterConfig;
-use crate::diesel::Connection;
-use crate::{
-    app::context::Context,
-    backend::janus::client::update_agent_writer_config::{
-        UpdateWriterConfigRequest, UpdateWriterConfigRequestBodyConfigItem,
-    },
-};
-use crate::{
-    app::endpoint::prelude::*,
-    backend::janus::client::update_agent_writer_config::UpdateWriterConfigRequestBody,
-};
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
@@ -340,8 +336,7 @@ mod tests {
         use chrono::{Duration, Utc};
         use uuid::Uuid;
 
-        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-        use crate::test_helpers::prelude::*;
+        use crate::{db::rtc::SharingPolicy as RtcSharingPolicy, test_helpers::prelude::*};
 
         use super::super::*;
 
@@ -796,8 +791,7 @@ mod tests {
         use chrono::{Duration, Utc};
         use uuid::Uuid;
 
-        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-        use crate::test_helpers::prelude::*;
+        use crate::{db::rtc::SharingPolicy as RtcSharingPolicy, test_helpers::prelude::*};
 
         use super::super::*;
 

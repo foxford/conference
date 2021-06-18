@@ -1,18 +1,20 @@
-use std::result::Result as StdResult;
-
+use anyhow::anyhow;
 use async_std::stream;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use serde_derive::Deserialize;
+use serde::Deserialize;
+use slog::o;
+use std::result::Result as StdResult;
 use svc_agent::mqtt::{
     IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
     ResponseStatus, ShortTermTimingProperties,
 };
 use uuid::Uuid;
 
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
-use crate::db;
+use crate::{
+    app::{context::Context, endpoint::prelude::*},
+    db,
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -129,9 +131,10 @@ mod test {
         use chrono::SubsecRound;
         use diesel::prelude::*;
 
-        use crate::db::janus_rtc_stream::Object as JanusRtcStream;
-        use crate::db::rtc::Object as Rtc;
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            db::{janus_rtc_stream::Object as JanusRtcStream, rtc::Object as Rtc},
+            test_helpers::prelude::*,
+        };
 
         use super::super::*;
 

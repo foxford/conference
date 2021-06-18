@@ -1,18 +1,18 @@
+use crate::app::{context::Context, endpoint::prelude::*, API_VERSION};
+use anyhow::anyhow;
 use async_std::stream;
 use async_trait::async_trait;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use svc_agent::mqtt::{
-    IncomingRequestProperties, IncomingResponseProperties, IntoPublishableMessage, OutgoingRequest,
-    OutgoingResponse, OutgoingResponseProperties, ResponseStatus, ShortTermTimingProperties,
-    SubscriptionTopic,
+use svc_agent::{
+    mqtt::{
+        IncomingRequestProperties, IncomingResponseProperties, IntoPublishableMessage,
+        OutgoingRequest, OutgoingResponse, OutgoingResponseProperties, ResponseStatus,
+        ShortTermTimingProperties, SubscriptionTopic,
+    },
+    Addressable, AgentId, Subscription,
 };
-use svc_agent::{Addressable, AgentId, Subscription};
 use uuid::Uuid;
-
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
-use crate::app::API_VERSION;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -191,8 +191,7 @@ mod test {
     mod unicast {
         use uuid::Uuid;
 
-        use crate::app::API_VERSION;
-        use crate::test_helpers::prelude::*;
+        use crate::{app::API_VERSION, test_helpers::prelude::*};
 
         use super::super::*;
 
@@ -342,8 +341,7 @@ mod test {
     mod broadcast {
         use uuid::Uuid;
 
-        use crate::app::API_VERSION;
-        use crate::test_helpers::prelude::*;
+        use crate::{app::API_VERSION, test_helpers::prelude::*};
 
         use super::super::*;
 
