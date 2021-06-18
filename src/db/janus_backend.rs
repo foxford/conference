@@ -62,6 +62,7 @@ impl Object {
     pub(crate) fn session_id(&self) -> SessionId {
         self.session_id
     }
+
     pub fn janus_url(&self) -> &str {
         &self.janus_url
     }

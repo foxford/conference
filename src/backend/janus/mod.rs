@@ -538,4 +538,4 @@ async fn handle_status_event_impl<C: Context>(
 
 ////////////////////////////////////////////////////////////////////////////////
 pub mod client;
-pub mod poller;
+pub mod client_pool;
