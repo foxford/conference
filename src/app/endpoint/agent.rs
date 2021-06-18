@@ -57,11 +57,8 @@ impl RequestHandler for ListHandler {
 
             db::agent::ListQuery::new()
                 .room_id(payload.room_id)
-                .offset(payload.offset.unwrap_or_else(|| 0))
-                .limit(std::cmp::min(
-                    payload.limit.unwrap_or_else(|| MAX_LIMIT),
-                    MAX_LIMIT,
-                ))
+                .offset(payload.offset.unwrap_or(0))
+                .limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT))
                 .execute(&conn)?
         };
 

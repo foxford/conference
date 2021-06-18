@@ -74,11 +74,11 @@ impl From<RtcSharingPolicy> for RoomBackend {
     }
 }
 
-impl Into<RtcSharingPolicy> for RoomBackend {
-    fn into(self) -> RtcSharingPolicy {
-        match self {
-            Self::None => RtcSharingPolicy::None,
-            Self::Janus => RtcSharingPolicy::Shared,
+impl From<RoomBackend> for RtcSharingPolicy {
+    fn from(val: RoomBackend) -> Self {
+        match val {
+            RoomBackend::None => RtcSharingPolicy::None,
+            RoomBackend::Janus => RtcSharingPolicy::Shared,
         }
     }
 }

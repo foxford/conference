@@ -267,9 +267,9 @@ impl<'a> InsertQuery<'a> {
     ) -> Self {
         Self {
             id,
+            handle_id,
             rtc_id,
             backend_id,
-            handle_id,
             label,
             sent_by,
         }

@@ -239,7 +239,7 @@ impl RequestHandler for ListHandler {
             query = query.offset(offset);
         }
 
-        let limit = std::cmp::min(payload.limit.unwrap_or_else(|| MAX_LIMIT), MAX_LIMIT);
+        let limit = std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT);
         query = query.limit(limit);
 
         let rtcs = {

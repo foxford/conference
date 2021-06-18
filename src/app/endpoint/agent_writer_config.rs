@@ -37,7 +37,7 @@ pub(crate) struct State {
 impl State {
     fn new(room_id: Uuid, rtc_writer_configs_with_rtcs: &[(RtcWriterConfig, Rtc)]) -> State {
         let configs = rtc_writer_configs_with_rtcs
-            .into_iter()
+            .iter()
             .map(|(rtc_writer_config, rtc)| {
                 let mut config_item = StateConfigItem::new(rtc.created_by().to_owned())
                     .send_video(rtc_writer_config.send_video())

@@ -38,7 +38,7 @@ pub(crate) struct State {
 impl State {
     fn new(room_id: Uuid, rtc_reader_configs: &[(RtcReaderConfig, Rtc)]) -> State {
         let configs = rtc_reader_configs
-            .into_iter()
+            .iter()
             .map(|(rtc_reader_config, rtc)| {
                 StateConfigItem::new(rtc.created_by().to_owned())
                     .receive_video(rtc_reader_config.receive_video())

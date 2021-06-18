@@ -11,7 +11,7 @@ where
     D: de::Deserializer<'de>,
 {
     let s: &str = de::Deserialize::deserialize(deserializer)?;
-    from_base64(s).map_err(|e| de::Error::custom(e))
+    from_base64(s).map_err(de::Error::custom)
 }
 
 // A response on a request sent to a plugin handle.

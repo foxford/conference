@@ -69,8 +69,9 @@ impl Clients {
 
     pub fn remove_client(&self, agent_id: &AgentId) {
         let mut guard = self.clients.write().expect("Must not panic");
-        let poller = guard.remove(agent_id);
-        poller.map(|p| p.is_cancelled.store(true, Ordering::SeqCst));
+        if let Some(handle) = guard.remove(agent_id) {
+            handle.is_cancelled.store(true, Ordering::SeqCst)
+        }
     }
 }
 
