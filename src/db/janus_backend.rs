@@ -19,6 +19,7 @@ pub(crate) type AllColumns = (
     janus_backend::balancer_capacity,
     janus_backend::api_version,
     janus_backend::group,
+    janus_backend::janus_url,
 );
 
 pub(crate) const ALL_COLUMNS: AllColumns = (
@@ -30,6 +31,7 @@ pub(crate) const ALL_COLUMNS: AllColumns = (
     janus_backend::balancer_capacity,
     janus_backend::api_version,
     janus_backend::group,
+    janus_backend::janus_url,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -45,6 +47,7 @@ pub(crate) struct Object {
     balancer_capacity: Option<i32>,
     api_version: String,
     group: Option<String>,
+    janus_url: String,
 }
 
 impl Object {
@@ -58,6 +61,9 @@ impl Object {
 
     pub(crate) fn session_id(&self) -> SessionId {
         self.session_id
+    }
+    pub fn janus_url(&self) -> &str {
+        &self.janus_url
     }
 }
 
