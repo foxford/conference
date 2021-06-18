@@ -3,11 +3,11 @@ use std::ops::Bound;
 use chrono::{DateTime, Utc};
 use serde::ser;
 
-pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
+pub type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn milliseconds_bound_tuples_option<S>(
+pub fn milliseconds_bound_tuples_option<S>(
     value: &Option<Vec<(Bound<i64>, Bound<i64>)>>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
@@ -42,7 +42,7 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn ts_milliseconds_option<S>(
+pub fn ts_milliseconds_option<S>(
     opt: &Option<DateTime<Utc>>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
@@ -57,15 +57,12 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) mod ts_seconds_option {
+pub mod ts_seconds_option {
     use chrono::{DateTime, Utc};
     use serde::{de, ser};
     use std::fmt;
 
-    pub(crate) fn serialize<S>(
-        opt: &Option<DateTime<Utc>>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(opt: &Option<DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ser::Serializer,
     {
@@ -76,7 +73,7 @@ pub(crate) mod ts_seconds_option {
     }
 
     #[cfg(test)]
-    pub(crate) fn deserialize<'de, D>(d: D) -> Result<Option<DateTime<Utc>>, D::Error>
+    pub fn deserialize<'de, D>(d: D) -> Result<Option<DateTime<Utc>>, D::Error>
     where
         D: de::Deserializer<'de>,
     {
@@ -111,14 +108,14 @@ pub(crate) mod ts_seconds_option {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) mod ts_seconds_bound_tuple {
+pub mod ts_seconds_bound_tuple {
     use super::Time;
     use chrono::{DateTime, NaiveDateTime, Utc};
     use serde::{de, ser};
     use std::fmt;
     use std::ops::Bound;
 
-    pub(crate) fn serialize<S>(value: &Time, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(value: &Time, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ser::Serializer,
     {
@@ -162,7 +159,7 @@ pub(crate) mod ts_seconds_bound_tuple {
         tup.end()
     }
 
-    pub(crate) fn deserialize<'de, D>(d: D) -> Result<Time, D::Error>
+    pub fn deserialize<'de, D>(d: D) -> Result<Time, D::Error>
     where
         D: de::Deserializer<'de>,
     {
@@ -208,12 +205,12 @@ pub(crate) mod ts_seconds_bound_tuple {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) mod ts_seconds_option_bound_tuple {
+pub mod ts_seconds_option_bound_tuple {
     use super::Time;
     use serde::{de, ser};
     use std::fmt;
 
-    pub(crate) fn serialize<S>(option: &Option<Time>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(option: &Option<Time>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ser::Serializer,
     {
@@ -223,7 +220,7 @@ pub(crate) mod ts_seconds_option_bound_tuple {
         }
     }
 
-    pub(crate) fn deserialize<'de, D>(d: D) -> Result<Option<Time>, D::Error>
+    pub fn deserialize<'de, D>(d: D) -> Result<Option<Time>, D::Error>
     where
         D: de::Deserializer<'de>,
     {

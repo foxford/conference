@@ -18,7 +18,7 @@ pub struct UpdateReaderConfigRequestBody {
 }
 
 impl UpdateReaderConfigRequestBody {
-    pub(crate) fn new(configs: Vec<UpdateReaderConfigRequestBodyConfigItem>) -> Self {
+    pub fn new(configs: Vec<UpdateReaderConfigRequestBodyConfigItem>) -> Self {
         Self {
             method: "reader_config.update",
             configs,
@@ -27,7 +27,7 @@ impl UpdateReaderConfigRequestBody {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct UpdateReaderConfigRequestBodyConfigItem {
+pub struct UpdateReaderConfigRequestBodyConfigItem {
     pub reader_id: AgentId,
     pub stream_id: Uuid,
     pub receive_video: bool,

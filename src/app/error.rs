@@ -15,7 +15,7 @@ struct ErrorKindProperties {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum ErrorKind {
+pub enum ErrorKind {
     AccessDenied,
     AgentNotConnected,
     AgentNotEnteredTheRoom,
@@ -51,22 +51,22 @@ pub(crate) enum ErrorKind {
 }
 
 impl ErrorKind {
-    pub(crate) fn status(self) -> ResponseStatus {
+    pub fn status(self) -> ResponseStatus {
         let properties: ErrorKindProperties = self.into();
         properties.status
     }
 
-    pub(crate) fn kind(self) -> &'static str {
+    pub fn kind(self) -> &'static str {
         let properties: ErrorKindProperties = self.into();
         properties.kind
     }
 
-    pub(crate) fn title(self) -> &'static str {
+    pub fn title(self) -> &'static str {
         let properties: ErrorKindProperties = self.into();
         properties.title
     }
 
-    pub(crate) fn is_notify_sentry(self) -> bool {
+    pub fn is_notify_sentry(self) -> bool {
         let properties: ErrorKindProperties = self.into();
         properties.is_notify_sentry
     }
@@ -280,13 +280,13 @@ impl From<ErrorKind> for ErrorKindProperties {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct Error {
+pub struct Error {
     kind: ErrorKind,
     source: Box<dyn AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static>,
 }
 
 impl Error {
-    pub(crate) fn new<E>(kind: ErrorKind, source: E) -> Self
+    pub fn new<E>(kind: ErrorKind, source: E) -> Self
     where
         E: AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static,
     {
@@ -296,23 +296,23 @@ impl Error {
         }
     }
 
-    pub(crate) fn status(&self) -> ResponseStatus {
+    pub fn status(&self) -> ResponseStatus {
         self.kind.status()
     }
 
-    pub(crate) fn kind(&self) -> &str {
+    pub fn kind(&self) -> &str {
         self.kind.kind()
     }
 
-    pub(crate) fn title(&self) -> &str {
+    pub fn title(&self) -> &str {
         self.kind.title()
     }
 
-    pub(crate) fn source(&self) -> &(dyn StdError + Send + Sync + 'static) {
+    pub fn source(&self) -> &(dyn StdError + Send + Sync + 'static) {
         self.source.as_ref().as_ref()
     }
 
-    pub(crate) fn to_svc_error(&self) -> SvcError {
+    pub fn to_svc_error(&self) -> SvcError {
         let properties: ErrorKindProperties = self.kind.into();
 
         SvcError::builder()
@@ -322,7 +322,7 @@ impl Error {
             .build()
     }
 
-    pub(crate) fn notify_sentry(&self, logger: &Logger) {
+    pub fn notify_sentry(&self, logger: &Logger) {
         if !self.kind.is_notify_sentry() {
             return;
         }
@@ -379,7 +379,7 @@ impl From<diesel::result::Error> for Error {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) trait ErrorExt<T> {
+pub trait ErrorExt<T> {
     fn error(self, kind: ErrorKind) -> Result<T, Error>;
 }
 

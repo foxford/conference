@@ -21,7 +21,7 @@ use crate::db::room::Object as Room;
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn build_response(
+pub fn build_response(
     status: ResponseStatus,
     payload: impl Serialize + Send + 'static,
     reqp: &IncomingRequestProperties,
@@ -38,7 +38,7 @@ pub(crate) fn build_response(
     Box::new(OutgoingResponse::unicast(payload, props, reqp, API_VERSION))
 }
 
-pub(crate) fn build_notification(
+pub fn build_notification(
     label: &'static str,
     path: &str,
     payload: impl Serialize + Send + 'static,
@@ -53,14 +53,14 @@ pub(crate) fn build_notification(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) enum RoomTimeRequirement {
+pub enum RoomTimeRequirement {
     Any,
     NotClosed,
     NotClosedOrUnboundedOpen,
     Open,
 }
 
-pub(crate) fn find_room_by_id<C: Context>(
+pub fn find_room_by_id<C: Context>(
     context: &mut C,
     id: Uuid,
     opening_requirement: RoomTimeRequirement,
@@ -71,7 +71,7 @@ pub(crate) fn find_room_by_id<C: Context>(
     find_room(context, query, opening_requirement, conn)
 }
 
-pub(crate) fn find_room_by_rtc_id<C: Context>(
+pub fn find_room_by_rtc_id<C: Context>(
     context: &mut C,
     rtc_id: Uuid,
     opening_requirement: RoomTimeRequirement,
@@ -158,7 +158,7 @@ where
     }
 }
 
-pub(crate) fn check_room_presence(
+pub fn check_room_presence(
     room: &db::room::Object,
     agent_id: &AgentId,
     conn: &PgConnection,
@@ -175,7 +175,7 @@ pub(crate) fn check_room_presence(
     }
 }
 
-pub(crate) fn add_room_logger_tags<C: Context>(context: &mut C, room: &db::room::Object) {
+pub fn add_room_logger_tags<C: Context>(context: &mut C, room: &db::room::Object) {
     context.add_logger_tags(o!("room_id" => room.id().to_string()));
 
     if let Some(scope) = room.tags().get("scope") {

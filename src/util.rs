@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-pub(crate) fn to_base64<T>(val: &T) -> Result<String>
+pub fn to_base64<T>(val: &T) -> Result<String>
 where
     T: serde::Serialize,
 {
@@ -9,7 +9,7 @@ where
     Ok(b)
 }
 
-pub(crate) fn from_base64<T>(val: &str) -> Result<T>
+pub fn from_base64<T>(val: &str) -> Result<T>
 where
     T: serde::de::DeserializeOwned,
 {
@@ -21,7 +21,7 @@ where
 
 // const CORRELATION_DATA_LENGTH: usize = 16;
 
-// pub(crate) fn generate_correlation_data() -> String {
+// pub fn generate_correlation_data() -> String {
 //     thread_rng()
 //         .sample_iter(&Alphanumeric)
 //         .take(CORRELATION_DATA_LENGTH)

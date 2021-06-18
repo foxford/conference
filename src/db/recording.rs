@@ -11,7 +11,7 @@ use crate::schema::recording;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type AllColumns = (
+pub type AllColumns = (
     recording::rtc_id,
     recording::started_at,
     recording::segments,
@@ -19,7 +19,7 @@ pub(crate) type AllColumns = (
     recording::mjr_dumps_uris,
 );
 
-pub(crate) const ALL_COLUMNS: AllColumns = (
+pub const ALL_COLUMNS: AllColumns = (
     recording::rtc_id,
     recording::started_at,
     recording::segments,
@@ -29,13 +29,13 @@ pub(crate) const ALL_COLUMNS: AllColumns = (
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type Segment = (Bound<i64>, Bound<i64>);
+pub type Segment = (Bound<i64>, Bound<i64>);
 
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 #[PgType = "recording_status"]
 #[DieselType = "Recording_status"]
-pub(crate) enum Status {
+pub enum Status {
     #[serde(rename = "in_progress")]
     InProgress,
     Ready,
@@ -55,7 +55,7 @@ impl fmt::Display for Status {
 #[belongs_to(Rtc, foreign_key = "rtc_id")]
 #[primary_key(rtc_id)]
 #[table_name = "recording"]
-pub(crate) struct Object {
+pub struct Object {
     rtc_id: Uuid,
     #[serde(with = "crate::serde::ts_seconds_option")]
     started_at: Option<DateTime<Utc>>,
@@ -65,24 +65,24 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub(crate) fn rtc_id(&self) -> Uuid {
+    pub fn rtc_id(&self) -> Uuid {
         self.rtc_id
     }
 
-    pub(crate) fn started_at(&self) -> &Option<DateTime<Utc>> {
+    pub fn started_at(&self) -> &Option<DateTime<Utc>> {
         &self.started_at
     }
 
-    pub(crate) fn segments(&self) -> &Option<Vec<Segment>> {
+    pub fn segments(&self) -> &Option<Vec<Segment>> {
         &self.segments
     }
 
-    pub(crate) fn status(&self) -> &Status {
+    pub fn status(&self) -> &Status {
         &self.status
     }
 
     /// Get a reference to the object's janus dumps uris.
-    pub(crate) fn mjr_dumps_uris(&self) -> Option<&Vec<String>> {
+    pub fn mjr_dumps_uris(&self) -> Option<&Vec<String>> {
         self.mjr_dumps_uris.as_ref()
     }
 }
@@ -90,16 +90,16 @@ impl Object {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
-pub(crate) struct FindQuery {
+pub struct FindQuery {
     rtc_id: Uuid,
 }
 
 impl FindQuery {
-    pub(crate) fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: Uuid) -> Self {
         Self { rtc_id }
     }
 
-    pub(crate) fn execute(self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    pub fn execute(self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         recording::table
@@ -113,16 +113,16 @@ impl FindQuery {
 
 #[derive(Debug, Insertable)]
 #[table_name = "recording"]
-pub(crate) struct InsertQuery {
+pub struct InsertQuery {
     rtc_id: Uuid,
 }
 
 impl InsertQuery {
-    pub(crate) fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: Uuid) -> Self {
         Self { rtc_id }
     }
 
-    pub(crate) fn execute(self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::recording::dsl::recording;
         use diesel::RunQueryDsl;
 
@@ -135,7 +135,7 @@ impl InsertQuery {
 #[derive(Debug, Identifiable, AsChangeset)]
 #[table_name = "recording"]
 #[primary_key(rtc_id)]
-pub(crate) struct UpdateQuery {
+pub struct UpdateQuery {
     rtc_id: Uuid,
     status: Option<Status>,
     started_at: Option<DateTime<Utc>>,
@@ -144,7 +144,7 @@ pub(crate) struct UpdateQuery {
 }
 
 impl UpdateQuery {
-    pub(crate) fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: Uuid) -> Self {
         Self {
             rtc_id,
             status: None,
@@ -154,35 +154,35 @@ impl UpdateQuery {
         }
     }
 
-    pub(crate) fn status(self, status: Status) -> Self {
+    pub fn status(self, status: Status) -> Self {
         Self {
             status: Some(status),
             ..self
         }
     }
 
-    pub(crate) fn mjr_dumps_uris(self, mjr_dumps_uris: Option<Vec<String>>) -> Self {
+    pub fn mjr_dumps_uris(self, mjr_dumps_uris: Option<Vec<String>>) -> Self {
         Self {
             mjr_dumps_uris,
             ..self
         }
     }
 
-    pub(crate) fn started_at(self, started_at: DateTime<Utc>) -> Self {
+    pub fn started_at(self, started_at: DateTime<Utc>) -> Self {
         Self {
             started_at: Some(started_at),
             ..self
         }
     }
 
-    pub(crate) fn segments(self, segments: Vec<Segment>) -> Self {
+    pub fn segments(self, segments: Vec<Segment>) -> Self {
         Self {
             segments: Some(segments),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use diesel::prelude::*;
 
         diesel::update(self).set(self).get_result(conn)

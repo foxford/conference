@@ -21,7 +21,7 @@ use super::{agent::TestAgent, factory, SVC_AUDIENCE, USR_AUDIENCE};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn insert_room(conn: &PgConnection) -> Room {
+pub fn insert_room(conn: &PgConnection) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -34,7 +34,7 @@ pub(crate) fn insert_room(conn: &PgConnection) -> Room {
         .insert(conn)
 }
 
-pub(crate) fn insert_room_with_backend_id(conn: &PgConnection, backend_id: &AgentId) -> Room {
+pub fn insert_room_with_backend_id(conn: &PgConnection, backend_id: &AgentId) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -48,7 +48,7 @@ pub(crate) fn insert_room_with_backend_id(conn: &PgConnection, backend_id: &Agen
         .insert(conn)
 }
 
-pub(crate) fn insert_closed_room(conn: &PgConnection) -> Room {
+pub fn insert_closed_room(conn: &PgConnection) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -61,10 +61,7 @@ pub(crate) fn insert_closed_room(conn: &PgConnection) -> Room {
         .insert(conn)
 }
 
-pub(crate) fn insert_closed_room_with_backend_id(
-    conn: &PgConnection,
-    backend_id: &AgentId,
-) -> Room {
+pub fn insert_closed_room_with_backend_id(conn: &PgConnection, backend_id: &AgentId) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -78,7 +75,7 @@ pub(crate) fn insert_closed_room_with_backend_id(
         .insert(conn)
 }
 
-pub(crate) fn insert_room_with_owned(conn: &PgConnection) -> Room {
+pub fn insert_room_with_owned(conn: &PgConnection) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -88,7 +85,7 @@ pub(crate) fn insert_room_with_owned(conn: &PgConnection) -> Room {
         .insert(conn)
 }
 
-pub(crate) fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uuid) -> Agent {
+pub fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uuid) -> Agent {
     factory::Agent::new()
         .agent_id(agent_id)
         .room_id(room_id)
@@ -96,7 +93,7 @@ pub(crate) fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uui
         .insert(conn)
 }
 
-pub(crate) fn insert_connected_agent(
+pub fn insert_connected_agent(
     conn: &PgConnection,
     agent_id: &AgentId,
     room_id: Uuid,
@@ -112,7 +109,7 @@ pub(crate) fn insert_connected_agent(
     (agent, agent_connection)
 }
 
-pub(crate) fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {
+pub fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {
     let rng = rand::thread_rng();
 
     let label_suffix: String = rng
@@ -131,15 +128,15 @@ pub(crate) fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {
     .insert(conn)
 }
 
-pub(crate) fn insert_rtc(conn: &PgConnection) -> Rtc {
+pub fn insert_rtc(conn: &PgConnection) -> Rtc {
     let room = insert_room(conn);
     factory::Rtc::new(room.id()).insert(conn)
 }
 
-pub(crate) fn insert_rtc_with_room(conn: &PgConnection, room: &Room) -> Rtc {
+pub fn insert_rtc_with_room(conn: &PgConnection, room: &Room) -> Rtc {
     factory::Rtc::new(room.id()).insert(conn)
 }
 
-pub(crate) fn insert_recording(conn: &PgConnection, rtc: &Rtc) -> Recording {
+pub fn insert_recording(conn: &PgConnection, rtc: &Rtc) -> Recording {
     factory::Recording::new().rtc(rtc).insert(conn)
 }

@@ -1,5 +1,3 @@
-use std::sync::{atomic::AtomicI64, Arc};
-
 use chrono::{DateTime, Utc};
 use serde_json::json;
 use slog::{Logger, OwnedKV, SendSyncRefUnwindSafeKV};
@@ -64,7 +62,7 @@ fn build_config() -> Config {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Clone)]
-pub(crate) struct TestContext {
+pub struct TestContext {
     config: Config,
     authz: Authz,
     db: TestDb,
@@ -75,7 +73,7 @@ pub(crate) struct TestContext {
 }
 
 impl TestContext {
-    pub(crate) fn new(db: TestDb, authz: TestAuthz) -> Self {
+    pub fn new(db: TestDb, authz: TestAuthz) -> Self {
         let config = build_config();
         let agent_id = AgentId::new(&config.agent_label, config.id.clone());
 
@@ -90,7 +88,7 @@ impl TestContext {
         }
     }
 
-    pub(crate) fn config_mut(&mut self) -> &mut Config {
+    pub fn config_mut(&mut self) -> &mut Config {
         &mut self.config
     }
 }

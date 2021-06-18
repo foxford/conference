@@ -29,7 +29,7 @@ const ALL_COLUMNS: AllColumns = (
 #[belongs_to(Agent, foreign_key = "agent_id")]
 #[table_name = "agent_connection"]
 #[primary_key(agent_id)]
-pub(crate) struct Object {
+pub struct Object {
     agent_id: Uuid,
     handle_id: HandleId,
     created_at: DateTime<Utc>,
@@ -37,24 +37,24 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub(crate) fn handle_id(&self) -> HandleId {
+    pub fn handle_id(&self) -> HandleId {
         self.handle_id
     }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct FindQuery<'a> {
+pub struct FindQuery<'a> {
     agent_id: &'a AgentId,
     rtc_id: Uuid,
 }
 
 impl<'a> FindQuery<'a> {
-    pub(crate) fn new(agent_id: &'a AgentId, rtc_id: Uuid) -> Self {
+    pub fn new(agent_id: &'a AgentId, rtc_id: Uuid) -> Self {
         Self { agent_id, rtc_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         agent_connection::table
@@ -70,14 +70,14 @@ impl<'a> FindQuery<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-// pub(crate) struct CountQuery {}
+// pub struct CountQuery {}
 
 // impl CountQuery {
-//     pub(crate) fn new() -> Self {
+//     pub fn new() -> Self {
 //         Self {}
 //     }
 
-//     pub(crate) fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
+//     pub fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
 //         use diesel::dsl::count;
 //         use diesel::prelude::*;
 
@@ -89,7 +89,7 @@ impl<'a> FindQuery<'a> {
 
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "agent_connection"]
-pub(crate) struct UpsertQuery {
+pub struct UpsertQuery {
     agent_id: Uuid,
     rtc_id: Uuid,
     handle_id: HandleId,
@@ -97,7 +97,7 @@ pub(crate) struct UpsertQuery {
 }
 
 impl UpsertQuery {
-    pub(crate) fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: HandleId) -> Self {
+    pub fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: HandleId) -> Self {
         Self {
             agent_id,
             rtc_id,
@@ -106,7 +106,7 @@ impl UpsertQuery {
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::agent_connection::dsl::*;
         use diesel::prelude::*;
 
@@ -130,16 +130,16 @@ const BULK_DISCONNECT_BY_ROOM_SQL: &str = r#"
 "#;
 
 #[derive(Debug)]
-pub(crate) struct BulkDisconnectByRoomQuery {
+pub struct BulkDisconnectByRoomQuery {
     room_id: Uuid,
 }
 
 impl BulkDisconnectByRoomQuery {
-    pub(crate) fn new(room_id: Uuid) -> Self {
+    pub fn new(room_id: Uuid) -> Self {
         Self { room_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use diesel::prelude::*;
         use diesel::sql_types::Uuid;
 
@@ -152,16 +152,16 @@ impl BulkDisconnectByRoomQuery {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
-pub(crate) struct BulkDisconnectByRtcQuery {
+pub struct BulkDisconnectByRtcQuery {
     rtc_id: Uuid,
 }
 
 impl BulkDisconnectByRtcQuery {
-    pub(crate) fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: Uuid) -> Self {
         Self { rtc_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use diesel::prelude::*;
 
         diesel::delete(agent_connection::table)
@@ -183,16 +183,16 @@ const BULK_DISCONNECT_BY_BACKEND_SQL: &str = r#"
 "#;
 
 #[derive(Debug)]
-pub(crate) struct BulkDisconnectByBackendQuery<'a> {
+pub struct BulkDisconnectByBackendQuery<'a> {
     backend_id: &'a AgentId,
 }
 
 impl<'a> BulkDisconnectByBackendQuery<'a> {
-    pub(crate) fn new(backend_id: &'a AgentId) -> Self {
+    pub fn new(backend_id: &'a AgentId) -> Self {
         Self { backend_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use crate::db::sql::Agent_id;
         use diesel::prelude::*;
 

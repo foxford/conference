@@ -17,10 +17,10 @@ use crate::backend::janus;
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type Result = StdResult<MessageStream, AppError>;
+pub type Result = StdResult<MessageStream, AppError>;
 
 #[async_trait]
-pub(crate) trait RequestHandler {
+pub trait RequestHandler {
     type Payload: Send + DeserializeOwned;
     const ERROR_TITLE: &'static str;
 
@@ -33,7 +33,7 @@ pub(crate) trait RequestHandler {
 
 macro_rules! request_routes {
     ($($m: pat => $h: ty),*) => {
-        pub(crate) async fn route_request<C: Context>(
+        pub async fn route_request<C: Context>(
             context: &mut C,
             request: &IncomingRequest<String>,
             _topic: &str,
@@ -76,14 +76,14 @@ request_routes!(
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) enum CorrelationData {
+pub enum CorrelationData {
     SubscriptionCreate(subscription::CorrelationDataPayload),
     SubscriptionDelete(subscription::CorrelationDataPayload),
     MessageUnicast(message::CorrelationDataPayload),
 }
 
 #[async_trait]
-pub(crate) trait ResponseHandler {
+pub trait ResponseHandler {
     type Payload: Send + DeserializeOwned;
     type CorrelationData: Sync;
 
@@ -98,7 +98,7 @@ pub(crate) trait ResponseHandler {
 macro_rules! response_routes {
     ($($c: tt => $h: ty),*) => {
         #[allow(unused_variables)]
-        pub(crate) async fn route_response<C: Context>(
+        pub async fn route_response<C: Context>(
             context: &mut C,
             response: &IncomingResponse<String>,
             corr_data: &str,
@@ -132,7 +132,7 @@ response_routes!(
 ///////////////////////////////////////////////////////////////////////////////
 
 #[async_trait]
-pub(crate) trait EventHandler {
+pub trait EventHandler {
     type Payload: Send + DeserializeOwned;
 
     async fn handle<C: Context>(
@@ -145,7 +145,7 @@ pub(crate) trait EventHandler {
 macro_rules! event_routes {
     ($($l: pat => $h: ty),*) => {
         #[allow(unused_variables)]
-        pub(crate) async fn route_event<C: Context>(
+        pub async fn route_event<C: Context>(
             context: &mut C,
             event: &IncomingEvent<String>,
             topic: &str,
@@ -174,14 +174,14 @@ event_routes!(
 mod agent;
 mod agent_reader_config;
 mod agent_writer_config;
-pub(crate) mod helpers;
+pub mod helpers;
 mod message;
 mod room;
-pub(crate) mod rtc;
-pub(crate) mod rtc_signal;
-pub(crate) mod rtc_stream;
+pub mod rtc;
+pub mod rtc_signal;
+pub mod rtc_stream;
 mod subscription;
-pub(crate) mod system;
+pub mod system;
 
 pub(self) mod prelude {
     pub(super) use super::{helpers, EventHandler, RequestHandler, ResponseHandler, Result};

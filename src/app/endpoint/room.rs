@@ -40,7 +40,7 @@ impl SubscriptionRequest {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct CreateRequest {
+pub struct CreateRequest {
     #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
     time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
     audience: String,
@@ -54,7 +54,7 @@ pub(crate) struct CreateRequest {
     classroom_id: Option<Uuid>,
 }
 
-pub(crate) struct CreateHandler;
+pub struct CreateHandler;
 
 #[async_trait]
 impl RequestHandler for CreateHandler {
@@ -126,11 +126,11 @@ impl RequestHandler for CreateHandler {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ReadRequest {
+pub struct ReadRequest {
     id: Uuid,
 }
 
-pub(crate) struct ReadHandler;
+pub struct ReadHandler;
 
 #[async_trait]
 impl RequestHandler for ReadHandler {
@@ -175,7 +175,7 @@ impl RequestHandler for ReadHandler {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Default)]
-pub(crate) struct UpdateRequest {
+pub struct UpdateRequest {
     id: Uuid,
     #[serde(default)]
     #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
@@ -184,7 +184,7 @@ pub(crate) struct UpdateRequest {
     tags: Option<JsonValue>,
     classroom_id: Option<Uuid>,
 }
-pub(crate) struct UpdateHandler;
+pub struct UpdateHandler;
 
 #[async_trait]
 impl RequestHandler for UpdateHandler {
@@ -314,8 +314,8 @@ impl RequestHandler for UpdateHandler {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type EnterRequest = ReadRequest;
-pub(crate) struct EnterHandler;
+pub type EnterRequest = ReadRequest;
+pub struct EnterHandler;
 
 #[async_trait]
 impl RequestHandler for EnterHandler {
@@ -389,8 +389,8 @@ impl RequestHandler for EnterHandler {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type LeaveRequest = ReadRequest;
-pub(crate) struct LeaveHandler;
+pub type LeaveRequest = ReadRequest;
+pub struct LeaveHandler;
 
 #[async_trait]
 impl RequestHandler for LeaveHandler {

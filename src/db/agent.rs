@@ -14,7 +14,7 @@ use crate::schema::agent;
 #[serde(rename_all = "lowercase")]
 #[PgType = "agent_status"]
 #[DieselType = "Agent_status"]
-pub(crate) enum Status {
+pub enum Status {
     #[serde(rename = "in_progress")]
     InProgress,
     Ready,
@@ -23,7 +23,7 @@ pub(crate) enum Status {
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
 #[belongs_to(Room, foreign_key = "room_id")]
 #[table_name = "agent"]
-pub(crate) struct Object {
+pub struct Object {
     id: Uuid,
     agent_id: AgentId,
     room_id: Uuid,
@@ -34,14 +34,14 @@ pub(crate) struct Object {
 
 #[cfg(test)]
 impl Object {
-    pub(crate) fn status(&self) -> Status {
+    pub fn status(&self) -> Status {
         self.status
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct ListQuery<'a> {
+pub struct ListQuery<'a> {
     agent_id: Option<&'a AgentId>,
     room_id: Option<Uuid>,
     status: Option<Status>,
@@ -50,7 +50,7 @@ pub(crate) struct ListQuery<'a> {
 }
 
 impl<'a> ListQuery<'a> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             agent_id: None,
             room_id: None,
@@ -60,42 +60,42 @@ impl<'a> ListQuery<'a> {
         }
     }
 
-    pub(crate) fn agent_id(self, agent_id: &'a AgentId) -> Self {
+    pub fn agent_id(self, agent_id: &'a AgentId) -> Self {
         Self {
             agent_id: Some(agent_id),
             ..self
         }
     }
 
-    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
+    pub fn room_id(self, room_id: Uuid) -> Self {
         Self {
             room_id: Some(room_id),
             ..self
         }
     }
 
-    pub(crate) fn status(self, status: Status) -> Self {
+    pub fn status(self, status: Status) -> Self {
         Self {
             status: Some(status),
             ..self
         }
     }
 
-    pub(crate) fn offset(self, offset: i64) -> Self {
+    pub fn offset(self, offset: i64) -> Self {
         Self {
             offset: Some(offset),
             ..self
         }
     }
 
-    pub(crate) fn limit(self, limit: i64) -> Self {
+    pub fn limit(self, limit: i64) -> Self {
         Self {
             limit: Some(limit),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
 
         let mut q = agent::table
@@ -130,7 +130,7 @@ impl<'a> ListQuery<'a> {
 
 #[derive(Debug, Insertable)]
 #[table_name = "agent"]
-pub(crate) struct InsertQuery<'a> {
+pub struct InsertQuery<'a> {
     id: Option<Uuid>,
     agent_id: &'a AgentId,
     room_id: Uuid,
@@ -138,7 +138,7 @@ pub(crate) struct InsertQuery<'a> {
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(agent_id: &'a AgentId, room_id: Uuid) -> Self {
+    pub fn new(agent_id: &'a AgentId, room_id: Uuid) -> Self {
         Self {
             id: None,
             agent_id,
@@ -148,11 +148,11 @@ impl<'a> InsertQuery<'a> {
     }
 
     #[cfg(test)]
-    pub(crate) fn status(self, status: Status) -> Self {
+    pub fn status(self, status: Status) -> Self {
         Self { status, ..self }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::agent::dsl::*;
         use diesel::{ExpressionMethods, RunQueryDsl};
 
@@ -169,14 +169,14 @@ impl<'a> InsertQuery<'a> {
 
 #[derive(Debug, AsChangeset)]
 #[table_name = "agent"]
-pub(crate) struct UpdateQuery<'a> {
+pub struct UpdateQuery<'a> {
     agent_id: &'a AgentId,
     room_id: Uuid,
     status: Option<Status>,
 }
 
 impl<'a> UpdateQuery<'a> {
-    pub(crate) fn new(agent_id: &'a AgentId, room_id: Uuid) -> Self {
+    pub fn new(agent_id: &'a AgentId, room_id: Uuid) -> Self {
         Self {
             agent_id,
             room_id,
@@ -184,14 +184,14 @@ impl<'a> UpdateQuery<'a> {
         }
     }
 
-    pub(crate) fn status(self, status: Status) -> Self {
+    pub fn status(self, status: Status) -> Self {
         Self {
             status: Some(status),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         let query = agent::table
@@ -204,34 +204,34 @@ impl<'a> UpdateQuery<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct DeleteQuery<'a> {
+pub struct DeleteQuery<'a> {
     agent_id: Option<&'a AgentId>,
     room_id: Option<Uuid>,
 }
 
 impl<'a> DeleteQuery<'a> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             agent_id: None,
             room_id: None,
         }
     }
 
-    pub(crate) fn agent_id(self, agent_id: &'a AgentId) -> Self {
+    pub fn agent_id(self, agent_id: &'a AgentId) -> Self {
         Self {
             agent_id: Some(agent_id),
             ..self
         }
     }
 
-    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
+    pub fn room_id(self, room_id: Uuid) -> Self {
         Self {
             room_id: Some(room_id),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use diesel::prelude::*;
 
         let mut query = diesel::delete(agent::table).into_boxed();

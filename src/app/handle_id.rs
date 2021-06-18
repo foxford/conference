@@ -5,7 +5,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 #[derive(Debug)]
-pub(crate) struct HandleId {
+pub struct HandleId {
     rtc_stream_id: Uuid,
     rtc_id: Uuid,
     janus_handle_id: crate::backend::janus::client::HandleId,
@@ -14,29 +14,29 @@ pub(crate) struct HandleId {
 }
 
 impl HandleId {
-    pub(crate) fn rtc_stream_id(&self) -> Uuid {
+    pub fn rtc_stream_id(&self) -> Uuid {
         self.rtc_stream_id
     }
 
-    pub(crate) fn rtc_id(&self) -> Uuid {
+    pub fn rtc_id(&self) -> Uuid {
         self.rtc_id
     }
 
-    pub(crate) fn janus_handle_id(&self) -> crate::backend::janus::client::HandleId {
+    pub fn janus_handle_id(&self) -> crate::backend::janus::client::HandleId {
         self.janus_handle_id
     }
 
-    pub(crate) fn janus_session_id(&self) -> crate::backend::janus::client::SessionId {
+    pub fn janus_session_id(&self) -> crate::backend::janus::client::SessionId {
         self.janus_session_id
     }
 
-    pub(crate) fn backend_id(&self) -> &AgentId {
+    pub fn backend_id(&self) -> &AgentId {
         &self.backend_id
     }
 }
 
 impl HandleId {
-    pub(crate) fn new(
+    pub fn new(
         rtc_stream_id: Uuid,
         rtc_id: Uuid,
         janus_handle_id: crate::backend::janus::client::HandleId,

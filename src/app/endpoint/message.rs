@@ -17,24 +17,24 @@ use crate::app::API_VERSION;
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct CorrelationDataPayload {
+pub struct CorrelationDataPayload {
     reqp: IncomingRequestProperties,
 }
 
 impl CorrelationDataPayload {
-    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
+    pub fn new(reqp: IncomingRequestProperties) -> Self {
         Self { reqp }
     }
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct UnicastRequest {
+pub struct UnicastRequest {
     agent_id: AgentId,
     room_id: Uuid,
     data: JsonValue,
 }
 
-pub(crate) struct UnicastHandler;
+pub struct UnicastHandler;
 
 #[async_trait]
 impl RequestHandler for UnicastHandler {
@@ -94,13 +94,13 @@ impl RequestHandler for UnicastHandler {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct BroadcastRequest {
+pub struct BroadcastRequest {
     room_id: Uuid,
     data: JsonValue,
     label: Option<String>,
 }
 
-pub(crate) struct BroadcastHandler;
+pub struct BroadcastHandler;
 
 #[async_trait]
 impl RequestHandler for BroadcastHandler {
@@ -149,7 +149,7 @@ impl RequestHandler for BroadcastHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct UnicastResponseHandler;
+pub struct UnicastResponseHandler;
 
 #[async_trait]
 impl ResponseHandler for UnicastResponseHandler {

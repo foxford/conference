@@ -29,26 +29,26 @@ use crate::{db::agent_connection, diesel::Connection};
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize)]
-pub(crate) struct ConnectResponseData {
+pub struct ConnectResponseData {
     handle_id: HandleId,
 }
 
 impl ConnectResponseData {
-    pub(crate) fn new(handle_id: HandleId) -> Self {
+    pub fn new(handle_id: HandleId) -> Self {
         Self { handle_id }
     }
 }
 
-pub(crate) type ConnectResponse = OutgoingResponse<ConnectResponseData>;
+pub type ConnectResponse = OutgoingResponse<ConnectResponseData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct CreateRequest {
+pub struct CreateRequest {
     room_id: Uuid,
 }
 
-pub(crate) struct CreateHandler;
+pub struct CreateHandler;
 
 #[async_trait]
 impl RequestHandler for CreateHandler {
@@ -131,11 +131,11 @@ impl RequestHandler for CreateHandler {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ReadRequest {
+pub struct ReadRequest {
     id: Uuid,
 }
 
-pub(crate) struct ReadHandler;
+pub struct ReadHandler;
 
 #[async_trait]
 impl RequestHandler for ReadHandler {
@@ -194,13 +194,13 @@ impl RequestHandler for ReadHandler {
 const MAX_LIMIT: i64 = 25;
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ListRequest {
+pub struct ListRequest {
     room_id: Uuid,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
-pub(crate) struct ListHandler;
+pub struct ListHandler;
 
 #[async_trait]
 impl RequestHandler for ListHandler {
@@ -261,7 +261,7 @@ impl RequestHandler for ListHandler {
 
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum ConnectIntent {
+pub enum ConnectIntent {
     Read,
     Write,
 }
@@ -276,7 +276,7 @@ impl fmt::Display for ConnectIntent {
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ConnectRequest {
+pub struct ConnectRequest {
     id: Uuid,
     #[serde(default = "ConnectRequest::default_intent")]
     intent: ConnectIntent,
@@ -288,7 +288,7 @@ impl ConnectRequest {
     }
 }
 
-pub(crate) struct ConnectHandler;
+pub struct ConnectHandler;
 
 #[async_trait]
 impl RequestHandler for ConnectHandler {

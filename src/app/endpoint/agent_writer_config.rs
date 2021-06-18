@@ -29,7 +29,7 @@ const MAX_STATE_CONFIGS_LEN: usize = 20;
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct State {
+pub struct State {
     room_id: Uuid,
     configs: Vec<StateConfigItem>,
 }
@@ -61,7 +61,7 @@ impl State {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct StateConfigItem {
+pub struct StateConfigItem {
     agent_id: AgentId,
     send_video: Option<bool>,
     send_audio: Option<bool>,
@@ -112,7 +112,7 @@ impl StateConfigItem {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct UpdateHandler;
+pub struct UpdateHandler;
 
 #[async_trait]
 impl RequestHandler for UpdateHandler {
@@ -283,11 +283,11 @@ impl RequestHandler for UpdateHandler {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ReadRequest {
+pub struct ReadRequest {
     room_id: Uuid,
 }
 
-pub(crate) struct ReadHandler;
+pub struct ReadHandler;
 
 #[async_trait]
 impl RequestHandler for ReadHandler {

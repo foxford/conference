@@ -13,17 +13,16 @@ use crate::schema::{recording, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
+pub type AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
 
-pub(crate) const ALL_COLUMNS: AllColumns =
-    (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
+pub const ALL_COLUMNS: AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 #[DieselType = "Rtc_sharing_policy"]
-pub(crate) enum SharingPolicy {
+pub enum SharingPolicy {
     None,
     Shared,
     Owned,
@@ -43,7 +42,7 @@ impl fmt::Display for SharingPolicy {
 )]
 #[belongs_to(Room, foreign_key = "room_id")]
 #[table_name = "rtc"]
-pub(crate) struct Object {
+pub struct Object {
     id: Uuid,
     room_id: Uuid,
     #[serde(with = "ts_seconds")]
@@ -52,36 +51,36 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub(crate) fn id(&self) -> Uuid {
+    pub fn id(&self) -> Uuid {
         self.id
     }
 
-    pub(crate) fn room_id(&self) -> Uuid {
+    pub fn room_id(&self) -> Uuid {
         self.room_id
     }
 
-    pub(crate) fn created_by(&self) -> &AgentId {
+    pub fn created_by(&self) -> &AgentId {
         &self.created_by
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct FindQuery {
+pub struct FindQuery {
     id: Option<Uuid>,
 }
 
 impl FindQuery {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self { id: None }
     }
 
-    pub(crate) fn id(mut self, id: Uuid) -> Self {
+    pub fn id(mut self, id: Uuid) -> Self {
         self.id = Some(id);
         self
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         match self.id {
@@ -96,7 +95,7 @@ impl FindQuery {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Default)]
-pub(crate) struct ListQuery<'a> {
+pub struct ListQuery<'a> {
     room_id: Option<Uuid>,
     created_by: Option<&'a [&'a AgentId]>,
     offset: Option<i64>,
@@ -104,39 +103,39 @@ pub(crate) struct ListQuery<'a> {
 }
 
 impl<'a> ListQuery<'a> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Default::default()
     }
 
-    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
+    pub fn room_id(self, room_id: Uuid) -> Self {
         Self {
             room_id: Some(room_id),
             ..self
         }
     }
 
-    pub(crate) fn created_by(self, created_by: &'a [&'a AgentId]) -> Self {
+    pub fn created_by(self, created_by: &'a [&'a AgentId]) -> Self {
         Self {
             created_by: Some(created_by),
             ..self
         }
     }
 
-    pub(crate) fn offset(self, offset: i64) -> Self {
+    pub fn offset(self, offset: i64) -> Self {
         Self {
             offset: Some(offset),
             ..self
         }
     }
 
-    pub(crate) fn limit(self, limit: i64) -> Self {
+    pub fn limit(self, limit: i64) -> Self {
         Self {
             limit: Some(limit),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
 
         let mut q = rtc::table.into_boxed();
@@ -164,19 +163,16 @@ impl<'a> ListQuery<'a> {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Default)]
-pub(crate) struct ListWithRecordingQuery {
+pub struct ListWithRecordingQuery {
     room_id: Uuid,
 }
 
 impl ListWithRecordingQuery {
-    pub(crate) fn new(room_id: Uuid) -> Self {
+    pub fn new(room_id: Uuid) -> Self {
         Self { room_id }
     }
 
-    pub(crate) fn execute(
-        &self,
-        conn: &PgConnection,
-    ) -> Result<Vec<(Object, Option<Recording>)>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Option<Recording>)>, Error> {
         use diesel::prelude::*;
 
         rtc::table
@@ -190,14 +186,14 @@ impl ListWithRecordingQuery {
 
 #[derive(Debug, Insertable)]
 #[table_name = "rtc"]
-pub(crate) struct InsertQuery<'a> {
+pub struct InsertQuery<'a> {
     id: Option<Uuid>,
     room_id: Uuid,
     created_by: &'a AgentId,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(room_id: Uuid, created_by: &'a AgentId) -> Self {
+    pub fn new(room_id: Uuid, created_by: &'a AgentId) -> Self {
         Self {
             id: None,
             room_id,
@@ -205,7 +201,7 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::rtc::dsl::rtc;
         use diesel::RunQueryDsl;
 

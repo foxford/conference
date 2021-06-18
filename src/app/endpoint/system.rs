@@ -31,7 +31,7 @@ use crate::{
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize)]
-pub(crate) struct RoomUploadEventData {
+pub struct RoomUploadEventData {
     id: Uuid,
     rtcs: Vec<RtcUploadEventData>,
 }
@@ -56,7 +56,7 @@ struct RtcUploadEventData {
     mjr_dumps_uris: Option<Vec<String>>,
 }
 
-pub(crate) type RoomUploadEvent = OutgoingMessage<RoomUploadEventData>;
+pub type RoomUploadEvent = OutgoingMessage<RoomUploadEventData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -66,9 +66,9 @@ struct ClosedRoomNotification {
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct VacuumRequest {}
+pub struct VacuumRequest {}
 
-pub(crate) struct VacuumHandler;
+pub struct VacuumHandler;
 
 #[async_trait]
 impl RequestHandler for VacuumHandler {
@@ -138,7 +138,7 @@ impl RequestHandler for VacuumHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn upload_event<C: Context, I>(
+pub fn upload_event<C: Context, I>(
     context: &C,
     room: &db::room::Object,
     recordings: I,

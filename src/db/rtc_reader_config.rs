@@ -27,7 +27,7 @@ const ALL_COLUMNS: AllColumns = (
 #[belongs_to(Rtc, foreign_key = "rtc_id")]
 #[table_name = "rtc_reader_config"]
 #[primary_key(rtc_id, reader_id)]
-pub(crate) struct Object {
+pub struct Object {
     rtc_id: Uuid,
     reader_id: AgentId,
     receive_video: bool,
@@ -35,15 +35,15 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub(crate) fn reader_id(&self) -> &AgentId {
+    pub fn reader_id(&self) -> &AgentId {
         &self.reader_id
     }
 
-    pub(crate) fn receive_video(&self) -> bool {
+    pub fn receive_video(&self) -> bool {
         self.receive_video
     }
 
-    pub(crate) fn receive_audio(&self) -> bool {
+    pub fn receive_audio(&self) -> bool {
         self.receive_audio
     }
 }
@@ -51,17 +51,17 @@ impl Object {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
-pub(crate) struct ListWithRtcQuery<'a> {
+pub struct ListWithRtcQuery<'a> {
     room_id: Uuid,
     reader_id: &'a AgentId,
 }
 
 impl<'a> ListWithRtcQuery<'a> {
-    pub(crate) fn new(room_id: Uuid, reader_id: &'a AgentId) -> Self {
+    pub fn new(room_id: Uuid, reader_id: &'a AgentId) -> Self {
         Self { room_id, reader_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Rtc)>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Rtc)>, Error> {
         use diesel::prelude::*;
 
         rtc_reader_config::table
@@ -77,7 +77,7 @@ impl<'a> ListWithRtcQuery<'a> {
 
 #[derive(Clone, Debug, Insertable, AsChangeset)]
 #[table_name = "rtc_reader_config"]
-pub(crate) struct UpsertQuery<'a> {
+pub struct UpsertQuery<'a> {
     rtc_id: Uuid,
     reader_id: &'a AgentId,
     receive_video: Option<bool>,
@@ -85,7 +85,7 @@ pub(crate) struct UpsertQuery<'a> {
 }
 
 impl<'a> UpsertQuery<'a> {
-    pub(crate) fn new(rtc_id: Uuid, reader_id: &'a AgentId) -> Self {
+    pub fn new(rtc_id: Uuid, reader_id: &'a AgentId) -> Self {
         Self {
             rtc_id,
             reader_id,
@@ -94,21 +94,21 @@ impl<'a> UpsertQuery<'a> {
         }
     }
 
-    pub(crate) fn receive_video(self, receive_video: bool) -> Self {
+    pub fn receive_video(self, receive_video: bool) -> Self {
         Self {
             receive_video: Some(receive_video),
             ..self
         }
     }
 
-    pub(crate) fn receive_audio(self, receive_audio: bool) -> Self {
+    pub fn receive_audio(self, receive_audio: bool) -> Self {
         Self {
             receive_audio: Some(receive_audio),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use diesel::prelude::*;
 
         let mut insert_values = self.clone();

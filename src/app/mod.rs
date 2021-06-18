@@ -26,11 +26,11 @@ use crate::{
 use context::{AppContext, GlobalContext, JanusTopics};
 use message_handler::MessageHandler;
 
-pub(crate) const API_VERSION: &str = "v1";
+pub const API_VERSION: &str = "v1";
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) async fn run(
+pub async fn run(
     db: &ConnectionPool,
     redis_pool: Option<RedisConnectionPool>,
     authz_cache: Option<AuthzCache>,
@@ -226,8 +226,8 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
     }
 }
 
-pub(crate) mod context;
-pub(crate) mod endpoint;
-pub(crate) mod error;
-pub(crate) mod handle_id;
-pub(crate) mod message_handler;
+pub mod context;
+pub mod endpoint;
+pub mod error;
+pub mod handle_id;
+pub mod message_handler;

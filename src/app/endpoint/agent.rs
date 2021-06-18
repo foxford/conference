@@ -13,13 +13,13 @@ use crate::db;
 const MAX_LIMIT: i64 = 25;
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ListRequest {
+pub struct ListRequest {
     room_id: Uuid,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
-pub(crate) struct ListHandler;
+pub struct ListHandler;
 
 #[async_trait]
 impl RequestHandler for ListHandler {

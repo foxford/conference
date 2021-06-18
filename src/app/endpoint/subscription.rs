@@ -23,18 +23,14 @@ use crate::{
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CorrelationDataPayload {
+pub struct CorrelationDataPayload {
     reqp: IncomingRequestProperties,
     subject: AgentId,
     object: Vec<String>,
 }
 
 impl CorrelationDataPayload {
-    pub(crate) fn new(
-        reqp: IncomingRequestProperties,
-        subject: AgentId,
-        object: Vec<String>,
-    ) -> Self {
+    pub fn new(reqp: IncomingRequestProperties, subject: AgentId, object: Vec<String>) -> Self {
         Self {
             reqp,
             subject,
@@ -44,13 +40,13 @@ impl CorrelationDataPayload {
 }
 
 #[derive(Deserialize, Serialize)]
-pub(crate) struct RoomEnterLeaveEvent {
+pub struct RoomEnterLeaveEvent {
     id: Uuid,
     agent_id: AgentId,
 }
 
 impl RoomEnterLeaveEvent {
-    pub(crate) fn new(id: Uuid, agent_id: AgentId) -> Self {
+    pub fn new(id: Uuid, agent_id: AgentId) -> Self {
         Self { id, agent_id }
     }
 }
@@ -58,9 +54,9 @@ impl RoomEnterLeaveEvent {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct CreateDeleteResponsePayload {}
+pub struct CreateDeleteResponsePayload {}
 
-pub(crate) struct CreateResponseHandler;
+pub struct CreateResponseHandler;
 
 #[async_trait]
 impl ResponseHandler for CreateResponseHandler {
@@ -123,7 +119,7 @@ impl ResponseHandler for CreateResponseHandler {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct DeleteResponseHandler;
+pub struct DeleteResponseHandler;
 
 #[async_trait]
 impl ResponseHandler for DeleteResponseHandler {
@@ -164,12 +160,12 @@ impl ResponseHandler for DeleteResponseHandler {
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct DeleteEventPayload {
+pub struct DeleteEventPayload {
     subject: AgentId,
     object: Vec<String>,
 }
 
-pub(crate) struct DeleteEventHandler;
+pub struct DeleteEventHandler;
 
 #[async_trait]
 impl EventHandler for DeleteEventHandler {

@@ -31,29 +31,29 @@ use crate::{backend::janus::client::read_stream::ReadStreamTransaction, db};
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize)]
-pub(crate) struct CreateResponseData {
+pub struct CreateResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
     jsep: Option<JsonValue>,
 }
 
 impl CreateResponseData {
-    pub(crate) fn new(jsep: Option<JsonValue>) -> Self {
+    pub fn new(jsep: Option<JsonValue>) -> Self {
         Self { jsep }
     }
 }
 
-pub(crate) type CreateResponse = OutgoingResponse<CreateResponseData>;
+pub type CreateResponse = OutgoingResponse<CreateResponseData>;
 
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct CreateRequest {
+pub struct CreateRequest {
     handle_id: HandleId,
     jsep: Jsep,
     label: Option<String>,
 }
 
-pub(crate) struct CreateHandler;
+pub struct CreateHandler;
 
 #[async_trait]
 impl RequestHandler for CreateHandler {

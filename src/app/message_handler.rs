@@ -26,35 +26,31 @@ use crate::{
     backend::janus::handle_event,
 };
 
-pub(crate) type MessageStream =
+pub type MessageStream =
     Box<dyn Stream<Item = Box<dyn IntoPublishableMessage + Send>> + Send + Unpin>;
 
-pub(crate) struct MessageHandler<C: GlobalContext> {
+pub struct MessageHandler<C: GlobalContext> {
     agent: Agent,
     global_context: C,
 }
 
 impl<C: GlobalContext + Sync> MessageHandler<C> {
-    pub(crate) fn new(agent: Agent, global_context: C) -> Self {
+    pub fn new(agent: Agent, global_context: C) -> Self {
         Self {
             agent,
             global_context,
         }
     }
 
-    pub(crate) fn agent(&self) -> &Agent {
+    pub fn agent(&self) -> &Agent {
         &self.agent
     }
 
-    pub(crate) fn global_context(&self) -> &C {
+    pub fn global_context(&self) -> &C {
         &self.global_context
     }
 
-    pub(crate) async fn handle(
-        &self,
-        message: &Result<IncomingMessage<String>, String>,
-        topic: &str,
-    ) {
+    pub async fn handle(&self, message: &Result<IncomingMessage<String>, String>, topic: &str) {
         let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
 
         match message {
@@ -69,7 +65,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         }
     }
 
-    pub(crate) async fn handle_events(&self, message: janus::client::IncomingEvent) {
+    pub async fn handle_events(&self, message: janus::client::IncomingEvent) {
         let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
 
         let messages = handle_event(&mut msg_context, message).await;
@@ -230,7 +226,7 @@ fn error_response(
     Box::new(stream::once(boxed_resp))
 }
 
-pub(crate) fn publish_message(
+pub fn publish_message(
     agent: &mut Agent,
     message: Box<dyn IntoPublishableMessage>,
 ) -> Result<(), AppError> {
@@ -247,7 +243,7 @@ pub(crate) fn publish_message(
 // So we don't implement these generic things in each handler.
 // We just need to specify the payload type and specific logic.
 
-pub(crate) trait RequestEnvelopeHandler<'async_trait> {
+pub trait RequestEnvelopeHandler<'async_trait> {
     fn handle_envelope<C: Context>(
         context: &'async_trait mut C,
         req: &'async_trait IncomingRequest<String>,
@@ -322,7 +318,7 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
     }
 }
 
-pub(crate) trait ResponseEnvelopeHandler<'async_trait, CD> {
+pub trait ResponseEnvelopeHandler<'async_trait, CD> {
     fn handle_envelope<C: Context>(
         context: &'async_trait mut C,
         envelope: &'async_trait IncomingResponse<String>,
@@ -383,7 +379,7 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
     }
 }
 
-pub(crate) trait EventEnvelopeHandler<'async_trait> {
+pub trait EventEnvelopeHandler<'async_trait> {
     fn handle_envelope<C: Context>(
         context: &'async_trait mut C,
         event: &'async_trait IncomingEvent<String>,

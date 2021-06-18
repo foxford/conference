@@ -17,7 +17,7 @@ pub struct UpdateWriterConfigRequestBody {
 }
 
 impl UpdateWriterConfigRequestBody {
-    pub(crate) fn new(configs: Vec<UpdateWriterConfigRequestBodyConfigItem>) -> Self {
+    pub fn new(configs: Vec<UpdateWriterConfigRequestBodyConfigItem>) -> Self {
         Self {
             method: "writer_config.update",
             configs,
@@ -26,7 +26,7 @@ impl UpdateWriterConfigRequestBody {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct UpdateWriterConfigRequestBodyConfigItem {
+pub struct UpdateWriterConfigRequestBodyConfigItem {
     pub stream_id: Uuid,
     pub send_video: bool,
     pub send_audio: bool,

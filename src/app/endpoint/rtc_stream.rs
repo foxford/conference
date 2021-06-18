@@ -19,7 +19,7 @@ use crate::db;
 const MAX_LIMIT: i64 = 25;
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ListRequest {
+pub struct ListRequest {
     room_id: Uuid,
     rtc_id: Option<Uuid>,
     #[serde(default)]
@@ -29,7 +29,7 @@ pub(crate) struct ListRequest {
     limit: Option<i64>,
 }
 
-pub(crate) struct ListHandler;
+pub struct ListHandler;
 
 #[async_trait]
 impl RequestHandler for ListHandler {
@@ -106,9 +106,9 @@ impl RequestHandler for ListHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type ObjectUpdateEvent = OutgoingMessage<db::janus_rtc_stream::Object>;
+pub type ObjectUpdateEvent = OutgoingMessage<db::janus_rtc_stream::Object>;
 
-pub(crate) fn update_event(
+pub fn update_event(
     room_id: Uuid,
     object: db::janus_rtc_stream::Object,
     start_timestamp: DateTime<Utc>,

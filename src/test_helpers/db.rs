@@ -5,12 +5,12 @@ use std::env::var;
 const TIMEOUT: u64 = 10;
 
 #[derive(Clone)]
-pub(crate) struct TestDb {
+pub struct TestDb {
     connection_pool: ConnectionPool,
 }
 
 impl TestDb {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let url = var("DATABASE_URL").expect("DATABASE_URL must be specified");
         let connection_pool = create_pool(&url, 1, None, TIMEOUT);
 
@@ -24,7 +24,7 @@ impl TestDb {
         Self { connection_pool }
     }
 
-    pub(crate) fn connection_pool(&self) -> &ConnectionPool {
+    pub fn connection_pool(&self) -> &ConnectionPool {
         &self.connection_pool
     }
 }

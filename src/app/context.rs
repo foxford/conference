@@ -17,9 +17,9 @@ use crate::{
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) trait Context: GlobalContext + MessageContext {}
+pub trait Context: GlobalContext + MessageContext {}
 
-pub(crate) trait GlobalContext: Sync {
+pub trait GlobalContext: Sync {
     fn authz(&self) -> &Authz;
     fn config(&self) -> &Config;
     fn db(&self) -> &Db;
@@ -37,7 +37,7 @@ pub(crate) trait GlobalContext: Sync {
     }
 }
 
-pub(crate) trait MessageContext: Send {
+pub trait MessageContext: Send {
     fn start_timestamp(&self) -> DateTime<Utc>;
     fn logger(&self) -> &Logger;
 
@@ -49,7 +49,7 @@ pub(crate) trait MessageContext: Send {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Clone)]
-pub(crate) struct AppContext {
+pub struct AppContext {
     config: Arc<Config>,
     authz: Authz,
     db: Db,
@@ -61,7 +61,7 @@ pub(crate) struct AppContext {
 }
 
 impl AppContext {
-    pub(crate) fn new(
+    pub fn new(
         config: Config,
         authz: Authz,
         db: Db,
@@ -82,14 +82,14 @@ impl AppContext {
         }
     }
 
-    pub(crate) fn add_queue_counter(self, qc: QueueCounterHandle) -> Self {
+    pub fn add_queue_counter(self, qc: QueueCounterHandle) -> Self {
         Self {
             queue_counter: Some(qc),
             ..self
         }
     }
 
-    pub(crate) fn add_redis_pool(self, pool: RedisConnectionPool) -> Self {
+    pub fn add_redis_pool(self, pool: RedisConnectionPool) -> Self {
         Self {
             redis_pool: Some(pool),
             ..self
@@ -133,14 +133,14 @@ impl GlobalContext for AppContext {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct AppMessageContext<'a, C: GlobalContext> {
+pub struct AppMessageContext<'a, C: GlobalContext> {
     global_context: &'a C,
     start_timestamp: DateTime<Utc>,
     logger: Logger,
 }
 
 impl<'a, C: GlobalContext> AppMessageContext<'a, C> {
-    pub(crate) fn new(global_context: &'a C, start_timestamp: DateTime<Utc>) -> Self {
+    pub fn new(global_context: &'a C, start_timestamp: DateTime<Utc>) -> Self {
         Self {
             global_context,
             start_timestamp,
@@ -205,18 +205,18 @@ impl<'a, C: GlobalContext> Context for AppMessageContext<'a, C> {}
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Clone, Debug)]
-pub(crate) struct JanusTopics {
+pub struct JanusTopics {
     status_events_topic: String,
 }
 
 impl JanusTopics {
-    pub(crate) fn new(status_events_topic: &str) -> Self {
+    pub fn new(status_events_topic: &str) -> Self {
         Self {
             status_events_topic: status_events_topic.to_owned(),
         }
     }
 
-    pub(crate) fn status_events_topic(&self) -> &str {
+    pub fn status_events_topic(&self) -> &str {
         &self.status_events_topic
     }
 }

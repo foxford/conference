@@ -29,11 +29,11 @@ use self::client::{transactions::Transaction, IncomingEvent};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) const JANUS_API_VERSION: &str = "v1";
+pub const JANUS_API_VERSION: &str = "v1";
 
 const ALREADY_RUNNING_STATE: &str = "already_running";
 
-pub(crate) trait OpaqueId {
+pub trait OpaqueId {
     fn opaque_id(&self) -> &str;
 }
 
@@ -63,10 +63,7 @@ fn handle_response_error<C: Context>(
     Box::new(stream::once(boxed_resp))
 }
 
-pub(crate) async fn handle_event<C: Context>(
-    context: &mut C,
-    event: IncomingEvent,
-) -> MessageStream {
+pub async fn handle_event<C: Context>(context: &mut C, event: IncomingEvent) -> MessageStream {
     handle_event_impl(context, event)
         .await
         .unwrap_or_else(|app_error| {
@@ -425,7 +422,7 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
     Ok(Box::new(stream::empty()))
 }
 
-pub(crate) async fn handle_status_event<C: Context>(
+pub async fn handle_status_event<C: Context>(
     context: &mut C,
     event: &MQTTIncomingEvent<String>,
 ) -> MessageStream {

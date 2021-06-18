@@ -12,7 +12,7 @@ use crate::{backend::janus::client::HandleId, db::rtc::Object as Rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
+pub type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -41,7 +41,7 @@ const ALL_COLUMNS: AllColumns = (
 
 #[derive(Debug, Deserialize, Serialize, Identifiable, Queryable, QueryableByName, Associations)]
 #[table_name = "janus_rtc_stream"]
-pub(crate) struct Object {
+pub struct Object {
     id: Uuid,
     handle_id: HandleId,
     rtc_id: Uuid,
@@ -56,42 +56,42 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub(crate) fn id(&self) -> Uuid {
+    pub fn id(&self) -> Uuid {
         self.id
     }
 
     #[cfg(test)]
-    pub(crate) fn handle_id(&self) -> HandleId {
+    pub fn handle_id(&self) -> HandleId {
         self.handle_id
     }
 
-    pub(crate) fn rtc_id(&self) -> Uuid {
+    pub fn rtc_id(&self) -> Uuid {
         self.rtc_id
     }
 
-    pub(crate) fn backend_id(&self) -> &AgentId {
+    pub fn backend_id(&self) -> &AgentId {
         &self.backend_id
     }
 
     #[cfg(test)]
-    pub(crate) fn label(&self) -> &str {
+    pub fn label(&self) -> &str {
         self.label.as_ref()
     }
 
-    pub(crate) fn sent_by(&self) -> &AgentId {
+    pub fn sent_by(&self) -> &AgentId {
         &self.sent_by
     }
 
-    pub(crate) fn time(&self) -> Option<Time> {
+    pub fn time(&self) -> Option<Time> {
         self.time
     }
 
     #[cfg(test)]
-    pub(crate) fn created_at(&self) -> DateTime<Utc> {
+    pub fn created_at(&self) -> DateTime<Utc> {
         self.created_at
     }
 
-    pub(crate) fn set_time(&mut self, time: Option<Time>) -> &mut Self {
+    pub fn set_time(&mut self, time: Option<Time>) -> &mut Self {
         self.time = time;
         self
     }
@@ -105,7 +105,7 @@ const ACTIVE_SQL: &str = r#"(
 )"#;
 
 #[derive(Debug, Default)]
-pub(crate) struct ListQuery {
+pub struct ListQuery {
     room_id: Option<Uuid>,
     rtc_id: Option<Uuid>,
     time: Option<Time>,
@@ -115,53 +115,53 @@ pub(crate) struct ListQuery {
 }
 
 impl ListQuery {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
-    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
+    pub fn room_id(self, room_id: Uuid) -> Self {
         Self {
             room_id: Some(room_id),
             ..self
         }
     }
 
-    pub(crate) fn rtc_id(self, rtc_id: Uuid) -> Self {
+    pub fn rtc_id(self, rtc_id: Uuid) -> Self {
         Self {
             rtc_id: Some(rtc_id),
             ..self
         }
     }
 
-    pub(crate) fn time(self, time: Time) -> Self {
+    pub fn time(self, time: Time) -> Self {
         Self {
             time: Some(time),
             ..self
         }
     }
 
-    pub(crate) fn active(self, active: bool) -> Self {
+    pub fn active(self, active: bool) -> Self {
         Self {
             active: Some(active),
             ..self
         }
     }
 
-    pub(crate) fn offset(self, offset: i64) -> Self {
+    pub fn offset(self, offset: i64) -> Self {
         Self {
             offset: Some(offset),
             ..self
         }
     }
 
-    pub(crate) fn limit(self, limit: i64) -> Self {
+    pub fn limit(self, limit: i64) -> Self {
         Self {
             limit: Some(limit),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
         use diesel::{dsl::sql, sql_types::Tstzrange};
 
@@ -201,31 +201,31 @@ impl ListQuery {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Default)]
-pub(crate) struct ListWithRtcQuery<'a> {
+pub struct ListWithRtcQuery<'a> {
     active: Option<bool>,
     backend_id: Option<&'a AgentId>,
 }
 
 impl<'a> ListWithRtcQuery<'a> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
-    pub(crate) fn active(self, active: bool) -> Self {
+    pub fn active(self, active: bool) -> Self {
         Self {
             active: Some(active),
             ..self
         }
     }
 
-    pub(crate) fn backend_id(self, backend_id: &'a AgentId) -> Self {
+    pub fn backend_id(self, backend_id: &'a AgentId) -> Self {
         Self {
             backend_id: Some(backend_id),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Rtc)>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Rtc)>, Error> {
         use diesel::dsl::sql;
         use diesel::prelude::*;
 
@@ -247,7 +247,7 @@ impl<'a> ListWithRtcQuery<'a> {
 
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "janus_rtc_stream"]
-pub(crate) struct InsertQuery<'a> {
+pub struct InsertQuery<'a> {
     id: Uuid,
     handle_id: HandleId,
     rtc_id: Uuid,
@@ -257,7 +257,7 @@ pub(crate) struct InsertQuery<'a> {
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(
+    pub fn new(
         id: Uuid,
         handle_id: HandleId,
         rtc_id: Uuid,
@@ -275,7 +275,7 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::janus_rtc_stream::dsl::janus_rtc_stream;
         use diesel::RunQueryDsl;
 
@@ -289,7 +289,7 @@ impl<'a> InsertQuery<'a> {
 
 const START_TIME_SQL: &str = "(TSTZRANGE(NOW(), NULL, '[)'))";
 
-pub(crate) fn start(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
+pub fn start(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
     use diesel::dsl::sql;
     use diesel::prelude::*;
 
@@ -314,7 +314,7 @@ const STOP_TIME_SQL: &str = r#"
     )
 "#;
 
-pub(crate) fn stop(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
+pub fn stop(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
     use diesel::dsl::sql;
     use diesel::prelude::*;
 

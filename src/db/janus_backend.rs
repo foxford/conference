@@ -10,7 +10,7 @@ use crate::backend::janus::{
 };
 use crate::schema::janus_backend;
 
-pub(crate) type AllColumns = (
+pub type AllColumns = (
     janus_backend::id,
     janus_backend::handle_id,
     janus_backend::session_id,
@@ -22,7 +22,7 @@ pub(crate) type AllColumns = (
     janus_backend::janus_url,
 );
 
-pub(crate) const ALL_COLUMNS: AllColumns = (
+pub const ALL_COLUMNS: AllColumns = (
     janus_backend::id,
     janus_backend::handle_id,
     janus_backend::session_id,
@@ -51,15 +51,15 @@ pub struct Object {
 }
 
 impl Object {
-    pub(crate) fn id(&self) -> &AgentId {
+    pub fn id(&self) -> &AgentId {
         &self.id
     }
 
-    pub(crate) fn handle_id(&self) -> HandleId {
+    pub fn handle_id(&self) -> HandleId {
         self.handle_id
     }
 
-    pub(crate) fn session_id(&self) -> SessionId {
+    pub fn session_id(&self) -> SessionId {
         self.session_id
     }
 
@@ -70,14 +70,14 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct ListQuery<'a> {
+pub struct ListQuery<'a> {
     ids: Option<&'a [&'a AgentId]>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
 impl<'a> ListQuery<'a> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             ids: None,
             offset: None,
@@ -85,14 +85,14 @@ impl<'a> ListQuery<'a> {
         }
     }
 
-    pub(crate) fn ids(self, ids: &'a [&'a AgentId]) -> Self {
+    pub fn ids(self, ids: &'a [&'a AgentId]) -> Self {
         Self {
             ids: Some(ids),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
 
         let mut q = janus_backend::table.into_boxed();
@@ -111,20 +111,20 @@ impl<'a> ListQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct FindQuery<'a> {
+pub struct FindQuery<'a> {
     id: Option<&'a AgentId>,
 }
 
 impl<'a> FindQuery<'a> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self { id: None }
     }
 
-    pub(crate) fn id(self, id: &'a AgentId) -> Self {
+    pub fn id(self, id: &'a AgentId) -> Self {
         Self { id: Some(id) }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         match self.id {
@@ -140,7 +140,7 @@ impl<'a> FindQuery<'a> {
 
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "janus_backend"]
-pub(crate) struct UpsertQuery<'a> {
+pub struct UpsertQuery<'a> {
     id: &'a AgentId,
     handle_id: HandleId,
     session_id: SessionId,
@@ -152,7 +152,7 @@ pub(crate) struct UpsertQuery<'a> {
 }
 
 impl<'a> UpsertQuery<'a> {
-    pub(crate) fn new(
+    pub fn new(
         id: &'a AgentId,
         handle_id: HandleId,
         session_id: SessionId,
@@ -170,28 +170,28 @@ impl<'a> UpsertQuery<'a> {
         }
     }
 
-    pub(crate) fn capacity(self, capacity: i32) -> Self {
+    pub fn capacity(self, capacity: i32) -> Self {
         Self {
             capacity: Some(capacity),
             ..self
         }
     }
 
-    pub(crate) fn balancer_capacity(self, balancer_capacity: i32) -> Self {
+    pub fn balancer_capacity(self, balancer_capacity: i32) -> Self {
         Self {
             balancer_capacity: Some(balancer_capacity),
             ..self
         }
     }
 
-    pub(crate) fn group(self, group: &'a str) -> Self {
+    pub fn group(self, group: &'a str) -> Self {
         Self {
             group: Some(group),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::janus_backend::dsl::janus_backend;
         use diesel::RunQueryDsl;
 
@@ -206,16 +206,16 @@ impl<'a> UpsertQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct DeleteQuery<'a> {
+pub struct DeleteQuery<'a> {
     id: &'a AgentId,
 }
 
 impl<'a> DeleteQuery<'a> {
-    pub(crate) fn new(id: &'a AgentId) -> Self {
+    pub fn new(id: &'a AgentId) -> Self {
         Self { id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use diesel::prelude::*;
 
         diesel::delete(janus_backend::table.filter(janus_backend::id.eq(self.id))).execute(conn)
@@ -283,7 +283,7 @@ const MOST_LOADED_SQL: &str = r#"
     LIMIT 1
 "#;
 
-pub(crate) fn most_loaded(
+pub fn most_loaded(
     room_id: Uuid,
     group: Option<&str>,
     conn: &PgConnection,
@@ -352,7 +352,7 @@ const LEAST_LOADED_SQL: &str = r#"
     LIMIT 1
 "#;
 
-pub(crate) fn least_loaded(
+pub fn least_loaded(
     room_id: Uuid,
     group: Option<&str>,
     conn: &PgConnection,
@@ -451,7 +451,7 @@ struct FreeCapacityQueryRow {
     free_capacity: i32,
 }
 
-pub(crate) fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Error> {
+pub fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Error> {
     use diesel::prelude::*;
     use diesel::sql_types::Uuid;
 
@@ -463,7 +463,7 @@ pub(crate) fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Er
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// pub(crate) fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
+// pub fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
 //     use diesel::dsl::sum;
 //     use diesel::prelude::*;
 
@@ -473,7 +473,7 @@ pub(crate) fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Er
 //         .map(|v| v.unwrap_or(0))
 // }
 
-// pub(crate) fn count(conn: &PgConnection) -> Result<i64, Error> {
+// pub fn count(conn: &PgConnection) -> Result<i64, Error> {
 //     use diesel::dsl::count;
 //     use diesel::prelude::*;
 
@@ -483,7 +483,7 @@ pub(crate) fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Er
 // }
 
 #[derive(QueryableByName, Debug)]
-pub(crate) struct ReserveLoadQueryLoad {
+pub struct ReserveLoadQueryLoad {
     #[sql_type = "svc_agent::sql::Agent_id"]
     pub backend_id: AgentId,
     #[sql_type = "diesel::sql_types::BigInt"]
@@ -492,7 +492,7 @@ pub(crate) struct ReserveLoadQueryLoad {
     pub taken: i64,
 }
 
-pub(crate) fn reserve_load_for_each_backend(
+pub fn reserve_load_for_each_backend(
     conn: &PgConnection,
 ) -> Result<Vec<ReserveLoadQueryLoad>, Error> {
     use diesel::prelude::*;
