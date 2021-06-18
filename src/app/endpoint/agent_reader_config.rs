@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use anyhow::Context as AnyhowContext;
 use async_std::stream;
 use async_trait::async_trait;
 use serde_derive::{Deserialize, Serialize};
@@ -190,9 +191,12 @@ impl RequestHandler for UpdateHandler {
                 body: UpdateReaderConfigRequestBody::new(items),
             };
             context
-                .janus_http_client()
+                .janus_clients()
+                .get_or_insert(&backend)
+                .error(AppErrorKind::BackendClientCreationFailed)?
                 .reader_update(request)
                 .await
+                .context("Reader update")
                 .error(AppErrorKind::BackendRequestFailed)?
         }
         let response = helpers::build_response(

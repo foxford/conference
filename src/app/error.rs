@@ -22,6 +22,7 @@ pub(crate) enum ErrorKind {
     AuthorizationFailed,
     BackendRecordingMissing,
     BackendRequestFailed,
+    BackendClientCreationFailed,
     _BackendRequestTimedOut,
     BackendNotFound,
     BrokerRequestFailed,
@@ -115,6 +116,12 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 status: ResponseStatus::FAILED_DEPENDENCY,
                 kind: "backend_request_failed",
                 title: "Janus request failed",
+                is_notify_sentry: true,
+            },
+            Self::BackendClientCreationFailed => ErrorKindProperties {
+                status: ResponseStatus::FAILED_DEPENDENCY,
+                kind: "backend_client_creation_failed",
+                title: "Janus create client failed",
                 is_notify_sentry: true,
             },
             Self::_BackendRequestTimedOut => ErrorKindProperties {

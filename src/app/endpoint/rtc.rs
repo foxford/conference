@@ -1,6 +1,7 @@
 use std::fmt;
 use std::ops::Bound;
 
+use anyhow::Context as AnyhowContext;
 use async_std::stream;
 use async_trait::async_trait;
 use chrono::Duration;
@@ -24,7 +25,7 @@ use crate::{
 use crate::{app::endpoint::prelude::*, db::agent};
 use crate::{app::handle_id::HandleId, backend::janus::JANUS_API_VERSION};
 use crate::{db::agent_connection, diesel::Connection};
-use anyhow::Context as AnyhowContext;
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize)]
@@ -448,7 +449,9 @@ impl RequestHandler for ConnectHandler {
         let rtc_stream_id = Uuid::new_v4();
 
         let handle = context
-            .janus_http_client()
+            .janus_clients()
+            .get_or_insert(&backend)
+            .error(AppErrorKind::BackendClientCreationFailed)?
             .create_handle(CreateHandleRequest {
                 session_id: backend.session_id(),
                 opaque_id: rtc_stream_id.to_string(),

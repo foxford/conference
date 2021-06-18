@@ -78,7 +78,7 @@ impl RequestHandler for CreateHandler {
         }
 
         // Validate RTC and room presence.
-        let (room, rtc) = {
+        let (room, rtc, backend) = {
             let conn = context.get_conn()?;
 
             let rtc = db::rtc::FindQuery::new()
@@ -129,7 +129,7 @@ impl RequestHandler for CreateHandler {
                     .error(AppErrorKind::InvalidHandleId)?;
             }
 
-            (room, rtc)
+            (room, rtc, janus_backend)
         };
 
         match payload.jsep {
@@ -158,7 +158,9 @@ impl RequestHandler for CreateHandler {
                             };
                             let transaction = ReadStreamTransaction { reqp: reqp.clone() };
                             context
-                                .janus_http_client()
+                                .janus_clients()
+                                .get_or_insert(&backend)
+                                .error(AppErrorKind::BackendClientCreationFailed)?
                                 .read_stream(request, transaction)
                                 .await
                                 .error(AppErrorKind::BackendRequestFailed)?;
@@ -210,7 +212,9 @@ impl RequestHandler for CreateHandler {
                             };
                             let transaction = CreateStreamTransaction { reqp: reqp.clone() };
                             context
-                                .janus_http_client()
+                                .janus_clients()
+                                .get_or_insert(&backend)
+                                .error(AppErrorKind::BackendClientCreationFailed)?
                                 .create_stream(request, transaction)
                                 .await
                                 .error(AppErrorKind::BackendRequestFailed)?;
@@ -232,7 +236,9 @@ impl RequestHandler for CreateHandler {
                     session_id: payload.handle_id.janus_session_id(),
                 };
                 context
-                    .janus_http_client()
+                    .janus_clients()
+                    .get_or_insert(&backend)
+                    .error(AppErrorKind::BackendClientCreationFailed)?
                     .trickle_request(request)
                     .await
                     .error(AppErrorKind::BackendRequestFailed)?;

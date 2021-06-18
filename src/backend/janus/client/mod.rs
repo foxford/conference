@@ -49,10 +49,10 @@ pub struct JanusClient {
 }
 
 impl JanusClient {
-    pub fn new(janus_url: Uri) -> anyhow::Result<Self> {
+    pub fn new(janus_url: &str) -> anyhow::Result<Self> {
         Ok(Self {
             http: Arc::new(HttpClient::new()?),
-            janus_url,
+            janus_url: janus_url.parse()?,
         })
     }
 
@@ -146,7 +146,6 @@ impl JanusClient {
 }
 
 pub enum PollResult {
-    Continue,
     SessionNotFound,
     Events(Vec<IncomingEvent>),
 }
@@ -378,5 +377,5 @@ fn upload_stream(
 
 #[test]
 fn test() {
-    dbg!(serde_json::to_string_pretty(&create_session()));
+    // dbg!(serde_json::to_string_pretty(&create_session()));
 }

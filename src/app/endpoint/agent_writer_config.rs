@@ -248,7 +248,9 @@ impl RequestHandler for UpdateHandler {
                 body: UpdateWriterConfigRequestBody::new(items),
             };
             context
-                .janus_http_client()
+                .janus_clients()
+                .get_or_insert(&backend)
+                .error(AppErrorKind::BackendClientCreationFailed)?
                 .writer_update(request)
                 .await
                 .error(AppErrorKind::BackendRequestFailed)?;

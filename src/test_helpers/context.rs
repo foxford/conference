@@ -128,7 +128,7 @@ impl GlobalContext for TestContext {
         None
     }
 
-    fn janus_http_client(&self) -> Arc<crate::backend::janus::client::JanusClient> {
+    fn janus_clients(&self) -> crate::backend::janus::client_pool::Clients {
         todo!()
     }
 }

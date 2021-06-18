@@ -12,7 +12,6 @@ use svc_agent::Addressable;
 use svc_error::Error as SvcError;
 use uuid::Uuid;
 
-use crate::app::API_VERSION;
 use crate::db::{agent_connection, janus_backend, janus_rtc_stream};
 use crate::diesel::Connection;
 use crate::{app::context::Context, db::recording};
@@ -22,6 +21,7 @@ use crate::{
     backend::janus::client::create_handle::CreateHandleRequest,
 };
 use crate::{app::message_handler::MessageStream, db::room};
+use crate::{app::API_VERSION, backend::janus::client::JanusClient};
 
 use serde::Deserialize;
 
@@ -415,7 +415,6 @@ fn handle_hangup_detach<C: Context, E: OpaqueId>(
                 room.id(),
                 rtc_stream,
                 context.start_timestamp(),
-                // evp.tracking(),
             )?;
 
             let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
@@ -450,7 +449,7 @@ pub struct StatusEvent {
     pub capacity: Option<i32>,
     pub balancer_capacity: Option<i32>,
     pub group: Option<String>,
-    pub janus_url: String,
+    pub janus_url: Option<String>,
 }
 
 async fn handle_status_event_impl<C: Context>(
@@ -465,13 +464,18 @@ async fn handle_status_event_impl<C: Context>(
         .error(AppErrorKind::MessageParsingFailed)?;
 
     if payload.online {
-        let client = context.janus_http_client();
-        let session = client
+        let janus_url = payload
+            .janus_url
+            .ok_or_else(|| anyhow!("Missing url"))
+            .error(AppErrorKind::BackendClientCreationFailed)?;
+        let janus_client =
+            JanusClient::new(&janus_url).error(AppErrorKind::BackendClientCreationFailed)?;
+        let session = janus_client
             .create_session()
             .await
             .context("CreateSession")
             .error(AppErrorKind::BackendRequestFailed)?;
-        let handle = client
+        let handle = janus_client
             .create_handle(CreateHandleRequest {
                 session_id: session.id,
                 opaque_id: Uuid::new_v4().to_string(),
@@ -482,8 +486,7 @@ async fn handle_status_event_impl<C: Context>(
         let backend_id = evp.as_agent_id();
         let conn = context.get_conn()?;
 
-        let mut q =
-            janus_backend::UpsertQuery::new(backend_id, handle.id, session.id, &payload.janus_url);
+        let mut q = janus_backend::UpsertQuery::new(backend_id, handle.id, session.id, &janus_url);
 
         if let Some(capacity) = payload.capacity {
             q = q.capacity(capacity);
@@ -497,10 +500,14 @@ async fn handle_status_event_impl<C: Context>(
             q = q.group(group);
         }
 
-        q.execute(&conn)?;
-        // start_polling(context.janus_http_client(), session.id).await;
+        let backend = q.execute(&conn)?;
+        context
+            .janus_clients()
+            .get_or_insert(&backend)
+            .error(AppErrorKind::BrokerRequestFailed)?;
         Ok(Box::new(stream::empty()))
     } else {
+        context.janus_clients().remove_client(evp.as_agent_id());
         let conn = context.get_conn()?;
 
         let streams_with_rtc = conn.transaction::<_, AppError, _>(|| {

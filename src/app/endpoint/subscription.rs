@@ -289,7 +289,10 @@ async fn leave_room<C: Context>(
             handle_id: backend.handle_id(),
             session_id: backend.session_id(),
         };
-        let client = context.janus_http_client();
+        let client = context
+            .janus_clients()
+            .get_or_insert(&backend)
+            .error(AppErrorKind::BackendClientCreationFailed)?;
         leave_tasks.push(async move { client.agent_leave(request).await });
     }
     futures::future::try_join_all(leave_tasks)

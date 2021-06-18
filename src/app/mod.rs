@@ -18,10 +18,13 @@ use svc_agent::{
 use svc_authn::token::jws_compact;
 use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
 
-use crate::app::error::{Error as AppError, ErrorKind as AppErrorKind};
 use crate::backend::janus::JANUS_API_VERSION;
 use crate::config::{self, Config, KruonisConfig};
 use crate::db::ConnectionPool;
+use crate::{
+    app::error::{Error as AppError, ErrorKind as AppErrorKind},
+    backend::janus::client_pool::Clients,
+};
 use context::{AppContext, GlobalContext, JanusTopics};
 use message_handler::MessageHandler;
 
@@ -85,19 +88,12 @@ pub(crate) async fn run(
 
     let running_requests = Arc::new(AtomicI64::new(0));
 
-    let janus_http_client =
-        crate::backend::janus::client::JanusClient::new(config.backend.janus_url.parse()?);
-    let (ev_tx, mut ev_rx) = futures_channel::mpsc::unbounded();
+    let (ev_tx, mut ev_rx) = async_std::channel::unbounded();
+    let clients = Clients::new(ev_tx);
     // Context
-    let context = AppContext::new(
-        config.clone(),
-        authz,
-        db.clone(),
-        janus_topics,
-        Arc::new(janus_http_client?),
-    )
-    .add_queue_counter(agent.get_queue_counter())
-    .add_running_requests_counter(running_requests.clone());
+    let context = AppContext::new(config.clone(), authz, db.clone(), janus_topics, clients)
+        .add_queue_counter(agent.get_queue_counter())
+        .add_running_requests_counter(running_requests.clone());
 
     let context = match redis_pool {
         Some(pool) => context.add_redis_pool(pool),

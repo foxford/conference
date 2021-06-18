@@ -113,7 +113,9 @@ impl RequestHandler for VacuumHandler {
             };
             // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
             context
-                .janus_http_client()
+                .janus_clients()
+                .get_or_insert(&backend)
+                .error(AppErrorKind::BackendClientCreationFailed)?
                 .upload_stream(request, transaction)
                 .await
                 .error(AppErrorKind::BackendRequestFailed)?;
