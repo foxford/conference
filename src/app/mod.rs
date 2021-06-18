@@ -106,9 +106,12 @@ pub async fn run(
                     .await
                     .expect("At least one events sender must be alive");
                 let message_handler = message_handler.clone();
-                async_std::task::spawn(async move {
-                    message_handler.handle_events(ev).await;
-                });
+                async_std::task::spawn_blocking(|| {
+                    async_std::task::block_on(async move {
+                        message_handler.handle_events(ev).await;
+                    })
+                })
+                .await;
             }
         })
     };
@@ -117,38 +120,41 @@ pub async fn run(
             let message = mq_rx.recv().await.expect("Messages sender must be alive");
 
             let message_handler = message_handler.clone();
-            task::spawn(async move {
-                match message {
-                    AgentNotification::Message(message, metadata) => {
-                        message_handler.handle(&message, &metadata.topic).await;
-                    }
-                    AgentNotification::Reconnection => {
-                        error!(crate::LOG, "Reconnected to broker");
+            async_std::task::spawn_blocking(|| {
+                async_std::task::block_on(async move {
+                    match message {
+                        AgentNotification::Message(message, metadata) => {
+                            message_handler.handle(&message, &metadata.topic).await;
+                        }
+                        AgentNotification::Reconnection => {
+                            error!(crate::LOG, "Reconnected to broker");
 
-                        resubscribe(
-                            &mut message_handler.agent().to_owned(),
-                            message_handler.global_context().agent_id(),
-                            message_handler.global_context().config(),
-                        );
+                            resubscribe(
+                                &mut message_handler.agent().to_owned(),
+                                message_handler.global_context().agent_id(),
+                                message_handler.global_context().config(),
+                            );
+                        }
+                        AgentNotification::Puback(_) => (),
+                        AgentNotification::Pubrec(_) => (),
+                        AgentNotification::Pubcomp(_) => (),
+                        AgentNotification::Suback(_) => (),
+                        AgentNotification::Unsuback(_) => (),
+                        AgentNotification::ConnectionError => (),
+                        AgentNotification::Connect(_) => (),
+                        AgentNotification::Connack(_) => (),
+                        AgentNotification::Pubrel(_) => (),
+                        AgentNotification::Subscribe(_) => (),
+                        AgentNotification::Unsubscribe(_) => (),
+                        AgentNotification::PingReq => (),
+                        AgentNotification::PingResp => (),
+                        AgentNotification::Disconnect => {
+                            error!(crate::LOG, "Disconnected from broker")
+                        }
                     }
-                    AgentNotification::Puback(_) => (),
-                    AgentNotification::Pubrec(_) => (),
-                    AgentNotification::Pubcomp(_) => (),
-                    AgentNotification::Suback(_) => (),
-                    AgentNotification::Unsuback(_) => (),
-                    AgentNotification::ConnectionError => (),
-                    AgentNotification::Connect(_) => (),
-                    AgentNotification::Connack(_) => (),
-                    AgentNotification::Pubrel(_) => (),
-                    AgentNotification::Subscribe(_) => (),
-                    AgentNotification::Unsubscribe(_) => (),
-                    AgentNotification::PingReq => (),
-                    AgentNotification::PingResp => (),
-                    AgentNotification::Disconnect => {
-                        error!(crate::LOG, "Disconnected from broker")
-                    }
-                }
-            });
+                })
+            })
+            .await;
         }
     });
     futures::future::join_all([events_task, messages_task]).await;
