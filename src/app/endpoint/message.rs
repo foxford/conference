@@ -126,12 +126,6 @@ impl RequestHandler for BroadcastHandler {
             room
         };
 
-        if let Some(stats) = context.dynamic_stats() {
-            if let Some(label) = payload.label {
-                stats.collect(&format!("message_broadcast_{}", label), 1);
-            }
-        }
-
         // Respond and broadcast to the room topic.
         let response = helpers::build_response(
             ResponseStatus::OK,

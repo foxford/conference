@@ -8,14 +8,10 @@ use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
-use crate::app::metrics::{DynamicStatsCollector, Metric};
+use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 use crate::backend::janus::http;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
-use crate::{
-    app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
-    backend::janus::http::JanusClient,
-};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -30,8 +26,6 @@ pub(crate) trait GlobalContext: Sync {
     fn janus_topics(&self) -> &JanusTopics;
     fn queue_counter(&self) -> &Option<QueueCounterHandle>;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
-    fn dynamic_stats(&self) -> Option<&DynamicStatsCollector>;
-    fn get_metrics(&self) -> anyhow::Result<Vec<Metric>>;
     fn running_requests(&self) -> Option<Arc<AtomicI64>>;
 
     fn get_conn(&self) -> Result<PooledConnection<ConnectionManager<PgConnection>>, AppError> {
@@ -62,7 +56,6 @@ pub(crate) struct AppContext {
     janus_topics: JanusTopics,
     queue_counter: Option<QueueCounterHandle>,
     redis_pool: Option<RedisConnectionPool>,
-    dynamic_stats: Option<Arc<DynamicStatsCollector>>,
     running_requests: Option<Arc<AtomicI64>>,
     janus_http_client: Arc<http::JanusClient>,
 }
@@ -73,7 +66,6 @@ impl AppContext {
         authz: Authz,
         db: Db,
         janus_topics: JanusTopics,
-        stats_collector: Arc<DynamicStatsCollector>,
         janus_http_client: Arc<http::JanusClient>,
     ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
@@ -86,7 +78,6 @@ impl AppContext {
             janus_topics,
             queue_counter: None,
             redis_pool: None,
-            dynamic_stats: Some(stats_collector),
             running_requests: None,
             janus_http_client,
         }
@@ -141,14 +132,6 @@ impl GlobalContext for AppContext {
 
     fn redis_pool(&self) -> &Option<RedisConnectionPool> {
         &self.redis_pool
-    }
-
-    fn dynamic_stats(&self) -> Option<&DynamicStatsCollector> {
-        self.dynamic_stats.as_deref()
-    }
-
-    fn get_metrics(&self) -> anyhow::Result<Vec<Metric>> {
-        crate::app::metrics::Aggregator::new(self).get()
     }
 
     fn running_requests(&self) -> Option<Arc<AtomicI64>> {
@@ -207,14 +190,6 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.redis_pool()
     }
 
-    fn dynamic_stats(&self) -> Option<&DynamicStatsCollector> {
-        self.global_context.dynamic_stats()
-    }
-
-    fn get_metrics(&self) -> anyhow::Result<Vec<Metric>> {
-        self.global_context.get_metrics()
-    }
-
     fn running_requests(&self) -> Option<Arc<AtomicI64>> {
         self.global_context.running_requests()
     }
@@ -251,11 +226,7 @@ pub(crate) struct JanusTopics {
 }
 
 impl JanusTopics {
-    pub(crate) fn new(
-        status_events_topic: &str,
-        events_topic: &str,
-        responses_topic: &str,
-    ) -> Self {
+    pub(crate) fn new(status_events_topic: &str) -> Self {
         Self {
             status_events_topic: status_events_topic.to_owned(),
         }

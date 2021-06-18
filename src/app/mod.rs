@@ -18,13 +18,11 @@ use svc_agent::{
 use svc_authn::token::jws_compact;
 use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
 
-use crate::app::context::GlobalContext;
 use crate::app::error::{Error as AppError, ErrorKind as AppErrorKind};
-use crate::app::metrics::{DynamicStatsCollector, StatsRoute};
 use crate::backend::janus::JANUS_API_VERSION;
 use crate::config::{self, Config, KruonisConfig};
 use crate::db::ConnectionPool;
-use context::{AppContext, JanusTopics};
+use context::{AppContext, GlobalContext, JanusTopics};
 use message_handler::MessageHandler;
 
 pub(crate) const API_VERSION: &str = "v1";
@@ -86,18 +84,7 @@ pub(crate) async fn run(
     let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
 
     let running_requests = Arc::new(AtomicI64::new(0));
-    let stats_collector = Arc::new(DynamicStatsCollector::start());
-    let stats_collector_ = stats_collector.clone();
 
-    let (handler_timer_tx, handler_timer_rx) = crossbeam_channel::bounded(500);
-    std::thread::Builder::new()
-        .name("msg-handler-timings".into())
-        .spawn(move || {
-            for (dur, method) in handler_timer_rx {
-                stats_collector_.record_future_time(dur, method);
-            }
-        })
-        .expect("Failed to start msg-handler-timings thread");
     let janus_http_client =
         crate::backend::janus::http::JanusClient::new(config.backend.janus_url.parse()?);
     let (ev_tx, mut ev_rx) = futures_channel::mpsc::unbounded();
@@ -107,7 +94,6 @@ pub(crate) async fn run(
         authz,
         db.clone(),
         janus_topics,
-        stats_collector,
         Arc::new(janus_http_client?),
     )
     .add_queue_counter(agent.get_queue_counter())
@@ -119,12 +105,7 @@ pub(crate) async fn run(
     };
 
     // Message handler
-    let message_handler = Arc::new(MessageHandler::new(
-        agent.clone(),
-        context,
-        handler_timer_tx,
-    ));
-    StatsRoute::start(config, message_handler.clone());
+    let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
 
     // Message loop
     let term_check_period = Duration::from_secs(1);
@@ -224,29 +205,6 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
         .subscription_topic(agent_id, API_VERSION)
         .context("Error building janus events subscription topic")?;
 
-    // Janus events
-    let subscription =
-        Subscription::broadcast_events(&config.backend.id, JANUS_API_VERSION, "events");
-
-    agent
-        .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
-        .context("Error subscribing to backend events topic")?;
-
-    let janus_events_topic = subscription
-        .subscription_topic(agent_id, API_VERSION)
-        .context("Error building janus events subscription topic")?;
-
-    // Janus responses
-    let subscription = Subscription::unicast_responses_from(&config.backend.id);
-
-    agent
-        .subscribe(&subscription, QoS::AtLeastOnce, None)
-        .context("Error subscribing to backend responses topic")?;
-
-    let janus_responses_topic = subscription
-        .subscription_topic(agent_id, API_VERSION)
-        .context("Error building janus responses subscription topic")?;
-
     // Kruonis
     if let KruonisConfig {
         id: Some(ref kruonis_id),
@@ -256,11 +214,7 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
     }
 
     // Return Janus subscription topics
-    Ok(JanusTopics::new(
-        &janus_status_events_topic,
-        &janus_events_topic,
-        &janus_responses_topic,
-    ))
+    Ok(JanusTopics::new(&janus_status_events_topic))
 }
 
 fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()> {
@@ -281,7 +235,7 @@ fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()>
 fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
     if let Err(err) = subscribe(agent, agent_id, config) {
         let err = err.context("Failed to resubscribe after reconnection");
-        error!(crate::LOG, "{}", err);
+        error!(crate::LOG, "{:#}", err);
 
         let app_error = AppError::new(AppErrorKind::ResubscriptionFailed, err);
         app_error.notify_sentry(&crate::LOG);
@@ -293,4 +247,3 @@ pub(crate) mod endpoint;
 pub(crate) mod error;
 pub(crate) mod handle_id;
 pub(crate) mod message_handler;
-pub(crate) mod metrics;

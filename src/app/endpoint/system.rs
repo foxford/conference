@@ -8,7 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{
         IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
-        ShortTermTimingProperties, TrackingProperties,
+        ShortTermTimingProperties,
     },
     AgentId,
 };
@@ -179,7 +179,7 @@ where
 
     let uri = format!("audiences/{}/events", room.audience());
     let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
-    let mut props = OutgoingEventProperties::new("room.upload", timing);
+    let props = OutgoingEventProperties::new("room.upload", timing);
 
     let event = RoomUploadEventData {
         id: room.id(),
@@ -230,13 +230,9 @@ fn record_name(recording: &Recording, room: &Room) -> String {
 #[cfg(test)]
 mod test {
     mod vacuum {
-        use diesel::prelude::*;
-        use serde_json::Value as JsonValue;
         use svc_agent::mqtt::ResponseStatus;
 
-        use crate::backend::janus::JANUS_API_VERSION;
         use crate::test_helpers::prelude::*;
-        use crate::test_helpers::{find_event_by_predicate, find_request_by_predicate};
 
         use super::super::*;
 
@@ -247,7 +243,7 @@ mod test {
                 let mut authz = TestAuthz::new();
                 authz.set_audience(SVC_AUDIENCE);
 
-                let (rtcs, backend) = db
+                let (_rtcs, _backend) = db
                     .connection_pool()
                     .get()
                     .map(|conn| {

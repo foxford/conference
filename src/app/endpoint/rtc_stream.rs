@@ -115,7 +115,7 @@ pub(crate) fn update_event(
 ) -> StdResult<ObjectUpdateEvent, AppError> {
     let uri = format!("rooms/{}/events", room_id);
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
-    let mut props = OutgoingEventProperties::new("rtc_stream.update", timing);
+    let props = OutgoingEventProperties::new("rtc_stream.update", timing);
     Ok(OutgoingEvent::broadcast(object, props, &uri))
 }
 

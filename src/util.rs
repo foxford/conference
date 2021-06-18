@@ -1,5 +1,4 @@
 use anyhow::Result;
-use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
 pub(crate) fn to_base64<T>(val: &T) -> Result<String>
 where
@@ -20,11 +19,11 @@ where
     Ok(r)
 }
 
-const CORRELATION_DATA_LENGTH: usize = 16;
+// const CORRELATION_DATA_LENGTH: usize = 16;
 
-pub(crate) fn generate_correlation_data() -> String {
-    thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(CORRELATION_DATA_LENGTH)
-        .collect()
-}
+// pub(crate) fn generate_correlation_data() -> String {
+//     thread_rng()
+//         .sample_iter(&Alphanumeric)
+//         .take(CORRELATION_DATA_LENGTH)
+//         .collect()
+// }

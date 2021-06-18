@@ -136,25 +136,6 @@ where
     panic!("Request not found");
 }
 
-pub(crate) fn find_request_by_predicate<P, F>(
-    messages: &[OutgoingEnvelope],
-    f: F,
-) -> Option<(P, &OutgoingRequestProperties, &str)>
-where
-    P: DeserializeOwned,
-    F: Fn(&OutgoingRequestProperties, P) -> bool,
-{
-    for message in messages {
-        if let OutgoingEnvelopeProperties::Request(reqp) = message.properties() {
-            if f(reqp, message.payload::<P>()) {
-                return Some((message.payload::<P>(), reqp, message.topic()));
-            }
-        }
-    }
-
-    None
-}
-
 pub(crate) fn build_reqp(agent_id: &AgentId, method: &str) -> IncomingRequestProperties {
     let now = Utc::now().timestamp_millis().to_string();
 

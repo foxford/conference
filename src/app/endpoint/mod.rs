@@ -166,7 +166,6 @@ macro_rules! event_routes {
 
 // Event routes configuration: label => EventHandler
 event_routes!(
-    "metric.pull" => metric::PullHandler,
     "subscription.delete" => subscription::DeleteEventHandler
 );
 
@@ -177,7 +176,6 @@ mod agent_reader_config;
 mod agent_writer_config;
 pub(crate) mod helpers;
 mod message;
-mod metric;
 mod room;
 pub(crate) mod rtc;
 pub(crate) mod rtc_signal;

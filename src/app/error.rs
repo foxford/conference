@@ -22,7 +22,7 @@ pub(crate) enum ErrorKind {
     AuthorizationFailed,
     BackendRecordingMissing,
     BackendRequestFailed,
-    BackendRequestTimedOut,
+    _BackendRequestTimedOut,
     BackendNotFound,
     BrokerRequestFailed,
     CapacityExceeded,
@@ -46,7 +46,7 @@ pub(crate) enum ErrorKind {
     RoomNotFound,
     RoomTimeChangingForbidden,
     RtcNotFound,
-    StatsCollectionFailed,
+    _StatsCollectionFailed,
 }
 
 impl ErrorKind {
@@ -117,7 +117,7 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 title: "Janus request failed",
                 is_notify_sentry: true,
             },
-            Self::BackendRequestTimedOut => ErrorKindProperties {
+            Self::_BackendRequestTimedOut => ErrorKindProperties {
                 status: ResponseStatus::FAILED_DEPENDENCY,
                 kind: "backend_request_timed_out",
                 title: "Janus request timed out",
@@ -261,7 +261,7 @@ impl Into<ErrorKindProperties> for ErrorKind {
                 title: "RTC not found",
                 is_notify_sentry: false,
             },
-            Self::StatsCollectionFailed => ErrorKindProperties {
+            Self::_StatsCollectionFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "stats_collection_failed",
                 title: "Stats collection failed",

@@ -8,7 +8,6 @@ use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
 use crate::app::context::{Context, GlobalContext, JanusTopics, MessageContext};
-use crate::app::metrics::DynamicStatsCollector;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
 
@@ -85,7 +84,7 @@ impl TestContext {
             authz: authz.into(),
             db,
             agent_id,
-            janus_topics: JanusTopics::new("ignore", "ignore", "ignore"),
+            janus_topics: JanusTopics::new("ignore"),
             logger: crate::LOG.new(o!()),
             start_timestamp: Utc::now(),
         }
@@ -123,14 +122,6 @@ impl GlobalContext for TestContext {
 
     fn redis_pool(&self) -> &Option<RedisConnectionPool> {
         &None
-    }
-
-    fn dynamic_stats(&self) -> Option<&DynamicStatsCollector> {
-        None
-    }
-
-    fn get_metrics(&self) -> anyhow::Result<Vec<crate::app::metrics::Metric>> {
-        Ok(vec![])
     }
 
     fn running_requests(&self) -> Option<Arc<AtomicI64>> {

@@ -8,7 +8,6 @@ use svc_agent::{
     mqtt::{
         IncomingEventProperties, IncomingRequestProperties, IncomingResponseProperties,
         IntoPublishableMessage, OutgoingEvent, ResponseStatus, ShortTermTimingProperties,
-        TrackingProperties,
     },
     Addressable, AgentId, Authenticable,
 };
@@ -139,7 +138,7 @@ impl ResponseHandler for DeleteResponseHandler {
     ) -> Result {
         ensure_broker(context, respp)?;
         let room_id = try_room_id(&corr_data.object)?;
-        let maybe_left = leave_room(context, &corr_data.subject, room_id, respp.tracking()).await?;
+        let maybe_left = leave_room(context, &corr_data.subject, room_id).await?;
         if maybe_left {
             let response = helpers::build_response(
                 ResponseStatus::OK,
@@ -183,7 +182,7 @@ impl EventHandler for DeleteEventHandler {
     ) -> Result {
         ensure_broker(context, evp)?;
         let room_id = try_room_id(&payload.object)?;
-        if leave_room(context, &payload.subject, room_id, evp.tracking()).await? {
+        if leave_room(context, &payload.subject, room_id).await? {
             let outgoing_event_payload =
                 RoomEnterLeaveEvent::new(room_id, payload.subject.to_owned());
             let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
@@ -236,7 +235,6 @@ async fn leave_room<C: Context>(
     context: &mut C,
     agent_id: &AgentId,
     room_id: Uuid,
-    tracking: &TrackingProperties,
 ) -> StdResult<bool, AppError> {
     // Delete agent from the DB.
     context.add_logger_tags(o!("room_id" => room_id.to_string()));

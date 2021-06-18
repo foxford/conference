@@ -353,7 +353,7 @@ impl RequestHandler for ConnectHandler {
             ConnectIntent::Write => "update",
         };
 
-        let authz_time = context
+        let _authz_time = context
             .authz()
             .authorize(room.audience(), reqp, object, action)
             .await?;
@@ -994,9 +994,6 @@ mod test {
         use std::ops::Bound;
 
         use chrono::{Duration, Utc};
-        use rand::Rng;
-        use serde_json::Value as JsonValue;
-        use svc_agent::{AccountId, AgentId};
 
         use crate::backend::janus::http::SessionId;
         use crate::db::agent::Status as AgentStatus;
@@ -1012,7 +1009,7 @@ mod test {
                 let mut authz = TestAuthz::new();
 
                 // Insert an rtc and janus backend.
-                let (rtc, backend) = db
+                let (rtc, _backend) = db
                     .connection_pool()
                     .get()
                     .map(|conn| {
@@ -1094,7 +1091,7 @@ mod test {
                 let mut authz = TestAuthz::new();
 
                 // Insert an rtc and janus backend.
-                let (rtc, backend) = db
+                let (rtc, _backend) = db
                     .connection_pool()
                     .get()
                     .map(|conn| {
@@ -1124,7 +1121,7 @@ mod test {
                     intent: ConnectIntent::Read,
                 };
 
-                let messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                let _messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
                     .await
                     .expect("RTC connect failed");
             });
@@ -1133,11 +1130,10 @@ mod test {
         #[test]
         fn connect_to_rtc_with_reservation() {
             async_std::task::block_on(async {
-                let mut rng = rand::thread_rng();
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
 
-                let (rtc, backend) = db
+                let (rtc, _backend) = db
                     .connection_pool()
                     .get()
                     .map(|conn| {
@@ -1213,7 +1209,7 @@ mod test {
                     intent: ConnectIntent::Read,
                 };
 
-                let messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                let _messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
                     .await
                     .expect("RTC connect failed");
             });
@@ -1222,7 +1218,6 @@ mod test {
         #[test]
         fn connect_to_rtc_take_reserved_slot() {
             async_std::task::block_on(async {
-                let mut rng = rand::thread_rng();
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
                 let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
@@ -1334,7 +1329,6 @@ mod test {
         #[test]
         fn connect_to_rtc_as_last_reader() {
             async_std::task::block_on(async {
-                let mut rng = rand::thread_rng();
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
                 let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
@@ -1398,7 +1392,6 @@ mod test {
         #[test]
         fn connect_to_rtc_full_server_as_reader() {
             async_std::task::block_on(async {
-                let mut rng = rand::thread_rng();
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
                 let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
@@ -1480,7 +1473,6 @@ mod test {
         #[test]
         fn connect_to_rtc_full_server_as_writer() {
             async_std::task::block_on(async {
-                let mut rng = rand::thread_rng();
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
                 let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
@@ -1544,12 +1536,11 @@ mod test {
         #[test]
         fn connect_to_rtc_too_big_reserve() {
             async_std::task::block_on(async {
-                let mut rng = rand::thread_rng();
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
                 let new_writer = TestAgent::new("web", "new-writer", USR_AUDIENCE);
 
-                let (rtc, backend) = db
+                let (rtc, _backend) = db
                     .connection_pool()
                     .get()
                     .map(|conn| {
@@ -1696,21 +1687,21 @@ mod test {
                     intent: ConnectIntent::Write,
                 };
 
-                let messages = handle_request::<ConnectHandler>(&mut context, &new_writer, payload)
-                    .await
-                    .expect("RTC connect failed");
+                let _messages =
+                    handle_request::<ConnectHandler>(&mut context, &new_writer, payload)
+                        .await
+                        .expect("RTC connect failed");
             });
         }
 
         #[test]
         fn connect_to_rtc_reserve_overflow() {
             async_std::task::block_on(async {
-                let mut rng = rand::thread_rng();
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
                 let new_reader = TestAgent::new("web", "new-reader", USR_AUDIENCE);
 
-                let (rtcs, backend) = db
+                let (rtcs, _backend) = db
                     .connection_pool()
                     .get()
                     .map(|conn| {
@@ -1838,7 +1829,7 @@ mod test {
                     };
 
                     // Make an rtc.connect request.
-                    let messages =
+                    let _messages =
                         handle_request::<ConnectHandler>(&mut context, &new_reader, payload)
                             .await
                             .expect("RTC connect failed");
@@ -2017,11 +2008,10 @@ mod test {
         #[test]
         fn connect_to_rtc_with_backend_grouping() {
             async_std::task::block_on(async {
-                let mut rng = rand::thread_rng();
                 let db = TestDb::new();
                 let mut authz = TestAuthz::new();
 
-                let (rtc, backend) = {
+                let (rtc, _backend) = {
                     let conn = db
                         .connection_pool()
                         .get()

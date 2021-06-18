@@ -336,10 +336,8 @@ mod tests {
         use std::ops::Bound;
 
         use chrono::{Duration, Utc};
-        use serde_derive::Deserialize;
         use uuid::Uuid;
 
-        use crate::backend::janus::{self};
         use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
         use crate::test_helpers::prelude::*;
 
@@ -355,7 +353,7 @@ mod tests {
             let agent4 = TestAgent::new("web", "user4", USR_AUDIENCE);
 
             // Insert a room with agents and RTCs.
-            let (room, backend, rtcs) = db
+            let (room, _backend, _rtcs) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {

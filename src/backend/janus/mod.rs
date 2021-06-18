@@ -29,7 +29,6 @@ use self::http::{transactions::Transaction, IncomingEvent};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const STREAM_UPLOAD_METHOD: &str = "stream.upload";
 pub(crate) const JANUS_API_VERSION: &str = "v1";
 
 const ALREADY_RUNNING_STATE: &str = "already_running";

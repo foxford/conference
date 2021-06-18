@@ -24,7 +24,7 @@ lazy_static! {
     };
 }
 
-const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+// const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[async_std::main]
 async fn main() -> Result<()> {

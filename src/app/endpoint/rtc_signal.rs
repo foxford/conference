@@ -416,7 +416,7 @@ mod test {
                 label: Some(String::from("whatever")),
             };
 
-            let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+            let _messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
                 .await
                 .expect("Rtc signal creation failed");
 
@@ -649,7 +649,7 @@ mod test {
                 label: None,
             };
 
-            let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+            let _messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
                 .await
                 .expect("Rtc signal creation failed");
 

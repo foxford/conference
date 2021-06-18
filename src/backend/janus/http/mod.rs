@@ -74,24 +74,24 @@ impl JanusClient {
         request: UploadStreamRequest,
         transaction: UploadStreamTransaction,
     ) -> anyhow::Result<()> {
-        let response: AckResponse = self
+        let _response: AckResponse = self
             .send_request(upload_stream(request, transaction)?)
             .await?;
         Ok(())
     }
 
     pub async fn agent_leave(&self, request: AgentLeaveRequest) -> anyhow::Result<()> {
-        let response: AckResponse = self.send_request(agent_leave(request)?).await?;
+        let _response: AckResponse = self.send_request(agent_leave(request)?).await?;
         Ok(())
     }
 
     pub async fn reader_update(&self, request: UpdateReaderConfigRequest) -> anyhow::Result<()> {
-        let response: AckResponse = self.send_request(update_reader(request)?).await?;
+        let _response: AckResponse = self.send_request(update_reader(request)?).await?;
         Ok(())
     }
 
     pub async fn writer_update(&self, request: UpdateWriterConfigRequest) -> anyhow::Result<()> {
-        let response: AckResponse = self.send_request(update_writer(request)?).await?;
+        let _response: AckResponse = self.send_request(update_writer(request)?).await?;
         Ok(())
     }
 
@@ -100,7 +100,7 @@ impl JanusClient {
         request: CreateStreamRequest,
         transaction: CreateStreamTransaction,
     ) -> anyhow::Result<()> {
-        let response: AckResponse = self
+        let _response: AckResponse = self
             .send_request(create_stream(request, transaction)?)
             .await?;
         Ok(())
@@ -111,14 +111,14 @@ impl JanusClient {
         request: ReadStreamRequest,
         transaction: ReadStreamTransaction,
     ) -> anyhow::Result<()> {
-        let response: AckResponse = self
+        let _response: AckResponse = self
             .send_request(read_stream(request, transaction)?)
             .await?;
         Ok(())
     }
 
     pub async fn trickle_request(&self, request: TrickleRequest) -> anyhow::Result<()> {
-        let response: AckResponse = self.send_request(trickle(request)).await?;
+        let _response: AckResponse = self.send_request(trickle(request)).await?;
         Ok(())
     }
 
