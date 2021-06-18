@@ -17,7 +17,7 @@ use crate::app::endpoint::prelude::*;
 use crate::db;
 use crate::{
     app::context::Context,
-    backend::janus::http::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
+    backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
 };
 
 ///////////////////////////////////////////////////////////////////////////////

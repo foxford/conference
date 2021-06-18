@@ -8,7 +8,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::schema::{janus_rtc_stream, rtc};
-use crate::{backend::janus::http::HandleId, db::rtc::Object as Rtc};
+use crate::{backend::janus::client::HandleId, db::rtc::Object as Rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 

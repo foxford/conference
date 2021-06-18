@@ -19,13 +19,13 @@ use crate::{app::context::Context, db::recording};
 use crate::{app::endpoint, db::rtc};
 use crate::{
     app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
-    backend::janus::http::create_handle::CreateHandleRequest,
+    backend::janus::client::create_handle::CreateHandleRequest,
 };
 use crate::{app::message_handler::MessageStream, db::room};
 
 use serde::Deserialize;
 
-use self::http::{transactions::Transaction, IncomingEvent};
+use self::client::{transactions::Transaction, IncomingEvent};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -450,6 +450,7 @@ pub struct StatusEvent {
     pub capacity: Option<i32>,
     pub balancer_capacity: Option<i32>,
     pub group: Option<String>,
+    pub janus_url: String,
 }
 
 async fn handle_status_event_impl<C: Context>(
@@ -481,7 +482,8 @@ async fn handle_status_event_impl<C: Context>(
         let backend_id = evp.as_agent_id();
         let conn = context.get_conn()?;
 
-        let mut q = janus_backend::UpsertQuery::new(backend_id, handle.id, session.id);
+        let mut q =
+            janus_backend::UpsertQuery::new(backend_id, handle.id, session.id, &payload.janus_url);
 
         if let Some(capacity) = payload.capacity {
             q = q.capacity(capacity);
@@ -535,5 +537,5 @@ async fn handle_status_event_impl<C: Context>(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-pub mod http;
+pub mod client;
 pub mod poller;

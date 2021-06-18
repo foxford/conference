@@ -4,7 +4,7 @@ use svc_agent::{AccountId, AgentId};
 use uuid::Uuid;
 
 use crate::{
-    backend::janus::http::{HandleId, SessionId},
+    backend::janus::client::{HandleId, SessionId},
     db,
 };
 
@@ -202,10 +202,16 @@ pub(crate) struct JanusBackend {
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     group: Option<String>,
+    janus_url: String,
 }
 
 impl JanusBackend {
-    pub(crate) fn new(id: AgentId, handle_id: HandleId, session_id: SessionId) -> Self {
+    pub(crate) fn new(
+        id: AgentId,
+        handle_id: HandleId,
+        session_id: SessionId,
+        janus_url: String,
+    ) -> Self {
         Self {
             id,
             handle_id,
@@ -213,6 +219,7 @@ impl JanusBackend {
             capacity: None,
             balancer_capacity: None,
             group: None,
+            janus_url,
         }
     }
 
@@ -238,7 +245,12 @@ impl JanusBackend {
     }
 
     pub(crate) fn insert(&self, conn: &PgConnection) -> db::janus_backend::Object {
-        let mut q = db::janus_backend::UpsertQuery::new(&self.id, self.handle_id, self.session_id);
+        let mut q = db::janus_backend::UpsertQuery::new(
+            &self.id,
+            self.handle_id,
+            self.session_id,
+            &self.janus_url,
+        );
 
         if let Some(capacity) = self.capacity {
             q = q.capacity(capacity);

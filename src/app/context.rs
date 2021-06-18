@@ -9,7 +9,7 @@ use svc_authz::cache::ConnectionPool as RedisConnectionPool;
 use svc_authz::ClientMap as Authz;
 
 use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
-use crate::backend::janus::http;
+use crate::backend::janus::client;
 use crate::config::Config;
 use crate::db::ConnectionPool as Db;
 
@@ -22,7 +22,7 @@ pub(crate) trait GlobalContext: Sync {
     fn config(&self) -> &Config;
     fn db(&self) -> &Db;
     fn agent_id(&self) -> &AgentId;
-    fn janus_http_client(&self) -> Arc<http::JanusClient>;
+    fn janus_http_client(&self) -> Arc<client::JanusClient>;
     fn janus_topics(&self) -> &JanusTopics;
     fn queue_counter(&self) -> &Option<QueueCounterHandle>;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
@@ -57,7 +57,7 @@ pub(crate) struct AppContext {
     queue_counter: Option<QueueCounterHandle>,
     redis_pool: Option<RedisConnectionPool>,
     running_requests: Option<Arc<AtomicI64>>,
-    janus_http_client: Arc<http::JanusClient>,
+    janus_http_client: Arc<client::JanusClient>,
 }
 
 impl AppContext {
@@ -66,7 +66,7 @@ impl AppContext {
         authz: Authz,
         db: Db,
         janus_topics: JanusTopics,
-        janus_http_client: Arc<http::JanusClient>,
+        janus_http_client: Arc<client::JanusClient>,
     ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
 
@@ -138,7 +138,7 @@ impl GlobalContext for AppContext {
         self.running_requests.clone()
     }
 
-    fn janus_http_client(&self) -> Arc<http::JanusClient> {
+    fn janus_http_client(&self) -> Arc<client::JanusClient> {
         self.janus_http_client.clone()
     }
 }
@@ -194,7 +194,7 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.running_requests()
     }
 
-    fn janus_http_client(&self) -> Arc<http::JanusClient> {
+    fn janus_http_client(&self) -> Arc<client::JanusClient> {
         self.global_context.janus_http_client()
     }
 }

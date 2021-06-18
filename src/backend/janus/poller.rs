@@ -1,6 +1,6 @@
 use slog::{error, warn};
 
-use super::http::{IncomingEvent, JanusClient, PollResult, SessionId};
+use super::client::{IncomingEvent, JanusClient, PollResult, SessionId};
 
 pub async fn start_polling(
     janus_client: JanusClient,

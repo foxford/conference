@@ -15,11 +15,11 @@ use crate::db::rtc_reader_config::Object as RtcReaderConfig;
 use crate::diesel::Connection;
 use crate::{
     app::context::Context,
-    backend::janus::http::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
+    backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
 };
 use crate::{
     app::endpoint::prelude::*,
-    backend::janus::http::update_agent_reader_config::{
+    backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
     },
 };

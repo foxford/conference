@@ -5,7 +5,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::backend::janus::{
-    http::{HandleId, SessionId},
+    client::{HandleId, SessionId},
     JANUS_API_VERSION,
 };
 use crate::schema::janus_backend;
@@ -147,10 +147,16 @@ pub(crate) struct UpsertQuery<'a> {
     balancer_capacity: Option<i32>,
     api_version: String,
     group: Option<&'a str>,
+    janus_url: &'a str,
 }
 
 impl<'a> UpsertQuery<'a> {
-    pub(crate) fn new(id: &'a AgentId, handle_id: HandleId, session_id: SessionId) -> Self {
+    pub(crate) fn new(
+        id: &'a AgentId,
+        handle_id: HandleId,
+        session_id: SessionId,
+        janus_url: &'a str,
+    ) -> Self {
         Self {
             id,
             handle_id,
@@ -159,6 +165,7 @@ impl<'a> UpsertQuery<'a> {
             balancer_capacity: None,
             api_version: JANUS_API_VERSION.to_string(),
             group: None,
+            janus_url,
         }
     }
 

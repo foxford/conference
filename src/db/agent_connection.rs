@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::schema::{agent, agent_connection};
 use crate::{
-    backend::janus::http::HandleId,
+    backend::janus::client::HandleId,
     db::agent::{Object as Agent, Status as AgentStatus},
 };
 

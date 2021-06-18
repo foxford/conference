@@ -20,12 +20,12 @@ use crate::db;
 use crate::db::recording::{Object as Recording, Status as RecordingStatus};
 use crate::db::room::Object as Room;
 use crate::db::rtc::SharingPolicy;
-use crate::{app::context::Context, backend::janus::http::upload_stream::UploadStreamRequest};
+use crate::{app::context::Context, backend::janus::client::upload_stream::UploadStreamRequest};
 use crate::{
-    app::endpoint::prelude::*, backend::janus::http::upload_stream::UploadStreamRequestBody,
+    app::endpoint::prelude::*, backend::janus::client::upload_stream::UploadStreamRequestBody,
 };
 use crate::{
-    app::error::Error as AppError, backend::janus::http::upload_stream::UploadStreamTransaction,
+    app::error::Error as AppError, backend::janus::client::upload_stream::UploadStreamTransaction,
 };
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -69,7 +69,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         }
     }
 
-    pub(crate) async fn handle_events(&self, message: janus::http::IncomingEvent) {
+    pub(crate) async fn handle_events(&self, message: janus::client::IncomingEvent) {
         let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
 
         let messages = handle_event(&mut msg_context, message).await;

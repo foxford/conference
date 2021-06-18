@@ -15,7 +15,7 @@ use svc_agent::Addressable;
 use crate::app::endpoint::prelude::*;
 use crate::{
     app::handle_id::HandleId,
-    backend::janus::http::{
+    backend::janus::client::{
         create_stream::{CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction},
         read_stream::{ReadStreamRequest, ReadStreamRequestBody},
         trickle::TrickleRequest,
@@ -26,7 +26,7 @@ use crate::{
     app::{context::Context, endpoint},
     backend::janus::JANUS_API_VERSION,
 };
-use crate::{backend::janus::http::read_stream::ReadStreamTransaction, db};
+use crate::{backend::janus::client::read_stream::ReadStreamTransaction, db};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -737,7 +737,7 @@ mod test {
             let handle_id = HandleId::new(
                 Uuid::new_v4(),
                 Uuid::new_v4(),
-                crate::backend::janus::http::HandleId::stub_id(),
+                crate::backend::janus::client::HandleId::stub_id(),
                 backend.session_id(),
                 backend.id().to_owned(),
             );
@@ -904,7 +904,7 @@ mod test {
                 Uuid::new_v4(),
                 rtc.id(),
                 agent_connection.handle_id(),
-                crate::backend::janus::http::SessionId::random(),
+                crate::backend::janus::client::SessionId::random(),
                 backend.agent_id().to_owned(),
             );
 
@@ -949,7 +949,7 @@ mod test {
             let handle_id = HandleId::new(
                 Uuid::new_v4(),
                 rtc.id(),
-                crate::backend::janus::http::HandleId::stub_id(),
+                crate::backend::janus::client::HandleId::stub_id(),
                 backend.session_id(),
                 backend.id().to_owned(),
             );
@@ -996,7 +996,7 @@ mod test {
             let handle_id = HandleId::new(
                 Uuid::new_v4(),
                 rtc.id(),
-                crate::backend::janus::http::HandleId::stub_id(),
+                crate::backend::janus::client::HandleId::stub_id(),
                 backend.session_id(),
                 backend.id().to_owned(),
             );
@@ -1050,7 +1050,7 @@ mod test {
             let handle_id = HandleId::new(
                 Uuid::new_v4(),
                 rtc.id(),
-                crate::backend::janus::http::HandleId::stub_id(),
+                crate::backend::janus::client::HandleId::stub_id(),
                 backend.session_id(),
                 backend.id().to_owned(),
             );
@@ -1100,7 +1100,7 @@ mod test {
                     let agent2_connection = factory::AgentConnection::new(
                         *agent.id(),
                         rtc.id(),
-                        crate::backend::janus::http::HandleId::stub_id(),
+                        crate::backend::janus::client::HandleId::stub_id(),
                     )
                     .insert(&conn);
 

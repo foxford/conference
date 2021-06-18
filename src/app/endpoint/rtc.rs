@@ -16,7 +16,7 @@ use svc_agent::{
 use uuid::Uuid;
 
 use crate::diesel::Identifiable;
-use crate::{app::context::Context, backend::janus::http::create_handle::CreateHandleRequest};
+use crate::{app::context::Context, backend::janus::client::create_handle::CreateHandleRequest};
 use crate::{
     app::endpoint,
     db::{self, rtc::SharingPolicy as RtcSharingPolicy},
@@ -995,7 +995,7 @@ mod test {
 
         use chrono::{Duration, Utc};
 
-        use crate::backend::janus::http::SessionId;
+        use crate::backend::janus::client::SessionId;
         use crate::db::agent::Status as AgentStatus;
         use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
         use crate::test_helpers::prelude::*;
@@ -1145,8 +1145,9 @@ mod test {
 
                         let backend1 = factory::JanusBackend::new(
                             backend1_id,
-                            crate::backend::janus::http::HandleId::random(),
+                            crate::backend::janus::client::HandleId::random(),
                             SessionId::random(),
+                            "todo".to_string(),
                         )
                         .capacity(20)
                         .insert(&conn);
@@ -1170,8 +1171,9 @@ mod test {
 
                         factory::JanusBackend::new(
                             backend2_id,
-                            crate::backend::janus::http::HandleId::random(),
+                            crate::backend::janus::client::HandleId::random(),
                             SessionId::random(),
+                            "todo".to_string(),
                         )
                         .capacity(5)
                         .insert(&conn);
@@ -1237,8 +1239,9 @@ mod test {
 
                         let backend = factory::JanusBackend::new(
                             backend_id,
-                            crate::backend::janus::http::HandleId::random(),
+                            crate::backend::janus::client::HandleId::random(),
                             SessionId::random(),
+                            "todo".to_string(),
                         )
                         .capacity(4)
                         .insert(&conn);
@@ -1346,8 +1349,9 @@ mod test {
 
                         let backend = factory::JanusBackend::new(
                             backend_id,
-                            crate::backend::janus::http::HandleId::random(),
+                            crate::backend::janus::client::HandleId::random(),
                             SessionId::random(),
+                            "todo".to_string(),
                         )
                         .capacity(2)
                         .insert(&conn);
@@ -1410,8 +1414,9 @@ mod test {
 
                         let backend = factory::JanusBackend::new(
                             backend_id,
-                            crate::backend::janus::http::HandleId::random(),
+                            crate::backend::janus::client::HandleId::random(),
                             SessionId::random(),
+                            "todo".to_string(),
                         )
                         .capacity(2)
                         .insert(&conn);
@@ -1490,8 +1495,9 @@ mod test {
 
                         let backend = factory::JanusBackend::new(
                             backend_id,
-                            crate::backend::janus::http::HandleId::random(),
+                            crate::backend::janus::client::HandleId::random(),
                             SessionId::random(),
+                            "todo".to_string(),
                         )
                         .capacity(1)
                         .insert(&conn);
@@ -1560,8 +1566,9 @@ mod test {
                             let id = agent.agent_id().to_owned();
                             factory::JanusBackend::new(
                                 id,
-                                crate::backend::janus::http::HandleId::random(),
+                                crate::backend::janus::client::HandleId::random(),
                                 SessionId::random(),
+                                "todo".to_string(),
                             )
                             .balancer_capacity(700)
                             .capacity(800)
@@ -1573,8 +1580,9 @@ mod test {
                             let id = agent.agent_id().to_owned();
                             factory::JanusBackend::new(
                                 id,
-                                crate::backend::janus::http::HandleId::random(),
+                                crate::backend::janus::client::HandleId::random(),
                                 SessionId::random(),
+                                "todo".to_string(),
                             )
                             .balancer_capacity(700)
                             .capacity(800)
@@ -1718,8 +1726,9 @@ mod test {
                             let id = agent.agent_id().to_owned();
                             factory::JanusBackend::new(
                                 id,
-                                crate::backend::janus::http::HandleId::random(),
+                                crate::backend::janus::client::HandleId::random(),
                                 SessionId::random(),
+                                "todo".to_string(),
                             )
                             .balancer_capacity(700)
                             .capacity(800)
@@ -2022,8 +2031,9 @@ mod test {
 
                     let backend1 = factory::JanusBackend::new(
                         backend1_agent.agent_id().to_owned(),
-                        crate::backend::janus::http::HandleId::random(),
+                        crate::backend::janus::client::HandleId::random(),
                         SessionId::random(),
+                        "todo".to_string(),
                     )
                     .group("wrong")
                     .insert(&conn);
@@ -2032,8 +2042,9 @@ mod test {
 
                     let backend2 = factory::JanusBackend::new(
                         backend2_agent.agent_id().to_owned(),
-                        crate::backend::janus::http::HandleId::random(),
+                        crate::backend::janus::client::HandleId::random(),
                         SessionId::random(),
+                        "todo".to_string(),
                     )
                     .group("right")
                     .insert(&conn);

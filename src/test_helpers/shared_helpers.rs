@@ -13,7 +13,7 @@ use crate::db::room::Object as Room;
 use crate::db::rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy};
 use crate::diesel::Identifiable;
 use crate::{
-    backend::janus::http::{HandleId, SessionId},
+    backend::janus::client::{HandleId, SessionId},
     db::agent::{Object as Agent, Status as AgentStatus},
 };
 
@@ -106,7 +106,7 @@ pub(crate) fn insert_connected_agent(
     let agent_connection = factory::AgentConnection::new(
         *agent.id(),
         rtc_id,
-        crate::backend::janus::http::HandleId::stub_id(),
+        crate::backend::janus::client::HandleId::stub_id(),
     )
     .insert(conn);
     (agent, agent_connection)
@@ -126,6 +126,7 @@ pub(crate) fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {
         agent.agent_id().to_owned(),
         HandleId::random(),
         SessionId::random(),
+        "todo".to_string(),
     )
     .insert(conn)
 }

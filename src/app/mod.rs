@@ -86,7 +86,7 @@ pub(crate) async fn run(
     let running_requests = Arc::new(AtomicI64::new(0));
 
     let janus_http_client =
-        crate::backend::janus::http::JanusClient::new(config.backend.janus_url.parse()?);
+        crate::backend::janus::client::JanusClient::new(config.backend.janus_url.parse()?);
     let (ev_tx, mut ev_rx) = futures_channel::mpsc::unbounded();
     // Context
     let context = AppContext::new(

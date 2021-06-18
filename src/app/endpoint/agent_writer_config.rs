@@ -15,13 +15,13 @@ use crate::db::rtc_writer_config::Object as RtcWriterConfig;
 use crate::diesel::Connection;
 use crate::{
     app::context::Context,
-    backend::janus::http::update_agent_writer_config::{
+    backend::janus::client::update_agent_writer_config::{
         UpdateWriterConfigRequest, UpdateWriterConfigRequestBodyConfigItem,
     },
 };
 use crate::{
     app::endpoint::prelude::*,
-    backend::janus::http::update_agent_writer_config::UpdateWriterConfigRequestBody,
+    backend::janus::client::update_agent_writer_config::UpdateWriterConfigRequestBody,
 };
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
