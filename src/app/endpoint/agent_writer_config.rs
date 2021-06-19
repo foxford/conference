@@ -8,11 +8,11 @@ use crate::{
     },
     db,
     db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig},
-    diesel::Connection,
 };
 use anyhow::anyhow;
-use async_std::stream;
+use async_std::{stream, task};
 use async_trait::async_trait;
+use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
@@ -124,28 +124,27 @@ impl RequestHandler for UpdateHandler {
             return Err(anyhow!("Too many items in `configs` list"))
                 .error(AppErrorKind::InvalidPayload)?;
         }
+        let conn = context.get_conn().await?;
+        let room = task::spawn_blocking({
+            let agent_id = reqp.as_agent_id().clone();
+            let room_id = payload.room_id;
+            move || {
+                let room =
+                    helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
 
-        let room = {
-            let conn = context.get_conn()?;
-
-            let room = helpers::find_room_by_id(
-                context,
-                payload.room_id,
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?;
-
-            if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-                return Err(anyhow!(
+                if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+                    return Err(anyhow!(
                     "Agent writer config is available only for rooms with owned RTC sharing policy"
                 ))
-                .error(AppErrorKind::InvalidPayload)?;
+                    .error(AppErrorKind::InvalidPayload)?;
+                }
+
+                helpers::check_room_presence(&room, &agent_id, &conn)?;
+                Ok::<_, AppError>(room)
             }
-
-            helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
-            room
-        };
-
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
         // Authorize agent writer config updating on the tenant.
         let is_only_owned_config =
             payload.configs.len() == 1 && &payload.configs[0].agent_id == reqp.as_agent_id();
@@ -164,66 +163,73 @@ impl RequestHandler for UpdateHandler {
             Some(authz_time)
         };
 
-        let conn = context.get_conn()?;
+        let conn = context.get_conn().await?;
 
-        let rtc_writer_configs_with_rtcs = conn.transaction::<_, AppError, _>(|| {
-            // Find RTCs owned by agents.
-            let agent_ids = payload
-                .configs
-                .iter()
-                .map(|c| &c.agent_id)
-                .collect::<Vec<_>>();
+        let (rtc_writer_configs_with_rtcs, maybe_backend) = task::spawn_blocking({
+            let room_id = room.id();
+            let backend_id = room.backend_id().cloned();
+            let agent_id = reqp.as_agent_id().clone();
+            move || {
+                conn.transaction::<_, AppError, _>(|| {
+                    // Find RTCs owned by agents.
+                    let agent_ids = payload
+                        .configs
+                        .iter()
+                        .map(|c| &c.agent_id)
+                        .collect::<Vec<_>>();
 
-            let rtcs = db::rtc::ListQuery::new()
-                .room_id(room.id())
-                .created_by(agent_ids.as_slice())
-                .execute(&conn)?;
+                    let rtcs = db::rtc::ListQuery::new()
+                        .room_id(room_id)
+                        .created_by(agent_ids.as_slice())
+                        .execute(&conn)?;
 
-            let agents_to_rtcs = rtcs
-                .iter()
-                .map(|rtc| (rtc.created_by(), rtc.id()))
-                .collect::<HashMap<_, _>>();
+                    let agents_to_rtcs = rtcs
+                        .iter()
+                        .map(|rtc| (rtc.created_by(), rtc.id()))
+                        .collect::<HashMap<_, _>>();
 
-            // Create or update the config.
-            for state_config_item in payload.configs {
-                let rtc_id = agents_to_rtcs
-                    .get(&state_config_item.agent_id)
-                    .ok_or_else(|| anyhow!("{} has no owned RTC", state_config_item.agent_id))
-                    .error(AppErrorKind::InvalidPayload)?;
+                    // Create or update the config.
+                    for state_config_item in payload.configs {
+                        let rtc_id = agents_to_rtcs
+                            .get(&state_config_item.agent_id)
+                            .ok_or_else(|| {
+                                anyhow!("{} has no owned RTC", state_config_item.agent_id)
+                            })
+                            .error(AppErrorKind::InvalidPayload)?;
 
-                let mut q = db::rtc_writer_config::UpsertQuery::new(*rtc_id);
+                        let mut q = db::rtc_writer_config::UpsertQuery::new(*rtc_id);
 
-                if let Some(send_video) = state_config_item.send_video {
-                    q = q.send_video(send_video);
-                }
+                        if let Some(send_video) = state_config_item.send_video {
+                            q = q.send_video(send_video);
+                        }
 
-                if let Some(send_audio) = state_config_item.send_audio {
-                    q = q
-                        .send_audio(send_audio)
-                        .send_audio_updated_by(reqp.as_agent_id());
-                }
+                        if let Some(send_audio) = state_config_item.send_audio {
+                            q = q.send_audio(send_audio).send_audio_updated_by(&agent_id);
+                        }
 
-                if let Some(video_remb) = state_config_item.video_remb {
-                    q = q.video_remb(video_remb.into());
-                }
+                        if let Some(video_remb) = state_config_item.video_remb {
+                            q = q.video_remb(video_remb.into());
+                        }
 
-                q.execute(&conn)?;
+                        q.execute(&conn)?;
+                    }
+
+                    // Retrieve state data.
+                    let rtc_writer_configs_with_rtcs =
+                        db::rtc_writer_config::ListWithRtcQuery::new(room_id).execute(&conn)?;
+                    // Find backend and send updates to it if present.
+                    let maybe_backend = match &backend_id {
+                        None => None,
+                        Some(backend_id) => db::janus_backend::FindQuery::new()
+                            .id(backend_id)
+                            .execute(&conn)?,
+                    };
+
+                    Ok::<_, AppError>((rtc_writer_configs_with_rtcs, maybe_backend))
+                })
             }
-
-            // Retrieve state data.
-            let rtc_writer_configs_with_rtcs =
-                db::rtc_writer_config::ListWithRtcQuery::new(room.id()).execute(&conn)?;
-
-            Ok(rtc_writer_configs_with_rtcs)
-        })?;
-
-        // Find backend and send updates to it if present.
-        let maybe_backend = match room.backend_id() {
-            None => None,
-            Some(backend_id) => db::janus_backend::FindQuery::new()
-                .id(backend_id)
-                .execute(&conn)?,
-        };
+        })
+        .await?;
 
         if let Some(backend) = maybe_backend {
             let items = rtc_writer_configs_with_rtcs
@@ -295,26 +301,32 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let conn = context.get_conn()?;
+        let conn = context.get_conn().await?;
+        let (room, rtc_writer_configs_with_rtcs) = task::spawn_blocking({
+            let agent_id = reqp.as_agent_id().clone();
+            move || {
+                let room = helpers::find_room_by_id(
+                    payload.room_id,
+                    helpers::RoomTimeRequirement::Open,
+                    &conn,
+                )?;
 
-        let room = helpers::find_room_by_id(
-            context,
-            payload.room_id,
-            helpers::RoomTimeRequirement::Open,
-            &conn,
-        )?;
+                if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+                    return Err(anyhow!(
+                    "Agent writer config is available only for rooms with owned RTC sharing policy"
+                ))
+                    .error(AppErrorKind::InvalidPayload)?;
+                }
 
-        if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-            return Err(anyhow!(
-                "Agent writer config is available only for rooms with owned RTC sharing policy"
-            ))
-            .error(AppErrorKind::InvalidPayload)?;
-        }
+                helpers::check_room_presence(&room, &agent_id, &conn)?;
 
-        helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
-
-        let rtc_writer_configs_with_rtcs =
-            db::rtc_writer_config::ListWithRtcQuery::new(room.id()).execute(&conn)?;
+                let rtc_writer_configs_with_rtcs =
+                    db::rtc_writer_config::ListWithRtcQuery::new(room.id()).execute(&conn)?;
+                Ok::<_, AppError>((room, rtc_writer_configs_with_rtcs))
+            }
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,

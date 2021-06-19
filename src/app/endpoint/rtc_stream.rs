@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use async_std::stream;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -46,17 +46,13 @@ impl RequestHandler for ListHandler {
         if let Some(rtc_id) = payload.rtc_id {
             context.add_logger_tags(o!("rtc_id" => rtc_id.to_string()));
         }
-
-        let room = {
-            let conn = context.get_conn()?;
-
-            helpers::find_room_by_id(
-                context,
-                payload.room_id,
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?
-        };
+        let conn = context.get_conn().await?;
+        let room = task::spawn_blocking({
+            let room_id = payload.room_id;
+            move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::None {
             let err = anyhow!(
@@ -75,26 +71,27 @@ impl RequestHandler for ListHandler {
             .authorize(room.audience(), reqp, object, "read")
             .await?;
 
-        let mut query = db::janus_rtc_stream::ListQuery::new().room_id(payload.room_id);
+        let conn = context.get_conn().await?;
+        let rtc_streams = task::spawn_blocking(move || {
+            let mut query = db::janus_rtc_stream::ListQuery::new().room_id(payload.room_id);
 
-        if let Some(rtc_id) = payload.rtc_id {
-            query = query.rtc_id(rtc_id);
-        }
+            if let Some(rtc_id) = payload.rtc_id {
+                query = query.rtc_id(rtc_id);
+            }
 
-        if let Some(time) = payload.time {
-            query = query.time(time);
-        }
+            if let Some(time) = payload.time {
+                query = query.time(time);
+            }
 
-        if let Some(offset) = payload.offset {
-            query = query.offset(offset);
-        }
+            if let Some(offset) = payload.offset {
+                query = query.offset(offset);
+            }
 
-        query = query.limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT));
+            query = query.limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT));
 
-        let rtc_streams = {
-            let conn = context.get_conn()?;
-            query.execute(&conn)?
-        };
+            query.execute(&conn)
+        })
+        .await?;
 
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,

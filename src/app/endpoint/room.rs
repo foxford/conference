@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context as AnyhowContext};
-use async_std::stream;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -80,25 +80,29 @@ impl RequestHandler for CreateHandler {
             .await?;
 
         // Create a room.
-        let room = {
-            let mut q =
-                db::room::InsertQuery::new(payload.time, &payload.audience, rtc_sharing_policy);
+        let conn = context.get_conn().await?;
+        let audience = payload.audience.clone();
+        let room = task::spawn_blocking({
+            move || {
+                let mut q =
+                    db::room::InsertQuery::new(payload.time, &payload.audience, rtc_sharing_policy);
 
-            if let Some(reserve) = payload.reserve {
-                q = q.reserve(reserve);
+                if let Some(reserve) = payload.reserve {
+                    q = q.reserve(reserve);
+                }
+
+                if let Some(ref tags) = payload.tags {
+                    q = q.tags(tags);
+                }
+
+                if let Some(classroom_id) = payload.classroom_id {
+                    q = q.classroom_id(classroom_id);
+                }
+
+                q.execute(&conn)
             }
-
-            if let Some(ref tags) = payload.tags {
-                q = q.tags(tags);
-            }
-
-            if let Some(classroom_id) = payload.classroom_id {
-                q = q.classroom_id(classroom_id);
-            }
-
-            let conn = context.get_conn()?;
-            q.execute(&conn)?
-        };
+        })
+        .await?;
 
         helpers::add_room_logger_tags(context, &room);
 
@@ -114,7 +118,7 @@ impl RequestHandler for CreateHandler {
 
         let notification = helpers::build_notification(
             "room.create",
-            &format!("audiences/{}/events", payload.audience),
+            &format!("audiences/{}/events", audience),
             room,
             reqp,
             context.start_timestamp(),
@@ -143,16 +147,11 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room = {
-            let conn = context.get_conn()?;
-
-            helpers::find_room_by_id(
-                context,
-                payload.id,
-                helpers::RoomTimeRequirement::Any,
-                &conn,
-            )?
-        };
+        let conn = context.get_conn().await?;
+        let room = task::spawn_blocking(move || {
+            helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)
+        })
+        .await?;
 
         // Authorize room reading on the tenant.
         let room_id = room.id().to_string();
@@ -203,12 +202,14 @@ impl RequestHandler for UpdateHandler {
         } else {
             helpers::RoomTimeRequirement::Any
         };
+        let conn = context.get_conn().await?;
 
-        let room = {
-            let conn = context.get_conn()?;
-
-            helpers::find_room_by_id(context, payload.id, time_requirement, &conn)?
-        };
+        let room = task::spawn_blocking({
+            let id = payload.id;
+            move || helpers::find_room_by_id(id, time_requirement, &conn)
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
@@ -222,8 +223,8 @@ impl RequestHandler for UpdateHandler {
         let room_was_open = !room.is_closed();
 
         // Update room.
-        let room = {
-            let conn = context.get_conn()?;
+        let conn = context.get_conn().await?;
+        let room = task::spawn_blocking(move ||{
 
             let time = match payload.time {
                 None => None,
@@ -261,13 +262,13 @@ impl RequestHandler for UpdateHandler {
                 }
             };
 
-            db::room::UpdateQuery::new(room.id())
+            Ok::<_, AppError>(db::room::UpdateQuery::new(room.id())
                 .time(time)
                 .reserve(payload.reserve)
                 .tags(payload.tags)
                 .classroom_id(payload.classroom_id)
-                .execute(&conn)?
-        };
+                .execute(&conn)?)
+        }).await?;
 
         // Respond and broadcast to the audience topic.
         let response = helpers::build_response(
@@ -328,16 +329,12 @@ impl RequestHandler for EnterHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room = {
-            let conn = context.get_conn()?;
-
-            helpers::find_room_by_id(
-                context,
-                payload.id,
-                helpers::RoomTimeRequirement::NotClosed,
-                &conn,
-            )?
-        };
+        let conn = context.get_conn().await?;
+        let room = task::spawn_blocking(move || {
+            helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::NotClosed, &conn)
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();
@@ -349,10 +346,12 @@ impl RequestHandler for EnterHandler {
             .await?;
 
         // Register agent in `in_progress` state.
-        {
-            let conn = context.get_conn()?;
-            db::agent::InsertQuery::new(reqp.as_agent_id(), room.id()).execute(&conn)?;
-        }
+        let conn = context.get_conn().await?;
+        task::spawn_blocking({
+            let agent_id = reqp.as_agent_id().clone();
+            move || db::agent::InsertQuery::new(&agent_id, room.id()).execute(&conn)
+        })
+        .await?;
 
         // Send dynamic subscription creation request to the broker.
         let subject = reqp.as_agent_id().to_owned();
@@ -403,24 +402,24 @@ impl RequestHandler for LeaveHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let (room, presence) = {
-            let conn = context.get_conn()?;
+        let conn = context.get_conn().await?;
+        let (room, presence) = task::spawn_blocking({
+            let agent_id = reqp.as_agent_id().clone();
+            move || {
+                let room =
+                    helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)?;
 
-            let room = helpers::find_room_by_id(
-                context,
-                payload.id,
-                helpers::RoomTimeRequirement::Any,
-                &conn,
-            )?;
+                // Check room presence.
+                let presence = db::agent::ListQuery::new()
+                    .room_id(room.id())
+                    .agent_id(&agent_id)
+                    .execute(&conn)?;
 
-            // Check room presence.
-            let presence = db::agent::ListQuery::new()
-                .room_id(room.id())
-                .agent_id(reqp.as_agent_id())
-                .execute(&conn)?;
-
-            (room, presence)
-        };
+                Ok::<_, AppError>((room, presence))
+            }
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         if presence.is_empty() {
             return Err(anyhow!("Agent is not online in the room"))

@@ -1,6 +1,6 @@
 use crate::app::{context::Context, endpoint::prelude::*, API_VERSION};
 use anyhow::anyhow;
-use async_std::stream;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
@@ -47,17 +47,20 @@ impl RequestHandler for UnicastHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         {
-            let conn = context.get_conn()?;
+            let conn = context.get_conn().await?;
+            let room_id = payload.room_id;
+            let reqp_agent_id = reqp.as_agent_id().clone();
+            let payload_agent_id = payload.agent_id.clone();
+            let room = task::spawn_blocking(move || {
+                let room =
+                    helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
 
-            let room = helpers::find_room_by_id(
-                context,
-                payload.room_id,
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?;
-
-            helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
-            helpers::check_room_presence(&room, &payload.agent_id, &conn)?;
+                helpers::check_room_presence(&room, &reqp_agent_id, &conn)?;
+                helpers::check_room_presence(&room, &payload_agent_id, &conn)?;
+                Ok::<_, AppError>(room)
+            })
+            .await?;
+            helpers::add_room_logger_tags(context, &room);
         }
 
         let response_topic =
@@ -112,19 +115,20 @@ impl RequestHandler for BroadcastHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room = {
-            let conn = context.get_conn()?;
+        let conn = context.get_conn().await?;
+        let room = task::spawn_blocking({
+            let agent_id = reqp.as_agent_id().clone();
+            let room_id = payload.room_id;
+            move || {
+                let room =
+                    helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
 
-            let room = helpers::find_room_by_id(
-                context,
-                payload.room_id,
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?;
-
-            helpers::check_room_presence(&room, &reqp.as_agent_id(), &conn)?;
-            room
-        };
+                helpers::check_room_presence(&room, &agent_id, &conn)?;
+                Ok::<_, AppError>(room)
+            }
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         // Respond and broadcast to the room topic.
         let response = helpers::build_response(

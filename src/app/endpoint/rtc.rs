@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context as AnyhowContext};
-use async_std::stream;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -55,16 +55,12 @@ impl RequestHandler for CreateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room = {
-            let conn = context.get_conn()?;
-
-            helpers::find_room_by_id(
-                context,
-                payload.room_id,
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?
-        };
+        let conn = context.get_conn().await?;
+        let room = task::spawn_blocking(move || {
+            helpers::find_room_by_id(payload.room_id, helpers::RoomTimeRequirement::Open, &conn)
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         // Authorize room creation.
         let room_id = room.id().to_string();
@@ -76,29 +72,31 @@ impl RequestHandler for CreateHandler {
             .await?;
 
         // Create an rtc.
-        let rtc = {
-            let conn = context.get_conn()?;
+        let conn = context.get_conn().await?;
+        let max_room_duration = context.config().max_room_duration;
+        let room_id = room.id();
+        let rtc = task::spawn_blocking({
+            let agent_id = reqp.as_agent_id().clone();
+            move || {
+                conn.transaction::<_, diesel::result::Error, _>(|| {
+                    if let Some(max_room_duration) = max_room_duration {
+                        if let (start, Bound::Unbounded) = room.time() {
+                            let new_time = (
+                                *start,
+                                Bound::Excluded(Utc::now() + Duration::hours(max_room_duration)),
+                            );
 
-            conn.transaction::<_, diesel::result::Error, _>(|| {
-                if let Some(max_room_duration) = context.config().max_room_duration {
-                    if let (start, Bound::Unbounded) = room.time() {
-                        let new_time = (
-                            *start,
-                            Bound::Excluded(Utc::now() + Duration::hours(max_room_duration)),
-                        );
-
-                        db::room::UpdateQuery::new(room.id())
-                            .time(Some(new_time))
-                            .execute(&conn)?;
+                            db::room::UpdateQuery::new(room.id())
+                                .time(Some(new_time))
+                                .execute(&conn)?;
+                        }
                     }
-                }
 
-                let rtc =
-                    db::rtc::InsertQuery::new(room.id(), reqp.as_agent_id()).execute(&conn)?;
-
-                Ok(rtc)
-            })?
-        };
+                    db::rtc::InsertQuery::new(room.id(), &agent_id).execute(&conn)
+                })
+            }
+        })
+        .await?;
 
         context.add_logger_tags(o!("rtc_id" => rtc.id().to_string()));
 
@@ -113,7 +111,7 @@ impl RequestHandler for CreateHandler {
 
         let notification = helpers::build_notification(
             "rtc.create",
-            &format!("rooms/{}/events", room.id()),
+            &format!("rooms/{}/events", room_id),
             rtc,
             reqp,
             context.start_timestamp(),
@@ -142,16 +140,15 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room = {
-            let conn = context.get_conn()?;
-
-            helpers::find_room_by_rtc_id(
-                context,
-                payload.id,
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?
-        };
+        let conn = context.get_conn().await?;
+        let room = task::spawn_blocking({
+            let payload_id = payload.id;
+            move || {
+                helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
+            }
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         // Authorize rtc reading.
         let rtc_id = payload.id.to_string();
@@ -164,15 +161,15 @@ impl RequestHandler for ReadHandler {
             .await?;
 
         // Return rtc.
-        let rtc = {
-            let conn = context.get_conn()?;
-
+        let conn = context.get_conn().await?;
+        let rtc = task::spawn_blocking(move || {
             db::rtc::FindQuery::new()
                 .id(payload.id)
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("RTC not found"))
-                .error(AppErrorKind::RtcNotFound)?
-        };
+                .error(AppErrorKind::RtcNotFound)
+        })
+        .await?;
 
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
@@ -207,16 +204,15 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room = {
-            let conn = context.get_conn()?;
-
-            helpers::find_room_by_id(
-                context,
-                payload.room_id,
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?
-        };
+        let conn = context.get_conn().await?;
+        let room = task::spawn_blocking({
+            let payload_room_id = payload.room_id;
+            move || {
+                helpers::find_room_by_id(payload_room_id, helpers::RoomTimeRequirement::Open, &conn)
+            }
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         // Authorize rtc listing.
         let room_id = room.id().to_string();
@@ -228,19 +224,20 @@ impl RequestHandler for ListHandler {
             .await?;
 
         // Return rtc list.
-        let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
+        let conn = context.get_conn().await?;
+        let rtcs = task::spawn_blocking(move || {
+            let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
 
-        if let Some(offset) = payload.offset {
-            query = query.offset(offset);
-        }
+            if let Some(offset) = payload.offset {
+                query = query.offset(offset);
+            }
 
-        let limit = std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT);
-        query = query.limit(limit);
+            let limit = std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT);
+            query = query.limit(limit);
 
-        let rtcs = {
-            let conn = context.get_conn()?;
-            query.execute(&conn)?
-        };
+            Ok::<_, AppError>(query.execute(&conn)?)
+        })
+        .await?;
 
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
@@ -299,17 +296,13 @@ impl RequestHandler for ConnectHandler {
             "rtc_id" => payload.id.to_string(),
             "intent" => payload.intent.to_string(),
         ));
-
-        let room = {
-            let conn = context.get_conn()?;
-
-            helpers::find_room_by_rtc_id(
-                context,
-                payload.id,
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?
-        };
+        let conn = context.get_conn().await?;
+        let payload_id = payload.id;
+        let room = task::spawn_blocking(move || {
+            helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         // Authorize connecting to the rtc.
         match room.rtc_sharing_policy() {
@@ -324,13 +317,16 @@ impl RequestHandler for ConnectHandler {
             RtcSharingPolicy::Owned => {
                 if payload.intent == ConnectIntent::Write {
                     // Check that the RTC is owned by the same agent.
-                    let conn = context.get_conn()?;
+                    let conn = context.get_conn().await?;
 
-                    let rtc = db::rtc::FindQuery::new()
-                        .id(payload.id)
-                        .execute(&conn)?
-                        .ok_or_else(|| anyhow!("RTC not found"))
-                        .error(AppErrorKind::RtcNotFound)?;
+                    let rtc = task::spawn_blocking(move || {
+                        db::rtc::FindQuery::new()
+                            .id(payload_id)
+                            .execute(&conn)?
+                            .ok_or_else(|| anyhow!("RTC not found"))
+                            .error(AppErrorKind::RtcNotFound)
+                    })
+                    .await?;
 
                     if rtc.created_by() != reqp.as_agent_id() {
                         return Err(anyhow!("RTC doesn't belong to the agent"))
@@ -355,10 +351,11 @@ impl RequestHandler for ConnectHandler {
             .await?;
 
         // Choose backend to connect.
-        let backend = {
-            let conn = context.get_conn()?;
-            let group = context.config().janus_group.as_deref();
-
+        let group = context.config().janus_group.clone();
+        let conn = context.get_conn().await?;
+        let logger = context.logger().clone();
+        let room_id = room.id();
+        let backend = task::spawn_blocking(move || {
             // There are 3 cases:
             // 1. Connecting as writer for the first time. There's no `backend_id` in that case.
             //    Select the most loaded backend that is capable to host the room's reservation.
@@ -375,17 +372,17 @@ impl RequestHandler for ConnectHandler {
                     .execute(&conn)?
                     .ok_or_else(|| anyhow!("No backend found for stream"))
                     .error(AppErrorKind::BackendNotFound)?,
-                None => match db::janus_backend::most_loaded(room.id(), group, &conn)? {
+                None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn)? {
                     Some(backend) => backend,
-                    None => db::janus_backend::least_loaded(room.id(), group, &conn)?
+                    None => db::janus_backend::least_loaded(room.id(), group.as_deref(), &conn)?
                         .map(|backend| {
                             use sentry::protocol::{value::Value, Event, Level};
                             let backend_id = backend.id().to_string();
 
-                            warn!(context.logger(), "No capable backends to host the reserve; falling back to the least loaded backend: room_id = {}, rtc_id = {}, backend_id = {}", room_id, rtc_id, backend_id);
+                            warn!(logger, "No capable backends to host the reserve; falling back to the least loaded backend: room_id = {}, rtc_id = {}, backend_id = {}", room_id, rtc_id, backend_id);
 
                             let mut extra = std::collections::BTreeMap::new();
-                            extra.insert(String::from("room_id"), Value::from(room_id.clone()));
+                            extra.insert(String::from("room_id"), Value::from(room_id.to_string()));
                             extra.insert(String::from("rtc_id"), Value::from(rtc_id));
                             extra.insert(String::from("backend_id"), Value::from(backend_id));
 
@@ -437,8 +434,8 @@ impl RequestHandler for ConnectHandler {
                 .error(AppErrorKind::CapacityExceeded);
             }
 
-            backend
-        };
+            Ok::<_, AppError>(backend)
+        }).await?;
 
         context.add_logger_tags(o!("backend_id" => backend.id().to_string()));
         let rtc_stream_id = Uuid::new_v4();
@@ -455,42 +452,41 @@ impl RequestHandler for ConnectHandler {
             .context("Handle creating")
             .error(AppErrorKind::BackendRequestFailed)?;
 
-        let agent_id = reqp.as_agent_id();
-        {
-            let conn = context.get_conn()?;
-
+        let agent_id = reqp.as_agent_id().clone();
+        let conn = context.get_conn().await?;
+        context.add_logger_tags(o!(
+            "agent_id" => agent_id.to_string(),
+        ));
+        let handle_id = handle.id;
+        task::spawn_blocking(move || {
             conn.transaction::<_, AppError, _>(|| {
                 // Find agent in the DB who made the original `rtc.connect` request.
                 let maybe_agent = agent::ListQuery::new()
-                    .agent_id(agent_id)
-                    .room_id(room.id())
+                    .agent_id(&agent_id)
+                    .room_id(room_id)
                     .status(agent::Status::Ready)
                     .limit(1)
                     .execute(&conn)?;
 
                 if let Some(agent) = maybe_agent.first() {
                     // Create agent connection in the DB.
-                    agent_connection::UpsertQuery::new(*agent.id(), payload.id, handle.id)
+                    agent_connection::UpsertQuery::new(*agent.id(), payload_id, handle_id)
                         .execute(&conn)?;
 
                     Ok(())
                 } else {
-                    context.add_logger_tags(o!(
-                        "agent_id" => agent_id.to_string(),
-                        "room_id" => room_id.to_string(),
-                    ));
-
                     // Agent may be already gone.
                     Err(anyhow!("Agent not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
                 }
-            })?;
-        }
+            })
+        })
+        .await?;
 
         // Returning Real-Time connection handle
         let resp = endpoint::rtc::ConnectResponse::unicast(
             endpoint::rtc::ConnectResponseData::new(HandleId::new(
                 rtc_stream_id,
-                payload.id,
+                payload_id,
                 handle.id,
                 backend.session_id(),
                 backend.id().clone(),
@@ -1307,7 +1303,7 @@ mod test {
 
                 // Delete agent
                 {
-                    let conn = context.get_conn().expect("Failed to acquire db conn");
+                    let conn = context.get_conn().await.expect("Failed to acquire db conn");
                     let row_count = db::agent::DeleteQuery::new()
                         .agent_id(&reader1.agent_id())
                         .room_id(rtc2.room_id())

@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use async_std::stream;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -89,13 +89,20 @@ impl RequestHandler for VacuumHandler {
             .await?;
 
         let mut requests = Vec::new();
-        let conn = context.get_conn()?;
-        let rooms = db::room::finished_with_in_progress_recordings(&conn)?;
+        let conn = context.get_conn().await?;
+        let rooms =
+            task::spawn_blocking(move || db::room::finished_with_in_progress_recordings(&conn))
+                .await?;
 
         for (room, recording, backend) in rooms.into_iter() {
-            db::agent::DeleteQuery::new()
-                .room_id(room.id())
-                .execute(&conn)?;
+            let conn = context.get_conn().await?;
+            let room_id = room.id();
+            task::spawn_blocking(move || {
+                db::agent::DeleteQuery::new()
+                    .room_id(room_id)
+                    .execute(&conn)
+            })
+            .await?;
 
             let config = upload_config(context, &room)?;
             let request = UploadStreamRequest {

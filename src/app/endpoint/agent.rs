@@ -1,4 +1,4 @@
-use async_std::stream;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use serde::Deserialize;
 use svc_agent::mqtt::{IncomingRequestProperties, ResponseStatus};
@@ -32,16 +32,13 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room = {
-            let conn = context.get_conn()?;
-
-            helpers::find_room_by_id(
-                context,
-                payload.room_id,
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?
-        };
+        let conn = context.get_conn().await?;
+        let room = task::spawn_blocking({
+            let room_id = payload.room_id;
+            move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         // Authorize agents listing in the room.
         let room_id = room.id().to_string();
@@ -53,15 +50,15 @@ impl RequestHandler for ListHandler {
             .await?;
 
         // Get agents list in the room.
-        let agents = {
-            let conn = context.get_conn()?;
-
+        let conn = context.get_conn().await?;
+        let agents = task::spawn_blocking(move || {
             db::agent::ListQuery::new()
                 .room_id(payload.room_id)
                 .offset(payload.offset.unwrap_or(0))
                 .limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT))
-                .execute(&conn)?
-        };
+                .execute(&conn)
+        })
+        .await?;
 
         // Respond with agents list.
         Ok(Box::new(stream::once(helpers::build_response(

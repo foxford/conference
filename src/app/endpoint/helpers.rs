@@ -64,44 +64,36 @@ pub enum RoomTimeRequirement {
     Open,
 }
 
-pub fn find_room_by_id<C: Context>(
-    context: &mut C,
+pub fn find_room_by_id(
     id: Uuid,
     opening_requirement: RoomTimeRequirement,
     conn: &PgConnection,
 ) -> Result<db::room::Object, AppError> {
-    context.add_logger_tags(o!("room_id" => id.to_string()));
     let query = db::room::FindQuery::new(id);
-    find_room(context, query, opening_requirement, conn)
+    find_room(query, opening_requirement, conn)
 }
 
-pub fn find_room_by_rtc_id<C: Context>(
-    context: &mut C,
+pub fn find_room_by_rtc_id(
     rtc_id: Uuid,
     opening_requirement: RoomTimeRequirement,
     conn: &PgConnection,
 ) -> Result<db::room::Object, AppError> {
-    context.add_logger_tags(o!("rtc_id" => rtc_id.to_string()));
     let query = db::room::FindByRtcIdQuery::new(rtc_id);
-    find_room(context, query, opening_requirement, conn)
+    find_room(query, opening_requirement, conn)
 }
 
-fn find_room<C, Q>(
-    context: &mut C,
+fn find_room<Q>(
     query: Q,
     opening_requirement: RoomTimeRequirement,
     conn: &PgConnection,
 ) -> Result<Room, AppError>
 where
-    C: Context,
     Q: db::room::FindQueryable,
 {
     let room = query
         .execute(&conn)?
         .ok_or_else(|| anyhow!("Room not found"))
         .error(AppErrorKind::RoomNotFound)?;
-
-    add_room_logger_tags(context, &room);
 
     match opening_requirement {
         // Room time doesn't matter.

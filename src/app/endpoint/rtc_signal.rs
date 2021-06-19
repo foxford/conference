@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context as AnyhowContext};
-use async_std::stream;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
@@ -80,27 +80,29 @@ impl RequestHandler for CreateHandler {
         }
 
         // Validate RTC and room presence.
-        let (room, rtc, backend) = {
-            let conn = context.get_conn()?;
+        let conn = context.get_conn().await?;
+        let (room, rtc, backend) = task::spawn_blocking({
+            let agent_id = reqp.as_agent_id().clone();
+            let handle_id = payload.handle_id.clone();
+            move ||{
 
             let rtc = db::rtc::FindQuery::new()
-                .id(payload.handle_id.rtc_id())
+                .id(handle_id.rtc_id())
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("RTC not found"))
                 .error(AppErrorKind::RtcNotFound)?;
 
             let room = helpers::find_room_by_id(
-                context,
                 rtc.room_id(),
                 helpers::RoomTimeRequirement::Open,
                 &conn,
             )?;
 
-            helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
+            helpers::check_room_presence(&room, &agent_id, &conn)?;
 
             // Validate backend and janus session id.
             if let Some(backend_id) = room.backend_id() {
-                if payload.handle_id.backend_id() != backend_id {
+                if handle_id.backend_id() != backend_id {
                     return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
                         .error(AppErrorKind::InvalidHandleId);
                 }
@@ -109,30 +111,31 @@ impl RequestHandler for CreateHandler {
             }
 
             let janus_backend = db::janus_backend::FindQuery::new()
-                .id(payload.handle_id.backend_id())
+                .id(handle_id.backend_id())
                 .execute(&conn)?
                 .ok_or_else(|| anyhow!("Backend not found"))
                 .error(AppErrorKind::BackendNotFound)?;
 
-            if payload.handle_id.janus_session_id() != janus_backend.session_id() {
+            if handle_id.janus_session_id() != janus_backend.session_id() {
                 return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
                     .error(AppErrorKind::InvalidHandleId)?;
             }
 
             // Validate agent connection and handle id.
             let agent_connection =
-                db::agent_connection::FindQuery::new(reqp.as_agent_id(), rtc.id())
+                db::agent_connection::FindQuery::new(&agent_id, rtc.id())
                     .execute(&conn)?
                     .ok_or_else(|| anyhow!("Agent not connected"))
                     .error(AppErrorKind::AgentNotConnected)?;
 
-            if payload.handle_id.janus_handle_id() != agent_connection.handle_id() {
+            if handle_id.janus_handle_id() != agent_connection.handle_id() {
                 return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
                     .error(AppErrorKind::InvalidHandleId)?;
             }
 
-            (room, rtc, janus_backend)
-        };
+            Ok::<_, AppError>((room, rtc, janus_backend))
+        }}).await?;
+        helpers::add_room_logger_tags(context, &room);
 
         match payload.jsep {
             Jsep::OfferOrAnswer { kind, ref sdp } => {
@@ -182,25 +185,31 @@ impl RequestHandler for CreateHandler {
                                 authorize(context, &payload, reqp, "update", &room).await?;
 
                             // Updating the Real-Time Connection state
-                            {
-                                let label = payload
-                                    .label
-                                    .as_ref()
-                                    .ok_or_else(|| anyhow!("Missing label"))
-                                    .error(AppErrorKind::MessageParsingFailed)?;
+                            let label = payload
+                                .label
+                                .as_ref()
+                                .ok_or_else(|| anyhow!("Missing label"))
+                                .error(AppErrorKind::MessageParsingFailed)?
+                                .clone();
 
-                                let conn = context.get_conn()?;
+                            let conn = context.get_conn().await?;
 
-                                db::janus_rtc_stream::InsertQuery::new(
-                                    payload.handle_id.rtc_stream_id(),
-                                    payload.handle_id.janus_handle_id(),
-                                    payload.handle_id.rtc_id(),
-                                    payload.handle_id.backend_id(),
-                                    label,
-                                    reqp.as_agent_id(),
-                                )
-                                .execute(&conn)?;
-                            }
+                            task::spawn_blocking({
+                                let handle_id = payload.handle_id.clone();
+                                let agent_id = reqp.as_agent_id().clone();
+                                move || {
+                                    db::janus_rtc_stream::InsertQuery::new(
+                                        handle_id.rtc_stream_id(),
+                                        handle_id.janus_handle_id(),
+                                        handle_id.rtc_id(),
+                                        handle_id.backend_id(),
+                                        &label,
+                                        &agent_id,
+                                    )
+                                    .execute(&conn)
+                                }
+                            })
+                            .await?;
 
                             let agent_id = reqp.as_agent_id().to_owned();
                             let request = CreateStreamRequest {
@@ -430,7 +439,7 @@ mod test {
                 .expect("Rtc signal creation failed");
 
             // Assert rtc stream presence in the DB.
-            let conn = context.get_conn().unwrap();
+            let conn = context.get_conn().await.unwrap();
             let query = crate::schema::janus_rtc_stream::table.find(rtc_stream_id);
 
             let rtc_stream: crate::db::janus_rtc_stream::Object = query.get_result(&conn).unwrap();

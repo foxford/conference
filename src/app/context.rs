@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_std::task::JoinHandle;
 use chrono::{DateTime, Utc};
 use diesel::{
     pg::PgConnection,
@@ -30,11 +31,15 @@ pub trait GlobalContext: Sync {
     fn queue_counter(&self) -> &Option<QueueCounterHandle>;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
 
-    fn get_conn(&self) -> Result<PooledConnection<ConnectionManager<PgConnection>>, AppError> {
-        self.db()
-            .get()
-            .map_err(|err| anyhow::Error::from(err).context("Failed to acquire DB connection"))
-            .error(AppErrorKind::DbConnAcquisitionFailed)
+    fn get_conn(
+        &self,
+    ) -> JoinHandle<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
+        let db = self.db().clone();
+        async_std::task::spawn_blocking(move || {
+            db.get()
+                .map_err(|err| anyhow::Error::from(err).context("Failed to acquire DB connection"))
+                .error(AppErrorKind::DbConnAcquisitionFailed)
+        })
     }
 }
 

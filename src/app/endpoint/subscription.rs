@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use async_std::stream;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -79,22 +79,20 @@ impl ResponseHandler for CreateResponseHandler {
 
         // Find room.
         let room_id = try_room_id(&corr_data.object)?;
-
-        {
-            let conn = context.get_conn()?;
-
-            helpers::find_room_by_id(
-                context,
-                room_id,
-                helpers::RoomTimeRequirement::NotClosed,
-                &conn,
-            )?;
+        let conn = context.get_conn().await?;
+        let subject = corr_data.subject.clone();
+        let room = task::spawn_blocking(move || {
+            let room =
+                helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)?;
 
             // Update agent state to `ready`.
-            db::agent::UpdateQuery::new(&corr_data.subject, room_id)
+            db::agent::UpdateQuery::new(&subject, room_id)
                 .status(db::agent::Status::Ready)
                 .execute(&conn)?;
-        }
+            Ok::<_, AppError>(room)
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         // Send a response to the original `room.enter` request and a room-wide notification.
         let response = helpers::build_response(
@@ -234,68 +232,82 @@ async fn leave_room<C: Context>(
 ) -> StdResult<bool, AppError> {
     // Delete agent from the DB.
     context.add_logger_tags(o!("room_id" => room_id.to_string()));
-    let conn = context.get_conn()?;
 
-    let row_count = db::agent::DeleteQuery::new()
-        .agent_id(agent_id)
-        .room_id(room_id)
-        .execute(&conn)?;
+    let conn = context.get_conn().await?;
+    let backends = task::spawn_blocking({
+        let agent_id = agent_id.clone();
 
-    if row_count != 1 {
-        return Ok(false);
-    }
+        move || {
+            let row_count = db::agent::DeleteQuery::new()
+                .agent_id(&agent_id)
+                .room_id(room_id)
+                .execute(&conn)?;
 
-    // `agent.leave` requests to Janus instances that host active streams in this room.
-    let streams = db::janus_rtc_stream::ListQuery::new()
-        .room_id(room_id)
-        .active(true)
-        .execute(&conn)?;
+            if row_count != 1 {
+                return Ok::<_, AppError>(None);
+            }
 
-    let mut maybe_stopped_rtc_id = None;
+            // `agent.leave` requests to Janus instances that host active streams in this room.
+            let streams = db::janus_rtc_stream::ListQuery::new()
+                .room_id(room_id)
+                .active(true)
+                .execute(&conn)?;
 
-    for stream in streams.iter() {
-        // If the agent is a publisher.
-        if stream.sent_by() == agent_id {
-            // Stop the stream.
-            db::janus_rtc_stream::stop(stream.id(), &conn)?;
-            maybe_stopped_rtc_id = Some(stream.rtc_id());
+            let mut maybe_stopped_rtc_id = None;
+
+            for stream in streams.iter() {
+                // If the agent is a publisher.
+                if stream.sent_by() == &agent_id {
+                    // Stop the stream.
+                    db::janus_rtc_stream::stop(stream.id(), &conn)?;
+                    maybe_stopped_rtc_id = Some(stream.rtc_id());
+                }
+            }
+
+            // Disconnect stream readers since the stream has gone.
+            if let Some(rtc_id) = maybe_stopped_rtc_id {
+                db::agent_connection::BulkDisconnectByRtcQuery::new(rtc_id).execute(&conn)?;
+            }
+
+            // Send agent.leave requests to those backends where the agent is connected to.
+            let mut backend_ids = streams
+                .iter()
+                .map(|stream| stream.backend_id())
+                .collect::<Vec<&AgentId>>();
+
+            backend_ids.dedup();
+
+            let backends = db::janus_backend::ListQuery::new()
+                .ids(&backend_ids[..])
+                .execute(&conn)?;
+            Ok::<_, AppError>(Some(backends))
         }
+    })
+    .await?;
+
+    match backends {
+        Some(backends) => {
+            let mut leave_tasks = Vec::new();
+            for backend in backends {
+                let request = AgentLeaveRequest {
+                    body: AgentLeaveRequestBody::new(agent_id.to_owned()),
+                    handle_id: backend.handle_id(),
+                    session_id: backend.session_id(),
+                };
+                let client = context
+                    .janus_clients()
+                    .get_or_insert(&backend)
+                    .error(AppErrorKind::BackendClientCreationFailed)?;
+                leave_tasks.push(async move { client.agent_leave(request).await });
+            }
+            futures::future::try_join_all(leave_tasks)
+                .await
+                .error(AppErrorKind::BackendRequestFailed)?;
+
+            Ok(true)
+        }
+        None => Ok(false),
     }
-
-    // Disconnect stream readers since the stream has gone.
-    if let Some(rtc_id) = maybe_stopped_rtc_id {
-        db::agent_connection::BulkDisconnectByRtcQuery::new(rtc_id).execute(&conn)?;
-    }
-
-    // Send agent.leave requests to those backends where the agent is connected to.
-    let mut backend_ids = streams
-        .iter()
-        .map(|stream| stream.backend_id())
-        .collect::<Vec<&AgentId>>();
-
-    backend_ids.dedup();
-
-    let backends = db::janus_backend::ListQuery::new()
-        .ids(&backend_ids[..])
-        .execute(&conn)?;
-    let mut leave_tasks = Vec::new();
-    for backend in backends {
-        let request = AgentLeaveRequest {
-            body: AgentLeaveRequestBody::new(agent_id.to_owned()),
-            handle_id: backend.handle_id(),
-            session_id: backend.session_id(),
-        };
-        let client = context
-            .janus_clients()
-            .get_or_insert(&backend)
-            .error(AppErrorKind::BackendClientCreationFailed)?;
-        leave_tasks.push(async move { client.agent_leave(request).await });
-    }
-    futures::future::try_join_all(leave_tasks)
-        .await
-        .error(AppErrorKind::BackendRequestFailed)?;
-
-    Ok(true)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -383,7 +395,10 @@ mod tests {
                 assert_eq!(&payload.agent_id, agent.agent_id());
 
                 // Assert agent turned to `ready` status.
-                let conn = context.get_conn().expect("Failed to get DB connection");
+                let conn = context
+                    .get_conn()
+                    .await
+                    .expect("Failed to get DB connection");
 
                 let db_agents = AgentListQuery::new()
                     .agent_id(agent.agent_id())
@@ -541,7 +556,10 @@ mod tests {
                 assert_eq!(&payload.agent_id, agent.agent_id());
 
                 // Assert agent deleted from the DB.
-                let conn = context.get_conn().expect("Failed to get DB connection");
+                let conn = context
+                    .get_conn()
+                    .await
+                    .expect("Failed to get DB connection");
 
                 let db_agents = AgentListQuery::new()
                     .agent_id(agent.agent_id())
@@ -672,7 +690,10 @@ mod tests {
                 assert_eq!(&payload.agent_id, agent.agent_id());
 
                 // Assert agent deleted from the DB.
-                let conn = context.get_conn().expect("Failed to get DB connection");
+                let conn = context
+                    .get_conn()
+                    .await
+                    .expect("Failed to get DB connection");
 
                 let db_agents = AgentListQuery::new()
                     .agent_id(agent.agent_id())
