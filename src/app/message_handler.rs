@@ -4,7 +4,6 @@ use async_std::{
     stream::{self, Stream},
 };
 use chrono::{DateTime, Utc};
-use futures_util::pin_mut;
 use slog::{error, o, warn};
 use std::{future::Future, pin::Pin};
 use svc_agent::{
@@ -193,10 +192,9 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
 
     async fn publish_outgoing_messages(
         &self,
-        message_stream: MessageStream,
+        mut message_stream: MessageStream,
     ) -> Result<(), AppError> {
         let mut agent = self.agent.clone();
-        pin_mut!(message_stream);
 
         while let Some(message) = message_stream.next().await {
             publish_message(&mut agent, message)?;
