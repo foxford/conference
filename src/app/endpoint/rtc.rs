@@ -983,7 +983,7 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = ListRequest {
                 room_id: Uuid::new_v4(),
@@ -1074,14 +1074,16 @@ mod test {
                     );
 
                     // The new rtc for which we will balance the stream.
-                    let rtc3 = shared_helpers::insert_rtc(&conn);
-
+                    let room3 = shared_helpers::insert_room(&conn);
+                    let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
+                    let s3a1 = TestAgent::new("web", "s3a1", USR_AUDIENCE);
+                    shared_helpers::insert_agent(&conn, s3a1.agent_id(), room3.id());
                     (rtc3, backend2)
                 })
                 .unwrap();
 
             // Allow user to read the rtc.
-            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let agent = TestAgent::new("web", "s3a1", USR_AUDIENCE);
             let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
             let object = vec!["rooms", &room_id, "rtcs", &rtc_id];

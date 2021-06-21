@@ -40,7 +40,7 @@ impl LocalDeps {
         let base_dir = env!("CARGO_MANIFEST_DIR");
         let image = images::generic::GenericImage::new("netologygroup/janus-gateway:11a5749")
             .with_volume(
-                dbg!(format!("{}/{}", base_dir, "src/test_helpers/janus_confs/")),
+                format!("{}/{}", base_dir, "src/test_helpers/janus_confs/"),
                 "/opt/janus/etc/janus/",
             )
             .with_entrypoint("/opt/janus/bin/janus")
