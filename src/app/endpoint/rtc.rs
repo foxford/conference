@@ -1007,7 +1007,6 @@ mod test {
         use http::StatusCode;
 
         use crate::{
-            backend::janus::client::SessionId,
             db::{agent::Status as AgentStatus, rtc::SharingPolicy as RtcSharingPolicy},
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
@@ -1020,11 +1019,11 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-
             let mut authz = TestAuthz::new();
             let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+
             // Insert an rtc and janus backend.
-            let (rtc, backend) = db
+            let (rtc, backend, agent) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -1078,12 +1077,11 @@ mod test {
                     let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
                     let s3a1 = TestAgent::new("web", "s3a1", USR_AUDIENCE);
                     shared_helpers::insert_agent(&conn, s3a1.agent_id(), room3.id());
-                    (rtc3, backend2)
+                    (rtc3, backend2, s3a1)
                 })
                 .unwrap();
 
             // Allow user to read the rtc.
-            let agent = TestAgent::new("web", "s3a1", USR_AUDIENCE);
             let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
             let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
@@ -1103,6 +1101,7 @@ mod test {
                 .await
                 .expect("RTC connect failed");
             let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
+            context.janus_clients().remove_client(backend.id());
 
             assert_eq!(respp.status(), StatusCode::OK);
             assert_eq!(resp.handle_id.rtc_id(), rtc.id());
@@ -1111,1065 +1110,1166 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-        #[test]
-        fn connect_to_ongoing_rtc() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
+        #[async_std::test]
+        async fn connect_to_ongoing_rtc() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let mut authz = TestAuthz::new();
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
 
-                // Insert an rtc and janus backend.
-                let (rtc, _backend) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let _backend1 =
-                            shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
-                        let backend2 =
-                            shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
+            // Insert an rtc and janus backend.
+            let (rtc, backend, agent) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let _backend1 = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
+                    let backend2 = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
 
-                        let room =
-                            shared_helpers::insert_room_with_backend_id(&conn, &backend2.id());
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, &backend2.id());
 
-                        let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
-                        (rtc, backend2)
-                    })
-                    .unwrap();
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+                    let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                    (rtc, backend2, agent)
+                })
+                .unwrap();
 
-                // Allow user to read the rtc.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(agent.account_id(), object, "read");
+            // Allow user to read the rtc.
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "read");
 
-                // Make rtc.connect request.
-                let mut context = TestContext::new(db, authz);
+            // Make rtc.connect request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
 
-                let payload = ConnectRequest {
-                    id: rtc.id(),
-                    intent: ConnectIntent::Read,
-                };
+            let payload = ConnectRequest {
+                id: rtc.id(),
+                intent: ConnectIntent::Read,
+            };
 
-                let _messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("RTC connect failed");
-            });
+            let messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                .await
+                .expect("RTC connect failed");
+            let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
+            context.janus_clients().remove_client(backend.id());
+
+            assert_eq!(respp.status(), StatusCode::OK);
+            assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+            assert_eq!(resp.handle_id.janus_session_id(), session_id);
+            assert_eq!(resp.handle_id.backend_id(), backend.id());
+            assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-        #[test]
-        fn connect_to_rtc_with_reservation() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-
-                let (rtc, _backend) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        // The first backend is big enough but has some load.
-                        let backend1_id = {
-                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                            agent.agent_id().to_owned()
-                        };
-
-                        let backend1 = factory::JanusBackend::new(
-                            backend1_id,
-                            crate::backend::janus::client::HandleId::random(),
-                            SessionId::random(),
-                            "todo".to_string(),
-                        )
-                        .capacity(20)
-                        .insert(&conn);
-
-                        let room1 =
-                            shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
-
-                        let _rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
-
-                        let agent = TestAgent::new("web", "user456", SVC_AUDIENCE);
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), room1.id());
-
-                        let agent = TestAgent::new("web", "user456", USR_AUDIENCE);
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), room1.id());
-
-                        // The second backend is too small but has no load.
-                        let backend2_id = {
-                            let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
-                            agent.agent_id().to_owned()
-                        };
-
-                        factory::JanusBackend::new(
-                            backend2_id,
-                            crate::backend::janus::client::HandleId::random(),
-                            SessionId::random(),
-                            "todo".to_string(),
-                        )
-                        .capacity(5)
-                        .insert(&conn);
-
-                        // It should balance to the first one despite of the load.
-                        let now = Utc::now();
-
-                        let room2 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                            .reserve(15)
-                            .insert(&conn);
-
-                        let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
-                        (rtc2, backend1)
-                    })
-                    .unwrap();
-
-                // Allow user to read the rtc.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(agent.account_id(), object, "read");
-
-                // Make rtc.connect request.
-                let mut context = TestContext::new(db, authz);
-
-                let payload = ConnectRequest {
-                    id: rtc.id(),
-                    intent: ConnectIntent::Read,
-                };
-
-                let _messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("RTC connect failed");
-            });
-        }
-
-        #[test]
-        fn connect_to_rtc_take_reserved_slot() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-                let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
-                let reader2 = TestAgent::new("web", "reader2", USR_AUDIENCE);
-                let writer1 = TestAgent::new("web", "writer1", USR_AUDIENCE);
-                let writer2 = TestAgent::new("web", "writer2", USR_AUDIENCE);
-
-                let (rtc1, rtc2) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        // Insert backend with capacity = 4.
-                        let backend_id = {
-                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                            agent.agent_id().to_owned()
-                        };
-
-                        let backend = factory::JanusBackend::new(
-                            backend_id,
-                            crate::backend::janus::client::HandleId::random(),
-                            SessionId::random(),
-                            "todo".to_string(),
-                        )
-                        .capacity(4)
-                        .insert(&conn);
-
-                        // Insert rooms: 1 with reserve = 2 and the other without reserve.
-                        let now = Utc::now();
-
-                        let room1 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                            .backend_id(&backend.id())
-                            .reserve(2)
-                            .insert(&conn);
-
-                        let room2 =
-                            shared_helpers::insert_room_with_backend_id(&conn, &backend.id());
-
-                        // Insert rtcs.
-                        let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
-                        let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
-
-                        // Insert active agents.
-                        shared_helpers::insert_agent(&conn, writer1.agent_id(), room1.id());
-                        shared_helpers::insert_agent(&conn, writer2.agent_id(), room2.id());
-
-                        factory::Agent::new()
-                            .agent_id(reader1.agent_id())
-                            .room_id(room2.id())
-                            .status(AgentStatus::Ready)
-                            .insert(&conn);
-
-                        shared_helpers::insert_agent(&conn, reader2.agent_id(), room2.id());
-
-                        (rtc1, rtc2)
-                    })
-                    .unwrap();
-
-                // Allow user to read rtcs.
-                for rtc in &[&rtc1, &rtc2] {
-                    let room_id = rtc.room_id().to_string();
-                    let rtc_id = rtc.id().to_string();
-                    let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                    authz.allow(reader1.account_id(), object, "read");
-                }
-
-                // Connect to the rtc in the room without reserve.
-                let mut context = TestContext::new(db, authz);
-
-                let payload = ConnectRequest {
-                    id: rtc2.id(),
-                    intent: ConnectIntent::Read,
-                };
-
-                // Should be ok since we disregard reserves.
-                handle_request::<ConnectHandler>(&mut context, &reader1, payload)
-                    .await
-                    .expect("RTC connect failed");
-
-                // Delete agent
-                {
-                    let conn = context.get_conn().await.expect("Failed to acquire db conn");
-                    let row_count = db::agent::DeleteQuery::new()
-                        .agent_id(&reader1.agent_id())
-                        .room_id(rtc2.room_id())
-                        .execute(&conn)
-                        .expect("Failed to delete user from agents");
-                    // Check that we actually deleted something
-                    assert_eq!(row_count, 1);
-                }
-
-                // Connect to the rtc in the room with free reserved slots.
-                let payload = ConnectRequest {
-                    id: rtc1.id(),
-                    intent: ConnectIntent::Read,
-                };
-
-                // Expect success.
-                handle_request::<ConnectHandler>(&mut context, &reader1, payload)
-                    .await
-                    .expect("RTC connect failed");
-            });
-        }
-
-        #[test]
-        fn connect_to_rtc_as_last_reader() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-                let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
-                let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
-
-                let rtc = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        // Insert backend.
-                        let backend_id = {
-                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                            agent.agent_id().to_owned()
-                        };
-
-                        let backend = factory::JanusBackend::new(
-                            backend_id,
-                            crate::backend::janus::client::HandleId::random(),
-                            SessionId::random(),
-                            "todo".to_string(),
-                        )
-                        .capacity(2)
-                        .insert(&conn);
-
-                        // Insert room and rtc.
-                        let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                        let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
-
-                        // Insert active agents.
-                        shared_helpers::insert_agent(&conn, writer.agent_id(), room.id());
-
-                        factory::Agent::new()
-                            .agent_id(reader.agent_id())
-                            .room_id(room.id())
-                            .status(AgentStatus::Ready)
-                            .insert(&conn);
-
-                        rtc
-                    })
-                    .unwrap();
-
-                // Allow user to read the rtc.
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(reader.account_id(), object, "read");
-
-                // Make rtc.connect request.
-                let mut context = TestContext::new(db, authz);
-
-                let payload = ConnectRequest {
-                    id: rtc.id(),
-                    intent: ConnectIntent::Read,
-                };
-
-                handle_request::<ConnectHandler>(&mut context, &reader, payload)
-                    .await
-                    .expect("RTC connect failed");
-            });
-        }
-
-        #[test]
-        fn connect_to_rtc_full_server_as_reader() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-                let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
-                let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
-                let reader2 = TestAgent::new("web", "reader2", USR_AUDIENCE);
-
-                let rtc = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        // Insert backend.
-                        let backend_id = {
-                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                            agent.agent_id().to_owned()
-                        };
-
-                        let backend = factory::JanusBackend::new(
-                            backend_id,
-                            crate::backend::janus::client::HandleId::random(),
-                            SessionId::random(),
-                            "todo".to_string(),
-                        )
-                        .capacity(2)
-                        .insert(&conn);
-
-                        // Insert room and rtc.
-                        let room =
-                            shared_helpers::insert_room_with_backend_id(&conn, &backend.id());
-
-                        let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
-
-                        // Insert active agents.
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            writer.agent_id(),
-                            room.id(),
-                            rtc.id(),
-                        );
-
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            reader1.agent_id(),
-                            room.id(),
-                            rtc.id(),
-                        );
-
-                        factory::Agent::new()
-                            .agent_id(reader2.agent_id())
-                            .room_id(room.id())
-                            .status(AgentStatus::Ready)
-                            .insert(&conn);
-
-                        rtc
-                    })
-                    .unwrap();
-
-                // Allow user to read the rtc.
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(reader2.account_id(), object, "read");
-
-                // Make rtc.connect request.
-                let mut context = TestContext::new(db, authz);
-
-                let payload = ConnectRequest {
-                    id: rtc.id(),
-                    intent: ConnectIntent::Read,
-                };
-
-                let err = handle_request::<ConnectHandler>(&mut context, &reader2, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc connecting");
-
-                assert_eq!(err.status(), ResponseStatus::SERVICE_UNAVAILABLE);
-                assert_eq!(err.kind(), "capacity_exceeded");
-            });
-        }
-
-        #[test]
-        fn connect_to_rtc_full_server_as_writer() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-                let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
-                let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
-
-                let rtc = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        // Insert backend.
-                        let backend_id = {
-                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                            agent.agent_id().to_owned()
-                        };
-
-                        let backend = factory::JanusBackend::new(
-                            backend_id,
-                            crate::backend::janus::client::HandleId::random(),
-                            SessionId::random(),
-                            "todo".to_string(),
-                        )
-                        .capacity(1)
-                        .insert(&conn);
-
-                        // Insert rtc.
-                        let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                        let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
-
-                        // Insert active agents.
-                        shared_helpers::insert_agent(&conn, reader.agent_id(), room.id());
-
-                        factory::Agent::new()
-                            .agent_id(writer.agent_id())
-                            .room_id(room.id())
-                            .status(AgentStatus::Ready)
-                            .insert(&conn);
-
-                        rtc
-                    })
-                    .unwrap();
-
-                // Allow user to update the rtc.
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(writer.account_id(), object, "update");
-
-                // Make rtc.connect request.
-                let mut context = TestContext::new(db, authz);
-
-                let payload = ConnectRequest {
-                    id: rtc.id(),
-                    intent: ConnectIntent::Write,
-                };
-
-                handle_request::<ConnectHandler>(&mut context, &writer, payload)
-                    .await
-                    .expect("RTC connect failed");
-            });
-        }
-
-        #[test]
-        fn connect_to_rtc_too_big_reserve() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-                let new_writer = TestAgent::new("web", "new-writer", USR_AUDIENCE);
-
-                let (rtc, _backend) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let now = Utc::now();
-
-                        // We have two backends with cap=800 and balance_cap=700 each
-                        // We have two rooms with reserves 500 and 600, each at its own backend
-                        // Room with reserve 500 has 1 writer and 2 readers, ie its load is 3
-                        // Room with reserve 600 has 1 writer and 1 readers, ie its load is 2
-                        // We want to balance a room with reserve 400
-                        // Since it doesnt fit anywhere it should go to backend with smallest current load,
-                        // ie to backend 2 (though it has only 100 free reserve, and backend1 has 200 free reserve)
-
-                        // Insert alpha and beta backends.
-                        let backend1 = {
-                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                            let id = agent.agent_id().to_owned();
-                            factory::JanusBackend::new(
-                                id,
-                                crate::backend::janus::client::HandleId::random(),
-                                SessionId::random(),
-                                "todo".to_string(),
-                            )
-                            .balancer_capacity(700)
-                            .capacity(800)
-                            .insert(&conn)
-                        };
-
-                        let backend2 = {
-                            let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
-                            let id = agent.agent_id().to_owned();
-                            factory::JanusBackend::new(
-                                id,
-                                crate::backend::janus::client::HandleId::random(),
-                                SessionId::random(),
-                                "todo".to_string(),
-                            )
-                            .balancer_capacity(700)
-                            .capacity(800)
-                            .insert(&conn)
-                        };
-
-                        // Setup three rooms with 500, 600 and 400 reserves.
-                        let room1 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now - Duration::minutes(1)),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                            .backend_id(backend1.id())
-                            .reserve(500)
-                            .insert(&conn);
-
-                        let room2 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now - Duration::minutes(1)),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .reserve(600)
-                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                            .backend_id(backend2.id())
-                            .insert(&conn);
-
-                        let room3 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now - Duration::minutes(1)),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .reserve(400)
-                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                            .insert(&conn);
-
-                        // Insert rtcs for each room.
-                        let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
-                        let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
-                        let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
-
-                        // Insert writer for room 1 @ backend 1
-                        let agent = TestAgent::new("web", "writer1", USR_AUDIENCE);
-
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            agent.agent_id(),
-                            room1.id(),
-                            rtc1.id(),
-                        );
-
-                        // Insert two readers for room 1 @ backend 1
-                        let agent = TestAgent::new("web", "reader1-1", USR_AUDIENCE);
-
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            agent.agent_id(),
-                            room1.id(),
-                            rtc1.id(),
-                        );
-
-                        let agent = TestAgent::new("web", "reader1-2", USR_AUDIENCE);
-
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            agent.agent_id(),
-                            room1.id(),
-                            rtc1.id(),
-                        );
-
-                        // Insert writer for room 2 @ backend 2
-                        let agent = TestAgent::new("web", "writer2", USR_AUDIENCE);
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            agent.agent_id(),
-                            room2.id(),
-                            rtc2.id(),
-                        );
-
-                        // Insert reader for room 2 @ backend 2
-                        let agent = TestAgent::new("web", "reader2", USR_AUDIENCE);
-
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            agent.agent_id(),
-                            room2.id(),
-                            rtc2.id(),
-                        );
-
-                        (rtc3, backend2)
-                    })
-                    .unwrap();
-
-                // Allow user to update the rtc.
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(new_writer.account_id(), object, "update");
-
-                // Make an rtc.connect request.
-                // Despite none of the backends are capable to host the reserve it should
-                // select the least loaded one.
-                let mut context = TestContext::new(db, authz);
-
-                let payload = ConnectRequest {
-                    id: rtc.id(),
-                    intent: ConnectIntent::Write,
-                };
-
-                let _messages =
-                    handle_request::<ConnectHandler>(&mut context, &new_writer, payload)
-                        .await
-                        .expect("RTC connect failed");
-            });
-        }
-
-        #[test]
-        fn connect_to_rtc_reserve_overflow() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-                let new_reader = TestAgent::new("web", "new-reader", USR_AUDIENCE);
-
-                let (rtcs, _backend) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let now = Utc::now();
-
-                        // Lets say we have a single backend with cap=800
-                        // Somehow reserves of all rooms that were allocated to it overflow its capacity
-                        // We should allow users to connect to rooms with reserves if reserve and cap allows them
-                        // But not allow to connect to room with no reserve
-
-                        // Insert alpha backend.
-                        let backend = {
-                            let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                            let id = agent.agent_id().to_owned();
-                            factory::JanusBackend::new(
-                                id,
-                                crate::backend::janus::client::HandleId::random(),
-                                SessionId::random(),
-                                "todo".to_string(),
-                            )
-                            .balancer_capacity(700)
-                            .capacity(800)
-                            .insert(&conn)
-                        };
-
-                        // Setup three rooms with 500, 600 and none.
-                        let room1 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                            .backend_id(backend.id())
-                            .reserve(500)
-                            .insert(&conn);
-
-                        let room2 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .reserve(600)
-                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                            .backend_id(backend.id())
-                            .insert(&conn);
-
-                        let room3 = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(now),
-                                Bound::Excluded(now + Duration::hours(1)),
-                            ))
-                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                            .backend_id(backend.id())
-                            .insert(&conn);
-
-                        // Insert rtcs for each room.
-                        let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
-                        let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
-                        let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
-
-                        // Insert writer for room 1
-                        let agent = TestAgent::new("web", "writer1", USR_AUDIENCE);
-
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            agent.agent_id(),
-                            room1.id(),
-                            rtc1.id(),
-                        );
-
-                        // Insert 450 readers for room 1
-                        for i in 0..450 {
-                            let agent =
-                                TestAgent::new("web", &format!("reader1-{}", i), USR_AUDIENCE);
-
-                            shared_helpers::insert_connected_agent(
-                                &conn,
-                                agent.agent_id(),
-                                room1.id(),
-                                rtc1.id(),
-                            );
-                        }
-
-                        // Insert writer for room 3
-                        let agent = TestAgent::new("web", "writer3", USR_AUDIENCE);
-
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            agent.agent_id(),
-                            room2.id(),
-                            rtc3.id(),
-                        );
-
-                        // Insert reader for room 3
-                        let agent = TestAgent::new("web", "reader3", USR_AUDIENCE);
-
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            agent.agent_id(),
-                            room3.id(),
-                            rtc3.id(),
-                        );
-
-                        ([rtc1, rtc2, rtc3], backend)
-                    })
-                    .unwrap();
-
-                // Allow user to read the rtcs.
-                for rtc in rtcs.iter() {
-                    let room_id = rtc.room_id().to_string();
-                    let rtc_id = rtc.id().to_string();
-                    let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                    authz.allow(new_reader.account_id(), object, "read");
-                }
-
-                let mut context = TestContext::new(db, authz);
-
-                // First two rooms have reserves AND there is free capacity so we can connect to them
-                for rtc in rtcs.iter().take(2) {
-                    let payload = ConnectRequest {
-                        id: rtc.id(),
-                        intent: ConnectIntent::Read,
+        #[async_std::test]
+        async fn connect_to_rtc_with_reservation() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+
+            let (rtc, backend, agent) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    // The first backend is big enough but has some load.
+                    let backend1_id = {
+                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                        agent.agent_id().to_owned()
                     };
 
-                    // Make an rtc.connect request.
-                    let _messages =
-                        handle_request::<ConnectHandler>(&mut context, &new_reader, payload)
-                            .await
-                            .expect("RTC connect failed");
-                }
-
-                let payload = ConnectRequest {
-                    id: rtcs[2].id(),
-                    intent: ConnectIntent::Read,
-                };
-
-                // Last room has NO reserve AND there is free capacity BUT it was exhausted by first two rooms
-                // So in theory we should not be able to connect to this room due to capacity_exceeded error
-                // But we still let the user through because:
-                //   1. we almost never fill any server with users upto max capacity
-                //   2. thus there are unused slots anyway
-                // So its better to let them in
-                handle_request::<ConnectHandler>(&mut context, &new_reader, payload)
-                    .await
-                    .expect("RTC connect failed");
-            });
-        }
-
-        #[test]
-        fn connect_to_shared_rtc_created_by_someone_else() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-
-                // Create an RTC.
-                let rtc = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let now = Utc::now();
-                        let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
-
-                        let backend =
-                            shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
-
-                        let room = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((Bound::Included(now), Bound::Unbounded))
-                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                            .backend_id(backend.id())
-                            .insert(&conn);
-
-                        factory::Rtc::new(room.id())
-                            .created_by(creator.agent_id().to_owned())
-                            .insert(&conn)
-                    })
-                    .unwrap();
-
-                // Allow agent to update the RTC.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(agent.account_id(), object, "update");
-
-                // Make rtc.connect request.
-                let mut context = TestContext::new(db, authz);
-
-                let payload = ConnectRequest {
-                    id: rtc.id(),
-                    intent: ConnectIntent::Write,
-                };
-
-                handle_request::<ConnectHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("RTC connect failed");
-            });
-        }
-
-        #[test]
-        fn connect_to_owned_rtc_created_by_someone_else_for_writing() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-
-                // Create an RTC.
-                let rtc = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let now = Utc::now();
-                        let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
-
-                        let backend =
-                            shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
-
-                        let room = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((Bound::Included(now), Bound::Unbounded))
-                            .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                            .backend_id(backend.id())
-                            .insert(&conn);
-
-                        factory::Rtc::new(room.id())
-                            .created_by(creator.agent_id().to_owned())
-                            .insert(&conn)
-                    })
-                    .unwrap();
-
-                // Allow agent to update the RTC.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(agent.account_id(), object, "update");
-
-                // Make rtc.connect request.
-                let mut context = TestContext::new(db, authz);
-
-                let payload = ConnectRequest {
-                    id: rtc.id(),
-                    intent: ConnectIntent::Write,
-                };
-
-                let err = handle_request::<ConnectHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on RTC connection");
-
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            });
-        }
-
-        #[test]
-        fn connect_to_owned_rtc_created_by_someone_else_for_reading() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-
-                // Create an RTC.
-                let rtc = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let now = Utc::now();
-                        let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
-
-                        let backend =
-                            shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
-
-                        let room = factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((Bound::Included(now), Bound::Unbounded))
-                            .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                            .backend_id(backend.id())
-                            .insert(&conn);
-
-                        factory::Rtc::new(room.id())
-                            .created_by(creator.agent_id().to_owned())
-                            .insert(&conn)
-                    })
-                    .unwrap();
-
-                // Allow agent to read the RTC.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(agent.account_id(), object, "read");
-
-                // Make rtc.connect request.
-                let mut context = TestContext::new(db, authz);
-
-                let payload = ConnectRequest {
-                    id: rtc.id(),
-                    intent: ConnectIntent::Read,
-                };
-
-                handle_request::<ConnectHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("RTC connect failed");
-            });
-        }
-
-        #[test]
-        fn connect_to_rtc_with_backend_grouping() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-
-                let (rtc, _backend) = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
-
-                    // Insert two backends in different groups.
-                    let backend1_agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-
                     let backend1 = factory::JanusBackend::new(
-                        backend1_agent.agent_id().to_owned(),
-                        crate::backend::janus::client::HandleId::random(),
-                        SessionId::random(),
-                        "todo".to_string(),
+                        backend1_id,
+                        handle_id,
+                        session_id,
+                        janus.url.clone(),
                     )
-                    .group("wrong")
+                    .capacity(20)
                     .insert(&conn);
 
-                    let backend2_agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
-
-                    let backend2 = factory::JanusBackend::new(
-                        backend2_agent.agent_id().to_owned(),
-                        crate::backend::janus::client::HandleId::random(),
-                        SessionId::random(),
-                        "todo".to_string(),
-                    )
-                    .group("right")
-                    .insert(&conn);
-
-                    // Add some load to the first backend.
                     let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
-                    let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
-                    let someone = TestAgent::new("web", "user456", USR_AUDIENCE);
+
+                    let _rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+
+                    let agent = TestAgent::new("web", "user456", SVC_AUDIENCE);
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room1.id());
+
+                    let agent = TestAgent::new("web", "user456", USR_AUDIENCE);
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room1.id());
+
+                    // The second backend is too small but has no load.
+                    let backend2_id = {
+                        let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
+                        agent.agent_id().to_owned()
+                    };
+
+                    factory::JanusBackend::new(
+                        backend2_id,
+                        handle_id,
+                        session_id,
+                        janus.url.clone(),
+                    )
+                    .capacity(5)
+                    .insert(&conn);
+
+                    // It should balance to the first one despite of the load.
+                    let now = Utc::now();
+
+                    let room2 = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(now),
+                            Bound::Excluded(now + Duration::hours(1)),
+                        ))
+                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                        .reserve(15)
+                        .insert(&conn);
+                    let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                    let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room2.id());
+                    (rtc2, backend1, agent)
+                })
+                .unwrap();
+
+            // Allow user to read the rtc.
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "read");
+
+            // Make rtc.connect request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
+
+            let payload = ConnectRequest {
+                id: rtc.id(),
+                intent: ConnectIntent::Read,
+            };
+
+            let messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                .await
+                .expect("RTC connect failed");
+            let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
+            context.janus_clients().remove_client(backend.id());
+
+            assert_eq!(respp.status(), StatusCode::OK);
+            assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+            assert_eq!(resp.handle_id.janus_session_id(), session_id);
+            assert_eq!(resp.handle_id.backend_id(), backend.id());
+            assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
+        }
+
+        #[async_std::test]
+        async fn connect_to_rtc_take_reserved_slot() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+            let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
+            let reader2 = TestAgent::new("web", "reader2", USR_AUDIENCE);
+            let writer1 = TestAgent::new("web", "writer1", USR_AUDIENCE);
+            let writer2 = TestAgent::new("web", "writer2", USR_AUDIENCE);
+
+            let (rtc1, rtc2, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    // Insert backend with capacity = 4.
+                    let backend_id = {
+                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                        agent.agent_id().to_owned()
+                    };
+
+                    let backend = factory::JanusBackend::new(
+                        backend_id,
+                        handle_id,
+                        session_id,
+                        janus.url.clone(),
+                    )
+                    .capacity(4)
+                    .insert(&conn);
+
+                    // Insert rooms: 1 with reserve = 2 and the other without reserve.
+                    let now = Utc::now();
+
+                    let room1 = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(now),
+                            Bound::Excluded(now + Duration::hours(1)),
+                        ))
+                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                        .backend_id(&backend.id())
+                        .reserve(2)
+                        .insert(&conn);
+
+                    let room2 = shared_helpers::insert_room_with_backend_id(&conn, &backend.id());
+
+                    // Insert rtcs.
+                    let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
+                    let rtc2 = factory::Rtc::new(room2.id()).insert(&conn);
+
+                    // Insert active agents.
+                    shared_helpers::insert_agent(&conn, writer1.agent_id(), room1.id());
+                    shared_helpers::insert_agent(&conn, writer2.agent_id(), room2.id());
+
+                    factory::Agent::new()
+                        .agent_id(reader1.agent_id())
+                        .room_id(room2.id())
+                        .status(AgentStatus::Ready)
+                        .insert(&conn);
+                    factory::Agent::new()
+                        .agent_id(reader1.agent_id())
+                        .room_id(room1.id())
+                        .status(AgentStatus::Ready)
+                        .insert(&conn);
+
+                    shared_helpers::insert_agent(&conn, reader2.agent_id(), room2.id());
+
+                    (rtc1, rtc2, backend)
+                })
+                .unwrap();
+
+            // Allow user to read rtcs.
+            for rtc in &[&rtc1, &rtc2] {
+                let room_id = rtc.room_id().to_string();
+                let rtc_id = rtc.id().to_string();
+                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                authz.allow(reader1.account_id(), object, "read");
+            }
+
+            // Connect to the rtc in the room without reserve.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
+
+            let payload = ConnectRequest {
+                id: rtc2.id(),
+                intent: ConnectIntent::Read,
+            };
+
+            // Should be ok since we disregard reserves.
+            handle_request::<ConnectHandler>(&mut context, &reader1, payload)
+                .await
+                .expect("RTC connect failed");
+
+            // Delete agent
+            {
+                let conn = context.get_conn().await.expect("Failed to acquire db conn");
+                let row_count = db::agent::DeleteQuery::new()
+                    .agent_id(&reader1.agent_id())
+                    .room_id(rtc2.room_id())
+                    .execute(&conn)
+                    .expect("Failed to delete user from agents");
+                // Check that we actually deleted something
+                assert_eq!(row_count, 1);
+            }
+
+            // Connect to the rtc in the room with free reserved slots.
+            let payload = ConnectRequest {
+                id: rtc1.id(),
+                intent: ConnectIntent::Read,
+            };
+
+            // Expect success.
+            handle_request::<ConnectHandler>(&mut context, &reader1, payload)
+                .await
+                .expect("RTC connect failed");
+            context.janus_clients().remove_client(backend.id());
+        }
+
+        #[async_std::test]
+        async fn connect_to_rtc_as_last_reader() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+            let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
+            let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
+
+            let (rtc, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    // Insert backend.
+                    let backend_id = {
+                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                        agent.agent_id().to_owned()
+                    };
+
+                    let backend = factory::JanusBackend::new(
+                        backend_id,
+                        handle_id,
+                        session_id,
+                        janus.url.clone(),
+                    )
+                    .capacity(2)
+                    .insert(&conn);
+
+                    // Insert room and rtc.
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+
+                    // Insert active agents.
+                    shared_helpers::insert_agent(&conn, writer.agent_id(), room.id());
+
+                    factory::Agent::new()
+                        .agent_id(reader.agent_id())
+                        .room_id(room.id())
+                        .status(AgentStatus::Ready)
+                        .insert(&conn);
+
+                    (rtc, backend)
+                })
+                .unwrap();
+
+            // Allow user to read the rtc.
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(reader.account_id(), object, "read");
+
+            // Make rtc.connect request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
+
+            let payload = ConnectRequest {
+                id: rtc.id(),
+                intent: ConnectIntent::Read,
+            };
+
+            handle_request::<ConnectHandler>(&mut context, &reader, payload)
+                .await
+                .expect("RTC connect failed");
+            context.janus_clients().remove_client(backend.id());
+        }
+
+        #[async_std::test]
+        async fn connect_to_rtc_full_server_as_reader() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+            let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
+            let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
+            let reader2 = TestAgent::new("web", "reader2", USR_AUDIENCE);
+
+            let (rtc, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    // Insert backend.
+                    let backend_id = {
+                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                        agent.agent_id().to_owned()
+                    };
+
+                    let backend = factory::JanusBackend::new(
+                        backend_id,
+                        handle_id,
+                        session_id,
+                        janus.url.clone(),
+                    )
+                    .capacity(2)
+                    .insert(&conn);
+
+                    // Insert room and rtc.
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, &backend.id());
+
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+
+                    // Insert active agents.
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        writer.agent_id(),
+                        room.id(),
+                        rtc.id(),
+                    );
 
                     shared_helpers::insert_connected_agent(
                         &conn,
-                        someone.agent_id(),
-                        rtc1.room_id(),
+                        reader1.agent_id(),
+                        room.id(),
+                        rtc.id(),
+                    );
+
+                    factory::Agent::new()
+                        .agent_id(reader2.agent_id())
+                        .room_id(room.id())
+                        .status(AgentStatus::Ready)
+                        .insert(&conn);
+
+                    (rtc, backend)
+                })
+                .unwrap();
+
+            // Allow user to read the rtc.
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(reader2.account_id(), object, "read");
+
+            // Make rtc.connect request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
+
+            let payload = ConnectRequest {
+                id: rtc.id(),
+                intent: ConnectIntent::Read,
+            };
+
+            let err = handle_request::<ConnectHandler>(&mut context, &reader2, payload)
+                .await
+                .expect_err("Unexpected success on rtc connecting");
+
+            assert_eq!(err.status(), ResponseStatus::SERVICE_UNAVAILABLE);
+            assert_eq!(err.kind(), "capacity_exceeded");
+        }
+
+        #[async_std::test]
+        async fn connect_to_rtc_full_server_as_writer() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+            let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
+            let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
+
+            let (rtc, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    // Insert backend.
+                    let backend_id = {
+                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                        agent.agent_id().to_owned()
+                    };
+
+                    let backend = factory::JanusBackend::new(
+                        backend_id,
+                        handle_id,
+                        session_id,
+                        janus.url.clone(),
+                    )
+                    .capacity(1)
+                    .insert(&conn);
+
+                    // Insert rtc.
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+
+                    // Insert active agents.
+                    shared_helpers::insert_agent(&conn, reader.agent_id(), room.id());
+
+                    factory::Agent::new()
+                        .agent_id(writer.agent_id())
+                        .room_id(room.id())
+                        .status(AgentStatus::Ready)
+                        .insert(&conn);
+
+                    (rtc, backend)
+                })
+                .unwrap();
+
+            // Allow user to update the rtc.
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(writer.account_id(), object, "update");
+
+            // Make rtc.connect request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
+
+            let payload = ConnectRequest {
+                id: rtc.id(),
+                intent: ConnectIntent::Write,
+            };
+
+            handle_request::<ConnectHandler>(&mut context, &writer, payload)
+                .await
+                .expect("RTC connect failed");
+            context.janus_clients().remove_client(backend.id());
+        }
+
+        #[async_std::test]
+        async fn connect_to_rtc_too_big_reserve() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+            let new_writer = TestAgent::new("web", "new-writer", USR_AUDIENCE);
+
+            let (rtc, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let now = Utc::now();
+
+                    // We have two backends with cap=800 and balance_cap=700 each
+                    // We have two rooms with reserves 500 and 600, each at its own backend
+                    // Room with reserve 500 has 1 writer and 2 readers, ie its load is 3
+                    // Room with reserve 600 has 1 writer and 1 readers, ie its load is 2
+                    // We want to balance a room with reserve 400
+                    // Since it doesnt fit anywhere it should go to backend with smallest current load,
+                    // ie to backend 2 (though it has only 100 free reserve, and backend1 has 200 free reserve)
+
+                    // Insert alpha and beta backends.
+                    let backend1 = {
+                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                        let id = agent.agent_id().to_owned();
+                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
+                            .balancer_capacity(700)
+                            .capacity(800)
+                            .insert(&conn)
+                    };
+
+                    let backend2 = {
+                        let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
+                        let id = agent.agent_id().to_owned();
+                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
+                            .balancer_capacity(700)
+                            .capacity(800)
+                            .insert(&conn)
+                    };
+
+                    // Setup three rooms with 500, 600 and 400 reserves.
+                    let room1 = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(now - Duration::minutes(1)),
+                            Bound::Excluded(now + Duration::hours(1)),
+                        ))
+                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                        .backend_id(backend1.id())
+                        .reserve(500)
+                        .insert(&conn);
+
+                    let room2 = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(now - Duration::minutes(1)),
+                            Bound::Excluded(now + Duration::hours(1)),
+                        ))
+                        .reserve(600)
+                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                        .backend_id(backend2.id())
+                        .insert(&conn);
+
+                    let room3 = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(now - Duration::minutes(1)),
+                            Bound::Excluded(now + Duration::hours(1)),
+                        ))
+                        .reserve(400)
+                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                        .insert(&conn);
+
+                    // Insert rtcs for each room.
+                    let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+                    let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+                    let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
+
+                    // Insert writer for room 1 @ backend 1
+                    let agent = TestAgent::new("web", "writer1", USR_AUDIENCE);
+
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        room1.id(),
                         rtc1.id(),
                     );
 
-                    // Insert an RTC to connect to
-                    let rtc2 = shared_helpers::insert_rtc(&conn);
-                    (rtc2, backend2)
-                };
+                    // Insert two readers for room 1 @ backend 1
+                    let agent = TestAgent::new("web", "reader1-1", USR_AUDIENCE);
 
-                // Allow agent to read the RTC.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        room1.id(),
+                        rtc1.id(),
+                    );
+
+                    let agent = TestAgent::new("web", "reader1-2", USR_AUDIENCE);
+
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        room1.id(),
+                        rtc1.id(),
+                    );
+
+                    // Insert writer for room 2 @ backend 2
+                    let agent = TestAgent::new("web", "writer2", USR_AUDIENCE);
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        room2.id(),
+                        rtc2.id(),
+                    );
+
+                    // Insert reader for room 2 @ backend 2
+                    let agent = TestAgent::new("web", "reader2", USR_AUDIENCE);
+
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        room2.id(),
+                        rtc2.id(),
+                    );
+
+                    shared_helpers::insert_agent(&conn, new_writer.agent_id(), room3.id());
+
+                    (rtc3, backend2)
+                })
+                .unwrap();
+
+            // Allow user to update the rtc.
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(new_writer.account_id(), object, "update");
+
+            // Make an rtc.connect request.
+            // Despite none of the backends are capable to host the reserve it should
+            // select the least loaded one.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
+
+            let payload = ConnectRequest {
+                id: rtc.id(),
+                intent: ConnectIntent::Write,
+            };
+
+            let messages = handle_request::<ConnectHandler>(&mut context, &new_writer, payload)
+                .await
+                .expect("RTC connect failed");
+            let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
+            context.janus_clients().remove_client(backend.id());
+
+            assert_eq!(respp.status(), StatusCode::OK);
+            assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+            assert_eq!(resp.handle_id.janus_session_id(), session_id);
+            assert_eq!(resp.handle_id.backend_id(), backend.id());
+            assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
+        }
+
+        #[async_std::test]
+        async fn connect_to_rtc_reserve_overflow() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+            let new_reader = TestAgent::new("web", "new-reader", USR_AUDIENCE);
+
+            let (rtcs, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let now = Utc::now();
+
+                    // Lets say we have a single backend with cap=800
+                    // Somehow reserves of all rooms that were allocated to it overflow its capacity
+                    // We should allow users to connect to rooms with reserves if reserve and cap allows them
+                    // But not allow to connect to room with no reserve
+
+                    // Insert alpha backend.
+                    let backend = {
+                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                        let id = agent.agent_id().to_owned();
+                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
+                            .balancer_capacity(700)
+                            .capacity(800)
+                            .insert(&conn)
+                    };
+
+                    // Setup three rooms with 500, 600 and none.
+                    let room1 = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(now),
+                            Bound::Excluded(now + Duration::hours(1)),
+                        ))
+                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                        .backend_id(backend.id())
+                        .reserve(500)
+                        .insert(&conn);
+
+                    let room2 = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(now),
+                            Bound::Excluded(now + Duration::hours(1)),
+                        ))
+                        .reserve(600)
+                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                        .backend_id(backend.id())
+                        .insert(&conn);
+
+                    let room3 = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(now),
+                            Bound::Excluded(now + Duration::hours(1)),
+                        ))
+                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                        .backend_id(backend.id())
+                        .insert(&conn);
+
+                    // Insert rtcs for each room.
+                    let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+                    let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+                    let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
+
+                    // Insert writer for room 1
+                    let agent = TestAgent::new("web", "writer1", USR_AUDIENCE);
+
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        room1.id(),
+                        rtc1.id(),
+                    );
+
+                    // Insert 450 readers for room 1
+                    for i in 0..450 {
+                        let agent = TestAgent::new("web", &format!("reader1-{}", i), USR_AUDIENCE);
+
+                        shared_helpers::insert_connected_agent(
+                            &conn,
+                            agent.agent_id(),
+                            room1.id(),
+                            rtc1.id(),
+                        );
+                    }
+
+                    // Insert writer for room 3
+                    let agent = TestAgent::new("web", "writer3", USR_AUDIENCE);
+
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        room2.id(),
+                        rtc3.id(),
+                    );
+
+                    // Insert reader for room 3
+                    let agent = TestAgent::new("web", "reader3", USR_AUDIENCE);
+
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        agent.agent_id(),
+                        room3.id(),
+                        rtc3.id(),
+                    );
+
+                    shared_helpers::insert_agent(&conn, new_reader.agent_id(), room1.id());
+                    shared_helpers::insert_agent(&conn, new_reader.agent_id(), room2.id());
+                    shared_helpers::insert_agent(&conn, new_reader.agent_id(), room3.id());
+
+                    ([rtc1, rtc2, rtc3], backend)
+                })
+                .unwrap();
+
+            // Allow user to read the rtcs.
+            for rtc in rtcs.iter() {
                 let room_id = rtc.room_id().to_string();
                 let rtc_id = rtc.id().to_string();
                 let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(agent.account_id(), object, "read");
+                authz.allow(new_reader.account_id(), object, "read");
+            }
 
-                // Configure the app to the `right` janus group.
-                let mut context = TestContext::new(db, authz);
-                context.config_mut().janus_group = Some(String::from("right"));
+            let mut context = TestContext::new(db, authz);
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
 
-                // Make rtc.connect request.
+            // First two rooms have reserves AND there is free capacity so we can connect to them
+            for rtc in rtcs.iter().take(2) {
                 let payload = ConnectRequest {
                     id: rtc.id(),
                     intent: ConnectIntent::Read,
                 };
 
-                let _messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                // Make an rtc.connect request.
+                let messages = handle_request::<ConnectHandler>(&mut context, &new_reader, payload)
                     .await
                     .expect("RTC connect failed");
-            });
+                let (resp, respp, _topic) =
+                    find_response::<ConnectResponseData>(messages.as_slice());
+
+                assert_eq!(respp.status(), StatusCode::OK);
+                assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+                assert_eq!(resp.handle_id.janus_session_id(), session_id);
+                assert_eq!(resp.handle_id.backend_id(), backend.id());
+                assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
+            }
+
+            let payload = ConnectRequest {
+                id: rtcs[2].id(),
+                intent: ConnectIntent::Read,
+            };
+
+            // Last room has NO reserve AND there is free capacity BUT it was exhausted by first two rooms
+            // So in theory we should not be able to connect to this room due to capacity_exceeded error
+            // But we still let the user through because:
+            //   1. we almost never fill any server with users upto max capacity
+            //   2. thus there are unused slots anyway
+            // So its better to let them in
+            handle_request::<ConnectHandler>(&mut context, &new_reader, payload)
+                .await
+                .expect("RTC connect failed");
+            context.janus_clients().remove_client(backend.id());
         }
 
-        #[test]
-        fn connect_to_rtc_not_authorized() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn connect_to_shared_rtc_created_by_someone_else() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                let rtc = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            // Create an RTC.
+            let (rtc, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let now = Utc::now();
+                    let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
 
-                    shared_helpers::insert_rtc(&conn)
-                };
+                    let backend = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
 
-                let mut context = TestContext::new(db, TestAuthz::new());
+                    let room = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((Bound::Included(now), Bound::Unbounded))
+                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                        .backend_id(backend.id())
+                        .insert(&conn);
 
-                let payload = ConnectRequest {
-                    id: rtc.id(),
-                    intent: ConnectIntent::Read,
-                };
+                    let rtc = factory::Rtc::new(room.id())
+                        .created_by(creator.agent_id().to_owned())
+                        .insert(&conn);
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                    (rtc, backend)
+                })
+                .unwrap();
 
-                let err = handle_request::<ConnectHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc connecting");
+            // Allow agent to update the RTC.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "update");
 
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            });
+            // Make rtc.connect request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
+
+            let payload = ConnectRequest {
+                id: rtc.id(),
+                intent: ConnectIntent::Write,
+            };
+
+            handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                .await
+                .expect("RTC connect failed");
         }
 
-        #[test]
-        fn connect_to_rtc_missing() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+        #[async_std::test]
+        async fn connect_to_owned_rtc_created_by_someone_else_for_writing() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                let payload = ConnectRequest {
-                    id: Uuid::new_v4(),
-                    intent: ConnectIntent::Read,
-                };
+            // Create an RTC.
+            let (rtc, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let now = Utc::now();
+                    let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
 
-                let err = handle_request::<ConnectHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc connecting");
+                    let backend = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+                    let room = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((Bound::Included(now), Bound::Unbounded))
+                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                        .backend_id(backend.id())
+                        .insert(&conn);
+
+                    let rtc = factory::Rtc::new(room.id())
+                        .created_by(creator.agent_id().to_owned())
+                        .insert(&conn);
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                    (rtc, backend)
+                })
+                .unwrap();
+
+            // Allow agent to update the RTC.
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "update");
+
+            // Make rtc.connect request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
+
+            let payload = ConnectRequest {
+                id: rtc.id(),
+                intent: ConnectIntent::Write,
+            };
+
+            let err = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on RTC connection");
+            context.janus_clients().remove_client(backend.id());
+
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
+        }
+
+        #[async_std::test]
+        async fn connect_to_owned_rtc_created_by_someone_else_for_reading() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            // Create an RTC.
+            let (rtc, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let now = Utc::now();
+                    let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
+
+                    let backend = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
+
+                    let room = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((Bound::Included(now), Bound::Unbounded))
+                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                        .backend_id(backend.id())
+                        .insert(&conn);
+
+                    let rtc = factory::Rtc::new(room.id())
+                        .created_by(creator.agent_id().to_owned())
+                        .insert(&conn);
+                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+
+                    (rtc, backend)
+                })
+                .unwrap();
+
+            // Allow agent to read the RTC.
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "read");
+
+            // Make rtc.connect request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
+
+            let payload = ConnectRequest {
+                id: rtc.id(),
+                intent: ConnectIntent::Read,
+            };
+
+            handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                .await
+                .expect("RTC connect failed");
+            context.janus_clients().remove_client(backend.id())
+        }
+
+        #[async_std::test]
+        async fn connect_to_rtc_with_backend_grouping() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            let (rtc, backend) = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                // Insert two backends in different groups.
+                let backend1_agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+
+                let backend1 = factory::JanusBackend::new(
+                    backend1_agent.agent_id().to_owned(),
+                    handle_id,
+                    session_id,
+                    janus.url.clone(),
+                )
+                .group("wrong")
+                .insert(&conn);
+
+                let backend2_agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
+
+                let backend2 = factory::JanusBackend::new(
+                    backend2_agent.agent_id().to_owned(),
+                    handle_id,
+                    session_id,
+                    janus.url.clone(),
+                )
+                .group("right")
+                .insert(&conn);
+
+                // Add some load to the first backend.
+                let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
+                let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+                let someone = TestAgent::new("web", "user456", USR_AUDIENCE);
+
+                shared_helpers::insert_connected_agent(
+                    &conn,
+                    someone.agent_id(),
+                    rtc1.room_id(),
+                    rtc1.id(),
+                );
+
+                // Insert an RTC to connect to
+                let room2 = shared_helpers::insert_room(&conn);
+                let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+                shared_helpers::insert_agent(&conn, agent.agent_id(), room2.id());
+                (rtc2, backend2)
+            };
+
+            // Allow agent to read the RTC.
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "read");
+
+            // Configure the app to the `right` janus group.
+            let mut context = TestContext::new(db, authz);
+            context.config_mut().janus_group = Some(String::from("right"));
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
+
+            // Make rtc.connect request.
+            let payload = ConnectRequest {
+                id: rtc.id(),
+                intent: ConnectIntent::Read,
+            };
+
+            let messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                .await
+                .expect("RTC connect failed");
+            let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
+            context.janus_clients().remove_client(backend.id());
+
+            assert_eq!(respp.status(), StatusCode::OK);
+            assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+            assert_eq!(resp.handle_id.janus_session_id(), session_id);
+            assert_eq!(resp.handle_id.backend_id(), backend.id());
+            assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
+        }
+
+        #[async_std::test]
+        async fn connect_to_rtc_not_authorized() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            let rtc = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                shared_helpers::insert_rtc(&conn)
+            };
+
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let payload = ConnectRequest {
+                id: rtc.id(),
+                intent: ConnectIntent::Read,
+            };
+
+            let err = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc connecting");
+
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
+        }
+
+        #[async_std::test]
+        async fn connect_to_rtc_missing() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let payload = ConnectRequest {
+                id: Uuid::new_v4(),
+                intent: ConnectIntent::Read,
+            };
+
+            let err = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc connecting");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
     }
 }
