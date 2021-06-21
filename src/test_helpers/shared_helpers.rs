@@ -124,6 +124,20 @@ pub async fn create_handle(janus_url: &str, session_id: SessionId) -> HandleId {
         .id
 }
 
+pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
+    let janus_client = JanusClient::new(janus_url).unwrap();
+    let session_id = janus_client.create_session().await.unwrap().id;
+    let handle = janus_client
+        .create_handle(CreateHandleRequest {
+            session_id,
+            opaque_id: Uuid::new_v4().to_string(),
+        })
+        .await
+        .unwrap()
+        .id;
+    (session_id, handle)
+}
+
 pub fn insert_connected_to_handle_agent(
     conn: &PgConnection,
     agent_id: &AgentId,

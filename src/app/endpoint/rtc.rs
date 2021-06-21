@@ -1020,7 +1020,7 @@ mod test {
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
             let mut authz = TestAuthz::new();
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
             // Insert an rtc and janus backend.
             let (rtc, backend, agent) = db
@@ -1117,7 +1117,7 @@ mod test {
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
             let mut authz = TestAuthz::new();
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
             // Insert an rtc and janus backend.
             let (rtc, backend, agent) = db
@@ -1175,7 +1175,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
 
             let (rtc, backend, agent) = db
@@ -1276,7 +1276,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
             let reader2 = TestAgent::new("web", "reader2", USR_AUDIENCE);
@@ -1397,7 +1397,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
@@ -1466,7 +1466,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
@@ -1551,7 +1551,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
@@ -1620,7 +1620,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let new_writer = TestAgent::new("web", "new-writer", USR_AUDIENCE);
 
@@ -1786,7 +1786,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let new_reader = TestAgent::new("web", "new-reader", USR_AUDIENCE);
 
@@ -1955,7 +1955,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -2014,7 +2014,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -2076,7 +2076,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -2136,7 +2136,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 

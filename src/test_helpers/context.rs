@@ -96,20 +96,6 @@ impl TestContext {
         }
     }
 
-    pub async fn init_janus(url: &str) -> (SessionId, HandleId) {
-        let janus_client = JanusClient::new(url).unwrap();
-        let session_id = janus_client.create_session().await.unwrap().id;
-        let handle = janus_client
-            .create_handle(CreateHandleRequest {
-                session_id,
-                opaque_id: Uuid::new_v4().to_string(),
-            })
-            .await
-            .unwrap()
-            .id;
-        (session_id, handle)
-    }
-
     pub fn with_janus(
         &mut self,
         backend: &crate::db::janus_backend::Object,
