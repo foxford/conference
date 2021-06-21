@@ -425,7 +425,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             // Make rtc_signal.create request.
             let mut context = TestContext::new(db, authz);
             let (tx, rx) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
             let rtc_stream_id = Uuid::new_v4();
             let handle_id = HandleId::new(
                 rtc_stream_id,
@@ -690,7 +690,7 @@ a=rtcp-fb:120 ccm fir
             // Make rtc_signal.create request.
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             let handle_id = HandleId::new(
                 Uuid::new_v4(),

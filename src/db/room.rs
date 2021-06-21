@@ -358,7 +358,10 @@ impl<'a> UpdateQuery<'a> {
 mod tests {
     mod finished_with_in_progress_recordings {
         use super::super::*;
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            backend::janus::client::{HandleId, SessionId},
+            test_helpers::prelude::*,
+        };
 
         #[test]
         fn selects_appropriate_backend() {
@@ -366,8 +369,18 @@ mod tests {
             let pool = db.connection_pool();
             let conn = pool.get().expect("Failed to get db connection");
 
-            let backend1 = shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
-            let backend2 = shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
+            let backend1 = shared_helpers::insert_janus_backend(
+                &conn,
+                "test",
+                SessionId::random(),
+                HandleId::random(),
+            );
+            let backend2 = shared_helpers::insert_janus_backend(
+                &conn,
+                "test",
+                SessionId::random(),
+                HandleId::random(),
+            );
 
             let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
             let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());

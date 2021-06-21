@@ -3,14 +3,11 @@ use serde_json::json;
 use slog::{o, Logger, OwnedKV, SendSyncRefUnwindSafeKV};
 use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
-use uuid::Uuid;
 
 use crate::{
     app::context::{Context, GlobalContext, JanusTopics, MessageContext},
     backend::janus::{
-        client::{
-            create_handle::CreateHandleRequest, HandleId, IncomingEvent, JanusClient, SessionId,
-        },
+        client::{HandleId, IncomingEvent, JanusClient, SessionId},
         client_pool::Clients,
     },
     config::Config,
@@ -96,11 +93,7 @@ impl TestContext {
         }
     }
 
-    pub fn with_janus(
-        &mut self,
-        backend: &crate::db::janus_backend::Object,
-        events_sink: async_std::channel::Sender<IncomingEvent>,
-    ) {
+    pub fn with_janus(&mut self, events_sink: async_std::channel::Sender<IncomingEvent>) {
         self.clients = Some(Clients::new(events_sink));
     }
 

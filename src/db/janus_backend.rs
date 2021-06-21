@@ -557,7 +557,11 @@ mod tests {
     use chrono::{Duration, Utc};
     use std::ops::Bound;
 
-    use crate::{db::rtc::SharingPolicy as RtcSharingPolicy, test_helpers::prelude::*};
+    use crate::{
+        backend::janus::client::{HandleId, SessionId},
+        db::rtc::SharingPolicy as RtcSharingPolicy,
+        test_helpers::prelude::*,
+    };
 
     #[test]
     fn reserve_load_for_each_backend() {
@@ -570,9 +574,24 @@ mod tests {
                 .get()
                 .expect("Failed to get db conn");
             // Insert janus backends.
-            let backend1 = shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
-            let backend2 = shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
-            let backend3 = shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
+            let backend1 = shared_helpers::insert_janus_backend(
+                &conn,
+                "test",
+                SessionId::random(),
+                HandleId::random(),
+            );
+            let backend2 = shared_helpers::insert_janus_backend(
+                &conn,
+                "test",
+                SessionId::random(),
+                HandleId::random(),
+            );
+            let backend3 = shared_helpers::insert_janus_backend(
+                &conn,
+                "test",
+                SessionId::random(),
+                HandleId::random(),
+            );
 
             let room1 = factory::Room::new()
                 .audience(USR_AUDIENCE)

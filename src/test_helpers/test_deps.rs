@@ -1,7 +1,5 @@
 use testcontainers::{clients, core::WaitFor, images, Container, Image};
 
-const TIMEOUT: u64 = 10;
-
 pub struct JanusHandle<'a> {
     pub url: String,
     _container: Container<'a, images::generic::GenericImage>,

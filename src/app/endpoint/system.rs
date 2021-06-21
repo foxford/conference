@@ -241,69 +241,92 @@ mod test {
     mod vacuum {
         use svc_agent::mqtt::ResponseStatus;
 
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            backend::janus::client::{
+                events::EventResponse, transactions::Transaction, IncomingEvent,
+            },
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
-        #[test]
-        fn vacuum_system() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-                authz.set_audience(SVC_AUDIENCE);
+        #[async_std::test]
+        async fn vacuum_system() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+            authz.set_audience(SVC_AUDIENCE);
 
-                let (_rtcs, _backend) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        // Insert janus backend and rooms.
-                        let backend =
-                            shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
+            let (rtcs, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    // Insert janus backend and rooms.
+                    let backend = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
 
-                        let room1 = shared_helpers::insert_closed_room_with_backend_id(
-                            &conn,
-                            &backend.id(),
-                        );
+                    let room1 =
+                        shared_helpers::insert_closed_room_with_backend_id(&conn, &backend.id());
 
-                        let room2 = shared_helpers::insert_closed_room_with_backend_id(
-                            &conn,
-                            &backend.id(),
-                        );
+                    let room2 =
+                        shared_helpers::insert_closed_room_with_backend_id(&conn, &backend.id());
 
-                        // Insert rtcs.
-                        let rtcs = vec![
-                            shared_helpers::insert_rtc_with_room(&conn, &room1),
-                            shared_helpers::insert_rtc_with_room(&conn, &room2),
-                        ];
+                    // Insert rtcs.
+                    let rtcs = vec![
+                        shared_helpers::insert_rtc_with_room(&conn, &room1),
+                        shared_helpers::insert_rtc_with_room(&conn, &room2),
+                    ];
 
-                        let _other_rtc = shared_helpers::insert_rtc(&conn);
+                    let _other_rtc = shared_helpers::insert_rtc(&conn);
 
-                        // Insert active agents.
-                        let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+                    // Insert active agents.
+                    let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                        for rtc in rtcs.iter() {
-                            shared_helpers::insert_agent(&conn, agent.agent_id(), rtc.room_id());
-                            shared_helpers::insert_recording(&conn, rtc);
-                        }
+                    for rtc in rtcs.iter() {
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), rtc.room_id());
+                        shared_helpers::insert_recording(&conn, rtc);
+                    }
 
-                        (rtcs, backend)
-                    })
-                    .unwrap();
+                    (
+                        rtcs.into_iter().map(|x| x.id()).collect::<Vec<_>>(),
+                        backend,
+                    )
+                })
+                .unwrap();
 
-                // Allow cron to perform vacuum.
-                let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
-                authz.allow(agent.account_id(), vec!["system"], "update");
+            // Allow cron to perform vacuum.
+            let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
+            authz.allow(agent.account_id(), vec!["system"], "update");
 
-                // Make system.vacuum request.
-                let mut context = TestContext::new(db, authz);
-                let payload = VacuumRequest {};
+            // Make system.vacuum request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, rx) = async_std::channel::unbounded();
+            context.with_janus(tx.clone());
 
-                let messages = handle_request::<VacuumHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("System vacuum failed");
+            let payload = VacuumRequest {};
 
-                assert!(messages.len() > 0);
-            })
+            let messages = handle_request::<VacuumHandler>(&mut context, &agent, payload)
+                .await
+                .expect("System vacuum failed");
+            context.janus_clients().remove_client(backend.id());
+            let recv_rtcs: Vec<Uuid> = [rx.recv().await.unwrap(), rx.recv().await.unwrap()]
+                .iter()
+                .map(|resp| match resp {
+                    IncomingEvent::Event(EventResponse {
+                        transaction: Transaction::UploadStream(UploadStreamTransaction { rtc_id }),
+                        ..
+                    }) => *rtc_id,
+                    _ => panic!("Got wrong event"),
+                })
+                .collect();
+
+            assert!(tx.is_empty());
+            assert!(messages.len() > 0);
+            assert_eq!(recv_rtcs, rtcs);
         }
 
         #[test]

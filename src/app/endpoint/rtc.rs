@@ -1089,7 +1089,7 @@ mod test {
 
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
             // Make rtc.connect request.
 
             let payload = ConnectRequest {
@@ -1149,7 +1149,7 @@ mod test {
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             let payload = ConnectRequest {
                 id: rtc.id(),
@@ -1250,7 +1250,7 @@ mod test {
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             let payload = ConnectRequest {
                 id: rtc.id(),
@@ -1354,7 +1354,7 @@ mod test {
             // Connect to the rtc in the room without reserve.
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             let payload = ConnectRequest {
                 id: rtc2.id(),
@@ -1447,7 +1447,7 @@ mod test {
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             let payload = ConnectRequest {
                 id: rtc.id(),
@@ -1472,7 +1472,7 @@ mod test {
             let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
             let reader2 = TestAgent::new("web", "reader2", USR_AUDIENCE);
 
-            let (rtc, backend) = db
+            let rtc = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -1517,7 +1517,7 @@ mod test {
                         .status(AgentStatus::Ready)
                         .insert(&conn);
 
-                    (rtc, backend)
+                    rtc
                 })
                 .unwrap();
 
@@ -1530,7 +1530,7 @@ mod test {
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             let payload = ConnectRequest {
                 id: rtc.id(),
@@ -1601,7 +1601,7 @@ mod test {
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             let payload = ConnectRequest {
                 id: rtc.id(),
@@ -1760,7 +1760,7 @@ mod test {
             // select the least loaded one.
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             let payload = ConnectRequest {
                 id: rtc.id(),
@@ -1909,7 +1909,7 @@ mod test {
 
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             // First two rooms have reserves AND there is free capacity so we can connect to them
             for rtc in rtcs.iter().take(2) {
@@ -1960,7 +1960,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             // Create an RTC.
-            let (rtc, backend) = db
+            let rtc = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -1982,7 +1982,7 @@ mod test {
                         .created_by(creator.agent_id().to_owned())
                         .insert(&conn);
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    (rtc, backend)
+                    rtc
                 })
                 .unwrap();
 
@@ -1996,7 +1996,7 @@ mod test {
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             let payload = ConnectRequest {
                 id: rtc.id(),
@@ -2054,7 +2054,7 @@ mod test {
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             let payload = ConnectRequest {
                 id: rtc.id(),
@@ -2117,7 +2117,7 @@ mod test {
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             let payload = ConnectRequest {
                 id: rtc.id(),
@@ -2198,7 +2198,7 @@ mod test {
             let mut context = TestContext::new(db, authz);
             context.config_mut().janus_group = Some(String::from("right"));
             let (tx, _) = async_std::channel::unbounded();
-            context.with_janus(&backend, tx);
+            context.with_janus(tx);
 
             // Make rtc.connect request.
             let payload = ConnectRequest {
