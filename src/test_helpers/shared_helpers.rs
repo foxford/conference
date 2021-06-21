@@ -7,7 +7,9 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::{
-    backend::janus::client::{HandleId, SessionId},
+    backend::janus::client::{
+        create_handle::CreateHandleRequest, HandleId, JanusClient, SessionId,
+    },
     db::{
         agent::{Object as Agent, Status as AgentStatus},
         agent_connection::Object as AgentConnection,
@@ -101,13 +103,37 @@ pub fn insert_connected_agent(
     room_id: Uuid,
     rtc_id: Uuid,
 ) -> (Agent, AgentConnection) {
-    let agent = insert_agent(conn, agent_id, room_id);
-    let agent_connection = factory::AgentConnection::new(
-        *agent.id(),
+    insert_connected_to_handle_agent(
+        conn,
+        agent_id,
+        room_id,
         rtc_id,
         crate::backend::janus::client::HandleId::stub_id(),
     )
-    .insert(conn);
+}
+
+pub async fn create_handle(janus_url: &str, session_id: SessionId) -> HandleId {
+    JanusClient::new(janus_url)
+        .unwrap()
+        .create_handle(CreateHandleRequest {
+            session_id,
+            opaque_id: Uuid::new_v4().to_string(),
+        })
+        .await
+        .unwrap()
+        .id
+}
+
+pub fn insert_connected_to_handle_agent(
+    conn: &PgConnection,
+    agent_id: &AgentId,
+    room_id: Uuid,
+    rtc_id: Uuid,
+    handle_id: crate::backend::janus::client::HandleId,
+) -> (Agent, AgentConnection) {
+    let agent = insert_agent(conn, agent_id, room_id);
+    let agent_connection =
+        factory::AgentConnection::new(*agent.id(), rtc_id, handle_id).insert(conn);
     (agent, agent_connection)
 }
 

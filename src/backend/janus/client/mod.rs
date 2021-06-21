@@ -244,7 +244,7 @@ pub enum IncomingEvent {
     HangUp(HangUpEvent),
     SlowLink(SlowLinkEvent),
     Detached(DetachedEvent),
-    Event(Box<EventResponse>),
+    Event(EventResponse),
     KeepAlive,
 }
 
