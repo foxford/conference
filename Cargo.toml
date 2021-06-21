@@ -46,5 +46,7 @@ tide = "0.16"
 isahc = { version="1", features=["json"] }
 derive_more = "0.99"
 once_cell = "1"
-# this is to prohibit tide and surf inside svc-authz from updating this dependency
-# pin-project-lite = "=0.1.7"
+
+[dev-dependencies]
+diesel_migrations = "1"
+testcontainers = { git="https://github.com/testcontainers/testcontainers-rs" }

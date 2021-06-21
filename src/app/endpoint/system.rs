@@ -257,7 +257,8 @@ mod test {
                     .get()
                     .map(|conn| {
                         // Insert janus backend and rooms.
-                        let backend = shared_helpers::insert_janus_backend(&conn);
+                        let backend =
+                            shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
 
                         let room1 = shared_helpers::insert_closed_room_with_backend_id(
                             &conn,

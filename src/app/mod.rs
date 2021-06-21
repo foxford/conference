@@ -1,6 +1,7 @@
 use std::{sync::Arc, thread};
 
 use anyhow::{Context as AnyhowContext, Result};
+use async_std::task;
 use chrono::Utc;
 use futures::StreamExt;
 use serde_json::json;

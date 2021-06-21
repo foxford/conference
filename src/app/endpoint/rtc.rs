@@ -23,7 +23,7 @@ use crate::{
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ConnectResponseData {
     handle_id: HandleId,
 }
@@ -509,480 +509,494 @@ impl RequestHandler for ConnectHandler {
 #[cfg(test)]
 mod test {
     mod create {
-        use chrono::{SubsecRound, Utc};
-
         use crate::{
             db::{
                 room::FindQueryable,
                 rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy},
             },
-            test_helpers::prelude::*,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
         };
+        use chrono::{SubsecRound, Utc};
 
         use super::super::*;
 
-        #[test]
-        fn create() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
+        #[async_std::test]
+        async fn create() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let mut authz = TestAuthz::new();
 
-                // Insert a room.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| shared_helpers::insert_room(&conn))
-                    .unwrap();
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| shared_helpers::insert_room(&conn))
+                .unwrap();
 
-                // Allow user to create rtcs in the room.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = room.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs"];
-                authz.allow(agent.account_id(), object, "create");
+            // Allow user to create rtcs in the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs"];
+            authz.allow(agent.account_id(), object, "create");
 
-                // Make rtc.create request.
-                let mut context = TestContext::new(db, authz);
-                let payload = CreateRequest { room_id: room.id() };
+            // Make rtc.create request.
+            let mut context = TestContext::new(db, authz);
+            let payload = CreateRequest { room_id: room.id() };
 
-                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Rtc creation failed");
+            let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Rtc creation failed");
 
-                // Assert response.
-                let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
-                assert_eq!(respp.status(), ResponseStatus::CREATED);
-                assert_eq!(rtc.room_id(), room.id());
+            // Assert response.
+            let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::CREATED);
+            assert_eq!(rtc.room_id(), room.id());
 
-                // Assert notification.
-                let (rtc, evp, topic) = find_event::<Rtc>(messages.as_slice());
-                assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
-                assert_eq!(evp.label(), "rtc.create");
-                assert_eq!(rtc.room_id(), room.id());
-            });
+            // Assert notification.
+            let (rtc, evp, topic) = find_event::<Rtc>(messages.as_slice());
+            assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
+            assert_eq!(evp.label(), "rtc.create");
+            assert_eq!(rtc.room_id(), room.id());
         }
 
-        #[test]
-        fn create_in_unbounded_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
+        #[async_std::test]
+        async fn create_in_unbounded_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let mut authz = TestAuthz::new();
 
-                // Insert a room.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        factory::Room::new()
-                            .audience(USR_AUDIENCE)
-                            .time((
-                                Bound::Included(Utc::now().trunc_subsecs(0)),
-                                Bound::Unbounded,
-                            ))
-                            .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                            .insert(&conn)
-                    })
-                    .unwrap();
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(Utc::now().trunc_subsecs(0)),
+                            Bound::Unbounded,
+                        ))
+                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                        .insert(&conn)
+                })
+                .unwrap();
 
-                // Allow user to create rtcs in the room.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = room.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs"];
-                authz.allow(agent.account_id(), object, "create");
+            // Allow user to create rtcs in the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs"];
+            authz.allow(agent.account_id(), object, "create");
 
-                // Make rtc.create request.
-                let mut context = TestContext::new(db, authz);
-                let payload = CreateRequest { room_id: room.id() };
+            // Make rtc.create request.
+            let mut context = TestContext::new(db, authz);
+            let payload = CreateRequest { room_id: room.id() };
 
-                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Rtc creation failed");
+            let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Rtc creation failed");
 
-                // Assert response.
-                let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
-                assert_eq!(respp.status(), ResponseStatus::CREATED);
-                assert_eq!(rtc.room_id(), room.id());
+            // Assert response.
+            let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::CREATED);
+            assert_eq!(rtc.room_id(), room.id());
 
-                // Assert room closure is not unbounded
-                let conn = context.db().get().expect("Failed to get conn");
+            // Assert room closure is not unbounded
+            let conn = context.db().get().expect("Failed to get conn");
 
-                let room = db::room::FindQuery::new(room.id())
-                    .execute(&conn)
-                    .expect("Db query failed")
-                    .expect("Room must exist");
+            let room = db::room::FindQuery::new(room.id())
+                .execute(&conn)
+                .expect("Db query failed")
+                .expect("Room must exist");
 
-                assert_ne!(room.time().1, Bound::Unbounded);
-            });
+            assert_ne!(room.time().1, Bound::Unbounded);
         }
 
-        #[test]
-        fn create_rtc_missing_room() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-                let payload = CreateRequest {
-                    room_id: Uuid::new_v4(),
-                };
+        #[async_std::test]
+        async fn create_rtc_missing_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc creation");
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let payload = CreateRequest {
+                room_id: Uuid::new_v4(),
+            };
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc creation");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[test]
-        fn create_rtc_duplicate() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
+        #[async_std::test]
+        async fn create_rtc_duplicate() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let mut authz = TestAuthz::new();
 
-                // Insert a room.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| shared_helpers::insert_room(&conn))
-                    .unwrap();
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| shared_helpers::insert_room(&conn))
+                .unwrap();
 
-                // Allow user to create rtcs in the room.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = room.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs"];
-                authz.allow(agent.account_id(), object, "create");
+            // Allow user to create rtcs in the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs"];
+            authz.allow(agent.account_id(), object, "create");
 
-                // Make rtc.create request.
-                let mut context = TestContext::new(db, authz);
-                let payload = CreateRequest { room_id: room.id() };
+            // Make rtc.create request.
+            let mut context = TestContext::new(db, authz);
+            let payload = CreateRequest { room_id: room.id() };
 
-                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Rtc creation failed");
+            let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Rtc creation failed");
 
-                // Assert response.
-                let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
-                assert_eq!(respp.status(), ResponseStatus::CREATED);
-                assert_eq!(rtc.room_id(), room.id());
+            // Assert response.
+            let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::CREATED);
+            assert_eq!(rtc.room_id(), room.id());
 
-                // Make rtc.create request second time.
-                let payload = CreateRequest { room_id: room.id() };
-                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc creation");
+            // Make rtc.create request second time.
+            let payload = CreateRequest { room_id: room.id() };
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc creation");
 
-                // This should fail with already exists
-                assert_eq!(err.status(), ResponseStatus::UNPROCESSABLE_ENTITY);
-                assert_eq!(err.kind(), "database_query_failed");
-            });
+            // This should fail with already exists
+            assert_eq!(err.status(), ResponseStatus::UNPROCESSABLE_ENTITY);
+            assert_eq!(err.kind(), "database_query_failed");
         }
 
-        #[test]
-        fn create_rtc_for_different_agents_with_owned_sharing_policy() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
+        #[async_std::test]
+        async fn create_rtc_for_different_agents_with_owned_sharing_policy() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let mut authz = TestAuthz::new();
 
-                // Insert a room.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| shared_helpers::insert_room_with_owned(&conn))
-                    .unwrap();
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| shared_helpers::insert_room_with_owned(&conn))
+                .unwrap();
 
-                // Allow agents to create RTCs in the room.
-                let agent1 = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let agent2 = TestAgent::new("web", "user456", USR_AUDIENCE);
-                let room_id = room.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs"];
-                authz.allow(agent1.account_id(), object.clone(), "create");
-                authz.allow(agent2.account_id(), object, "create");
+            // Allow agents to create RTCs in the room.
+            let agent1 = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let agent2 = TestAgent::new("web", "user456", USR_AUDIENCE);
+            let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs"];
+            authz.allow(agent1.account_id(), object.clone(), "create");
+            authz.allow(agent2.account_id(), object, "create");
 
-                // Make two rtc.create requests.
-                let mut context = TestContext::new(db, authz);
-                let payload = CreateRequest { room_id: room.id() };
+            // Make two rtc.create requests.
+            let mut context = TestContext::new(db, authz);
+            let payload = CreateRequest { room_id: room.id() };
 
-                let messages1 = handle_request::<CreateHandler>(&mut context, &agent1, payload)
-                    .await
-                    .expect("RTC creation failed");
+            let messages1 = handle_request::<CreateHandler>(&mut context, &agent1, payload)
+                .await
+                .expect("RTC creation failed");
 
-                let payload = CreateRequest { room_id: room.id() };
+            let payload = CreateRequest { room_id: room.id() };
 
-                let messages2 = handle_request::<CreateHandler>(&mut context, &agent2, payload)
-                    .await
-                    .expect("RTC creation failed");
+            let messages2 = handle_request::<CreateHandler>(&mut context, &agent2, payload)
+                .await
+                .expect("RTC creation failed");
 
-                // Assert responses.
-                let (rtc1, respp1, _) = find_response::<Rtc>(messages1.as_slice());
-                assert_eq!(respp1.status(), ResponseStatus::CREATED);
-                assert_eq!(rtc1.room_id(), room.id());
-                assert_eq!(rtc1.created_by(), agent1.agent_id());
+            // Assert responses.
+            let (rtc1, respp1, _) = find_response::<Rtc>(messages1.as_slice());
+            assert_eq!(respp1.status(), ResponseStatus::CREATED);
+            assert_eq!(rtc1.room_id(), room.id());
+            assert_eq!(rtc1.created_by(), agent1.agent_id());
 
-                let (rtc2, respp2, _) = find_response::<Rtc>(messages2.as_slice());
-                assert_eq!(respp2.status(), ResponseStatus::CREATED);
-                assert_eq!(rtc2.room_id(), room.id());
-                assert_eq!(rtc2.created_by(), agent2.agent_id());
-            });
+            let (rtc2, respp2, _) = find_response::<Rtc>(messages2.as_slice());
+            assert_eq!(respp2.status(), ResponseStatus::CREATED);
+            assert_eq!(rtc2.room_id(), room.id());
+            assert_eq!(rtc2.created_by(), agent2.agent_id());
         }
 
-        #[test]
-        fn create_rtc_for_the_same_agent_with_owned_sharing_policy() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
+        #[async_std::test]
+        async fn create_rtc_for_the_same_agent_with_owned_sharing_policy() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let mut authz = TestAuthz::new();
 
-                // Insert a room.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| shared_helpers::insert_room_with_owned(&conn))
-                    .unwrap();
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| shared_helpers::insert_room_with_owned(&conn))
+                .unwrap();
 
-                // Allow agent to create RTCs in the room.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = room.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs"];
-                authz.allow(agent.account_id(), object, "create");
+            // Allow agent to create RTCs in the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let room_id = room.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs"];
+            authz.allow(agent.account_id(), object, "create");
 
-                // Make the first rtc.create request.
-                let mut context = TestContext::new(db, authz);
-                let payload = CreateRequest { room_id: room.id() };
+            // Make the first rtc.create request.
+            let mut context = TestContext::new(db, authz);
+            let payload = CreateRequest { room_id: room.id() };
 
-                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("RTC creation failed");
+            let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("RTC creation failed");
 
-                // Assert response.
-                let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
-                assert_eq!(respp.status(), ResponseStatus::CREATED);
-                assert_eq!(rtc.room_id(), room.id());
-                assert_eq!(rtc.created_by(), agent.agent_id());
+            // Assert response.
+            let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::CREATED);
+            assert_eq!(rtc.room_id(), room.id());
+            assert_eq!(rtc.created_by(), agent.agent_id());
 
-                // Make the second rtc.create request and expect fail.
-                let payload = CreateRequest { room_id: room.id() };
+            // Make the second rtc.create request and expect fail.
+            let payload = CreateRequest { room_id: room.id() };
 
-                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on RTC creation");
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on RTC creation");
 
-                assert_eq!(err.status(), ResponseStatus::UNPROCESSABLE_ENTITY);
-                assert_eq!(err.kind(), "database_query_failed");
-            });
+            assert_eq!(err.status(), ResponseStatus::UNPROCESSABLE_ENTITY);
+            assert_eq!(err.kind(), "database_query_failed");
         }
 
-        #[test]
-        fn create_rtc_unauthorized() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+        #[async_std::test]
+        async fn create_rtc_unauthorized() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                // Insert a room.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| shared_helpers::insert_room(&conn))
-                    .unwrap();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                // Make rtc.create request.
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let payload = CreateRequest { room_id: room.id() };
+            // Insert a room.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| shared_helpers::insert_room(&conn))
+                .unwrap();
 
-                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc creation");
+            // Make rtc.create request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let payload = CreateRequest { room_id: room.id() };
 
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            });
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc creation");
+
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
         }
     }
 
     mod read {
-        use crate::{db::rtc::Object as Rtc, test_helpers::prelude::*};
+        use crate::{
+            db::rtc::Object as Rtc,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
-        #[test]
-        fn read_rtc() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn read_rtc() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let rtc = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let rtc = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Create rtc.
-                    shared_helpers::insert_rtc(&conn)
-                };
+                // Create rtc.
+                shared_helpers::insert_rtc(&conn)
+            };
 
-                // Allow agent to read the rtc.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut authz = TestAuthz::new();
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(agent.account_id(), object, "read");
+            // Allow agent to read the rtc.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "read");
 
-                // Make rtc.read request.
-                let mut context = TestContext::new(db, authz);
-                let payload = ReadRequest { id: rtc.id() };
+            // Make rtc.read request.
+            let mut context = TestContext::new(db, authz);
+            let payload = ReadRequest { id: rtc.id() };
 
-                let messages = handle_request::<ReadHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("RTC reading failed");
+            let messages = handle_request::<ReadHandler>(&mut context, &agent, payload)
+                .await
+                .expect("RTC reading failed");
 
-                // Assert response.
-                let (resp_rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
-                assert_eq!(respp.status(), ResponseStatus::OK);
-                assert_eq!(resp_rtc.room_id(), rtc.room_id());
-            });
+            // Assert response.
+            let (resp_rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::OK);
+            assert_eq!(resp_rtc.room_id(), rtc.room_id());
         }
 
-        #[test]
-        fn read_rtc_not_authorized() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn read_rtc_not_authorized() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let rtc = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                    shared_helpers::insert_rtc(&conn)
-                };
+            let rtc = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let payload = ReadRequest { id: rtc.id() };
+                shared_helpers::insert_rtc(&conn)
+            };
 
-                let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc reading");
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let payload = ReadRequest { id: rtc.id() };
 
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            });
+            let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc reading");
+
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
         }
 
-        #[test]
-        fn read_rtc_missing() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-                let payload = ReadRequest { id: Uuid::new_v4() };
+        #[async_std::test]
+        async fn read_rtc_missing() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc reading");
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let payload = ReadRequest { id: Uuid::new_v4() };
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc reading");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
     }
 
     mod list {
-        use crate::{db::rtc::Object as Rtc, test_helpers::prelude::*};
+        use crate::{
+            db::rtc::Object as Rtc,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
-        #[test]
-        fn list_rtcs() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+        #[async_std::test]
+        async fn list_rtcs() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let rtc = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                    // Create rtc.
-                    shared_helpers::insert_rtc(&conn)
-                };
+            let rtc = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                // Allow agent to list rtcs in the room.
-                let mut authz = TestAuthz::new();
-                let room_id = rtc.room_id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs"];
-                authz.allow(agent.account_id(), object, "list");
+                // Create rtc.
+                shared_helpers::insert_rtc(&conn)
+            };
 
-                // Make rtc.list request.
-                let mut context = TestContext::new(db, authz);
+            // Allow agent to list rtcs in the room.
+            let mut authz = TestAuthz::new();
+            let room_id = rtc.room_id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs"];
+            authz.allow(agent.account_id(), object, "list");
 
-                let payload = ListRequest {
-                    room_id: rtc.room_id(),
-                    offset: None,
-                    limit: None,
-                };
+            // Make rtc.list request.
+            let mut context = TestContext::new(db, authz);
 
-                let messages = handle_request::<ListHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Rtc listing failed");
+            let payload = ListRequest {
+                room_id: rtc.room_id(),
+                offset: None,
+                limit: None,
+            };
 
-                // Assert response.
-                let (rtcs, respp, _) = find_response::<Vec<Rtc>>(messages.as_slice());
-                assert_eq!(respp.status(), ResponseStatus::OK);
-                assert_eq!(rtcs.len(), 1);
-                assert_eq!(rtcs[0].id(), rtc.id());
-                assert_eq!(rtcs[0].room_id(), rtc.room_id());
-            });
+            let messages = handle_request::<ListHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Rtc listing failed");
+
+            // Assert response.
+            let (rtcs, respp, _) = find_response::<Vec<Rtc>>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::OK);
+            assert_eq!(rtcs.len(), 1);
+            assert_eq!(rtcs[0].id(), rtc.id());
+            assert_eq!(rtcs[0].room_id(), rtc.room_id());
         }
 
-        #[test]
-        fn list_rtcs_not_authorized() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn list_rtcs_not_authorized() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    shared_helpers::insert_room(&conn)
-                };
+                shared_helpers::insert_room(&conn)
+            };
 
-                let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = ListRequest {
-                    room_id: room.id(),
-                    offset: None,
-                    limit: None,
-                };
+            let payload = ListRequest {
+                room_id: room.id(),
+                offset: None,
+                limit: None,
+            };
 
-                let err = handle_request::<ListHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc listing");
+            let err = handle_request::<ListHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc listing");
 
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            });
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
         }
 
-        #[test]
-        fn list_rtcs_missing_room() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+        #[async_std::test]
+        async fn list_rtcs_missing_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let payload = ListRequest {
-                    room_id: Uuid::new_v4(),
-                    offset: None,
-                    limit: None,
-                };
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
 
-                let err = handle_request::<ListHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc listing");
+            let payload = ListRequest {
+                room_id: Uuid::new_v4(),
+                offset: None,
+                limit: None,
+            };
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            let err = handle_request::<ListHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc listing");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
     }
 
@@ -990,95 +1004,109 @@ mod test {
         use std::ops::Bound;
 
         use chrono::{Duration, Utc};
+        use http::StatusCode;
 
         use crate::{
             backend::janus::client::SessionId,
             db::{agent::Status as AgentStatus, rtc::SharingPolicy as RtcSharingPolicy},
-            test_helpers::prelude::*,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
 
-        #[test]
-        fn connect_to_rtc_only() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
+        #[async_std::test]
+        async fn connect_to_rtc_only() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                // Insert an rtc and janus backend.
-                let (rtc, _backend) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        // Insert janus backends.
-                        let backend1 = shared_helpers::insert_janus_backend(&conn);
-                        let backend2 = shared_helpers::insert_janus_backend(&conn);
+            let mut authz = TestAuthz::new();
+            let (session_id, handle_id) = TestContext::init_janus(&janus.url).await;
+            // Insert an rtc and janus backend.
+            let (rtc, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    // Insert janus backends.
+                    let backend1 = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
+                    let backend2 = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
 
-                        // The first backend has an active agent.
-                        let room1 =
-                            shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
+                    // The first backend has an active agent.
+                    let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
 
-                        let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+                    let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
 
-                        let s1a1 = TestAgent::new("web", "s1a1", USR_AUDIENCE);
+                    let s1a1 = TestAgent::new("web", "s1a1", USR_AUDIENCE);
 
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            s1a1.agent_id(),
-                            room1.id(),
-                            rtc1.id(),
-                        );
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        s1a1.agent_id(),
+                        room1.id(),
+                        rtc1.id(),
+                    );
 
-                        // The second backend has 2 agents.
-                        let room2 =
-                            shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
+                    // The second backend has 2 agents.
+                    let room2 = shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
 
-                        let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+                    let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
 
-                        let s2a1 = TestAgent::new("web", "s2a1", USR_AUDIENCE);
+                    let s2a1 = TestAgent::new("web", "s2a1", USR_AUDIENCE);
 
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            s2a1.agent_id(),
-                            room2.id(),
-                            rtc2.id(),
-                        );
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        s2a1.agent_id(),
+                        room2.id(),
+                        rtc2.id(),
+                    );
 
-                        let s2a2 = TestAgent::new("web", "s2a2", USR_AUDIENCE);
+                    let s2a2 = TestAgent::new("web", "s2a2", USR_AUDIENCE);
 
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            s2a2.agent_id(),
-                            room2.id(),
-                            rtc2.id(),
-                        );
+                    shared_helpers::insert_connected_agent(
+                        &conn,
+                        s2a2.agent_id(),
+                        room2.id(),
+                        rtc2.id(),
+                    );
 
-                        // The new rtc for which we will balance the stream.
-                        let rtc3 = shared_helpers::insert_rtc(&conn);
+                    // The new rtc for which we will balance the stream.
+                    let rtc3 = shared_helpers::insert_rtc(&conn);
 
-                        (rtc3, backend2)
-                    })
-                    .unwrap();
+                    (rtc3, backend2)
+                })
+                .unwrap();
 
-                // Allow user to read the rtc.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
-                authz.allow(agent.account_id(), object, "read");
+            // Allow user to read the rtc.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let room_id = rtc.room_id().to_string();
+            let rtc_id = rtc.id().to_string();
+            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object, "read");
 
-                // Make rtc.connect request.
-                let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz);
+            let (tx, _) = async_std::channel::unbounded();
+            context.with_janus(&backend, tx);
+            // Make rtc.connect request.
 
-                let payload = ConnectRequest {
-                    id: rtc.id(),
-                    intent: ConnectIntent::Read,
-                };
+            let payload = ConnectRequest {
+                id: rtc.id(),
+                intent: ConnectIntent::Read,
+            };
 
-                let _messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("RTC connect failed");
-            });
+            let messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+                .await
+                .expect("RTC connect failed");
+            let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
+
+            assert_eq!(respp.status(), StatusCode::OK);
+            assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+            assert_eq!(resp.handle_id.janus_session_id(), session_id);
+            assert_eq!(resp.handle_id.backend_id(), backend.id());
+            assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
         #[test]
@@ -1092,8 +1120,10 @@ mod test {
                     .connection_pool()
                     .get()
                     .map(|conn| {
-                        let _backend1 = shared_helpers::insert_janus_backend(&conn);
-                        let backend2 = shared_helpers::insert_janus_backend(&conn);
+                        let _backend1 =
+                            shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
+                        let backend2 =
+                            shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
 
                         let room =
                             shared_helpers::insert_room_with_backend_id(&conn, &backend2.id());
@@ -1872,7 +1902,8 @@ mod test {
                         let now = Utc::now();
                         let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
 
-                        let backend = shared_helpers::insert_janus_backend(&conn);
+                        let backend =
+                            shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
 
                         let room = factory::Room::new()
                             .audience(USR_AUDIENCE)
@@ -1922,7 +1953,8 @@ mod test {
                         let now = Utc::now();
                         let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
 
-                        let backend = shared_helpers::insert_janus_backend(&conn);
+                        let backend =
+                            shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
 
                         let room = factory::Room::new()
                             .audience(USR_AUDIENCE)
@@ -1975,7 +2007,8 @@ mod test {
                         let now = Utc::now();
                         let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
 
-                        let backend = shared_helpers::insert_janus_backend(&conn);
+                        let backend =
+                            shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
 
                         let room = factory::Room::new()
                             .audience(USR_AUDIENCE)

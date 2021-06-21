@@ -111,7 +111,12 @@ pub fn insert_connected_agent(
     (agent, agent_connection)
 }
 
-pub fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {
+pub fn insert_janus_backend(
+    conn: &PgConnection,
+    url: &str,
+    session_id: SessionId,
+    handle_id: crate::backend::janus::client::HandleId,
+) -> JanusBackend {
     let rng = rand::thread_rng();
 
     let label_suffix: String = rng
@@ -123,9 +128,9 @@ pub fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {
     let agent = TestAgent::new("alpha", &label, SVC_AUDIENCE);
     factory::JanusBackend::new(
         agent.agent_id().to_owned(),
-        HandleId::random(),
-        SessionId::random(),
-        "todo".to_string(),
+        handle_id,
+        session_id,
+        url.to_owned(),
     )
     .insert(conn)
 }

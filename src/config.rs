@@ -47,7 +47,6 @@ pub struct BackendConfig {
     pub default_timeout: u64,
     pub stream_upload_timeout: u64,
     pub transaction_watchdog_check_period: u64,
-    pub janus_url: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]

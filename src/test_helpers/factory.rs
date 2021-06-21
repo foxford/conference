@@ -290,7 +290,7 @@ impl<'a> JanusRtcStream<'a> {
         let backend = match self.backend {
             Some(value) => value,
             None => {
-                default_backend = insert_janus_backend(conn);
+                default_backend = insert_janus_backend(conn, todo!(), todo!(), todo!());
                 &default_backend
             }
         };

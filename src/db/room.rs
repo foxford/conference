@@ -366,8 +366,8 @@ mod tests {
             let pool = db.connection_pool();
             let conn = pool.get().expect("Failed to get db connection");
 
-            let backend1 = shared_helpers::insert_janus_backend(&conn);
-            let backend2 = shared_helpers::insert_janus_backend(&conn);
+            let backend1 = shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
+            let backend2 = shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
 
             let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
             let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());

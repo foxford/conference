@@ -366,7 +366,8 @@ mod tests {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
 
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)

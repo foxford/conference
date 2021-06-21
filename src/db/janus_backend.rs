@@ -570,9 +570,9 @@ mod tests {
                 .get()
                 .expect("Failed to get db conn");
             // Insert janus backends.
-            let backend1 = shared_helpers::insert_janus_backend(&conn);
-            let backend2 = shared_helpers::insert_janus_backend(&conn);
-            let backend3 = shared_helpers::insert_janus_backend(&conn);
+            let backend1 = shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
+            let backend2 = shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
+            let backend3 = shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
 
             let room1 = factory::Room::new()
                 .audience(USR_AUDIENCE)

@@ -3,9 +3,16 @@ use serde_json::json;
 use slog::{o, Logger, OwnedKV, SendSyncRefUnwindSafeKV};
 use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
+use uuid::Uuid;
 
 use crate::{
     app::context::{Context, GlobalContext, JanusTopics, MessageContext},
+    backend::janus::{
+        client::{
+            create_handle::CreateHandleRequest, HandleId, IncomingEvent, JanusClient, SessionId,
+        },
+        client_pool::Clients,
+    },
     config::Config,
     db::ConnectionPool as Db,
 };
@@ -69,6 +76,7 @@ pub struct TestContext {
     janus_topics: JanusTopics,
     logger: Logger,
     start_timestamp: DateTime<Utc>,
+    clients: Option<Clients>,
 }
 
 impl TestContext {
@@ -84,7 +92,30 @@ impl TestContext {
             janus_topics: JanusTopics::new("ignore"),
             logger: crate::LOG.new(o!()),
             start_timestamp: Utc::now(),
+            clients: None,
         }
+    }
+
+    pub async fn init_janus(url: &str) -> (SessionId, HandleId) {
+        let janus_client = JanusClient::new(url).unwrap();
+        let session_id = janus_client.create_session().await.unwrap().id;
+        let handle = janus_client
+            .create_handle(CreateHandleRequest {
+                session_id,
+                opaque_id: Uuid::new_v4().to_string(),
+            })
+            .await
+            .unwrap()
+            .id;
+        (session_id, handle)
+    }
+
+    pub fn with_janus(
+        &mut self,
+        backend: &crate::db::janus_backend::Object,
+        events_sink: async_std::channel::Sender<IncomingEvent>,
+    ) {
+        self.clients = Some(Clients::new(events_sink));
     }
 
     pub fn config_mut(&mut self) -> &mut Config {
@@ -122,7 +153,10 @@ impl GlobalContext for TestContext {
     }
 
     fn janus_clients(&self) -> crate::backend::janus::client_pool::Clients {
-        todo!()
+        self.clients
+            .as_ref()
+            .expect("You should initialise janus")
+            .clone()
     }
 }
 

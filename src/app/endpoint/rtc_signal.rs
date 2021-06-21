@@ -392,7 +392,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -462,7 +463,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -546,7 +548,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -622,7 +625,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -684,7 +688,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -742,7 +747,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
                     backend
@@ -788,7 +794,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -843,7 +850,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -854,7 +862,8 @@ mod test {
                         rtc.id(),
                     );
 
-                    let other_backend = shared_helpers::insert_janus_backend(&conn);
+                    let other_backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     (other_backend, rtc, agent_connection)
                 })
                 .unwrap();
@@ -954,7 +963,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
                     (backend, rtc)
@@ -1000,7 +1010,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
@@ -1047,7 +1058,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -1102,7 +1114,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -1165,7 +1178,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
 
                     let room =
                         shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
@@ -1224,7 +1238,8 @@ mod test {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
+                    let backend =
+                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
 
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
