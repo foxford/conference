@@ -360,12 +360,15 @@ mod tests {
         use super::super::*;
         use crate::{
             backend::janus::client::{HandleId, SessionId},
-            test_helpers::prelude::*,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
         };
 
         #[test]
         fn selects_appropriate_backend() {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
             let pool = db.connection_pool();
             let conn = pool.get().expect("Failed to get db connection");
 

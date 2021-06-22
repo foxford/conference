@@ -195,261 +195,268 @@ mod test {
     mod unicast {
         use uuid::Uuid;
 
-        use crate::{app::API_VERSION, test_helpers::prelude::*};
+        use crate::{
+            app::API_VERSION,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
-        #[test]
-        fn unicast_message() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
-                let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
+        #[async_std::test]
+        async fn unicast_message() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+            let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
-                // Insert room with online both sender and receiver.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let room = shared_helpers::insert_room(&conn);
-                        shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
-                        shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
-                        room
-                    })
-                    .expect("Failed to insert room");
+            // Insert room with online both sender and receiver.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let room = shared_helpers::insert_room(&conn);
+                    shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
+                    shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
+                    room
+                })
+                .expect("Failed to insert room");
 
-                // Make message.unicast request.
-                let mut context = TestContext::new(db, TestAuthz::new());
+            // Make message.unicast request.
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = UnicastRequest {
-                    agent_id: receiver.agent_id().to_owned(),
-                    room_id: room.id(),
-                    data: json!({ "key": "value" }),
-                };
+            let payload = UnicastRequest {
+                agent_id: receiver.agent_id().to_owned(),
+                room_id: room.id(),
+                data: json!({ "key": "value" }),
+            };
 
-                let messages = handle_request::<UnicastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect("Unicast message sending failed");
+            let messages = handle_request::<UnicastHandler>(&mut context, &sender, payload)
+                .await
+                .expect("Unicast message sending failed");
 
-                // Assert outgoing request.
-                let (payload, _reqp, topic) = find_request::<JsonValue>(messages.as_slice());
+            // Assert outgoing request.
+            let (payload, _reqp, topic) = find_request::<JsonValue>(messages.as_slice());
 
-                let expected_topic = format!(
-                    "agents/{}/api/{}/in/conference.{}",
-                    receiver.agent_id(),
-                    API_VERSION,
-                    SVC_AUDIENCE,
-                );
+            let expected_topic = format!(
+                "agents/{}/api/{}/in/conference.{}",
+                receiver.agent_id(),
+                API_VERSION,
+                SVC_AUDIENCE,
+            );
 
-                assert_eq!(topic, expected_topic);
-                assert_eq!(payload, json!({"key": "value"}));
-            });
+            assert_eq!(topic, expected_topic);
+            assert_eq!(payload, json!({"key": "value"}));
         }
 
-        #[test]
-        fn unicast_message_to_missing_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
-                let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
+        #[async_std::test]
+        async fn unicast_message_to_missing_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let payload = UnicastRequest {
-                    agent_id: receiver.agent_id().to_owned(),
-                    room_id: Uuid::new_v4(),
-                    data: json!({ "key": "value" }),
-                };
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+            let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
-                let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect_err("Unexpected success on unicast message sending");
+            let payload = UnicastRequest {
+                agent_id: receiver.agent_id().to_owned(),
+                room_id: Uuid::new_v4(),
+                data: json!({ "key": "value" }),
+            };
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
+                .await
+                .expect_err("Unexpected success on unicast message sending");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[test]
-        fn unicast_message_when_sender_is_not_in_the_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
-                let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
+        #[async_std::test]
+        async fn unicast_message_when_sender_is_not_in_the_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+            let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
-                // Insert room with online receiver only.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let room = shared_helpers::insert_room(&conn);
-                        shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
-                        room
-                    })
-                    .expect("Failed to insert room");
+            // Insert room with online receiver only.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let room = shared_helpers::insert_room(&conn);
+                    shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
+                    room
+                })
+                .expect("Failed to insert room");
 
-                // Make message.unicast request.
-                let mut context = TestContext::new(db, TestAuthz::new());
+            // Make message.unicast request.
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = UnicastRequest {
-                    agent_id: receiver.agent_id().to_owned(),
-                    room_id: room.id(),
-                    data: json!({ "key": "value" }),
-                };
+            let payload = UnicastRequest {
+                agent_id: receiver.agent_id().to_owned(),
+                room_id: room.id(),
+                data: json!({ "key": "value" }),
+            };
 
-                let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect_err("Unexpected success on unicast message sending");
+            let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
+                .await
+                .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "agent_not_entered_the_room");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-        #[test]
-        fn unicast_message_when_receiver_is_not_in_the_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
-                let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
+        #[async_std::test]
+        async fn unicast_message_when_receiver_is_not_in_the_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+            let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
-                // Insert room with online sender only.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let room = shared_helpers::insert_room(&conn);
-                        shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
-                        room
-                    })
-                    .expect("Failed to insert room");
+            // Insert room with online sender only.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let room = shared_helpers::insert_room(&conn);
+                    shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
+                    room
+                })
+                .expect("Failed to insert room");
 
-                // Make message.unicast request.
-                let mut context = TestContext::new(db, TestAuthz::new());
+            // Make message.unicast request.
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = UnicastRequest {
-                    agent_id: receiver.agent_id().to_owned(),
-                    room_id: room.id(),
-                    data: json!({ "key": "value" }),
-                };
+            let payload = UnicastRequest {
+                agent_id: receiver.agent_id().to_owned(),
+                room_id: room.id(),
+                data: json!({ "key": "value" }),
+            };
 
-                let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect_err("Unexpected success on unicast message sending");
+            let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
+                .await
+                .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "agent_not_entered_the_room");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
     }
 
     mod broadcast {
         use uuid::Uuid;
 
-        use crate::{app::API_VERSION, test_helpers::prelude::*};
+        use crate::{
+            app::API_VERSION,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
-        #[test]
-        fn broadcast_message() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+        #[async_std::test]
+        async fn broadcast_message() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
-                // Insert room with online agent.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let room = shared_helpers::insert_room(&conn);
-                        let agent_factory = factory::Agent::new().room_id(room.id());
-                        agent_factory.agent_id(sender.agent_id()).insert(&conn);
-                        room
-                    })
-                    .expect("Failed to insert room");
+            // Insert room with online agent.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let room = shared_helpers::insert_room(&conn);
+                    let agent_factory = factory::Agent::new().room_id(room.id());
+                    agent_factory.agent_id(sender.agent_id()).insert(&conn);
+                    room
+                })
+                .expect("Failed to insert room");
 
-                // Make message.broadcast request.
-                let mut context = TestContext::new(db, TestAuthz::new());
+            // Make message.broadcast request.
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = BroadcastRequest {
-                    room_id: room.id(),
-                    data: json!({ "key": "value" }),
-                    label: None,
-                };
+            let payload = BroadcastRequest {
+                room_id: room.id(),
+                data: json!({ "key": "value" }),
+                label: None,
+            };
 
-                let messages = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect("Broadcast message sending failed");
+            let messages = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
+                .await
+                .expect("Broadcast message sending failed");
 
-                // Assert response.
-                let (_, respp, _) = find_response::<JsonValue>(messages.as_slice());
-                assert_eq!(respp.status(), ResponseStatus::OK);
+            // Assert response.
+            let (_, respp, _) = find_response::<JsonValue>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::OK);
 
-                // Assert broadcast event.
-                let (payload, _evp, topic) = find_event::<JsonValue>(messages.as_slice());
+            // Assert broadcast event.
+            let (payload, _evp, topic) = find_event::<JsonValue>(messages.as_slice());
 
-                let expected_topic = format!(
-                    "apps/conference.{}/api/{}/rooms/{}/events",
-                    SVC_AUDIENCE,
-                    API_VERSION,
-                    room.id(),
-                );
+            let expected_topic = format!(
+                "apps/conference.{}/api/{}/rooms/{}/events",
+                SVC_AUDIENCE,
+                API_VERSION,
+                room.id(),
+            );
 
-                assert_eq!(topic, expected_topic);
-                assert_eq!(payload, json!({"key": "value"}));
-            });
+            assert_eq!(topic, expected_topic);
+            assert_eq!(payload, json!({"key": "value"}));
         }
 
-        #[test]
-        fn broadcast_message_to_missing_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+        #[async_std::test]
+        async fn broadcast_message_to_missing_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
-                let payload = BroadcastRequest {
-                    room_id: Uuid::new_v4(),
-                    data: json!({ "key": "value" }),
-                    label: None,
-                };
+            let payload = BroadcastRequest {
+                room_id: Uuid::new_v4(),
+                data: json!({ "key": "value" }),
+                label: None,
+            };
 
-                let err = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect_err("Unexpected success on unicast message sending");
+            let err = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
+                .await
+                .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[test]
-        fn broadcast_message_when_not_in_the_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+        #[async_std::test]
+        async fn broadcast_message_when_not_in_the_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
-                // Insert room with online agent.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| shared_helpers::insert_room(&conn))
-                    .expect("Failed to insert room");
+            // Insert room with online agent.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| shared_helpers::insert_room(&conn))
+                .expect("Failed to insert room");
 
-                // Make message.broadcast request.
-                let mut context = TestContext::new(db, TestAuthz::new());
+            // Make message.broadcast request.
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = BroadcastRequest {
-                    room_id: room.id(),
-                    data: json!({ "key": "value" }),
-                    label: None,
-                };
+            let payload = BroadcastRequest {
+                room_id: room.id(),
+                data: json!({ "key": "value" }),
+                label: None,
+            };
 
-                let err = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect_err("Unexpected success on unicast message sending");
+            let err = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
+                .await
+                .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "agent_not_entered_the_room");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
     }
 }

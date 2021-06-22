@@ -6,10 +6,7 @@ use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz
 
 use crate::{
     app::context::{Context, GlobalContext, JanusTopics, MessageContext},
-    backend::janus::{
-        client::{HandleId, IncomingEvent, JanusClient, SessionId},
-        client_pool::Clients,
-    },
+    backend::janus::{client::IncomingEvent, client_pool::Clients},
     config::Config,
     db::ConnectionPool as Db,
 };

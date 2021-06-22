@@ -560,90 +560,91 @@ mod tests {
     use crate::{
         backend::janus::client::{HandleId, SessionId},
         db::rtc::SharingPolicy as RtcSharingPolicy,
-        test_helpers::prelude::*,
+        test_helpers::{prelude::*, test_deps::LocalDeps},
     };
 
-    #[test]
-    fn reserve_load_for_each_backend() {
-        async_std::task::block_on(async {
-            // Insert an rtc and janus backend.
-            let now = Utc::now();
+    #[async_std::test]
+    async fn reserve_load_for_each_backend() {
+        // Insert an rtc and janus backend.
+        let now = Utc::now();
 
-            let conn = TestDb::new()
-                .connection_pool()
-                .get()
-                .expect("Failed to get db conn");
-            // Insert janus backends.
-            let backend1 = shared_helpers::insert_janus_backend(
-                &conn,
-                "test",
-                SessionId::random(),
-                HandleId::random(),
-            );
-            let backend2 = shared_helpers::insert_janus_backend(
-                &conn,
-                "test",
-                SessionId::random(),
-                HandleId::random(),
-            );
-            let backend3 = shared_helpers::insert_janus_backend(
-                &conn,
-                "test",
-                SessionId::random(),
-                HandleId::random(),
-            );
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let conn = TestDb::with_local_postgres(&postgres)
+            .connection_pool()
+            .get()
+            .expect("Failed to get db conn");
 
-            let room1 = factory::Room::new()
-                .audience(USR_AUDIENCE)
-                .time((
-                    Bound::Included(now),
-                    Bound::Excluded(now + Duration::hours(1)),
-                ))
-                .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                .backend_id(backend1.id())
-                .reserve(200)
-                .insert(&conn);
+        // Insert janus backends.
+        let backend1 = shared_helpers::insert_janus_backend(
+            &conn,
+            "test",
+            SessionId::random(),
+            HandleId::random(),
+        );
+        let backend2 = shared_helpers::insert_janus_backend(
+            &conn,
+            "test",
+            SessionId::random(),
+            HandleId::random(),
+        );
+        let backend3 = shared_helpers::insert_janus_backend(
+            &conn,
+            "test",
+            SessionId::random(),
+            HandleId::random(),
+        );
 
-            let room2 = factory::Room::new()
-                .audience(USR_AUDIENCE)
-                .time((
-                    Bound::Included(now),
-                    Bound::Excluded(now + Duration::hours(1)),
-                ))
-                .reserve(300)
-                .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                .backend_id(backend1.id())
-                .insert(&conn);
+        let room1 = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((
+                Bound::Included(now),
+                Bound::Excluded(now + Duration::hours(1)),
+            ))
+            .rtc_sharing_policy(RtcSharingPolicy::Shared)
+            .backend_id(backend1.id())
+            .reserve(200)
+            .insert(&conn);
 
-            let room3 = factory::Room::new()
-                .audience(USR_AUDIENCE)
-                .time((
-                    Bound::Included(now),
-                    Bound::Excluded(now + Duration::hours(1)),
-                ))
-                .reserve(400)
-                .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                .backend_id(backend2.id())
-                .insert(&conn);
+        let room2 = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((
+                Bound::Included(now),
+                Bound::Excluded(now + Duration::hours(1)),
+            ))
+            .reserve(300)
+            .rtc_sharing_policy(RtcSharingPolicy::Shared)
+            .backend_id(backend1.id())
+            .insert(&conn);
 
-            shared_helpers::insert_rtc_with_room(&conn, &room1);
-            shared_helpers::insert_rtc_with_room(&conn, &room2);
-            shared_helpers::insert_rtc_with_room(&conn, &room3);
+        let room3 = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((
+                Bound::Included(now),
+                Bound::Excluded(now + Duration::hours(1)),
+            ))
+            .reserve(400)
+            .rtc_sharing_policy(RtcSharingPolicy::Shared)
+            .backend_id(backend2.id())
+            .insert(&conn);
 
-            let loads = super::reserve_load_for_each_backend(&conn).expect("Db query failed");
-            assert_eq!(loads.len(), 3);
+        shared_helpers::insert_rtc_with_room(&conn, &room1);
+        shared_helpers::insert_rtc_with_room(&conn, &room2);
+        shared_helpers::insert_rtc_with_room(&conn, &room3);
 
-            [backend1, backend2, backend3]
-                .iter()
-                .zip([500, 400, 0].iter())
-                .for_each(|(backend, expected_load)| {
-                    let b = loads
-                        .iter()
-                        .find(|load| load.backend_id == *backend.id())
-                        .expect("Failed to find backend in query results");
+        let loads = super::reserve_load_for_each_backend(&conn).expect("Db query failed");
+        assert_eq!(loads.len(), 3);
 
-                    assert_eq!(b.load, *expected_load as i64);
-                });
-        });
+        [backend1, backend2, backend3]
+            .iter()
+            .zip([500, 400, 0].iter())
+            .for_each(|(backend, expected_load)| {
+                let b = loads
+                    .iter()
+                    .find(|load| load.backend_id == *backend.id())
+                    .expect("Failed to find backend in query results");
+
+                assert_eq!(b.load, *expected_load as i64);
+            });
     }
 }

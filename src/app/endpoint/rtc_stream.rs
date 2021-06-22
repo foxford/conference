@@ -130,143 +130,144 @@ mod test {
 
         use crate::{
             db::{janus_rtc_stream::Object as JanusRtcStream, rtc::Object as Rtc},
-            test_helpers::prelude::*,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
 
-        #[test]
-        fn list_rtc_streams() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
+        #[async_std::test]
+        async fn list_rtc_streams() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let mut authz = TestAuthz::new();
 
-                let (rtc_stream, rtc) = db
+            let (rtc_stream, rtc) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    // Insert janus rtc streams.
+                    let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE).insert(&conn);
+
+                    let rtc_stream = crate::db::janus_rtc_stream::start(rtc_stream.id(), &conn)
+                        .expect("Failed to start rtc stream")
+                        .expect("Missing rtc stream");
+
+                    let other_rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE).insert(&conn);
+
+                    crate::db::janus_rtc_stream::start(other_rtc_stream.id(), &conn)
+                        .expect("Failed to start rtc stream");
+
+                    // Find rtc.
+                    let rtc: Rtc = crate::schema::rtc::table
+                        .find(rtc_stream.rtc_id())
+                        .get_result(&conn)
+                        .expect("Rtc not found");
+
+                    (rtc_stream, rtc)
+                })
+                .expect("Failed to create rtc streams");
+
+            // Allow user to list rtcs in the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let room_id = rtc.room_id().to_string();
+            let object = vec!["rooms", &room_id];
+            authz.allow(agent.account_id(), object, "read");
+
+            // Make rtc_stream.list request.
+            let mut context = TestContext::new(db, authz);
+
+            let payload = ListRequest {
+                room_id: rtc.room_id(),
+                rtc_id: Some(rtc.id()),
+                time: None,
+                offset: None,
+                limit: None,
+            };
+
+            let messages = handle_request::<ListHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Rtc streams listing failed");
+
+            // Assert response.
+            let (streams, respp, _) = find_response::<Vec<JanusRtcStream>>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::OK);
+            assert_eq!(streams.len(), 1);
+
+            let expected_time = match rtc_stream.time().expect("Missing time") {
+                (Bound::Included(val), upper) => (Bound::Included(val.trunc_subsecs(0)), upper),
+                _ => panic!("Bad rtc stream time"),
+            };
+
+            assert_eq!(streams[0].id(), rtc_stream.id());
+            assert_eq!(streams[0].handle_id(), rtc_stream.handle_id());
+            assert_eq!(streams[0].backend_id(), rtc_stream.backend_id());
+            assert_eq!(streams[0].label(), rtc_stream.label());
+            assert_eq!(streams[0].sent_by(), rtc_stream.sent_by());
+            assert_eq!(streams[0].time(), Some(expected_time));
+            assert_eq!(
+                streams[0].created_at(),
+                rtc_stream.created_at().trunc_subsecs(0)
+            );
+        }
+
+        #[async_std::test]
+        async fn list_rtc_streams_not_authorized() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            let room = {
+                let conn = db
                     .connection_pool()
                     .get()
-                    .map(|conn| {
-                        // Insert janus rtc streams.
-                        let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE).insert(&conn);
+                    .expect("Failed to get DB connection");
 
-                        let rtc_stream = crate::db::janus_rtc_stream::start(rtc_stream.id(), &conn)
-                            .expect("Failed to start rtc stream")
-                            .expect("Missing rtc stream");
+                shared_helpers::insert_room(&conn)
+            };
 
-                        let other_rtc_stream =
-                            factory::JanusRtcStream::new(USR_AUDIENCE).insert(&conn);
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                        crate::db::janus_rtc_stream::start(other_rtc_stream.id(), &conn)
-                            .expect("Failed to start rtc stream");
+            let payload = ListRequest {
+                room_id: room.id(),
+                rtc_id: None,
+                time: None,
+                offset: None,
+                limit: None,
+            };
 
-                        // Find rtc.
-                        let rtc: Rtc = crate::schema::rtc::table
-                            .find(rtc_stream.rtc_id())
-                            .get_result(&conn)
-                            .expect("Rtc not found");
+            let err = handle_request::<ListHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc listing");
 
-                        (rtc_stream, rtc)
-                    })
-                    .expect("Failed to create rtc streams");
-
-                // Allow user to list rtcs in the room.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = rtc.room_id().to_string();
-                let object = vec!["rooms", &room_id];
-                authz.allow(agent.account_id(), object, "read");
-
-                // Make rtc_stream.list request.
-                let mut context = TestContext::new(db, authz);
-
-                let payload = ListRequest {
-                    room_id: rtc.room_id(),
-                    rtc_id: Some(rtc.id()),
-                    time: None,
-                    offset: None,
-                    limit: None,
-                };
-
-                let messages = handle_request::<ListHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Rtc streams listing failed");
-
-                // Assert response.
-                let (streams, respp, _) = find_response::<Vec<JanusRtcStream>>(messages.as_slice());
-                assert_eq!(respp.status(), ResponseStatus::OK);
-                assert_eq!(streams.len(), 1);
-
-                let expected_time = match rtc_stream.time().expect("Missing time") {
-                    (Bound::Included(val), upper) => (Bound::Included(val.trunc_subsecs(0)), upper),
-                    _ => panic!("Bad rtc stream time"),
-                };
-
-                assert_eq!(streams[0].id(), rtc_stream.id());
-                assert_eq!(streams[0].handle_id(), rtc_stream.handle_id());
-                assert_eq!(streams[0].backend_id(), rtc_stream.backend_id());
-                assert_eq!(streams[0].label(), rtc_stream.label());
-                assert_eq!(streams[0].sent_by(), rtc_stream.sent_by());
-                assert_eq!(streams[0].time(), Some(expected_time));
-                assert_eq!(
-                    streams[0].created_at(),
-                    rtc_stream.created_at().trunc_subsecs(0)
-                );
-            });
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
         }
 
-        #[test]
-        fn list_rtc_streams_not_authorized() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn list_rtc_streams_missing_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                    shared_helpers::insert_room(&conn)
-                };
+            let payload = ListRequest {
+                room_id: Uuid::new_v4(),
+                rtc_id: None,
+                time: None,
+                offset: None,
+                limit: None,
+            };
 
-                let mut context = TestContext::new(db, TestAuthz::new());
+            let err = handle_request::<ListHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on rtc listing");
 
-                let payload = ListRequest {
-                    room_id: room.id(),
-                    rtc_id: None,
-                    time: None,
-                    offset: None,
-                    limit: None,
-                };
-
-                let err = handle_request::<ListHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc listing");
-
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            });
-        }
-
-        #[test]
-        fn list_rtc_streams_missing_room() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-
-                let payload = ListRequest {
-                    room_id: Uuid::new_v4(),
-                    rtc_id: None,
-                    time: None,
-                    offset: None,
-                    limit: None,
-                };
-
-                let err = handle_request::<ListHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on rtc listing");
-
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
     }
 }

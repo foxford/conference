@@ -329,25 +329,25 @@ mod test {
             assert_eq!(recv_rtcs, rtcs);
         }
 
-        #[test]
-        fn vacuum_system_unauthorized() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-                authz.set_audience(SVC_AUDIENCE);
+        #[async_std::test]
+        async fn vacuum_system_unauthorized() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let mut authz = TestAuthz::new();
+            authz.set_audience(SVC_AUDIENCE);
 
-                // Make system.vacuum request.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(db, authz);
-                let payload = VacuumRequest {};
+            // Make system.vacuum request.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, authz);
+            let payload = VacuumRequest {};
 
-                let err = handle_request::<VacuumHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on system vacuum");
+            let err = handle_request::<VacuumHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on system vacuum");
 
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            })
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
         }
     }
 }

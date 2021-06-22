@@ -391,7 +391,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
-            let use_handle = shared_helpers::create_handle(&janus.url, session_id).await;
+            let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -411,7 +411,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                         agent.agent_id(),
                         rtc.room_id(),
                         rtc.id(),
-                        use_handle,
+                        user_handle,
                     );
                     (backend, rtc, agent_connection)
                 })

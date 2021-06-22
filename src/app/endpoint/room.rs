@@ -476,14 +476,19 @@ mod test {
         use chrono::Utc;
         use serde_json::json;
 
-        use crate::{db::room::Object as Room, test_helpers::prelude::*};
+        use crate::{
+            db::room::Object as Room,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
         #[test]
         fn create() {
             async_std::task::block_on(async {
-                let db = TestDb::new();
+                let local_deps = LocalDeps::new();
+                let postgres = local_deps.run_postgres();
+                let db = TestDb::with_local_postgres(&postgres);
 
                 // Allow user to create rooms.
                 let mut authz = TestAuthz::new();
@@ -532,117 +537,124 @@ mod test {
             });
         }
 
-        #[test]
-        fn create_room_unauthorized() {
-            async_std::task::block_on(async {
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+        #[async_std::test]
+        async fn create_room_unauthorized() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                // Make room.create request.
-                let payload = CreateRequest {
-                    time: (Bound::Included(Utc::now()), Bound::Unbounded),
-                    audience: USR_AUDIENCE.to_owned(),
-                    backend: None,
-                    rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
-                    reserve: None,
-                    tags: None,
-                    classroom_id: None,
-                };
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on room creation");
+            // Make room.create request.
+            let payload = CreateRequest {
+                time: (Bound::Included(Utc::now()), Bound::Unbounded),
+                audience: USR_AUDIENCE.to_owned(),
+                backend: None,
+                rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
+                reserve: None,
+                tags: None,
+                classroom_id: None,
+            };
 
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            });
+            let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room creation");
+
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
         }
     }
 
     mod read {
-        use crate::{db::room::Object as Room, test_helpers::prelude::*};
+        use crate::{
+            db::room::Object as Room,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
-        #[test]
-        fn read_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn read_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Create room.
-                    shared_helpers::insert_room(&conn)
-                };
+                // Create room.
+                shared_helpers::insert_room(&conn)
+            };
 
-                // Allow agent to read the room.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut authz = TestAuthz::new();
-                let room_id = room.id().to_string();
-                authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
+            // Allow agent to read the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = room.id().to_string();
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
 
-                // Make room.read request.
-                let mut context = TestContext::new(db, authz);
-                let payload = ReadRequest { id: room.id() };
+            // Make room.read request.
+            let mut context = TestContext::new(db, authz);
+            let payload = ReadRequest { id: room.id() };
 
-                let messages = handle_request::<ReadHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Room reading failed");
+            let messages = handle_request::<ReadHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room reading failed");
 
-                // Assert response.
-                let (resp_room, respp, _) = find_response::<Room>(messages.as_slice());
-                assert_eq!(respp.status(), ResponseStatus::OK);
-                assert_eq!(resp_room.audience(), room.audience());
-                assert_eq!(resp_room.time(), room.time());
-                assert_eq!(resp_room.rtc_sharing_policy(), room.rtc_sharing_policy());
-            });
+            // Assert response.
+            let (resp_room, respp, _) = find_response::<Room>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::OK);
+            assert_eq!(resp_room.audience(), room.audience());
+            assert_eq!(resp_room.time(), room.time());
+            assert_eq!(resp_room.rtc_sharing_policy(), room.rtc_sharing_policy());
         }
 
-        #[test]
-        fn read_room_not_authorized() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn read_room_not_authorized() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    shared_helpers::insert_room(&conn)
-                };
+                shared_helpers::insert_room(&conn)
+            };
 
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let payload = ReadRequest { id: room.id() };
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let payload = ReadRequest { id: room.id() };
 
-                let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on room reading");
+            let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room reading");
 
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            });
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
         }
 
-        #[test]
-        fn read_room_missing() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-                let payload = ReadRequest { id: Uuid::new_v4() };
+        #[async_std::test]
+        async fn read_room_missing() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on room reading");
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let payload = ReadRequest { id: Uuid::new_v4() };
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room reading");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
     }
 
@@ -655,604 +667,609 @@ mod test {
 
         use crate::{
             db::room::Object as Room,
-            test_helpers::{find_event_by_predicate, prelude::*},
+            test_helpers::{find_event_by_predicate, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
 
-        #[test]
-        fn update_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let now = Utc::now().trunc_subsecs(0);
+        #[async_std::test]
+        async fn update_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let now = Utc::now().trunc_subsecs(0);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Create room.
-                    factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Unbounded, Bound::Unbounded))
-                        .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
-                        .insert(&conn)
-                };
+                // Create room.
+                factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((Bound::Unbounded, Bound::Unbounded))
+                    .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
+                    .insert(&conn)
+            };
 
-                // Allow agent to update the room.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut authz = TestAuthz::new();
-                let room_id = room.id().to_string();
-                authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+            // Allow agent to update the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = room.id().to_string();
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
 
-                // Make room.update request.
-                let mut context = TestContext::new(db, authz);
-                let classroom_id = Uuid::new_v4();
+            // Make room.update request.
+            let mut context = TestContext::new(db, authz);
+            let classroom_id = Uuid::new_v4();
 
-                let time = (
-                    Bound::Included(now + Duration::minutes(50)),
-                    Bound::Unbounded,
-                );
+            let time = (
+                Bound::Included(now + Duration::minutes(50)),
+                Bound::Unbounded,
+            );
 
-                let payload = UpdateRequest {
-                    id: room.id(),
-                    time: Some(time),
-                    reserve: Some(Some(123)),
-                    tags: Some(json!({"foo": "bar"})),
-                    classroom_id: Some(classroom_id),
-                };
+            let payload = UpdateRequest {
+                id: room.id(),
+                time: Some(time),
+                reserve: Some(Some(123)),
+                tags: Some(json!({"foo": "bar"})),
+                classroom_id: Some(classroom_id),
+            };
 
-                let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Room update failed");
+            let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room update failed");
 
-                // Assert response.
-                let (resp_room, respp, _) = find_response::<Room>(messages.as_slice());
-                assert_eq!(respp.status(), ResponseStatus::OK);
-                assert_eq!(resp_room.id(), room.id());
-                assert_eq!(resp_room.audience(), room.audience());
-                assert_eq!(resp_room.time(), &time);
-                assert_eq!(
-                    resp_room.rtc_sharing_policy(),
-                    db::rtc::SharingPolicy::Shared
-                );
-                assert_eq!(resp_room.reserve(), Some(123));
-                assert_eq!(resp_room.tags(), &json!({"foo": "bar"}));
-                assert_eq!(resp_room.classroom_id(), Some(classroom_id));
-            });
+            // Assert response.
+            let (resp_room, respp, _) = find_response::<Room>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::OK);
+            assert_eq!(resp_room.id(), room.id());
+            assert_eq!(resp_room.audience(), room.audience());
+            assert_eq!(resp_room.time(), &time);
+            assert_eq!(
+                resp_room.rtc_sharing_policy(),
+                db::rtc::SharingPolicy::Shared
+            );
+            assert_eq!(resp_room.reserve(), Some(123));
+            assert_eq!(resp_room.tags(), &json!({"foo": "bar"}));
+            assert_eq!(resp_room.classroom_id(), Some(classroom_id));
         }
 
-        #[test]
-        fn update_room_with_wrong_time() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let now = Utc::now().trunc_subsecs(0);
+        #[async_std::test]
+        async fn update_room_with_wrong_time() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let now = Utc::now().trunc_subsecs(0);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Create room.
-                    factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(now - Duration::hours(1)),
-                            Bound::Excluded(now + Duration::hours(2)),
-                        ))
-                        .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
-                        .insert(&conn)
-                };
+                // Create room.
+                factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((
+                        Bound::Included(now - Duration::hours(1)),
+                        Bound::Excluded(now + Duration::hours(2)),
+                    ))
+                    .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
+                    .insert(&conn)
+            };
 
-                // Allow agent to update the room.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut authz = TestAuthz::new();
-                let room_id = room.id().to_string();
-                authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+            // Allow agent to update the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = room.id().to_string();
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
 
-                // Make room.update request.
-                let mut context = TestContext::new(db, authz);
+            // Make room.update request.
+            let mut context = TestContext::new(db, authz);
 
-                let time = (
-                    Bound::Included(now + Duration::hours(3)),
-                    Bound::Excluded(now - Duration::hours(2)),
-                );
+            let time = (
+                Bound::Included(now + Duration::hours(3)),
+                Bound::Excluded(now - Duration::hours(2)),
+            );
 
-                let payload = UpdateRequest {
-                    id: room.id(),
-                    time: Some(time),
-                    reserve: Some(Some(123)),
-                    tags: Some(json!({"foo": "bar"})),
-                    classroom_id: None,
-                };
+            let payload = UpdateRequest {
+                id: room.id(),
+                time: Some(time),
+                reserve: Some(Some(123)),
+                tags: Some(json!({"foo": "bar"})),
+                classroom_id: None,
+            };
 
-                handle_request::<UpdateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Room update succeeded when it should've failed");
-            });
+            handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Room update succeeded when it should've failed");
         }
 
-        #[test]
-        fn update_and_close_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let now = Utc::now().trunc_subsecs(0);
+        #[async_std::test]
+        async fn update_and_close_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let now = Utc::now().trunc_subsecs(0);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Create room.
-                    factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(now - Duration::hours(1)),
-                            Bound::Excluded(now + Duration::hours(5)),
-                        ))
-                        .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
-                        .insert(&conn)
-                };
+                // Create room.
+                factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((
+                        Bound::Included(now - Duration::hours(1)),
+                        Bound::Excluded(now + Duration::hours(5)),
+                    ))
+                    .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
+                    .insert(&conn)
+            };
 
-                // Allow agent to update the room.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut authz = TestAuthz::new();
-                let room_id = room.id().to_string();
-                authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+            // Allow agent to update the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = room.id().to_string();
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
 
-                // Make room.update request.
-                let mut context = TestContext::new(db, authz);
+            // Make room.update request.
+            let mut context = TestContext::new(db, authz);
 
-                let time = (
-                    Bound::Included(now - Duration::hours(1)),
-                    Bound::Excluded(now - Duration::seconds(5)),
-                );
+            let time = (
+                Bound::Included(now - Duration::hours(1)),
+                Bound::Excluded(now - Duration::seconds(5)),
+            );
 
-                let payload = UpdateRequest {
-                    id: room.id(),
-                    time: Some(time),
-                    reserve: Some(Some(123)),
-                    ..Default::default()
-                };
+            let payload = UpdateRequest {
+                id: room.id(),
+                time: Some(time),
+                reserve: Some(Some(123)),
+                ..Default::default()
+            };
 
-                let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Room update failed");
+            let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room update failed");
 
-                assert_eq!(messages.len(), 4);
+            assert_eq!(messages.len(), 4);
 
-                let (closed_tenant_notification, _, _) = find_event_by_predicate::<JsonValue, _>(
-                    messages.as_slice(),
-                    |evp, _, topic| evp.label() == "room.close" && topic.contains("audiences"),
-                )
+            let (closed_tenant_notification, _, _) =
+                find_event_by_predicate::<JsonValue, _>(messages.as_slice(), |evp, _, topic| {
+                    evp.label() == "room.close" && topic.contains("audiences")
+                })
                 .expect("Failed to find room.close event");
 
-                assert_eq!(
-                    closed_tenant_notification
-                        .get("id")
-                        .and_then(|v| v.as_str()),
-                    Some(room.id().to_string()).as_deref()
-                );
+            assert_eq!(
+                closed_tenant_notification
+                    .get("id")
+                    .and_then(|v| v.as_str()),
+                Some(room.id().to_string()).as_deref()
+            );
 
-                let (closed_room_notification, _, _) = find_event_by_predicate::<JsonValue, _>(
-                    messages.as_slice(),
-                    |evp, _, topic| evp.label() == "room.close" && topic.contains("rooms"),
-                )
+            let (closed_room_notification, _, _) =
+                find_event_by_predicate::<JsonValue, _>(messages.as_slice(), |evp, _, topic| {
+                    evp.label() == "room.close" && topic.contains("rooms")
+                })
                 .expect("Failed to find room.close event");
 
-                assert_eq!(
-                    closed_room_notification.get("id").and_then(|v| v.as_str()),
-                    Some(room.id().to_string()).as_deref()
-                );
-            });
+            assert_eq!(
+                closed_room_notification.get("id").and_then(|v| v.as_str()),
+                Some(room.id().to_string()).as_deref()
+            );
         }
 
-        #[test]
-        fn update_and_close_unbounded_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let now = Utc::now().trunc_subsecs(0);
+        #[async_std::test]
+        async fn update_and_close_unbounded_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let now = Utc::now().trunc_subsecs(0);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Create room.
-                    factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(now - Duration::hours(1)), Bound::Unbounded))
-                        .insert(&conn)
-                };
+                // Create room.
+                factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((Bound::Included(now - Duration::hours(1)), Bound::Unbounded))
+                    .insert(&conn)
+            };
 
-                // Allow agent to update the room.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut authz = TestAuthz::new();
-                let room_id = room.id().to_string();
-                authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+            // Allow agent to update the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = room.id().to_string();
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
 
-                // Make room.update request.
-                let mut context = TestContext::new(db, authz);
+            // Make room.update request.
+            let mut context = TestContext::new(db, authz);
 
-                let time = (
-                    Bound::Included(now - Duration::hours(1)),
-                    Bound::Excluded(now - Duration::seconds(5)),
-                );
+            let time = (
+                Bound::Included(now - Duration::hours(1)),
+                Bound::Excluded(now - Duration::seconds(5)),
+            );
 
-                let payload = UpdateRequest {
-                    id: room.id(),
-                    time: Some(time),
-                    ..Default::default()
-                };
+            let payload = UpdateRequest {
+                id: room.id(),
+                time: Some(time),
+                ..Default::default()
+            };
 
-                handle_request::<UpdateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Room update failed");
-            })
+            handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room update failed");
         }
 
-        #[test]
-        fn update_room_missing() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+        #[async_std::test]
+        async fn update_room_missing() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let payload = UpdateRequest {
-                    id: Uuid::new_v4(),
-                    ..Default::default()
-                };
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on room update");
+            let payload = UpdateRequest {
+                id: Uuid::new_v4(),
+                ..Default::default()
+            };
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room update");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[test]
-        fn update_room_closed() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn update_room_closed() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Create closed room.
-                    shared_helpers::insert_closed_room(&conn)
-                };
+                // Create closed room.
+                shared_helpers::insert_closed_room(&conn)
+            };
 
-                let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = UpdateRequest {
-                    id: room.id(),
-                    time: Some((Bound::Included(Utc::now()), Bound::Excluded(Utc::now()))),
-                    ..Default::default()
-                };
+            let payload = UpdateRequest {
+                id: room.id(),
+                time: Some((Bound::Included(Utc::now()), Bound::Excluded(Utc::now()))),
+                ..Default::default()
+            };
 
-                let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on room update");
+            let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room update");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_closed");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_closed");
         }
     }
 
     mod enter {
         use chrono::{Duration, Utc};
 
-        use crate::test_helpers::prelude::*;
+        use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
 
         use super::{super::*, DynSubRequest};
 
-        #[test]
-        fn enter_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn enter_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Create room.
-                    shared_helpers::insert_room(&conn)
-                };
+                // Create room.
+                shared_helpers::insert_room(&conn)
+            };
 
-                // Allow agent to subscribe to the rooms' events.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut authz = TestAuthz::new();
-                let room_id = room.id().to_string();
+            // Allow agent to subscribe to the rooms' events.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = room.id().to_string();
 
-                authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
 
-                // Make room.enter request.
-                let mut context = TestContext::new(db, authz);
-                let payload = EnterRequest { id: room.id() };
+            // Make room.enter request.
+            let mut context = TestContext::new(db, authz);
+            let payload = EnterRequest { id: room.id() };
 
-                let messages = handle_request::<EnterHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Room entrance failed");
+            let messages = handle_request::<EnterHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room entrance failed");
 
-                // Assert dynamic subscription request.
-                let (payload, reqp, topic) = find_request::<DynSubRequest>(messages.as_slice());
+            // Assert dynamic subscription request.
+            let (payload, reqp, topic) = find_request::<DynSubRequest>(messages.as_slice());
 
-                let expected_topic = format!(
-                    "agents/{}.{}/api/{}/out/{}",
-                    context.config().agent_label,
-                    context.config().id,
-                    API_VERSION,
-                    context.config().broker_id,
-                );
+            let expected_topic = format!(
+                "agents/{}.{}/api/{}/out/{}",
+                context.config().agent_label,
+                context.config().id,
+                API_VERSION,
+                context.config().broker_id,
+            );
 
-                assert_eq!(topic, expected_topic);
-                assert_eq!(reqp.method(), "subscription.create");
-                assert_eq!(payload.subject, agent.agent_id().to_owned());
-                assert_eq!(payload.object, vec!["rooms", &room_id, "events"]);
-            });
+            assert_eq!(topic, expected_topic);
+            assert_eq!(reqp.method(), "subscription.create");
+            assert_eq!(payload.subject, agent.agent_id().to_owned());
+            assert_eq!(payload.object, vec!["rooms", &room_id, "events"]);
         }
 
-        #[test]
-        fn enter_room_not_authorized() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn enter_room_not_authorized() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    shared_helpers::insert_room(&conn)
-                };
+                shared_helpers::insert_room(&conn)
+            };
 
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let payload = EnterRequest { id: room.id() };
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let payload = EnterRequest { id: room.id() };
 
-                let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on room entering");
+            let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room entering");
 
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            });
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
         }
 
-        #[test]
-        fn enter_room_missing() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-                let payload = EnterRequest { id: Uuid::new_v4() };
+        #[async_std::test]
+        async fn enter_room_missing() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on room entering");
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let payload = EnterRequest { id: Uuid::new_v4() };
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room entering");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[test]
-        fn enter_room_closed() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn enter_room_closed() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Create closed room.
-                    shared_helpers::insert_closed_room(&conn)
-                };
+                // Create closed room.
+                shared_helpers::insert_closed_room(&conn)
+            };
 
-                // Allow agent to subscribe to the rooms' events.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut authz = TestAuthz::new();
-                let room_id = room.id().to_string();
+            // Allow agent to subscribe to the rooms' events.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = room.id().to_string();
 
-                authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
 
-                // Make room.enter request.
-                let mut context = TestContext::new(db, authz);
-                let payload = EnterRequest { id: room.id() };
+            // Make room.enter request.
+            let mut context = TestContext::new(db, authz);
+            let payload = EnterRequest { id: room.id() };
 
-                let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on room entering");
+            let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room entering");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_closed");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_closed");
         }
 
-        #[test]
-        fn enter_room_with_no_opening_time() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn enter_room_with_no_opening_time() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Create room without time.
-                    factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Unbounded, Bound::Unbounded))
-                        .insert(&conn)
-                };
+                // Create room without time.
+                factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((Bound::Unbounded, Bound::Unbounded))
+                    .insert(&conn)
+            };
 
-                // Allow agent to subscribe to the rooms' events.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut authz = TestAuthz::new();
-                let room_id = room.id().to_string();
+            // Allow agent to subscribe to the rooms' events.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = room.id().to_string();
 
-                authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
 
-                // Make room.enter request.
-                let mut context = TestContext::new(db, authz);
-                let payload = EnterRequest { id: room.id() };
+            // Make room.enter request.
+            let mut context = TestContext::new(db, authz);
+            let payload = EnterRequest { id: room.id() };
 
-                let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on room entering");
+            let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room entering");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_closed");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_closed");
         }
 
-        #[test]
-        fn enter_room_that_opens_in_the_future() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn enter_room_that_opens_in_the_future() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Create room without time.
-                    factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(Utc::now() + Duration::hours(1)),
-                            Bound::Unbounded,
-                        ))
-                        .insert(&conn)
-                };
+                // Create room without time.
+                factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((
+                        Bound::Included(Utc::now() + Duration::hours(1)),
+                        Bound::Unbounded,
+                    ))
+                    .insert(&conn)
+            };
 
-                // Allow agent to subscribe to the rooms' events.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut authz = TestAuthz::new();
-                let room_id = room.id().to_string();
+            // Allow agent to subscribe to the rooms' events.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = room.id().to_string();
 
-                authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
 
-                // Make room.enter request.
-                let mut context = TestContext::new(db, authz);
-                let payload = EnterRequest { id: room.id() };
+            // Make room.enter request.
+            let mut context = TestContext::new(db, authz);
+            let payload = EnterRequest { id: room.id() };
 
-                handle_request::<EnterHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Room entrance failed");
-            });
+            handle_request::<EnterHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room entrance failed");
         }
     }
 
     mod leave {
-        use crate::test_helpers::prelude::*;
+        use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
 
         use super::{super::*, DynSubRequest};
 
-        #[test]
-        fn leave_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+        #[async_std::test]
+        async fn leave_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Create room.
-                    let room = shared_helpers::insert_room(&conn);
+                // Create room.
+                let room = shared_helpers::insert_room(&conn);
 
-                    // Put agent online in the room.
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    room
-                };
+                // Put agent online in the room.
+                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                room
+            };
 
-                // Make room.leave request.
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let payload = LeaveRequest { id: room.id() };
+            // Make room.leave request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let payload = LeaveRequest { id: room.id() };
 
-                let messages = handle_request::<LeaveHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Room leaving failed");
+            let messages = handle_request::<LeaveHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room leaving failed");
 
-                // Assert dynamic subscription request.
-                let (payload, reqp, topic) = find_request::<DynSubRequest>(messages.as_slice());
+            // Assert dynamic subscription request.
+            let (payload, reqp, topic) = find_request::<DynSubRequest>(messages.as_slice());
 
-                let expected_topic = format!(
-                    "agents/{}.{}/api/{}/out/{}",
-                    context.config().agent_label,
-                    context.config().id,
-                    API_VERSION,
-                    context.config().broker_id,
-                );
+            let expected_topic = format!(
+                "agents/{}.{}/api/{}/out/{}",
+                context.config().agent_label,
+                context.config().id,
+                API_VERSION,
+                context.config().broker_id,
+            );
 
-                assert_eq!(topic, expected_topic);
-                assert_eq!(reqp.method(), "subscription.delete");
-                assert_eq!(&payload.subject, agent.agent_id());
+            assert_eq!(topic, expected_topic);
+            assert_eq!(reqp.method(), "subscription.delete");
+            assert_eq!(&payload.subject, agent.agent_id());
 
-                let room_id = room.id().to_string();
-                assert_eq!(payload.object, vec!["rooms", &room_id, "events"]);
-            });
+            let room_id = room.id().to_string();
+            assert_eq!(payload.object, vec!["rooms", &room_id, "events"]);
         }
 
-        #[test]
-        fn leave_room_while_not_entered() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn leave_room_while_not_entered() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    shared_helpers::insert_room(&conn)
-                };
+                shared_helpers::insert_room(&conn)
+            };
 
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let payload = LeaveRequest { id: room.id() };
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let payload = LeaveRequest { id: room.id() };
 
-                let err = handle_request::<LeaveHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on room leaving");
+            let err = handle_request::<LeaveHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room leaving");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "agent_not_entered_the_room");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-        #[test]
-        fn leave_room_missing() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-                let payload = LeaveRequest { id: Uuid::new_v4() };
+        #[async_std::test]
+        async fn leave_room_missing() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let payload = LeaveRequest { id: Uuid::new_v4() };
 
-                let err = handle_request::<LeaveHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on room leaving");
+            let err = handle_request::<LeaveHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room leaving");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
     }
 }

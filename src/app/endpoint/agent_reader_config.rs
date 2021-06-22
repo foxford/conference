@@ -281,26 +281,33 @@ mod tests {
         use chrono::{Duration, Utc};
         use uuid::Uuid;
 
-        use crate::{db::rtc::SharingPolicy as RtcSharingPolicy, test_helpers::prelude::*};
+        use crate::{
+            db::rtc::SharingPolicy as RtcSharingPolicy,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
         #[async_std::test]
         async fn update_agent_reader_config() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
             let agent4 = TestAgent::new("web", "user4", USR_AUDIENCE);
 
             // Insert a room with agents and RTCs.
-            let (room, _backend, _rtcs) = db
+            let (room, backend, _rtcs) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend =
-                        shared_helpers::insert_janus_backend(&conn, todo!(), todo!(), todo!());
-
+                    let backend = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
                         .time((Bound::Included(Utc::now()), Bound::Unbounded))
@@ -327,6 +334,8 @@ mod tests {
 
             // Make agent_reader_config.update request.
             let mut context = TestContext::new(db, TestAuthz::new());
+            let (tx, _rx) = async_std::channel::unbounded();
+            context.with_janus(tx);
 
             let payload = State {
                 room_id: room.id(),
@@ -426,14 +435,18 @@ mod tests {
             assert_eq!(agent4_config.receive_video, Some(true));
             assert_eq!(agent4_config.receive_audio, Some(true));
 
+            context.janus_clients().remove_client(backend.id());
             Ok(())
         }
 
         #[async_std::test]
         async fn too_many_config_items() -> std::io::Result<()> {
             // Make agent_reader_config.update request.
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user", USR_AUDIENCE);
-            let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new());
 
             let configs = (0..(MAX_STATE_CONFIGS_LEN + 1))
                 .map(|i| {
@@ -464,7 +477,9 @@ mod tests {
 
         #[async_std::test]
         async fn agent_without_rtc() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
@@ -510,7 +525,9 @@ mod tests {
 
         #[async_std::test]
         async fn not_entered() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room.
@@ -540,7 +557,9 @@ mod tests {
 
         #[async_std::test]
         async fn closed_room() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room with an agent.
@@ -583,7 +602,9 @@ mod tests {
 
         #[async_std::test]
         async fn room_with_wrong_rtc_policy() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room with an agent.
@@ -624,8 +645,11 @@ mod tests {
         #[async_std::test]
         async fn missing_room() -> std::io::Result<()> {
             // Make agent_reader_config.update request.
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
                 room_id: Uuid::new_v4(),
@@ -649,13 +673,18 @@ mod tests {
         use chrono::{Duration, Utc};
         use uuid::Uuid;
 
-        use crate::{db::rtc::SharingPolicy as RtcSharingPolicy, test_helpers::prelude::*};
+        use crate::{
+            db::rtc::SharingPolicy as RtcSharingPolicy,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
         #[async_std::test]
         async fn read_state() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
@@ -733,7 +762,9 @@ mod tests {
 
         #[async_std::test]
         async fn not_entered() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room.
@@ -760,7 +791,9 @@ mod tests {
 
         #[async_std::test]
         async fn closed_room() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room with an agent.
@@ -800,7 +833,9 @@ mod tests {
 
         #[async_std::test]
         async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room with an agent.
@@ -838,8 +873,11 @@ mod tests {
         #[async_std::test]
         async fn missing_room() -> std::io::Result<()> {
             // Make agent_reader_config.read request.
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = ReadRequest {
                 room_id: Uuid::new_v4(),
