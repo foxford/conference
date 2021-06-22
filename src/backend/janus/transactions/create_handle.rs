@@ -25,6 +25,7 @@ pub(crate) struct TransactionData {
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     group: Option<String>,
+    janus_url: Option<String>,
 }
 
 impl TransactionData {
@@ -34,6 +35,7 @@ impl TransactionData {
             capacity: None,
             balancer_capacity: None,
             group: None,
+            janus_url: None,
         }
     }
 
@@ -67,6 +69,16 @@ impl TransactionData {
         self.group = Some(group.to_owned());
         self
     }
+
+    /// Get a reference to the transaction data's janus url.
+    pub(crate) fn janus_url(&self) -> Option<&str> {
+        self.janus_url.as_deref()
+    }
+
+    /// Set the transaction data's janus url.
+    pub(crate) fn set_janus_url(&mut self, janus_url: String) {
+        self.janus_url = Some(janus_url);
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -79,6 +91,7 @@ impl Client {
         capacity: Option<i32>,
         balancer_capacity: Option<i32>,
         group: Option<&str>,
+        janus_url: Option<&str>,
         start_timestamp: DateTime<Utc>,
     ) -> Result<OutgoingMessage<CreateHandleRequest>> {
         let to = respp.as_agent_id();
@@ -94,6 +107,10 @@ impl Client {
 
         if let Some(group) = group {
             tn_data.set_group(group);
+        }
+
+        if let Some(janus_url) = janus_url {
+            tn_data.set_janus_url(janus_url.to_owned())
         }
 
         let transaction = Transaction::CreateHandle(tn_data);

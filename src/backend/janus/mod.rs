@@ -86,6 +86,7 @@ async fn handle_response_impl<C: Context>(
                             tn.capacity(),
                             tn.balancer_capacity(),
                             tn.group(),
+                            tn.janus_url(),
                             context.start_timestamp(),
                         )
                         .error(AppErrorKind::MessageBuildingFailed)?;
@@ -113,6 +114,10 @@ async fn handle_response_impl<C: Context>(
                     if let Some(group) = tn.group() {
                         q = q.group(group);
                     }
+
+                    if let Some(janus_url) = tn.janus_url() {
+                        q = q.janus_url(janus_url)
+                    }   
 
                     q.execute(&conn)?;
                     Ok(Box::new(stream::empty()))

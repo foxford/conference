@@ -36,6 +36,7 @@ table! {
         balancer_capacity -> Nullable<Int4>,
         api_version -> Text,
         group -> Nullable<Text>,
+        janus_url -> Nullable<Text>,
     }
 }
 
