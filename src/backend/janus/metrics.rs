@@ -45,7 +45,7 @@ impl Metrics {
             janus_basic_metrics.get_metric_with_label_values(&["connected_agents"])?;
         let load = IntGaugeVec::new(
             Opts::new("janus_load", "Janus load metrics"),
-            &["agent", "kind"],
+            &["kind", "agent"],
         )?;
         registry.register(Box::new(janus_basic_metrics))?;
         registry.register(Box::new(load.clone()))?;
