@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -13,6 +14,7 @@ pub struct UploadStreamRequest {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UploadStreamTransaction {
     pub rtc_id: Uuid,
+    pub start_timestamp: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize)]

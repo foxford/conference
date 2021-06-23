@@ -20,6 +20,7 @@ use crate::{
         endpoint::{prelude::*, subscription::CorrelationDataPayload},
         API_VERSION,
     },
+    backend::janus::metrics::HistogramExt,
     db,
     db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
 };
@@ -383,6 +384,12 @@ impl RequestHandler for EnterHandler {
         let to = &context.config().broker_id;
         let outgoing_request = OutgoingRequest::multicast(payload, props, to, API_VERSION);
         let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableMessage + Send>;
+        context
+            .metrics()
+            .request_duration
+            .room_enter
+            .observe_timestamp(context.start_timestamp());
+
         Ok(Box::new(stream::once(boxed_request)))
     }
 }
@@ -452,6 +459,12 @@ impl RequestHandler for LeaveHandler {
         let to = &context.config().broker_id;
         let outgoing_request = OutgoingRequest::multicast(payload, props, to, API_VERSION);
         let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableMessage + Send>;
+        context
+            .metrics()
+            .request_duration
+            .room_leave
+            .observe_timestamp(context.start_timestamp());
+
         Ok(Box::new(stream::once(boxed_request)))
     }
 }

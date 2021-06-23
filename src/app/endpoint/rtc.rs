@@ -16,7 +16,9 @@ use uuid::Uuid;
 
 use crate::{
     app::{context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId},
-    backend::janus::{client::create_handle::CreateHandleRequest, JANUS_API_VERSION},
+    backend::janus::{
+        client::create_handle::CreateHandleRequest, metrics::HistogramExt, JANUS_API_VERSION,
+    },
     db::{self, agent, agent_connection, rtc::SharingPolicy as RtcSharingPolicy},
     diesel::{Connection, Identifiable},
 };
@@ -116,6 +118,11 @@ impl RequestHandler for CreateHandler {
             reqp,
             context.start_timestamp(),
         );
+        context
+            .metrics()
+            .request_duration
+            .rtc_create
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::from_iter(vec![response, notification])))
     }
@@ -170,6 +177,11 @@ impl RequestHandler for ReadHandler {
                 .error(AppErrorKind::RtcNotFound)
         })
         .await?;
+        context
+            .metrics()
+            .request_duration
+            .rtc_read
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
@@ -238,6 +250,11 @@ impl RequestHandler for ListHandler {
             Ok::<_, AppError>(query.execute(&conn)?)
         })
         .await?;
+        context
+            .metrics()
+            .request_duration
+            .rtc_list
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
@@ -498,6 +515,11 @@ impl RequestHandler for ConnectHandler {
             reqp,
             JANUS_API_VERSION,
         );
+        context
+            .metrics()
+            .request_duration
+            .rtc_connect
+            .observe_timestamp(context.start_timestamp());
 
         let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_resp)))

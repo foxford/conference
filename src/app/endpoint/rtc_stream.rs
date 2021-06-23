@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*},
+    backend::janus::metrics::HistogramExt,
     db,
 };
 
@@ -92,6 +93,11 @@ impl RequestHandler for ListHandler {
             query.execute(&conn)
         })
         .await?;
+        context
+            .metrics()
+            .request_duration
+            .rtc_stream_list
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,

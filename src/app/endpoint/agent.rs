@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*},
+    backend::janus::metrics::HistogramExt,
     db,
 };
 
@@ -59,6 +60,11 @@ impl RequestHandler for ListHandler {
                 .execute(&conn)
         })
         .await?;
+        context
+            .metrics()
+            .request_duration
+            .agent_list
+            .observe_timestamp(context.start_timestamp());
 
         // Respond with agents list.
         Ok(Box::new(stream::once(helpers::build_response(

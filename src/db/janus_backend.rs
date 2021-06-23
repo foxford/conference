@@ -467,24 +467,24 @@ pub fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Error> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// pub fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
-//     use diesel::dsl::sum;
-//     use diesel::prelude::*;
+pub fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
+    use diesel::dsl::sum;
+    use diesel::prelude::*;
 
-//     janus_backend::table
-//         .select(sum(janus_backend::capacity))
-//         .get_result::<Option<i64>>(conn)
-//         .map(|v| v.unwrap_or(0))
-// }
+    janus_backend::table
+        .select(sum(janus_backend::capacity))
+        .get_result::<Option<i64>>(conn)
+        .map(|v| v.unwrap_or(0))
+}
 
-// pub fn count(conn: &PgConnection) -> Result<i64, Error> {
-//     use diesel::dsl::count;
-//     use diesel::prelude::*;
+pub fn count(conn: &PgConnection) -> Result<i64, Error> {
+    use diesel::dsl::count;
+    use diesel::prelude::*;
 
-//     janus_backend::table
-//         .select(count(janus_backend::id))
-//         .get_result(conn)
-// }
+    janus_backend::table
+        .select(count(janus_backend::id))
+        .get_result(conn)
+}
 
 #[derive(QueryableByName, Debug)]
 pub struct ReserveLoadQueryLoad {

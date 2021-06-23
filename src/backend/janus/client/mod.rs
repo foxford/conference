@@ -126,6 +126,7 @@ impl JanusClient {
         &self,
         request: CreateHandleRequest,
     ) -> anyhow::Result<CreateHandleResponse> {
+        // let _timer = METRICS.create_handle_time.start_timer();
         let response: JanusResponse<CreateHandleResponse> =
             self.send_request(create_handle(request)).await?;
         Ok(response.data)

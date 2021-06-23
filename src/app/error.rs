@@ -1,5 +1,6 @@
 use std::{error::Error as StdError, fmt};
 
+use enum_iterator::IntoEnumIterator;
 use slog::{warn, Logger};
 use svc_agent::mqtt::ResponseStatus;
 use svc_error::{extension::sentry, Error as SvcError};
@@ -12,7 +13,7 @@ struct ErrorKindProperties {
     is_notify_sentry: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, IntoEnumIterator)]
 pub enum ErrorKind {
     AccessDenied,
     AgentNotConnected,
@@ -45,7 +46,6 @@ pub enum ErrorKind {
     RoomNotFound,
     RoomTimeChangingForbidden,
     RtcNotFound,
-    _StatsCollectionFailed,
 }
 
 impl ErrorKind {
@@ -266,12 +266,6 @@ impl From<ErrorKind> for ErrorKindProperties {
                 title: "RTC not found",
                 is_notify_sentry: false,
             },
-            ErrorKind::_StatsCollectionFailed => ErrorKindProperties {
-                status: ResponseStatus::UNPROCESSABLE_ENTITY,
-                kind: "stats_collection_failed",
-                title: "Stats collection failed",
-                is_notify_sentry: true,
-            },
         }
     }
 }
@@ -296,6 +290,10 @@ impl Error {
 
     pub fn status(&self) -> ResponseStatus {
         self.kind.status()
+    }
+
+    pub fn error_kind(&self) -> ErrorKind {
+        self.kind
     }
 
     pub fn kind(&self) -> &str {

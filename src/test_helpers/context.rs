@@ -1,11 +1,17 @@
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
+use prometheus::Registry;
 use serde_json::json;
 use slog::{o, Logger, OwnedKV, SendSyncRefUnwindSafeKV};
 use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 
 use crate::{
-    app::context::{Context, GlobalContext, JanusTopics, MessageContext},
+    app::{
+        context::{Context, GlobalContext, JanusTopics, MessageContext},
+        metrics::Metrics,
+    },
     backend::janus::{client::IncomingEvent, client_pool::Clients},
     config::Config,
     db::ConnectionPool as Db,
@@ -133,6 +139,11 @@ impl GlobalContext for TestContext {
             .as_ref()
             .expect("You should initialise janus")
             .clone()
+    }
+
+    fn metrics(&self) -> Arc<Metrics> {
+        let registry = Registry::new();
+        Arc::new(Metrics::new(&registry).unwrap())
     }
 }
 

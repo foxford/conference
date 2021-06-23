@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use svc_agent::{mqtt::IncomingRequestProperties, AgentId};
 use uuid::Uuid;
@@ -15,6 +16,7 @@ pub struct CreateStreamRequest {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CreateStreamTransaction {
     pub reqp: IncomingRequestProperties,
+    pub start_timestamp: DateTime<Utc>,
 }
 
 #[derive(Serialize, Debug)]

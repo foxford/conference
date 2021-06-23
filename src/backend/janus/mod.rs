@@ -21,7 +21,10 @@ use crate::{
         message_handler::MessageStream,
         API_VERSION,
     },
-    backend::janus::client::{create_handle::CreateHandleRequest, JanusClient},
+    backend::janus::{
+        client::{create_handle::CreateHandleRequest, JanusClient},
+        metrics::HistogramExt,
+    },
     db::{agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc},
     diesel::Connection,
 };
@@ -165,6 +168,11 @@ async fn handle_event_impl<C: Context>(
 
                             let boxed_resp =
                                 Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                            context
+                                .metrics()
+                                .request_duration
+                                .rtc_signal_create
+                                .observe_timestamp(tn.start_timestamp);
                             Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
@@ -209,6 +217,11 @@ async fn handle_event_impl<C: Context>(
 
                             let boxed_resp =
                                 Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                            context
+                                .metrics()
+                                .request_duration
+                                .rtc_signal_read
+                                .observe_timestamp(tn.start_timestamp);
                             Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
@@ -374,7 +387,13 @@ async fn handle_event_impl<C: Context>(
 
                         Ok(Box::new(stream::once(event_box)) as MessageStream)
                     };
-                    upload_stream.await
+                    let response = upload_stream.await;
+                    context
+                        .metrics()
+                        .request_duration
+                        .upload_stream
+                        .observe_timestamp(tn.start_timestamp);
+                    response
                 }
             }
         }
@@ -552,3 +571,4 @@ async fn handle_status_event_impl<C: Context>(
 ////////////////////////////////////////////////////////////////////////////////
 pub mod client;
 pub mod client_pool;
+pub mod metrics;

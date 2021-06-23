@@ -46,6 +46,10 @@ tide = "0.16"
 isahc = { version="1", features=["json"] }
 derive_more = "0.99"
 once_cell = "1"
+prometheus = "0.12"
+prometheus-static-metric = "0.5"
+humantime-serde = "1"
+enum-iterator = "0.6"
 
 [dev-dependencies]
 diesel_migrations = "1"

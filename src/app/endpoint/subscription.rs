@@ -16,7 +16,10 @@ use uuid::Uuid;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*},
-    backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
+    backend::janus::{
+        client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
+        metrics::HistogramExt,
+    },
     db,
 };
 
@@ -110,6 +113,11 @@ impl ResponseHandler for CreateResponseHandler {
             &corr_data.reqp,
             context.start_timestamp(),
         );
+        context
+            .metrics()
+            .request_duration
+            .subscription_create
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::from_iter(vec![response, notification])))
     }
@@ -149,6 +157,11 @@ impl ResponseHandler for DeleteResponseHandler {
                 &corr_data.reqp,
                 context.start_timestamp(),
             );
+            context
+                .metrics()
+                .request_duration
+                .subscription_delete_response
+                .observe_timestamp(context.start_timestamp());
 
             Ok(Box::new(stream::from_iter(vec![response, notification])))
         } else {
@@ -184,6 +197,11 @@ impl EventHandler for DeleteEventHandler {
             let to_uri = format!("rooms/{}/events", room_id);
             let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
             let notification = Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send>;
+            context
+                .metrics()
+                .request_duration
+                .subscription_delete_event
+                .observe_timestamp(context.start_timestamp());
 
             Ok(Box::new(stream::once(notification)))
         } else {

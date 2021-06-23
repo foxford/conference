@@ -117,6 +117,7 @@ impl RequestHandler for VacuumHandler {
             };
             let transaction = UploadStreamTransaction {
                 rtc_id: recording.rtc_id(),
+                start_timestamp: context.start_timestamp(),
             };
             // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
             context
@@ -317,7 +318,11 @@ mod test {
                 .iter()
                 .map(|resp| match resp {
                     IncomingEvent::Event(EventResponse {
-                        transaction: Transaction::UploadStream(UploadStreamTransaction { rtc_id }),
+                        transaction:
+                            Transaction::UploadStream(UploadStreamTransaction {
+                                rtc_id,
+                                start_timestamp: _start_timestamp,
+                            }),
                         ..
                     }) => *rtc_id,
                     _ => panic!("Got wrong event"),

@@ -8,9 +8,7 @@ use serde::{Deserialize, Serialize};
 pub enum Transaction {
     AgentLeave,
     CreateStream(CreateStreamTransaction),
-    // CreateRtcHandle(create_rtc_handle::TransactionData),
     ReadStream(ReadStreamTransaction),
-    // Trickle(trickle::TransactionData),
     UpdateReaderConfig,
     UpdateWriterConfig,
     UploadStream(UploadStreamTransaction),

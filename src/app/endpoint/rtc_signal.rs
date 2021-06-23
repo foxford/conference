@@ -25,6 +25,7 @@ use crate::{
             trickle::TrickleRequest,
             Jsep, JsepType,
         },
+        metrics::HistogramExt,
         JANUS_API_VERSION,
     },
     db,
@@ -74,7 +75,6 @@ impl RequestHandler for CreateHandler {
             "janus_handle_id" => payload.handle_id.janus_handle_id().to_string(),
             "backend_id" => payload.handle_id.backend_id().to_string(),
         ));
-
         if let Some(ref label) = payload.label {
             context.add_logger_tags(o!("rtc_stream_label" => label.to_owned()));
         }
@@ -161,7 +161,10 @@ impl RequestHandler for CreateHandler {
                                 session_id: payload.handle_id.janus_session_id(),
                                 jsep: payload.jsep,
                             };
-                            let transaction = ReadStreamTransaction { reqp: reqp.clone() };
+                            let transaction = ReadStreamTransaction {
+                                reqp: reqp.clone(),
+                                start_timestamp: context.start_timestamp(),
+                            };
                             context
                                 .janus_clients()
                                 .get_or_insert(&backend)
@@ -221,7 +224,10 @@ impl RequestHandler for CreateHandler {
                                 session_id: payload.handle_id.janus_session_id(),
                                 jsep: payload.jsep,
                             };
-                            let transaction = CreateStreamTransaction { reqp: reqp.clone() };
+                            let transaction = CreateStreamTransaction {
+                                reqp: reqp.clone(),
+                                start_timestamp: context.start_timestamp(),
+                            };
                             context
                                 .janus_clients()
                                 .get_or_insert(&backend)
@@ -264,6 +270,12 @@ impl RequestHandler for CreateHandler {
                 );
 
                 let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                context
+                    .metrics()
+                    .request_duration
+                    .rtc_signal_trickle
+                    .observe_timestamp(context.start_timestamp());
+
                 Ok(Box::new(stream::once(boxed_resp)))
             }
         }

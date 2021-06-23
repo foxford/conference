@@ -2,9 +2,12 @@ use std::collections::HashMap;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*},
-    backend::janus::client::update_agent_reader_config::{
-        UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
-        UpdateReaderConfigRequestBodyConfigItem,
+    backend::janus::{
+        client::update_agent_reader_config::{
+            UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
+            UpdateReaderConfigRequestBodyConfigItem,
+        },
+        metrics::HistogramExt,
     },
     db,
     db::{rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},
@@ -209,6 +212,11 @@ impl RequestHandler for UpdateHandler {
             context.start_timestamp(),
             None,
         );
+        context
+            .metrics()
+            .request_duration
+            .agent_reader_config_update
+            .observe_timestamp(context.start_timestamp());
         Ok(Box::new(stream::once(response)))
     }
 }
@@ -260,6 +268,11 @@ impl RequestHandler for ReadHandler {
         })
         .await?;
         helpers::add_room_logger_tags(context, &room);
+        context
+            .metrics()
+            .request_duration
+            .agent_reader_config_read
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,

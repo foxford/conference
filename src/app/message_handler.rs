@@ -55,7 +55,9 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
 
         match message {
             Ok(ref msg) => {
-                if let Err(err) = self.handle_message(&mut msg_context, msg, topic).await {
+                let handle_result = self.handle_message(&mut msg_context, msg, topic).await;
+                msg_context.metrics().observe_app_result(&handle_result);
+                if let Err(err) = handle_result {
                     Self::report_error(&mut msg_context, message, &err.to_string()).await;
                 }
             }

@@ -70,20 +70,20 @@ impl<'a> FindQuery<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-// pub struct CountQuery {}
+pub struct CountQuery {}
 
-// impl CountQuery {
-//     pub fn new() -> Self {
-//         Self {}
-//     }
+impl CountQuery {
+    pub fn new() -> Self {
+        Self {}
+    }
 
-//     pub fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
-//         use diesel::dsl::count;
-//         use diesel::prelude::*;
+    pub fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
+        use diesel::dsl::count;
+        use diesel::prelude::*;
 
-//         agent::table.select(count(agent::id)).get_result(conn)
-//     }
-// }
+        agent::table.select(count(agent::id)).get_result(conn)
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 

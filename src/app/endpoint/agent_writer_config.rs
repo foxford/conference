@@ -1,14 +1,9 @@
 use std::collections::HashMap;
 
-use crate::{
-    app::{context::Context, endpoint::prelude::*},
-    backend::janus::client::update_agent_writer_config::{
+use crate::{app::{context::Context, endpoint::prelude::*}, backend::janus::{client::update_agent_writer_config::{
         UpdateWriterConfigRequest, UpdateWriterConfigRequestBody,
         UpdateWriterConfigRequestBodyConfigItem,
-    },
-    db,
-    db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig},
-};
+    }, metrics::HistogramExt}, db, db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig}};
 use anyhow::anyhow;
 use async_std::{stream, task};
 use async_trait::async_trait;
@@ -277,6 +272,11 @@ impl RequestHandler for UpdateHandler {
         );
 
         let messages = vec![response, notification];
+        context
+            .metrics()
+            .request_duration
+            .agent_writer_config_update
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::from_iter(messages)))
     }
@@ -327,6 +327,11 @@ impl RequestHandler for ReadHandler {
         })
         .await?;
         helpers::add_room_logger_tags(context, &room);
+        context
+            .metrics()
+            .request_duration
+            .agent_writer_config_read
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,

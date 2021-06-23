@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use serde::Deserialize;
 use svc_agent::{mqtt::AgentConfig, AccountId};
@@ -21,7 +21,7 @@ pub struct Config {
     pub telemetry: TelemetryConfig,
     #[serde(default)]
     pub kruonis: KruonisConfig,
-    pub metrics: Option<MetricsConfig>,
+    pub metrics: MetricsConfig,
     pub max_room_duration: Option<i64>,
     pub janus_group: Option<String>,
 }
@@ -76,6 +76,8 @@ pub struct KruonisConfig {
 #[derive(Clone, Debug, Deserialize)]
 pub struct MetricsConfig {
     pub http: MetricsHttpConfig,
+    #[serde(with = "humantime_serde")]
+    pub janus_metrics_collect_interval: Duration,
 }
 
 #[derive(Clone, Debug, Deserialize)]

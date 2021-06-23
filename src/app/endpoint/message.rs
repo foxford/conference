@@ -1,4 +1,7 @@
-use crate::app::{context::Context, endpoint::prelude::*, API_VERSION};
+use crate::{
+    app::{context::Context, endpoint::prelude::*, API_VERSION},
+    backend::janus::metrics::HistogramExt,
+};
 use anyhow::anyhow;
 use async_std::{stream, task};
 use async_trait::async_trait;
@@ -88,6 +91,11 @@ impl RequestHandler for UnicastHandler {
             &payload.agent_id,
             API_VERSION,
         );
+        context
+            .metrics()
+            .request_duration
+            .message_unicast_request
+            .observe_timestamp(context.start_timestamp());
 
         let boxed_req = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_req)))
@@ -146,6 +154,11 @@ impl RequestHandler for BroadcastHandler {
             reqp,
             context.start_timestamp(),
         );
+        context
+            .metrics()
+            .request_duration
+            .message_broadcast
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::from_iter(vec![response, notification])))
     }
@@ -184,6 +197,11 @@ impl ResponseHandler for UnicastResponseHandler {
 
         let resp = OutgoingResponse::unicast(payload, props, &corr_data.reqp, API_VERSION);
         let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+        context
+            .metrics()
+            .request_duration
+            .message_unicast_response
+            .observe_timestamp(context.start_timestamp());
         Ok(Box::new(stream::once(boxed_resp)))
     }
 }

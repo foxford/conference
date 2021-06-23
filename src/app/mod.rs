@@ -1,11 +1,12 @@
-use std::{sync::Arc, thread};
+use std::{net::SocketAddr, sync::Arc, thread};
 
 use anyhow::{Context as AnyhowContext, Result};
 use async_std::task;
 use chrono::Utc;
 use futures::StreamExt;
+use prometheus::{Encoder, Registry, TextEncoder};
 use serde_json::json;
-use slog::{error, info};
+use slog::{error, info, warn};
 use svc_agent::{
     mqtt::{
         Agent, AgentBuilder, AgentNotification, ConnectionMode, OutgoingRequest,
@@ -80,14 +81,35 @@ pub async fn run(
         svc_error::extension::sentry::init(sentry_config);
     }
 
+    //metrics
+    let metrics_registry = Registry::new();
+    let metrics = crate::app::metrics::Metrics::new(&metrics_registry)?;
+    let janus_metrics = crate::backend::janus::metrics::Metrics::new(&metrics_registry)?;
+    thread::spawn({
+        let db = db.clone();
+        let collect_interval = config.metrics.janus_metrics_collect_interval;
+        move || janus_metrics.start_collector(db.clone(), collect_interval)
+    });
+    task::spawn(start_metrics_collector(
+        metrics_registry,
+        config.metrics.http.bind_address,
+    ));
+
     // Subscribe to topics
     let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
 
     let (ev_tx, mut ev_rx) = async_std::channel::unbounded();
     let clients = Clients::new(ev_tx);
     // Context
-    let context = AppContext::new(config.clone(), authz, db.clone(), janus_topics, clients)
-        .add_queue_counter(agent.get_queue_counter());
+    let context = AppContext::new(
+        config.clone(),
+        authz,
+        db.clone(),
+        janus_topics,
+        clients,
+        Arc::new(metrics),
+    )
+    .add_queue_counter(agent.get_queue_counter());
 
     let context = match redis_pool {
         Some(pool) => context.add_redis_pool(pool),
@@ -120,6 +142,11 @@ pub async fn run(
             task::spawn(async move {
                 match message {
                     AgentNotification::Message(message, metadata) => {
+                        message_handler
+                            .global_context()
+                            .metrics()
+                            .total_requests
+                            .inc();
                         message_handler.handle(&message, &metadata.topic).await;
                     }
                     AgentNotification::Reconnection => {
@@ -225,8 +252,35 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
     }
 }
 
+async fn start_metrics_collector(
+    registry: Registry,
+    bind_addr: SocketAddr,
+) -> async_std::io::Result<()> {
+    let mut app = tide::with_state(registry);
+    app.at("/metrics")
+        .get(|req: tide::Request<Registry>| async move {
+            let registry = req.state();
+            let mut buffer = vec![];
+            let encoder = TextEncoder::new();
+            let metric_families = registry.gather();
+            match encoder.encode(&metric_families, &mut buffer) {
+                Ok(_) => {
+                    let mut response = tide::Response::new(200);
+                    response.set_body(buffer);
+                    Ok(response)
+                }
+                Err(err) => {
+                    warn!(crate::LOG, "Metrics not gathered: {:#}", err);
+                    Ok(tide::Response::new(500))
+                }
+            }
+        });
+    app.listen(bind_addr).await
+}
+
 pub mod context;
 pub mod endpoint;
 pub mod error;
 pub mod handle_id;
 pub mod message_handler;
+pub mod metrics;
