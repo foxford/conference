@@ -166,9 +166,29 @@ macro_rules! event_routes {
     }
 }
 
+pub(crate) struct PullHandler;
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct PullPayload {
+    duration: Option<u64>,
+}
+
+#[async_trait]
+impl EventHandler for PullHandler {
+    type Payload = PullPayload;
+
+    async fn handle<C: Context>(
+        _context: &mut C,
+        _payload: Self::Payload,
+        _evp: &IncomingEventProperties,
+    ) -> Result {
+        Ok(Box::new(async_std::stream::empty()))
+    }
+}
 // Event routes configuration: label => EventHandler
 event_routes!(
-    "subscription.delete" => subscription::DeleteEventHandler
+    "subscription.delete" => subscription::DeleteEventHandler,
+    "metric.pull" => PullHandler
 );
 
 ///////////////////////////////////////////////////////////////////////////////
