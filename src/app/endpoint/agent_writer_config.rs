@@ -214,6 +214,13 @@ impl RequestHandler for UpdateHandler {
                         }
 
                         q.execute(&conn)?;
+
+                        let snapshot_q = db::rtc_writer_config_snapshot::InsertQuery::new(
+                            *rtc_id,
+                            state_config_item.send_video,
+                            state_config_item.send_audio,
+                        );
+                        snapshot_q.execute(&conn)?;
                     }
 
                     // Retrieve state data.
@@ -260,6 +267,7 @@ impl RequestHandler for UpdateHandler {
                 .error(AppErrorKind::BackendRequestFailed)?;
         }
 
+        // Respond to the agent and broadcast notification.
         let state = State::new(room.id(), &rtc_writer_configs_with_rtcs);
 
         let response = helpers::build_response(

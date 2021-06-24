@@ -30,4 +30,6 @@
     - [Agent Writer Config](api/agent_writer_config.md)
         - [Update](api/agent_writer_config/update.md)
         - [Read](api/agent_writer_config/read.md)
+    - [Writer Config Snapshot](api/writer_config_snapshot.md)
+        - [Read](api/writer_config_snapshot/read.md)
     - [Errors](api/errors.md)

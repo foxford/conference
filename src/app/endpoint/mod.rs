@@ -70,7 +70,8 @@ request_routes!(
     "rtc.read" => rtc::ReadHandler,
     "rtc_signal.create" => rtc_signal::CreateHandler,
     "rtc_stream.list" => rtc_stream::ListHandler,
-    "system.vacuum" => system::VacuumHandler
+    "system.vacuum" => system::VacuumHandler,
+    "writer_config_snapshot.read" => writer_config_snapshot::ReadHandler
 );
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -204,6 +205,7 @@ pub mod rtc_signal;
 pub mod rtc_stream;
 mod subscription;
 pub mod system;
+mod writer_config_snapshot;
 
 pub(self) mod prelude {
     pub(super) use super::{helpers, EventHandler, RequestHandler, ResponseHandler, Result};
