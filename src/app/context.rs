@@ -7,7 +7,7 @@ use diesel::{
     r2d2::{ConnectionManager, PooledConnection},
 };
 use slog::{o, Logger, OwnedKV, SendSyncRefUnwindSafeKV};
-use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
+use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 
 use crate::{
@@ -30,7 +30,6 @@ pub trait GlobalContext: Sync {
     fn agent_id(&self) -> &AgentId;
     fn janus_clients(&self) -> Clients;
     fn janus_topics(&self) -> &JanusTopics;
-    fn queue_counter(&self) -> &Option<QueueCounterHandle>;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
     fn metrics(&self) -> Arc<Metrics>;
 
@@ -64,7 +63,6 @@ pub struct AppContext {
     db: Db,
     agent_id: AgentId,
     janus_topics: JanusTopics,
-    queue_counter: Option<QueueCounterHandle>,
     redis_pool: Option<RedisConnectionPool>,
     clients: Clients,
     metrics: Arc<Metrics>,
@@ -87,17 +85,9 @@ impl AppContext {
             db,
             agent_id,
             janus_topics,
-            queue_counter: None,
             redis_pool: None,
             clients,
             metrics,
-        }
-    }
-
-    pub fn add_queue_counter(self, qc: QueueCounterHandle) -> Self {
-        Self {
-            queue_counter: Some(qc),
-            ..self
         }
     }
 
@@ -128,10 +118,6 @@ impl GlobalContext for AppContext {
 
     fn janus_topics(&self) -> &JanusTopics {
         &self.janus_topics
-    }
-
-    fn queue_counter(&self) -> &Option<QueueCounterHandle> {
-        &self.queue_counter
     }
 
     fn redis_pool(&self) -> &Option<RedisConnectionPool> {
@@ -184,10 +170,6 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 
     fn janus_topics(&self) -> &JanusTopics {
         self.global_context.janus_topics()
-    }
-
-    fn queue_counter(&self) -> &Option<QueueCounterHandle> {
-        self.global_context.queue_counter()
     }
 
     fn redis_pool(&self) -> &Option<RedisConnectionPool> {

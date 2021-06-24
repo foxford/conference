@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use prometheus::Registry;
 use serde_json::json;
 use slog::{o, Logger, OwnedKV, SendSyncRefUnwindSafeKV};
-use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
+use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 
 use crate::{
@@ -124,10 +124,6 @@ impl GlobalContext for TestContext {
 
     fn janus_topics(&self) -> &JanusTopics {
         &self.janus_topics
-    }
-
-    fn queue_counter(&self) -> &Option<QueueCounterHandle> {
-        &None
     }
 
     fn redis_pool(&self) -> &Option<RedisConnectionPool> {

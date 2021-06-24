@@ -29,7 +29,7 @@ slog-async = "2"
 slog-envlogger = "2"
 slog-json = "2"
 slog-serde = "1.0.0-alpha9"
-svc-agent = { version="0.17", features=["diesel", "queue-counter"] }
+svc-agent = { version="0.17", features=["diesel"] }
 svc-authn = { version="0.6", features=["jose", "diesel"] }
 svc-authz = "=0.10.4"
 svc-error = { version="0.1", features=[

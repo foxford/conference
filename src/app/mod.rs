@@ -108,8 +108,7 @@ pub async fn run(
         janus_topics,
         clients,
         Arc::new(metrics),
-    )
-    .add_queue_counter(agent.get_queue_counter());
+    );
 
     let context = match redis_pool {
         Some(pool) => context.add_redis_pool(pool),
