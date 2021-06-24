@@ -101,9 +101,11 @@ impl Metrics {
         })
     }
 
-    pub fn observe_auth(&self, elapsed: Duration) {
-        self.authorization_time
-            .observe(duration_to_seconds(elapsed))
+    pub fn observe_auth(&self, elapsed: chrono::Duration) {
+        if let Ok(elapsed) = elapsed.to_std() {
+            self.authorization_time
+                .observe(duration_to_seconds(elapsed))
+        }
     }
 
     pub fn observe_app_result(&self, result: &Result<(), crate::app::AppError>) {
