@@ -16,6 +16,7 @@ pub(crate) type AllColumns = (
     janus_backend::balancer_capacity,
     janus_backend::api_version,
     janus_backend::group,
+    janus_backend::janus_url,
 );
 
 pub(crate) const ALL_COLUMNS: AllColumns = (
@@ -27,6 +28,7 @@ pub(crate) const ALL_COLUMNS: AllColumns = (
     janus_backend::balancer_capacity,
     janus_backend::api_version,
     janus_backend::group,
+    janus_backend::janus_url,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -42,6 +44,7 @@ pub(crate) struct Object {
     balancer_capacity: Option<i32>,
     api_version: String,
     group: Option<String>,
+    janus_url: Option<String>,
 }
 
 impl Object {
@@ -138,6 +141,7 @@ pub(crate) struct UpsertQuery<'a> {
     balancer_capacity: Option<i32>,
     api_version: String,
     group: Option<&'a str>,
+    janus_url: Option<&'a str>,
 }
 
 impl<'a> UpsertQuery<'a> {
@@ -150,6 +154,7 @@ impl<'a> UpsertQuery<'a> {
             balancer_capacity: None,
             api_version: JANUS_API_VERSION.to_string(),
             group: None,
+            janus_url: None,
         }
     }
 
@@ -170,6 +175,13 @@ impl<'a> UpsertQuery<'a> {
     pub(crate) fn group(self, group: &'a str) -> Self {
         Self {
             group: Some(group),
+            ..self
+        }
+    }
+
+    pub(crate) fn janus_url(self, janus_url: &'a str) -> Self {
+        Self {
+            janus_url: Some(janus_url),
             ..self
         }
     }

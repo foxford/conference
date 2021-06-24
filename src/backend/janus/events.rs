@@ -93,6 +93,7 @@ pub(crate) struct StatusEvent {
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     group: Option<String>,
+    janus_url: Option<String>,
 }
 
 impl StatusEvent {
@@ -110,5 +111,10 @@ impl StatusEvent {
 
     pub(crate) fn group(&self) -> Option<&str> {
         self.group.as_deref()
+    }
+
+    /// Get a reference to the status event's janus url.
+    pub(crate) fn janus_url(&self) -> Option<&str> {
+        self.janus_url.as_deref()
     }
 }
