@@ -12,8 +12,7 @@ use svc_agent::mqtt::{
 use uuid::Uuid;
 
 use crate::{
-    app::{context::Context, endpoint::prelude::*},
-    backend::janus::metrics::HistogramExt,
+    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
     db,
 };
 
@@ -71,7 +70,8 @@ impl RequestHandler for ListHandler {
             .authz()
             .authorize(room.audience(), reqp, object, "read")
             .await?;
-
+        context.metrics().observe_auth(authz_time);
+        
         let conn = context.get_conn().await?;
         let rtc_streams = task::spawn_blocking(move || {
             let mut query = db::janus_rtc_stream::ListQuery::new().room_id(payload.room_id);

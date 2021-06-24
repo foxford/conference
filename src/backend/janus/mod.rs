@@ -19,12 +19,10 @@ use crate::{
         endpoint,
         error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
         message_handler::MessageStream,
+        metrics::HistogramExt,
         API_VERSION,
     },
-    backend::janus::{
-        client::{create_handle::CreateHandleRequest, JanusClient},
-        metrics::HistogramExt,
-    },
+    backend::janus::client::{create_handle::CreateHandleRequest, JanusClient},
     db::{agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc},
     diesel::Connection,
 };

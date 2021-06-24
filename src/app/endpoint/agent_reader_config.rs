@@ -1,13 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    app::{context::Context, endpoint::prelude::*},
-    backend::janus::{
-        client::update_agent_reader_config::{
-            UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
-            UpdateReaderConfigRequestBodyConfigItem,
-        },
-        metrics::HistogramExt,
+    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    backend::janus::client::update_agent_reader_config::{
+        UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
+        UpdateReaderConfigRequestBodyConfigItem,
     },
     db,
     db::{rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},

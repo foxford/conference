@@ -1,10 +1,32 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
+use chrono::{DateTime, Utc};
 use enum_iterator::IntoEnumIterator;
-use prometheus::{HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts, Registry};
+use prometheus::{
+    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts, Registry,
+};
 use prometheus_static_metric::make_static_metric;
 
 use super::error::ErrorKind;
+
+pub trait HistogramExt {
+    fn observe_timestamp(&self, start: DateTime<Utc>);
+}
+
+impl HistogramExt for Histogram {
+    fn observe_timestamp(&self, start: DateTime<Utc>) {
+        let elapsed = (Utc::now() - start).to_std();
+        if let Ok(elapsed) = elapsed {
+            self.observe(duration_to_seconds(elapsed))
+        }
+    }
+}
+
+#[inline]
+fn duration_to_seconds(d: Duration) -> f64 {
+    let nanos = f64::from(d.subsec_nanos()) / 1e9;
+    d.as_secs() as f64 + nanos
+}
 
 make_static_metric! {
     struct RequestDuration: Histogram {
@@ -44,6 +66,7 @@ pub struct Metrics {
     pub app_result_ok: IntCounter,
     pub app_results_errors: HashMap<ErrorKind, IntCounter>,
     pub total_requests: IntCounter,
+    pub authorization_time: Histogram,
 }
 
 impl Metrics {
@@ -55,9 +78,12 @@ impl Metrics {
         let request_stats =
             IntCounterVec::new(Opts::new("request_stats", "Request stats"), &["status"])?;
         let total_requests = IntCounter::new("incoming_requests_total", "Total requests")?;
+        let authorization_time =
+            Histogram::with_opts(HistogramOpts::new("auth_time", "Authorization time"))?;
         registry.register(Box::new(request_duration.clone()))?;
         registry.register(Box::new(request_stats.clone()))?;
         registry.register(Box::new(total_requests.clone()))?;
+        registry.register(Box::new(authorization_time.clone()))?;
 
         Ok(Self {
             request_duration: RequestDuration::from(&request_duration),
@@ -71,7 +97,13 @@ impl Metrics {
                     ))
                 })
                 .collect::<anyhow::Result<_>>()?,
+            authorization_time,
         })
+    }
+
+    pub fn observe_auth(&self, elapsed: Duration) {
+        self.authorization_time
+            .observe(duration_to_seconds(elapsed))
     }
 
     pub fn observe_app_result(&self, result: &Result<(), crate::app::AppError>) {

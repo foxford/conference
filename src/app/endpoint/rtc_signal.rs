@@ -15,7 +15,10 @@ use svc_agent::{
 };
 
 use crate::{
-    app::{context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId},
+    app::{
+        context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId,
+        metrics::HistogramExt,
+    },
     backend::janus::{
         client::{
             create_stream::{
@@ -25,7 +28,6 @@ use crate::{
             trickle::TrickleRequest,
             Jsep, JsepType,
         },
-        metrics::HistogramExt,
         JANUS_API_VERSION,
     },
     db,
@@ -304,11 +306,12 @@ async fn authorize<C: Context>(
     let rtc_id = rtc_id.to_string();
     let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
 
-    context
+    let elapsed = context
         .authz()
         .authorize(room.audience(), reqp, object, action)
-        .await
-        .map_err(AppError::from)
+        .await?;
+    context.metrics().observe_auth(elapsed);
+    Ok(elapsed)
 }
 
 fn is_sdp_recvonly(sdp: &str) -> anyhow::Result<bool> {

@@ -14,14 +14,7 @@ use svc_agent::{
 };
 use uuid::Uuid;
 
-use crate::{
-    app::{context::Context, endpoint::prelude::*},
-    backend::janus::{
-        client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
-        metrics::HistogramExt,
-    },
-    db,
-};
+use crate::{app::{context::Context, endpoint::prelude::*, metrics::HistogramExt}, backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody}, db};
 
 ///////////////////////////////////////////////////////////////////////////////
 

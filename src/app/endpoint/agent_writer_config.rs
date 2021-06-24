@@ -1,13 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    app::{context::Context, endpoint::prelude::*},
-    backend::janus::{
-        client::update_agent_writer_config::{
-            UpdateWriterConfigRequest, UpdateWriterConfigRequestBody,
-            UpdateWriterConfigRequestBodyConfigItem,
-        },
-        metrics::HistogramExt,
+    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    backend::janus::client::update_agent_writer_config::{
+        UpdateWriterConfigRequest, UpdateWriterConfigRequestBody,
+        UpdateWriterConfigRequestBodyConfigItem,
     },
     db,
     db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig},
@@ -162,7 +159,7 @@ impl RequestHandler for UpdateHandler {
                 .authz()
                 .authorize(room.audience(), reqp, object, "update")
                 .await?;
-
+            context.metrics().observe_auth(authz_time);
             Some(authz_time)
         };
 

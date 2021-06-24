@@ -1,30 +1,10 @@
 use std::time::Duration;
 
 use anyhow::Context;
-use chrono::{DateTime, Utc};
-use prometheus::{Histogram, IntGauge, IntGaugeVec, Opts, Registry};
+use prometheus::{IntGauge, IntGaugeVec, Opts, Registry};
 use slog::error;
 
 use crate::db::{agent_connection, ConnectionPool};
-
-pub trait HistogramExt {
-    fn observe_timestamp(&self, start: DateTime<Utc>);
-}
-
-impl HistogramExt for Histogram {
-    fn observe_timestamp(&self, start: DateTime<Utc>) {
-        let elapsed = (Utc::now() - start).to_std();
-        if let Ok(std_time) = elapsed {
-            self.observe(duration_to_seconds(std_time))
-        }
-    }
-}
-
-#[inline]
-fn duration_to_seconds(d: Duration) -> f64 {
-    let nanos = f64::from(d.subsec_nanos()) / 1e9;
-    d.as_secs() as f64 + nanos
-}
 
 pub struct Metrics {
     online: IntGauge,

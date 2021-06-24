@@ -18,9 +18,9 @@ use crate::{
     app::{
         context::Context,
         endpoint::{prelude::*, subscription::CorrelationDataPayload},
+        metrics::HistogramExt,
         API_VERSION,
     },
-    backend::janus::metrics::HistogramExt,
     db,
     db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
 };
@@ -79,7 +79,7 @@ impl RequestHandler for CreateHandler {
             .authz()
             .authorize(&payload.audience, reqp, vec!["rooms"], "create")
             .await?;
-
+        context.metrics().observe_auth(authz_time);
         // Create a room.
         let conn = context.get_conn().await?;
         let audience = payload.audience.clone();
@@ -162,6 +162,7 @@ impl RequestHandler for ReadHandler {
             .authz()
             .authorize(room.audience(), reqp, object, "read")
             .await?;
+        context.metrics().observe_auth(authz_time);
 
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
@@ -220,6 +221,7 @@ impl RequestHandler for UpdateHandler {
             .authz()
             .authorize(room.audience(), reqp, object, "update")
             .await?;
+        context.metrics().observe_auth(authz_time);
 
         let room_was_open = !room.is_closed();
 
@@ -345,6 +347,7 @@ impl RequestHandler for EnterHandler {
             .authz()
             .authorize(room.audience(), reqp, object, "read")
             .await?;
+        context.metrics().observe_auth(authz_time);
 
         // Register agent in `in_progress` state.
         let conn = context.get_conn().await?;

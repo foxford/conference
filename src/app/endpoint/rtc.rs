@@ -15,10 +15,11 @@ use svc_agent::{
 use uuid::Uuid;
 
 use crate::{
-    app::{context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId},
-    backend::janus::{
-        client::create_handle::CreateHandleRequest, metrics::HistogramExt, JANUS_API_VERSION,
+    app::{
+        context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId,
+        metrics::HistogramExt,
     },
+    backend::janus::{client::create_handle::CreateHandleRequest, JANUS_API_VERSION},
     db::{self, agent, agent_connection, rtc::SharingPolicy as RtcSharingPolicy},
     diesel::{Connection, Identifiable},
 };
@@ -166,6 +167,7 @@ impl RequestHandler for ReadHandler {
             .authz()
             .authorize(room.audience(), reqp, object, "read")
             .await?;
+        context.metrics().observe_auth(authz_time);
 
         // Return rtc.
         let conn = context.get_conn().await?;
@@ -234,7 +236,7 @@ impl RequestHandler for ListHandler {
             .authz()
             .authorize(room.audience(), reqp, object, "list")
             .await?;
-
+        context.metrics().observe_auth(authz_time);
         // Return rtc list.
         let conn = context.get_conn().await?;
         let rtcs = task::spawn_blocking(move || {
@@ -362,11 +364,11 @@ impl RequestHandler for ConnectHandler {
             ConnectIntent::Write => "update",
         };
 
-        let _authz_time = context
+        let authz_time = context
             .authz()
             .authorize(room.audience(), reqp, object, action)
             .await?;
-
+        context.metrics().observe_auth(authz_time);
         // Choose backend to connect.
         let group = context.config().janus_group.clone();
         let conn = context.get_conn().await?;

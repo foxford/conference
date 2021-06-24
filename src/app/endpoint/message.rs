@@ -1,7 +1,4 @@
-use crate::{
-    app::{context::Context, endpoint::prelude::*, API_VERSION},
-    backend::janus::metrics::HistogramExt,
-};
+use crate::app::{context::Context, endpoint::prelude::*, metrics::HistogramExt, API_VERSION};
 use anyhow::anyhow;
 use async_std::{stream, task};
 use async_trait::async_trait;
