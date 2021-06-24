@@ -1,9 +1,17 @@
 use std::collections::HashMap;
 
-use crate::{app::{context::Context, endpoint::prelude::*}, backend::janus::{client::update_agent_writer_config::{
-        UpdateWriterConfigRequest, UpdateWriterConfigRequestBody,
-        UpdateWriterConfigRequestBodyConfigItem,
-    }, metrics::HistogramExt}, db, db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig}};
+use crate::{
+    app::{context::Context, endpoint::prelude::*},
+    backend::janus::{
+        client::update_agent_writer_config::{
+            UpdateWriterConfigRequest, UpdateWriterConfigRequestBody,
+            UpdateWriterConfigRequestBodyConfigItem,
+        },
+        metrics::HistogramExt,
+    },
+    db,
+    db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig},
+};
 use anyhow::anyhow;
 use async_std::{stream, task};
 use async_trait::async_trait;

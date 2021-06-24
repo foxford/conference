@@ -78,8 +78,7 @@ impl CountQuery {
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
-        use diesel::dsl::count;
-        use diesel::prelude::*;
+        use diesel::{dsl::count, prelude::*};
 
         agent::table.select(count(agent::id)).get_result(conn)
     }

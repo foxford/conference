@@ -468,8 +468,7 @@ pub fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Error> {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
-    use diesel::dsl::sum;
-    use diesel::prelude::*;
+    use diesel::{dsl::sum, prelude::*};
 
     janus_backend::table
         .select(sum(janus_backend::capacity))
@@ -478,8 +477,7 @@ pub fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
 }
 
 pub fn count(conn: &PgConnection) -> Result<i64, Error> {
-    use diesel::dsl::count;
-    use diesel::prelude::*;
+    use diesel::{dsl::count, prelude::*};
 
     janus_backend::table
         .select(count(janus_backend::id))
