@@ -1,0 +1,1 @@
+DROP TABLE rtc_writer_config_snapshot;

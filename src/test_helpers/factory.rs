@@ -483,3 +483,34 @@ impl<'a> RtcWriterConfig<'a> {
         q.execute(conn).expect("Failed to insert RTC writer config")
     }
 }
+
+pub struct RtcWriterConfigSnaphost<'a> {
+    rtc: &'a db::rtc::Object,
+    send_video: Option<bool>,
+    send_audio: Option<bool>,
+}
+
+impl<'a> RtcWriterConfigSnaphost<'a> {
+    pub fn new(
+        rtc: &'a db::rtc::Object,
+        send_video: Option<bool>,
+        send_audio: Option<bool>,
+    ) -> Self {
+        Self {
+            rtc,
+            send_video,
+            send_audio,
+        }
+    }
+
+    pub fn insert(&self, conn: &PgConnection) -> db::rtc_writer_config_snapshot::Object {
+        let q = db::rtc_writer_config_snapshot::InsertQuery::new(
+            self.rtc.id(),
+            self.send_video,
+            self.send_audio,
+        );
+
+        q.execute(conn)
+            .expect("Failed to insert RTC writer config snapshot")
+    }
+}

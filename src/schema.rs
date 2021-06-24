@@ -124,6 +124,19 @@ table! {
     }
 }
 
+table! {
+    use diesel::sql_types::*;
+    use crate::db::sql::*;
+
+    rtc_writer_config_snapshot (id) {
+        id -> Uuid,
+        rtc_id -> Uuid,
+        send_video -> Nullable<Bool>,
+        send_audio -> Nullable<Bool>,
+        created_at -> Timestamptz,
+    }
+}
+
 joinable!(agent -> room (room_id));
 joinable!(agent_connection -> agent (agent_id));
 joinable!(agent_connection -> rtc (rtc_id));
@@ -133,6 +146,7 @@ joinable!(recording -> rtc (rtc_id));
 joinable!(rtc -> room (room_id));
 joinable!(rtc_reader_config -> rtc (rtc_id));
 joinable!(rtc_writer_config -> rtc (rtc_id));
+joinable!(rtc_writer_config_snapshot -> rtc (rtc_id));
 
 allow_tables_to_appear_in_same_query!(
     agent,
@@ -144,4 +158,5 @@ allow_tables_to_appear_in_same_query!(
     rtc,
     rtc_reader_config,
     rtc_writer_config,
+    rtc_writer_config_snapshot,
 );
