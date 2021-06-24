@@ -39,6 +39,12 @@ fn build_config() -> Config {
             "uri": "mqtt://0.0.0.0:1883",
             "clean_session": false,
         },
+        "metrics": {
+            "http": {
+                "bind_address": "0.0.0.0:1234",
+            },
+            "janus_metrics_collect_interval": "100 seconds"
+        },
         "backend": {
             "id": backend_id,
             "default_timeout": 5,
