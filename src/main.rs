@@ -15,8 +15,6 @@ pub static LOG: Lazy<slog::Logger> = Lazy::new(|| {
     slog::Logger::root(drain, o!("version" => env!("CARGO_PKG_VERSION")))
 });
 
-// const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 #[async_std::main]
 async fn main() -> Result<()> {
     let _guard = slog_envlogger::init().unwrap();

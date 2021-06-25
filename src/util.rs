@@ -18,12 +18,3 @@ where
     let r = serde_json::from_str::<T>(s)?;
     Ok(r)
 }
-
-// const CORRELATION_DATA_LENGTH: usize = 16;
-
-// pub fn generate_correlation_data() -> String {
-//     thread_rng()
-//         .sample_iter(&Alphanumeric)
-//         .take(CORRELATION_DATA_LENGTH)
-//         .collect()
-// }
