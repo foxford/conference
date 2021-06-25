@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
+use diesel::{dsl::count_star, pg::PgConnection, result::Error};
 use svc_agent::AgentId;
 use uuid::Uuid;
 
@@ -78,9 +78,11 @@ impl CountQuery {
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
-        use diesel::{dsl::count, prelude::*};
+        use diesel::prelude::*;
 
-        agent::table.select(count(agent::id)).get_result(conn)
+        agent_connection::table
+            .select(count_star())
+            .get_result(conn)
     }
 }
 
