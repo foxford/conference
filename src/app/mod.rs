@@ -244,7 +244,7 @@ fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()>
 fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
     if let Err(err) = subscribe(agent, agent_id, config) {
         let err = err.context("Failed to resubscribe after reconnection");
-        error!(crate::LOG, "{:#}", err);
+        error!(crate::LOG, "{:?}", err);
 
         let app_error = AppError::new(AppErrorKind::ResubscriptionFailed, err);
         app_error.notify_sentry(&crate::LOG);
@@ -269,7 +269,7 @@ async fn start_metrics_collector(
                     Ok(response)
                 }
                 Err(err) => {
-                    warn!(crate::LOG, "Metrics not gathered: {:#}", err);
+                    warn!(crate::LOG, "Metrics not gathered: {:?}", err);
                     Ok(tide::Response::new(500))
                 }
             }

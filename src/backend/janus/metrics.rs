@@ -40,7 +40,7 @@ impl Metrics {
     pub fn start_collector(self, connection_pool: ConnectionPool, collect_interval: Duration) {
         loop {
             if let Err(err) = self.collect(&connection_pool) {
-                error!(crate::LOG, "Janus' metrics collecting errored: {:#}", err);
+                error!(crate::LOG, "Janus' metrics collecting errored: {:?}", err);
             }
             std::thread::sleep(collect_interval);
         }

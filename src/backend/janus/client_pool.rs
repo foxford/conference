@@ -119,7 +119,7 @@ async fn start_polling(
                 }
             }
             Err(err) => {
-                error!(crate::LOG, "Polling error for {}: {:#}", session_id, err);
+                error!(crate::LOG, "Polling error for {}: {:?}", session_id, err);
                 async_std::task::sleep(Duration::from_millis(500)).await;
                 retries_count -= 1;
             }

@@ -53,7 +53,7 @@ fn handle_response_error<C: Context>(
 
     error!(
         context.logger(),
-        "Failed to handle a response from janus: {}",
+        "Failed to handle a response from janus: {:?}",
         app_error.source(),
     );
 
@@ -73,7 +73,7 @@ pub async fn handle_event<C: Context>(context: &mut C, event: IncomingEvent) -> 
         .unwrap_or_else(|app_error| {
             error!(
                 context.logger(),
-                "Failed to handle an event from janus: {:#}", app_error
+                "Failed to handle an event from janus: {:?}", app_error
             );
 
             app_error.notify_sentry(context.logger());
@@ -450,7 +450,7 @@ pub async fn handle_status_event<C: Context>(
         .unwrap_or_else(|app_error| {
             error!(
                 context.logger(),
-                "Failed to handle a status event from janus: {}", app_error
+                "Failed to handle a status event from janus: {:?}", app_error
             );
 
             app_error.notify_sentry(context.logger());

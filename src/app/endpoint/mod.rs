@@ -111,7 +111,7 @@ macro_rules! response_routes {
                 Err(err) => {
                     warn!(
                         context.logger(),
-                        "Failed to parse response correlation data '{}': {:#}", corr_data, err
+                        "Failed to parse response correlation data '{}': {:?}", corr_data, err
                     );
                     return Box::new(async_std::stream::empty()) as MessageStream;
                 }
