@@ -23,17 +23,15 @@ pub struct UploadStreamRequestBody {
     id: Uuid,
     backend: String,
     bucket: String,
-    object: String,
 }
 
 impl UploadStreamRequestBody {
-    pub fn new(id: Uuid, backend: &str, bucket: &str, object: &str) -> Self {
+    pub fn new(id: Uuid, backend: &str, bucket: &str) -> Self {
         Self {
             method: "stream.upload",
             id,
             backend: backend.to_owned(),
             bucket: bucket.to_owned(),
-            object: object.to_owned(),
         }
     }
 }
