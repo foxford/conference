@@ -1,5 +1,5 @@
-FROM netologygroup/mqtt-gateway:v0.11.1 as mqtt-gateway-plugin
-FROM netologygroup/janus-gateway:cbf60fa as janus-conference-plugin
+FROM foxford/mqtt-gateway:v0.11.1 as mqtt-gateway-plugin
+FROM foxford/janus-gateway:cbf60fa as janus-conference-plugin
 FROM debian:stretch
 
 ENV DEBIAN_FRONTEND noninteractive
