@@ -5,7 +5,10 @@ use uuid::Uuid;
 
 use crate::{
     backend::janus::client::HandleId,
-    db::agent::{Object as Agent, Status as AgentStatus},
+    db::{
+        self,
+        agent::{Object as Agent, Status as AgentStatus},
+    },
     schema::{agent, agent_connection},
 };
 
@@ -91,14 +94,14 @@ impl CountQuery {
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "agent_connection"]
 pub struct UpsertQuery {
-    agent_id: Uuid,
+    agent_id: db::agent::Id,
     rtc_id: Uuid,
     handle_id: HandleId,
     created_at: DateTime<Utc>,
 }
 
 impl UpsertQuery {
-    pub fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: HandleId) -> Self {
+    pub fn new(agent_id: db::agent::Id, rtc_id: Uuid, handle_id: HandleId) -> Self {
         Self {
             agent_id,
             rtc_id,

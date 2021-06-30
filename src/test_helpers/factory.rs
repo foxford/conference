@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     backend::janus::client::{HandleId, SessionId},
-    db,
+    db::{self, agent},
 };
 
 use super::{
@@ -148,13 +148,13 @@ impl<'a> Agent<'a> {
 ///////////////////////////////////////////////////////////////////////////////
 
 pub struct AgentConnection {
-    agent_id: Uuid,
+    agent_id: agent::Id,
     rtc_id: Uuid,
     handle_id: HandleId,
 }
 
 impl AgentConnection {
-    pub fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: HandleId) -> Self {
+    pub fn new(agent_id: agent::Id, rtc_id: Uuid, handle_id: HandleId) -> Self {
         Self {
             agent_id,
             rtc_id,

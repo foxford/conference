@@ -7,8 +7,14 @@ use uuid::Uuid;
 
 use super::room::Object as Room;
 use crate::schema::agent;
+use derive_more::Display;
+use diesel_derive_newtype::DieselNewType;
 
 ////////////////////////////////////////////////////////////////////////////////
+#[derive(
+    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq,
+)]
+pub struct Id(Uuid);
 
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -24,7 +30,7 @@ pub enum Status {
 #[belongs_to(Room, foreign_key = "room_id")]
 #[table_name = "agent"]
 pub struct Object {
-    id: Uuid,
+    id: Id,
     agent_id: AgentId,
     room_id: Uuid,
     #[serde(with = "ts_seconds")]
@@ -131,7 +137,7 @@ impl<'a> ListQuery<'a> {
 #[derive(Debug, Insertable)]
 #[table_name = "agent"]
 pub struct InsertQuery<'a> {
-    id: Option<Uuid>,
+    id: Option<Id>,
     agent_id: &'a AgentId,
     room_id: Uuid,
     status: Status,
