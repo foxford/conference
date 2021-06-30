@@ -12,9 +12,12 @@ use svc_agent::{
     },
     Addressable, AgentId, Authenticable,
 };
-use uuid::Uuid;
 
-use crate::{app::{context::Context, endpoint::prelude::*, metrics::HistogramExt}, backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody}, db};
+use crate::{
+    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
+    db,
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -37,12 +40,12 @@ impl CorrelationDataPayload {
 
 #[derive(Deserialize, Serialize)]
 pub struct RoomEnterLeaveEvent {
-    id: Uuid,
+    id: db::room::Id,
     agent_id: AgentId,
 }
 
 impl RoomEnterLeaveEvent {
-    pub fn new(id: Uuid, agent_id: AgentId) -> Self {
+    pub fn new(id: db::room::Id, agent_id: AgentId) -> Self {
         Self { id, agent_id }
     }
 }
@@ -221,13 +224,13 @@ fn ensure_broker<C: Context, A: Addressable>(
     }
 }
 
-fn try_room_id(object: &[String]) -> StdResult<Uuid, AppError> {
+fn try_room_id(object: &[String]) -> StdResult<db::room::Id, AppError> {
     let object: Vec<&str> = object.iter().map(AsRef::as_ref).collect();
 
     match object.as_slice() {
-        ["rooms", room_id, "events"] => {
-            Uuid::parse_str(room_id).map_err(|err| anyhow!("UUID parse error: {}", err))
-        }
+        ["rooms", room_id, "events"] => room_id
+            .parse()
+            .map_err(|err| anyhow!("UUID parse error: {}", err)),
         _ => Err(anyhow!(
             "Bad 'object' format; expected [\"room\", <ROOM_ID>, \"events\"], got: {:?}",
             object
@@ -239,7 +242,7 @@ fn try_room_id(object: &[String]) -> StdResult<Uuid, AppError> {
 async fn leave_room<C: Context>(
     context: &mut C,
     agent_id: &AgentId,
-    room_id: Uuid,
+    room_id: db::room::Id,
 ) -> StdResult<bool, AppError> {
     // Delete agent from the DB.
     context.add_logger_tags(o!("room_id" => room_id.to_string()));

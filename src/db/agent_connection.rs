@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use diesel::{dsl::count_star, pg::PgConnection, result::Error};
 use svc_agent::AgentId;
-use uuid::Uuid;
 
 use crate::{
     backend::janus::client::HandleId,
@@ -135,11 +134,11 @@ const BULK_DISCONNECT_BY_ROOM_SQL: &str = r#"
 
 #[derive(Debug)]
 pub struct BulkDisconnectByRoomQuery {
-    room_id: Uuid,
+    room_id: db::room::Id,
 }
 
 impl BulkDisconnectByRoomQuery {
-    pub fn new(room_id: Uuid) -> Self {
+    pub fn new(room_id: db::room::Id) -> Self {
         Self { room_id }
     }
 

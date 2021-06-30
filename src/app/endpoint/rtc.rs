@@ -12,7 +12,6 @@ use svc_agent::{
     },
     Addressable,
 };
-use uuid::Uuid;
 
 use crate::{
     app::{
@@ -43,7 +42,7 @@ pub type ConnectResponse = OutgoingResponse<ConnectResponseData>;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateRequest {
-    room_id: Uuid,
+    room_id: db::room::Id,
 }
 
 pub struct CreateHandler;
@@ -201,7 +200,7 @@ const MAX_LIMIT: i64 = 25;
 
 #[derive(Debug, Deserialize)]
 pub struct ListRequest {
-    room_id: Uuid,
+    room_id: db::room::Id,
     offset: Option<i64>,
     limit: Option<i64>,
 }
@@ -646,7 +645,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new());
             let payload = CreateRequest {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1012,7 +1011,7 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = ListRequest {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
                 offset: None,
                 limit: None,
             };

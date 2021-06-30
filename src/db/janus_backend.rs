@@ -9,7 +9,6 @@ use crate::{
 use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
-use uuid::Uuid;
 
 pub type AllColumns = (
     janus_backend::id,
@@ -285,7 +284,7 @@ const MOST_LOADED_SQL: &str = r#"
 "#;
 
 pub fn most_loaded(
-    room_id: Uuid,
+    room_id: db::room::Id,
     group: Option<&str>,
     conn: &PgConnection,
 ) -> Result<Option<Object>, Error> {
@@ -356,7 +355,7 @@ const LEAST_LOADED_SQL: &str = r#"
 "#;
 
 pub fn least_loaded(
-    room_id: Uuid,
+    room_id: db::room::Id,
     group: Option<&str>,
     conn: &PgConnection,
 ) -> Result<Option<Object>, Error> {

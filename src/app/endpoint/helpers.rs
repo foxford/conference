@@ -21,7 +21,6 @@ use svc_agent::{
     },
     AgentId,
 };
-use uuid::Uuid;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -65,7 +64,7 @@ pub enum RoomTimeRequirement {
 }
 
 pub fn find_room_by_id(
-    id: Uuid,
+    id: db::room::Id,
     opening_requirement: RoomTimeRequirement,
     conn: &PgConnection,
 ) -> Result<db::room::Object, AppError> {

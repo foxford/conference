@@ -12,7 +12,6 @@ use svc_agent::{
     AgentId,
 };
 use svc_authn::Authenticable;
-use uuid::Uuid;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, error::Error as AppError},
@@ -32,7 +31,7 @@ use crate::{
 
 #[derive(Debug, Serialize)]
 pub struct RoomUploadEventData {
-    id: Uuid,
+    id: db::room::Id,
     rtcs: Vec<RtcUploadEventData>,
 }
 
@@ -62,7 +61,7 @@ pub type RoomUploadEvent = OutgoingMessage<RoomUploadEventData>;
 
 #[derive(Serialize)]
 struct ClosedRoomNotification {
-    room_id: Uuid,
+    room_id: db::room::Id,
 }
 
 #[derive(Debug, Deserialize)]

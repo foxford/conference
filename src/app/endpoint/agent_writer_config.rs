@@ -18,7 +18,6 @@ use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
     Addressable, AgentId,
 };
-use uuid::Uuid;
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
@@ -26,12 +25,15 @@ const MAX_STATE_CONFIGS_LEN: usize = 20;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct State {
-    room_id: Uuid,
+    room_id: db::room::Id,
     configs: Vec<StateConfigItem>,
 }
 
 impl State {
-    fn new(room_id: Uuid, rtc_writer_configs_with_rtcs: &[(RtcWriterConfig, Rtc)]) -> State {
+    fn new(
+        room_id: db::room::Id,
+        rtc_writer_configs_with_rtcs: &[(RtcWriterConfig, Rtc)],
+    ) -> State {
         let configs = rtc_writer_configs_with_rtcs
             .iter()
             .map(|(rtc_writer_config, rtc)| {
@@ -291,7 +293,7 @@ impl RequestHandler for UpdateHandler {
 
 #[derive(Debug, Deserialize)]
 pub struct ReadRequest {
-    room_id: Uuid,
+    room_id: db::room::Id,
 }
 
 pub struct ReadHandler;
@@ -355,13 +357,11 @@ mod tests {
     mod update {
         use std::ops::Bound;
 
-        use chrono::{Duration, Utc};
-        use uuid::Uuid;
-
         use crate::{
             db::rtc::SharingPolicy as RtcSharingPolicy,
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
+        use chrono::{Duration, Utc};
 
         use super::super::*;
 
@@ -674,7 +674,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             let payload = State {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
                 configs,
             };
 
@@ -816,7 +816,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
                 configs: vec![],
             };
 
@@ -835,7 +835,6 @@ mod tests {
         use std::ops::Bound;
 
         use chrono::{Duration, Utc};
-        use uuid::Uuid;
 
         use crate::{
             db::rtc::SharingPolicy as RtcSharingPolicy,
@@ -1055,7 +1054,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = ReadRequest {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
             };
 
             // Assert error.

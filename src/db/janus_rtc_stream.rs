@@ -120,7 +120,7 @@ const ACTIVE_SQL: &str = r#"(
 
 #[derive(Debug, Default)]
 pub struct ListQuery {
-    room_id: Option<Uuid>,
+    room_id: Option<db::room::Id>,
     rtc_id: Option<db::rtc::Id>,
     time: Option<Time>,
     active: Option<bool>,
@@ -133,7 +133,7 @@ impl ListQuery {
         Self::default()
     }
 
-    pub fn room_id(self, room_id: Uuid) -> Self {
+    pub fn room_id(self, room_id: db::room::Id) -> Self {
         Self {
             room_id: Some(room_id),
             ..self

@@ -6,6 +6,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use super::room::Object as Room;
+use crate::db;
 use crate::schema::agent;
 use derive_more::Display;
 use diesel_derive_newtype::DieselNewType;
@@ -32,7 +33,7 @@ pub enum Status {
 pub struct Object {
     id: Id,
     agent_id: AgentId,
-    room_id: Uuid,
+    room_id: db::room::Id,
     #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
     status: Status,
@@ -49,7 +50,7 @@ impl Object {
 
 pub struct ListQuery<'a> {
     agent_id: Option<&'a AgentId>,
-    room_id: Option<Uuid>,
+    room_id: Option<db::room::Id>,
     status: Option<Status>,
     offset: Option<i64>,
     limit: Option<i64>,
@@ -73,7 +74,7 @@ impl<'a> ListQuery<'a> {
         }
     }
 
-    pub fn room_id(self, room_id: Uuid) -> Self {
+    pub fn room_id(self, room_id: db::room::Id) -> Self {
         Self {
             room_id: Some(room_id),
             ..self
@@ -139,12 +140,12 @@ impl<'a> ListQuery<'a> {
 pub struct InsertQuery<'a> {
     id: Option<Id>,
     agent_id: &'a AgentId,
-    room_id: Uuid,
+    room_id: db::room::Id,
     status: Status,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub fn new(agent_id: &'a AgentId, room_id: Uuid) -> Self {
+    pub fn new(agent_id: &'a AgentId, room_id: db::room::Id) -> Self {
         Self {
             id: None,
             agent_id,
@@ -177,12 +178,12 @@ impl<'a> InsertQuery<'a> {
 #[table_name = "agent"]
 pub struct UpdateQuery<'a> {
     agent_id: &'a AgentId,
-    room_id: Uuid,
+    room_id: db::room::Id,
     status: Option<Status>,
 }
 
 impl<'a> UpdateQuery<'a> {
-    pub fn new(agent_id: &'a AgentId, room_id: Uuid) -> Self {
+    pub fn new(agent_id: &'a AgentId, room_id: db::room::Id) -> Self {
         Self {
             agent_id,
             room_id,
@@ -212,7 +213,7 @@ impl<'a> UpdateQuery<'a> {
 
 pub struct DeleteQuery<'a> {
     agent_id: Option<&'a AgentId>,
-    room_id: Option<Uuid>,
+    room_id: Option<db::room::Id>,
 }
 
 impl<'a> DeleteQuery<'a> {
@@ -230,7 +231,7 @@ impl<'a> DeleteQuery<'a> {
         }
     }
 
-    pub fn room_id(self, room_id: Uuid) -> Self {
+    pub fn room_id(self, room_id: db::room::Id) -> Self {
         Self {
             room_id: Some(room_id),
             ..self

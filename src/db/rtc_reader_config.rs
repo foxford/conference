@@ -1,6 +1,5 @@
 use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
-use uuid::Uuid;
 
 use crate::{
     db,
@@ -55,12 +54,12 @@ impl Object {
 
 #[derive(Debug)]
 pub struct ListWithRtcQuery<'a> {
-    room_id: Uuid,
+    room_id: db::room::Id,
     reader_id: &'a AgentId,
 }
 
 impl<'a> ListWithRtcQuery<'a> {
-    pub fn new(room_id: Uuid, reader_id: &'a AgentId) -> Self {
+    pub fn new(room_id: db::room::Id, reader_id: &'a AgentId) -> Self {
         Self { room_id, reader_id }
     }
 

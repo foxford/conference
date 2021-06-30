@@ -1,4 +1,7 @@
-use crate::app::{context::Context, endpoint::prelude::*, metrics::HistogramExt, API_VERSION};
+use crate::{
+    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt, API_VERSION},
+    db,
+};
 use anyhow::anyhow;
 use async_std::{stream, task};
 use async_trait::async_trait;
@@ -12,7 +15,6 @@ use svc_agent::{
     },
     Addressable, AgentId, Subscription,
 };
-use uuid::Uuid;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -30,7 +32,7 @@ impl CorrelationDataPayload {
 #[derive(Debug, Deserialize)]
 pub struct UnicastRequest {
     agent_id: AgentId,
-    room_id: Uuid,
+    room_id: db::room::Id,
     data: JsonValue,
 }
 
@@ -103,7 +105,7 @@ impl RequestHandler for UnicastHandler {
 
 #[derive(Debug, Deserialize)]
 pub struct BroadcastRequest {
-    room_id: Uuid,
+    room_id: db::room::Id,
     data: JsonValue,
     label: Option<String>,
 }
@@ -208,7 +210,6 @@ impl ResponseHandler for UnicastResponseHandler {
 #[cfg(test)]
 mod test {
     mod unicast {
-        use uuid::Uuid;
 
         use crate::{
             app::API_VERSION,
@@ -276,7 +277,7 @@ mod test {
 
             let payload = UnicastRequest {
                 agent_id: receiver.agent_id().to_owned(),
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
                 data: json!({ "key": "value" }),
             };
 
@@ -362,8 +363,6 @@ mod test {
     }
 
     mod broadcast {
-        use uuid::Uuid;
-
         use crate::{
             app::API_VERSION,
             test_helpers::{prelude::*, test_deps::LocalDeps},
@@ -430,7 +429,7 @@ mod test {
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
             let payload = BroadcastRequest {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
                 data: json!({ "key": "value" }),
                 label: None,
             };

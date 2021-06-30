@@ -4,7 +4,6 @@ use chrono::{Duration, SubsecRound, Utc};
 use diesel::pg::PgConnection;
 use rand::Rng;
 use svc_agent::AgentId;
-use uuid::Uuid;
 
 use crate::{
     backend::janus::client::{
@@ -90,7 +89,7 @@ pub fn insert_room_with_owned(conn: &PgConnection) -> Room {
         .insert(conn)
 }
 
-pub fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uuid) -> Agent {
+pub fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: db::room::Id) -> Agent {
     factory::Agent::new()
         .agent_id(agent_id)
         .room_id(room_id)
@@ -101,7 +100,7 @@ pub fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uuid) -> A
 pub fn insert_connected_agent(
     conn: &PgConnection,
     agent_id: &AgentId,
-    room_id: Uuid,
+    room_id: db::room::Id,
     rtc_id: db::rtc::Id,
 ) -> (Agent, AgentConnection) {
     insert_connected_to_handle_agent(
@@ -142,7 +141,7 @@ pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
 pub fn insert_connected_to_handle_agent(
     conn: &PgConnection,
     agent_id: &AgentId,
-    room_id: Uuid,
+    room_id: db::room::Id,
     rtc_id: db::rtc::Id,
     handle_id: crate::backend::janus::client::HandleId,
 ) -> (Agent, AgentConnection) {
