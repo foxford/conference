@@ -434,7 +434,7 @@ mod tests {
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new());
-            let room_id = Uuid::new_v4().to_string();
+            let room_id = db::room::Id::random().to_string();
 
             let corr_data = CorrelationDataPayload {
                 reqp: build_reqp(agent.agent_id(), "room.enter"),
@@ -640,7 +640,7 @@ mod tests {
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new());
-            let room_id = Uuid::new_v4().to_string();
+            let room_id = db::room::Id::random().to_string();
 
             let corr_data = CorrelationDataPayload {
                 reqp: build_reqp(agent.agent_id(), "room.leave"),
