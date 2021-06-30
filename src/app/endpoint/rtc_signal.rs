@@ -833,7 +833,7 @@ a=rtcp-fb:120 ccm fir
 
             let handle_id = HandleId::new(
                 Uuid::new_v4(),
-                Uuid::new_v4(),
+                db::rtc::Id::random(),
                 crate::backend::janus::client::HandleId::stub_id(),
                 backend.session_id(),
                 backend.id().to_owned(),

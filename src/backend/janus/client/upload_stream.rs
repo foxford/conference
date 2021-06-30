@@ -1,6 +1,6 @@
+use crate::db;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use super::{HandleId, SessionId};
 
@@ -13,21 +13,21 @@ pub struct UploadStreamRequest {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UploadStreamTransaction {
-    pub rtc_id: Uuid,
+    pub rtc_id: db::rtc::Id,
     pub start_timestamp: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct UploadStreamRequestBody {
     method: &'static str,
-    id: Uuid,
+    id: db::rtc::Id,
     backend: String,
     bucket: String,
     object: String,
 }
 
 impl UploadStreamRequestBody {
-    pub fn new(id: Uuid, backend: &str, bucket: &str, object: &str) -> Self {
+    pub fn new(id: db::rtc::Id, backend: &str, bucket: &str, object: &str) -> Self {
         Self {
             method: "stream.upload",
             id,

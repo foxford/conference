@@ -36,7 +36,7 @@ pub struct Object {
     agent_id: super::agent::Id,
     handle_id: HandleId,
     created_at: DateTime<Utc>,
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 }
 
 impl Object {
@@ -49,11 +49,11 @@ impl Object {
 
 pub struct FindQuery<'a> {
     agent_id: &'a AgentId,
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 }
 
 impl<'a> FindQuery<'a> {
-    pub fn new(agent_id: &'a AgentId, rtc_id: Uuid) -> Self {
+    pub fn new(agent_id: &'a AgentId, rtc_id: db::rtc::Id) -> Self {
         Self { agent_id, rtc_id }
     }
 
@@ -95,13 +95,13 @@ impl CountQuery {
 #[table_name = "agent_connection"]
 pub struct UpsertQuery {
     agent_id: db::agent::Id,
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
     handle_id: HandleId,
     created_at: DateTime<Utc>,
 }
 
 impl UpsertQuery {
-    pub fn new(agent_id: db::agent::Id, rtc_id: Uuid, handle_id: HandleId) -> Self {
+    pub fn new(agent_id: db::agent::Id, rtc_id: db::rtc::Id, handle_id: HandleId) -> Self {
         Self {
             agent_id,
             rtc_id,
@@ -156,11 +156,11 @@ impl BulkDisconnectByRoomQuery {
 
 #[derive(Debug)]
 pub struct BulkDisconnectByRtcQuery {
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 }
 
 impl BulkDisconnectByRtcQuery {
-    pub fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: db::rtc::Id) -> Self {
         Self { rtc_id }
     }
 

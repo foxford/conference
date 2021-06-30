@@ -38,7 +38,7 @@ pub struct RoomUploadEventData {
 
 #[derive(Debug, Serialize)]
 struct RtcUploadEventData {
-    id: Uuid,
+    id: db::rtc::Id,
     status: RecordingStatus,
     #[serde(
         serialize_with = "crate::serde::milliseconds_bound_tuples_option",
@@ -314,7 +314,7 @@ mod test {
                 .await
                 .expect("System vacuum failed");
             context.janus_clients().remove_client(backend.id());
-            let recv_rtcs: Vec<Uuid> = [rx.recv().await.unwrap(), rx.recv().await.unwrap()]
+            let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().await.unwrap(), rx.recv().await.unwrap()]
                 .iter()
                 .map(|resp| match resp {
                     IncomingEvent::Event(EventResponse {

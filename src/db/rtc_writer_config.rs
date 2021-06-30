@@ -3,6 +3,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::{
+    db,
     db::rtc::Object as Rtc,
     schema::{rtc, rtc_writer_config},
 };
@@ -32,7 +33,7 @@ const ALL_COLUMNS: AllColumns = (
 #[table_name = "rtc_writer_config"]
 #[primary_key(rtc_id)]
 pub struct Object {
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
     send_video: bool,
     send_audio: bool,
     video_remb: Option<i64>,
@@ -82,10 +83,10 @@ impl ListWithRtcQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Debug, Default, Insertable, AsChangeset)]
+#[derive(Clone, Debug, Insertable, AsChangeset)]
 #[table_name = "rtc_writer_config"]
 pub struct UpsertQuery<'a> {
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
     send_video: Option<bool>,
     send_audio: Option<bool>,
     video_remb: Option<i64>,
@@ -93,10 +94,13 @@ pub struct UpsertQuery<'a> {
 }
 
 impl<'a> UpsertQuery<'a> {
-    pub fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: db::rtc::Id) -> Self {
         Self {
             rtc_id,
-            ..Default::default()
+            send_audio: Default::default(),
+            send_audio_updated_by: Default::default(),
+            send_video: Default::default(),
+            video_remb: Default::default(),
         }
     }
 

@@ -23,7 +23,7 @@ use crate::{
         API_VERSION,
     },
     backend::janus::client::{create_handle::CreateHandleRequest, JanusClient},
-    db::{agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc},
+    db::{self, agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc},
     diesel::Connection,
 };
 
@@ -269,7 +269,7 @@ async fn handle_event_impl<C: Context>(
                             .ok_or_else(|| anyhow!("Missing 'id' in response"))
                             .error(AppErrorKind::MessageParsingFailed)
                             .and_then(|val| {
-                                serde_json::from_value::<Uuid>(val.clone())
+                                serde_json::from_value::<db::rtc::Id>(val.clone())
                                     .map_err(|err| anyhow!("Invalid value for 'id': {}", err))
                                     .error(AppErrorKind::MessageParsingFailed)
                             })?;

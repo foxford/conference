@@ -3,6 +3,7 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::{
+    db,
     db::rtc::Object as Rtc,
     schema::{rtc, rtc_reader_config},
 };
@@ -30,7 +31,7 @@ const ALL_COLUMNS: AllColumns = (
 #[table_name = "rtc_reader_config"]
 #[primary_key(rtc_id, reader_id)]
 pub struct Object {
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
     reader_id: AgentId,
     receive_video: bool,
     receive_audio: bool,
@@ -80,14 +81,14 @@ impl<'a> ListWithRtcQuery<'a> {
 #[derive(Clone, Debug, Insertable, AsChangeset)]
 #[table_name = "rtc_reader_config"]
 pub struct UpsertQuery<'a> {
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
     reader_id: &'a AgentId,
     receive_video: Option<bool>,
     receive_audio: Option<bool>,
 }
 
 impl<'a> UpsertQuery<'a> {
-    pub fn new(rtc_id: Uuid, reader_id: &'a AgentId) -> Self {
+    pub fn new(rtc_id: db::rtc::Id, reader_id: &'a AgentId) -> Self {
         Self {
             rtc_id,
             reader_id,

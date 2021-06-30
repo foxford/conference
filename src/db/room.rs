@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::{
     backend::janus::JANUS_API_VERSION,
     db::{
+        self,
         janus_backend::Object as JanusBackend,
         recording::{Object as Recording, Status as RecordingStatus},
         rtc::SharingPolicy as RtcSharingPolicy,
@@ -181,11 +182,11 @@ impl FindQueryable for FindQuery {
 
 #[derive(Debug)]
 pub struct FindByRtcIdQuery {
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 }
 
 impl FindByRtcIdQuery {
-    pub fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: db::rtc::Id) -> Self {
         Self { rtc_id }
     }
 }

@@ -11,6 +11,7 @@ use crate::{
         create_handle::CreateHandleRequest, HandleId, JanusClient, SessionId,
     },
     db::{
+        self,
         agent::{Object as Agent, Status as AgentStatus},
         agent_connection::Object as AgentConnection,
         janus_backend::Object as JanusBackend,
@@ -101,7 +102,7 @@ pub fn insert_connected_agent(
     conn: &PgConnection,
     agent_id: &AgentId,
     room_id: Uuid,
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 ) -> (Agent, AgentConnection) {
     insert_connected_to_handle_agent(
         conn,
@@ -142,7 +143,7 @@ pub fn insert_connected_to_handle_agent(
     conn: &PgConnection,
     agent_id: &AgentId,
     room_id: Uuid,
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
     handle_id: crate::backend::janus::client::HandleId,
 ) -> (Agent, AgentConnection) {
     let agent = insert_agent(conn, agent_id, room_id);

@@ -74,7 +74,7 @@ pub fn find_room_by_id(
 }
 
 pub fn find_room_by_rtc_id(
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
     opening_requirement: RoomTimeRequirement,
     conn: &PgConnection,
 ) -> Result<db::room::Object, AppError> {

@@ -149,12 +149,12 @@ impl<'a> Agent<'a> {
 
 pub struct AgentConnection {
     agent_id: agent::Id,
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
     handle_id: HandleId,
 }
 
 impl AgentConnection {
-    pub fn new(agent_id: agent::Id, rtc_id: Uuid, handle_id: HandleId) -> Self {
+    pub fn new(agent_id: agent::Id, rtc_id: db::rtc::Id, handle_id: HandleId) -> Self {
         Self {
             agent_id,
             rtc_id,

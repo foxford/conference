@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     backend::janus::client::HandleId,
+    db,
     db::rtc::Object as Rtc,
     schema::{janus_rtc_stream, rtc},
 };
@@ -45,7 +46,7 @@ const ALL_COLUMNS: AllColumns = (
 pub struct Object {
     id: Uuid,
     handle_id: HandleId,
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
     backend_id: AgentId,
     label: String,
     sent_by: AgentId,
@@ -66,7 +67,7 @@ impl Object {
         self.handle_id
     }
 
-    pub fn rtc_id(&self) -> Uuid {
+    pub fn rtc_id(&self) -> db::rtc::Id {
         self.rtc_id
     }
 
@@ -108,7 +109,7 @@ const ACTIVE_SQL: &str = r#"(
 #[derive(Debug, Default)]
 pub struct ListQuery {
     room_id: Option<Uuid>,
-    rtc_id: Option<Uuid>,
+    rtc_id: Option<db::rtc::Id>,
     time: Option<Time>,
     active: Option<bool>,
     offset: Option<i64>,
@@ -127,7 +128,7 @@ impl ListQuery {
         }
     }
 
-    pub fn rtc_id(self, rtc_id: Uuid) -> Self {
+    pub fn rtc_id(self, rtc_id: db::rtc::Id) -> Self {
         Self {
             rtc_id: Some(rtc_id),
             ..self
@@ -249,7 +250,7 @@ impl<'a> ListWithRtcQuery<'a> {
 pub struct InsertQuery<'a> {
     id: Uuid,
     handle_id: HandleId,
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
     backend_id: &'a AgentId,
     label: &'a str,
     sent_by: &'a AgentId,
@@ -259,7 +260,7 @@ impl<'a> InsertQuery<'a> {
     pub fn new(
         id: Uuid,
         handle_id: HandleId,
-        rtc_id: Uuid,
+        rtc_id: db::rtc::Id,
         backend_id: &'a AgentId,
         label: &'a str,
         sent_by: &'a AgentId,

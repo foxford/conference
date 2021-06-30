@@ -1,13 +1,12 @@
 use std::{fmt, ops::Bound};
 
+use super::rtc::Object as Rtc;
+use crate::db;
+use crate::schema::recording;
 use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
 use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
-use super::rtc::Object as Rtc;
-use crate::schema::recording;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -56,7 +55,7 @@ impl fmt::Display for Status {
 #[primary_key(rtc_id)]
 #[table_name = "recording"]
 pub struct Object {
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
     #[serde(with = "crate::serde::ts_seconds_option")]
     started_at: Option<DateTime<Utc>>,
     segments: Option<Vec<Segment>>,
@@ -65,7 +64,7 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn rtc_id(&self) -> Uuid {
+    pub fn rtc_id(&self) -> db::rtc::Id {
         self.rtc_id
     }
 
@@ -91,11 +90,11 @@ impl Object {
 
 #[derive(Debug)]
 pub struct FindQuery {
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 }
 
 impl FindQuery {
-    pub fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: db::rtc::Id) -> Self {
         Self { rtc_id }
     }
 
@@ -114,11 +113,11 @@ impl FindQuery {
 #[derive(Debug, Insertable)]
 #[table_name = "recording"]
 pub struct InsertQuery {
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 }
 
 impl InsertQuery {
-    pub fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: db::rtc::Id) -> Self {
         Self { rtc_id }
     }
 
@@ -136,7 +135,7 @@ impl InsertQuery {
 #[table_name = "recording"]
 #[primary_key(rtc_id)]
 pub struct UpdateQuery {
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
     status: Option<Status>,
     started_at: Option<DateTime<Utc>>,
     segments: Option<Vec<Segment>>,
@@ -144,7 +143,7 @@ pub struct UpdateQuery {
 }
 
 impl UpdateQuery {
-    pub fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: db::rtc::Id) -> Self {
         Self {
             rtc_id,
             status: None,

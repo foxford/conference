@@ -1,8 +1,4 @@
-use chrono::{DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
-use svc_agent::AgentId;
-use uuid::Uuid;
-
+use crate::db;
 use crate::{
     backend::janus::{
         client::{HandleId, SessionId},
@@ -10,6 +6,10 @@ use crate::{
     },
     schema::janus_backend,
 };
+use chrono::{DateTime, Utc};
+use diesel::{pg::PgConnection, result::Error};
+use svc_agent::AgentId;
+use uuid::Uuid;
 
 pub type AllColumns = (
     janus_backend::id,
@@ -456,7 +456,7 @@ struct FreeCapacityQueryRow {
     free_capacity: i32,
 }
 
-pub fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Error> {
+pub fn free_capacity(rtc_id: db::rtc::Id, conn: &PgConnection) -> Result<i32, Error> {
     use diesel::{prelude::*, sql_types::Uuid};
 
     diesel::sql_query(FREE_CAPACITY_SQL)

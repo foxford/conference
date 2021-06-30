@@ -133,7 +133,7 @@ impl RequestHandler for CreateHandler {
 
 #[derive(Debug, Deserialize)]
 pub struct ReadRequest {
-    id: Uuid,
+    id: db::rtc::Id,
 }
 
 pub struct ReadHandler;
@@ -288,7 +288,7 @@ impl fmt::Display for ConnectIntent {
 
 #[derive(Debug, Deserialize)]
 pub struct ConnectRequest {
-    id: Uuid,
+    id: db::rtc::Id,
     #[serde(default = "ConnectRequest::default_intent")]
     intent: ConnectIntent,
 }
@@ -904,7 +904,9 @@ mod test {
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new());
-            let payload = ReadRequest { id: Uuid::new_v4() };
+            let payload = ReadRequest {
+                id: db::rtc::Id::random(),
+            };
 
             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
                 .await
@@ -2284,7 +2286,7 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = ConnectRequest {
-                id: Uuid::new_v4(),
+                id: db::rtc::Id::random(),
                 intent: ConnectIntent::Read,
             };
 

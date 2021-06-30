@@ -1,6 +1,7 @@
 use serde::Serialize;
 use svc_agent::AgentId;
-use uuid::Uuid;
+
+use crate::db;
 
 use super::{HandleId, SessionId};
 
@@ -29,7 +30,7 @@ impl UpdateReaderConfigRequestBody {
 #[derive(Debug, Serialize)]
 pub struct UpdateReaderConfigRequestBodyConfigItem {
     pub reader_id: AgentId,
-    pub stream_id: Uuid,
+    pub stream_id: db::rtc::Id,
     pub receive_video: bool,
     pub receive_audio: bool,
 }

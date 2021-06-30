@@ -1,7 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use svc_agent::{mqtt::IncomingRequestProperties, AgentId};
-use uuid::Uuid;
+
+use crate::db;
 
 use super::{HandleId, Jsep, SessionId};
 
@@ -22,12 +23,12 @@ pub struct CreateStreamTransaction {
 #[derive(Serialize, Debug)]
 pub struct CreateStreamRequestBody {
     method: &'static str,
-    id: Uuid,
+    id: db::rtc::Id,
     agent_id: AgentId,
 }
 
 impl CreateStreamRequestBody {
-    pub fn new(id: Uuid, agent_id: AgentId) -> Self {
+    pub fn new(id: db::rtc::Id, agent_id: AgentId) -> Self {
         Self {
             method: "stream.create",
             id,
