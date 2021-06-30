@@ -1,11 +1,20 @@
 use std::{net::SocketAddr, sync::Arc, thread};
 
+use crate::{
+    app::error::{Error as AppError, ErrorKind as AppErrorKind},
+    backend::janus::{client_pool::Clients, JANUS_API_VERSION},
+    config::{self, Config, KruonisConfig},
+    db::ConnectionPool,
+};
 use anyhow::{Context as AnyhowContext, Result};
 use async_std::task;
 use chrono::Utc;
+use context::{AppContext, GlobalContext, JanusTopics};
 use futures::StreamExt;
+use message_handler::MessageHandler;
 use prometheus::{Encoder, Registry, TextEncoder};
 use serde_json::json;
+use signal_hook::consts::TERM_SIGNALS;
 use slog::{error, info, warn};
 use svc_agent::{
     mqtt::{
@@ -16,15 +25,6 @@ use svc_agent::{
 };
 use svc_authn::token::jws_compact;
 use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
-
-use crate::{
-    app::error::{Error as AppError, ErrorKind as AppErrorKind},
-    backend::janus::{client_pool::Clients, JANUS_API_VERSION},
-    config::{self, Config, KruonisConfig},
-    db::ConnectionPool,
-};
-use context::{AppContext, GlobalContext, JanusTopics};
-use message_handler::MessageHandler;
 
 pub const API_VERSION: &str = "v1";
 
@@ -177,7 +177,10 @@ pub async fn run(
             });
         }
     });
-    futures::future::join_all([events_task, messages_task]).await;
+    let mut signals_stream = signal_hook_async_std::Signals::new(TERM_SIGNALS)?.fuse();
+    let signals = signals_stream.next();
+    let app = futures::future::join_all([events_task, messages_task]);
+    futures::future::select(app, signals).await;
     Ok(())
 }
 
