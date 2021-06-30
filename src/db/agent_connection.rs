@@ -33,7 +33,7 @@ const ALL_COLUMNS: AllColumns = (
 #[table_name = "agent_connection"]
 #[primary_key(agent_id)]
 pub struct Object {
-    agent_id: Uuid,
+    agent_id: super::agent::Id,
     handle_id: HandleId,
     created_at: DateTime<Utc>,
     rtc_id: Uuid,
