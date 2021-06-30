@@ -1,4 +1,12 @@
-use std::{net::SocketAddr, sync::Arc, thread};
+use std::{
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+    time::Duration,
+};
 
 use crate::{
     app::error::{Error as AppError, ErrorKind as AppErrorKind},
@@ -36,6 +44,7 @@ pub async fn run(
     authz_cache: Option<AuthzCache>,
 ) -> Result<()> {
     // Config
+    let is_stopped = Arc::new(AtomicBool::new(false));
     let config = config::load().expect("Failed to load config");
     info!(crate::LOG, "App config: {:?}", config);
 
@@ -63,11 +72,17 @@ pub async fn run(
 
     thread::Builder::new()
         .name("conference-notifications-loop".to_owned())
-        .spawn(move || {
-            for message in rx {
-                mq_tx
-                    .try_send(message)
-                    .expect("Messages receiver must be alive")
+        .spawn({
+            let is_stopped = is_stopped.clone();
+            move || {
+                for message in rx {
+                    if is_stopped.load(std::sync::atomic::Ordering::SeqCst) {
+                        break;
+                    }
+                    mq_tx
+                        .try_send(message)
+                        .expect("Messages receiver must be alive")
+                }
             }
         })
         .expect("Failed to start conference notifications loop");
@@ -133,54 +148,66 @@ pub async fn run(
             }
         })
     };
-    let messages_task = async_std::task::spawn(async move {
-        loop {
-            let message = mq_rx.recv().await.expect("Messages sender must be alive");
-
-            let message_handler = message_handler.clone();
-            task::spawn(async move {
-                match message {
-                    AgentNotification::Message(message, metadata) => {
-                        message_handler
-                            .global_context()
-                            .metrics()
-                            .total_requests
-                            .inc();
-                        message_handler.handle(&message, &metadata.topic).await;
-                    }
-                    AgentNotification::Reconnection => {
-                        error!(crate::LOG, "Reconnected to broker");
-
-                        resubscribe(
-                            &mut message_handler.agent().to_owned(),
-                            message_handler.global_context().agent_id(),
-                            message_handler.global_context().config(),
-                        );
-                    }
-                    AgentNotification::Puback(_) => (),
-                    AgentNotification::Pubrec(_) => (),
-                    AgentNotification::Pubcomp(_) => (),
-                    AgentNotification::Suback(_) => (),
-                    AgentNotification::Unsuback(_) => (),
-                    AgentNotification::ConnectionError => (),
-                    AgentNotification::Connect(_) => (),
-                    AgentNotification::Connack(_) => (),
-                    AgentNotification::Pubrel(_) => (),
-                    AgentNotification::Subscribe(_) => (),
-                    AgentNotification::Unsubscribe(_) => (),
-                    AgentNotification::PingReq => (),
-                    AgentNotification::PingResp => (),
-                    AgentNotification::Disconnect => {
-                        error!(crate::LOG, "Disconnected from broker")
-                    }
+    let messages_task = async_std::task::spawn({
+        let message_handler = message_handler.clone();
+        let is_stopped = is_stopped.clone();
+        async move {
+            loop {
+                if is_stopped.load(Ordering::SeqCst) {
+                    break;
                 }
-            });
+                let message = mq_rx.recv().await.expect("Messages sender must be alive");
+
+                let message_handler = message_handler.clone();
+                task::spawn(async move {
+                    match message {
+                        AgentNotification::Message(message, metadata) => {
+                            message_handler
+                                .global_context()
+                                .metrics()
+                                .total_requests
+                                .inc();
+                            message_handler.handle(&message, &metadata.topic).await;
+                        }
+                        AgentNotification::Reconnection => {
+                            error!(crate::LOG, "Reconnected to broker");
+
+                            resubscribe(
+                                &mut message_handler.agent().to_owned(),
+                                message_handler.global_context().agent_id(),
+                                message_handler.global_context().config(),
+                            );
+                        }
+                        AgentNotification::Puback(_) => (),
+                        AgentNotification::Pubrec(_) => (),
+                        AgentNotification::Pubcomp(_) => (),
+                        AgentNotification::Suback(_) => (),
+                        AgentNotification::Unsuback(_) => (),
+                        AgentNotification::ConnectionError => (),
+                        AgentNotification::Connect(_) => (),
+                        AgentNotification::Connack(_) => (),
+                        AgentNotification::Pubrel(_) => (),
+                        AgentNotification::Subscribe(_) => (),
+                        AgentNotification::Unsubscribe(_) => (),
+                        AgentNotification::PingReq => (),
+                        AgentNotification::PingResp => (),
+                        AgentNotification::Disconnect => {
+                            error!(crate::LOG, "Disconnected from broker")
+                        }
+                    }
+                });
+            }
         }
     });
+
     let mut signals_stream = signal_hook_async_std::Signals::new(TERM_SIGNALS)?.fuse();
     let signals = signals_stream.next();
     let app = futures::future::join_all([events_task, messages_task]);
     futures::future::select(app, signals).await;
+    is_stopped.store(true, Ordering::SeqCst);
+    message_handler.global_context().janus_clients().clear();
+    // wait 5 seconds for stop
+    task::sleep(Duration::from_secs(5)).await;
     Ok(())
 }
 

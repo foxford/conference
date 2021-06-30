@@ -73,6 +73,13 @@ impl Clients {
             handle.is_cancelled.store(true, Ordering::SeqCst)
         }
     }
+
+    pub fn clear(&self) {
+        let mut guard = self.clients.write().expect("Must not panic");
+        for (_, handle) in guard.drain() {
+            handle.is_cancelled.store(true, Ordering::SeqCst)
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
