@@ -230,9 +230,6 @@ impl SessionId {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Display, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Sender(i64);
-
 /////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]

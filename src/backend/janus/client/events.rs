@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::{backend::janus::OpaqueId, util::from_base64};
 
-use super::{transactions::Transaction, Sender, SessionId};
+use super::{transactions::Transaction, HandleId, SessionId};
 
 fn deserialize_json_string<'de, D>(deserializer: D) -> Result<Transaction, D::Error>
 where
@@ -33,7 +33,7 @@ pub struct EventResponsePluginData {
 #[derive(Debug, Deserialize)]
 pub struct WebRtcUpEvent {
     pub session_id: SessionId,
-    pub sender: Sender,
+    pub sender: HandleId,
     pub opaque_id: String,
 }
 
@@ -48,7 +48,7 @@ impl OpaqueId for WebRtcUpEvent {
 #[derive(Debug, Deserialize)]
 pub struct HangUpEvent {
     pub session_id: SessionId,
-    pub sender: Sender,
+    pub sender: HandleId,
     pub opaque_id: String,
     pub reason: String,
 }
@@ -63,7 +63,7 @@ impl OpaqueId for HangUpEvent {
 #[derive(Debug, Deserialize)]
 pub struct MediaEvent {
     pub session_id: SessionId,
-    pub sender: Sender,
+    pub sender: HandleId,
     pub opaque_id: String,
     #[serde(rename = "type")]
     pub kind: String,
@@ -81,7 +81,7 @@ pub struct TimeoutEvent {
 #[derive(Debug, Deserialize)]
 pub struct SlowLinkEvent {
     pub session_id: SessionId,
-    pub sender: Sender,
+    pub sender: HandleId,
     pub opaque_id: String,
     pub uplink: bool,
 }
@@ -91,7 +91,7 @@ pub struct SlowLinkEvent {
 #[derive(Debug, Deserialize)]
 pub struct DetachedEvent {
     pub session_id: SessionId,
-    pub sender: Sender,
+    pub sender: HandleId,
     pub opaque_id: String,
 }
 
