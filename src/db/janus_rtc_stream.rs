@@ -11,6 +11,8 @@ use crate::{
     db::rtc::Object as Rtc,
     schema::{janus_rtc_stream, rtc},
 };
+use derive_more::{Display, FromStr};
+use diesel_derive_newtype::DieselNewType;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -40,11 +42,21 @@ const ALL_COLUMNS: AllColumns = (
 );
 
 ////////////////////////////////////////////////////////////////////////////////
+#[derive(
+    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
+)]
+pub struct Id(Uuid);
+
+impl Id {
+    pub fn random() -> Self {
+        Id(Uuid::new_v4())
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize, Identifiable, Queryable, QueryableByName, Associations)]
 #[table_name = "janus_rtc_stream"]
 pub struct Object {
-    id: Uuid,
+    id: Id,
     handle_id: HandleId,
     rtc_id: db::rtc::Id,
     backend_id: AgentId,
@@ -58,7 +70,7 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn id(&self) -> Uuid {
+    pub fn id(&self) -> Id {
         self.id
     }
 
@@ -248,7 +260,7 @@ impl<'a> ListWithRtcQuery<'a> {
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "janus_rtc_stream"]
 pub struct InsertQuery<'a> {
-    id: Uuid,
+    id: Id,
     handle_id: HandleId,
     rtc_id: db::rtc::Id,
     backend_id: &'a AgentId,
@@ -258,7 +270,7 @@ pub struct InsertQuery<'a> {
 
 impl<'a> InsertQuery<'a> {
     pub fn new(
-        id: Uuid,
+        id: Id,
         handle_id: HandleId,
         rtc_id: db::rtc::Id,
         backend_id: &'a AgentId,
@@ -289,7 +301,7 @@ impl<'a> InsertQuery<'a> {
 
 const START_TIME_SQL: &str = "(TSTZRANGE(NOW(), NULL, '[)'))";
 
-pub fn start(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
+pub fn start(id: db::janus_rtc_stream::Id, conn: &PgConnection) -> Result<Option<Object>, Error> {
     use diesel::{dsl::sql, prelude::*};
 
     diesel::update(janus_rtc_stream::table.filter(janus_rtc_stream::id.eq(id)))
@@ -313,7 +325,7 @@ const STOP_TIME_SQL: &str = r#"
     )
 "#;
 
-pub fn stop(id: Uuid, conn: &PgConnection) -> Result<Option<Object>, Error> {
+pub fn stop(id: db::janus_rtc_stream::Id, conn: &PgConnection) -> Result<Option<Object>, Error> {
     use diesel::{dsl::sql, prelude::*};
 
     diesel::update(janus_rtc_stream::table.filter(janus_rtc_stream::id.eq(id)))

@@ -457,7 +457,7 @@ impl RequestHandler for ConnectHandler {
         }).await?;
 
         context.add_logger_tags(o!("backend_id" => backend.id().to_string()));
-        let rtc_stream_id = Uuid::new_v4();
+        let rtc_stream_id = db::janus_rtc_stream::Id::random();
 
         let handle = context
             .janus_clients()
@@ -465,7 +465,7 @@ impl RequestHandler for ConnectHandler {
             .error(AppErrorKind::BackendClientCreationFailed)?
             .create_handle(CreateHandleRequest {
                 session_id: backend.session_id(),
-                opaque_id: rtc_stream_id.to_string(),
+                opaque_id: rtc_stream_id,
             })
             .await
             .context("Handle creating")

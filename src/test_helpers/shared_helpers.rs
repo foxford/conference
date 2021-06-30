@@ -118,7 +118,7 @@ pub async fn create_handle(janus_url: &str, session_id: SessionId) -> HandleId {
         .unwrap()
         .create_handle(CreateHandleRequest {
             session_id,
-            opaque_id: Uuid::new_v4().to_string(),
+            opaque_id: db::janus_rtc_stream::Id::random(),
         })
         .await
         .unwrap()
@@ -131,7 +131,7 @@ pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
     let handle = janus_client
         .create_handle(CreateHandleRequest {
             session_id,
-            opaque_id: Uuid::new_v4().to_string(),
+            opaque_id: db::janus_rtc_stream::Id::random(),
         })
         .await
         .unwrap()

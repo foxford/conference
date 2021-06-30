@@ -317,7 +317,7 @@ impl<'a> JanusRtcStream<'a> {
         };
 
         db::janus_rtc_stream::InsertQuery::new(
-            Uuid::new_v4(),
+            db::janus_rtc_stream::Id::random(),
             backend.handle_id(),
             rtc.id(),
             backend.id(),
