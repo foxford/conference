@@ -133,7 +133,7 @@ impl RequestHandler for CreateHandler {
 
 #[derive(Debug, Deserialize)]
 pub struct ReadRequest {
-    id: Uuid,
+    id: db::room::Id,
 }
 
 pub struct ReadHandler;
@@ -176,9 +176,9 @@ impl RequestHandler for ReadHandler {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize)]
 pub struct UpdateRequest {
-    id: Uuid,
+    id: db::room::Id,
     #[serde(default)]
     #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
     time: Option<db::room::Time>,
@@ -663,7 +663,9 @@ mod test {
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new());
-            let payload = ReadRequest { id: Uuid::new_v4() };
+            let payload = ReadRequest {
+                id: db::room::Id::random(),
+            };
 
             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
                 .await
@@ -844,7 +846,8 @@ mod test {
                 id: room.id(),
                 time: Some(time),
                 reserve: Some(Some(123)),
-                ..Default::default()
+                tags: Default::default(),
+                classroom_id: Default::default(),
             };
 
             let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -915,7 +918,9 @@ mod test {
             let payload = UpdateRequest {
                 id: room.id(),
                 time: Some(time),
-                ..Default::default()
+                reserve: Default::default(),
+                tags: Default::default(),
+                classroom_id: Default::default(),
             };
 
             handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -933,8 +938,11 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = UpdateRequest {
-                id: Uuid::new_v4(),
-                ..Default::default()
+                id: db::room::Id::random(),
+                time: Default::default(),
+                reserve: Default::default(),
+                tags: Default::default(),
+                classroom_id: Default::default(),
             };
 
             let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -967,7 +975,9 @@ mod test {
             let payload = UpdateRequest {
                 id: room.id(),
                 time: Some((Bound::Included(Utc::now()), Bound::Excluded(Utc::now()))),
-                ..Default::default()
+                reserve: Default::default(),
+                tags: Default::default(),
+                classroom_id: Default::default(),
             };
 
             let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -1069,7 +1079,9 @@ mod test {
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new());
-            let payload = EnterRequest { id: Uuid::new_v4() };
+            let payload = EnterRequest {
+                id: db::room::Id::random(),
+            };
 
             let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
                 .await
@@ -1278,7 +1290,9 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new());
-            let payload = LeaveRequest { id: Uuid::new_v4() };
+            let payload = LeaveRequest {
+                id: db::room::Id::random(),
+            };
 
             let err = handle_request::<LeaveHandler>(&mut context, &agent, payload)
                 .await

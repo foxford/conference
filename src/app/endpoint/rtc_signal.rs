@@ -340,7 +340,6 @@ mod test {
         use serde::Deserialize;
         use serde_json::json;
         use svc_agent::mqtt::ResponseStatus;
-        use uuid::Uuid;
 
         use crate::{
             app::handle_id::HandleId,
@@ -441,7 +440,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             let mut context = TestContext::new(db, authz);
             let (tx, rx) = async_std::channel::unbounded();
             context.with_janus(tx);
-            let rtc_stream_id = Uuid::new_v4();
+            let rtc_stream_id = db::janus_rtc_stream::Id::random();
             let handle_id = HandleId::new(
                 rtc_stream_id,
                 rtc.id(),
@@ -526,7 +525,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -616,7 +615,7 @@ a=rtcp-fb:120 ccm fir
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -708,7 +707,7 @@ a=rtcp-fb:120 ccm fir
             context.with_janus(tx);
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -775,7 +774,7 @@ a=rtcp-fb:120 ccm fir
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -832,8 +831,8 @@ a=rtcp-fb:120 ccm fir
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
+                db::rtc::Id::random(),
                 crate::backend::janus::client::HandleId::stub_id(),
                 backend.session_id(),
                 backend.id().to_owned(),
@@ -894,7 +893,7 @@ a=rtcp-fb:120 ccm fir
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -961,7 +960,7 @@ a=rtcp-fb:120 ccm fir
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -1019,7 +1018,7 @@ a=rtcp-fb:120 ccm fir
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 crate::backend::janus::client::SessionId::random(),
@@ -1072,7 +1071,7 @@ a=rtcp-fb:120 ccm fir
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 crate::backend::janus::client::HandleId::stub_id(),
                 backend.session_id(),
@@ -1126,7 +1125,7 @@ a=rtcp-fb:120 ccm fir
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 crate::backend::janus::client::HandleId::stub_id(),
                 backend.session_id(),
@@ -1187,7 +1186,7 @@ a=rtcp-fb:120 ccm fir
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 crate::backend::janus::client::HandleId::random(),
                 backend.session_id(),
@@ -1258,7 +1257,7 @@ a=rtcp-fb:120 ccm fir
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent2_connection.handle_id(),
                 backend.session_id(),
@@ -1321,7 +1320,7 @@ a=rtcp-fb:120 ccm fir
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),
@@ -1392,7 +1391,7 @@ a=rtcp-fb:120 ccm fir
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let handle_id = HandleId::new(
-                Uuid::new_v4(),
+                db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
                 backend.session_id(),

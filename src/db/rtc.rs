@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::db;
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
 use diesel_derive_enum::DbEnum;
@@ -9,6 +10,8 @@ use uuid::Uuid;
 
 use super::{recording::Object as Recording, room::Object as Room};
 use crate::schema::{recording, rtc};
+use derive_more::{Display, FromStr};
+use diesel_derive_newtype::DieselNewType;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -17,6 +20,17 @@ pub type AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
 pub const ALL_COLUMNS: AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
 
 ////////////////////////////////////////////////////////////////////////////////
+
+#[derive(
+    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
+)]
+pub struct Id(Uuid);
+
+impl Id {
+    pub fn random() -> Self {
+        Id(Uuid::new_v4())
+    }
+}
 
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -42,19 +56,19 @@ impl fmt::Display for SharingPolicy {
 #[belongs_to(Room, foreign_key = "room_id")]
 #[table_name = "rtc"]
 pub struct Object {
-    id: Uuid,
-    room_id: Uuid,
+    id: Id,
+    room_id: db::room::Id,
     #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
     created_by: AgentId,
 }
 
 impl Object {
-    pub fn id(&self) -> Uuid {
+    pub fn id(&self) -> Id {
         self.id
     }
 
-    pub fn room_id(&self) -> Uuid {
+    pub fn room_id(&self) -> db::room::Id {
         self.room_id
     }
 
@@ -66,7 +80,7 @@ impl Object {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct FindQuery {
-    id: Option<Uuid>,
+    id: Option<Id>,
 }
 
 impl FindQuery {
@@ -74,7 +88,7 @@ impl FindQuery {
         Self { id: None }
     }
 
-    pub fn id(mut self, id: Uuid) -> Self {
+    pub fn id(mut self, id: Id) -> Self {
         self.id = Some(id);
         self
     }
@@ -95,7 +109,7 @@ impl FindQuery {
 
 #[derive(Default)]
 pub struct ListQuery<'a> {
-    room_id: Option<Uuid>,
+    room_id: Option<db::room::Id>,
     created_by: Option<&'a [&'a AgentId]>,
     offset: Option<i64>,
     limit: Option<i64>,
@@ -106,7 +120,7 @@ impl<'a> ListQuery<'a> {
         Default::default()
     }
 
-    pub fn room_id(self, room_id: Uuid) -> Self {
+    pub fn room_id(self, room_id: db::room::Id) -> Self {
         Self {
             room_id: Some(room_id),
             ..self
@@ -161,13 +175,12 @@ impl<'a> ListQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Default)]
 pub struct ListWithRecordingQuery {
-    room_id: Uuid,
+    room_id: db::room::Id,
 }
 
 impl ListWithRecordingQuery {
-    pub fn new(room_id: Uuid) -> Self {
+    pub fn new(room_id: db::room::Id) -> Self {
         Self { room_id }
     }
 
@@ -186,13 +199,13 @@ impl ListWithRecordingQuery {
 #[derive(Debug, Insertable)]
 #[table_name = "rtc"]
 pub struct InsertQuery<'a> {
-    id: Option<Uuid>,
-    room_id: Uuid,
+    id: Option<Id>,
+    room_id: db::room::Id,
     created_by: &'a AgentId,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub fn new(room_id: Uuid, created_by: &'a AgentId) -> Self {
+    pub fn new(room_id: db::room::Id, created_by: &'a AgentId) -> Self {
         Self {
             id: None,
             room_id,

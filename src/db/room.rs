@@ -11,12 +11,15 @@ use uuid::Uuid;
 use crate::{
     backend::janus::JANUS_API_VERSION,
     db::{
+        self,
         janus_backend::Object as JanusBackend,
         recording::{Object as Recording, Status as RecordingStatus},
         rtc::SharingPolicy as RtcSharingPolicy,
     },
     schema::{janus_backend, recording, room, rtc},
 };
+use derive_more::{Display, FromStr};
+use diesel_derive_newtype::DieselNewType;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -49,6 +52,17 @@ const ALL_COLUMNS: AllColumns = (
 );
 
 ////////////////////////////////////////////////////////////////////////////////
+
+#[derive(
+    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
+)]
+pub struct Id(Uuid);
+
+impl Id {
+    pub fn random() -> Self {
+        Id(Uuid::new_v4())
+    }
+}
 
 // Deprecated in favor of `crate::db::rtc::SharingPolicy`.
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
@@ -93,7 +107,7 @@ impl From<RoomBackend> for RtcSharingPolicy {
 #[belongs_to(JanusBackend, foreign_key = "backend_id")]
 #[table_name = "room"]
 pub struct Object {
-    id: Uuid,
+    id: Id,
     #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
     time: Time,
     audience: String,
@@ -114,7 +128,7 @@ impl Object {
         &self.audience
     }
 
-    pub fn id(&self) -> Uuid {
+    pub fn id(&self) -> Id {
         self.id
     }
 
@@ -159,11 +173,11 @@ pub trait FindQueryable {
 
 #[derive(Debug)]
 pub struct FindQuery {
-    id: Uuid,
+    id: Id,
 }
 
 impl FindQuery {
-    pub fn new(id: Uuid) -> Self {
+    pub fn new(id: Id) -> Self {
         Self { id }
     }
 }
@@ -181,11 +195,11 @@ impl FindQueryable for FindQuery {
 
 #[derive(Debug)]
 pub struct FindByRtcIdQuery {
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 }
 
 impl FindByRtcIdQuery {
-    pub fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: db::rtc::Id) -> Self {
         Self { rtc_id }
     }
 }
@@ -303,10 +317,10 @@ impl<'a> InsertQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Default, Identifiable, AsChangeset)]
+#[derive(Debug, Identifiable, AsChangeset)]
 #[table_name = "room"]
 pub struct UpdateQuery<'a> {
-    id: Uuid,
+    id: Id,
     time: Option<Time>,
     reserve: Option<Option<i32>>,
     tags: Option<JsonValue>,
@@ -315,10 +329,14 @@ pub struct UpdateQuery<'a> {
 }
 
 impl<'a> UpdateQuery<'a> {
-    pub fn new(id: Uuid) -> Self {
+    pub fn new(id: Id) -> Self {
         Self {
             id,
-            ..Default::default()
+            backend_id: Default::default(),
+            time: Default::default(),
+            reserve: Default::default(),
+            tags: Default::default(),
+            classroom_id: Default::default(),
         }
     }
 

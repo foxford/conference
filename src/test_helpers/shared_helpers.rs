@@ -4,13 +4,13 @@ use chrono::{Duration, SubsecRound, Utc};
 use diesel::pg::PgConnection;
 use rand::Rng;
 use svc_agent::AgentId;
-use uuid::Uuid;
 
 use crate::{
     backend::janus::client::{
         create_handle::CreateHandleRequest, HandleId, JanusClient, SessionId,
     },
     db::{
+        self,
         agent::{Object as Agent, Status as AgentStatus},
         agent_connection::Object as AgentConnection,
         janus_backend::Object as JanusBackend,
@@ -89,7 +89,7 @@ pub fn insert_room_with_owned(conn: &PgConnection) -> Room {
         .insert(conn)
 }
 
-pub fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uuid) -> Agent {
+pub fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: db::room::Id) -> Agent {
     factory::Agent::new()
         .agent_id(agent_id)
         .room_id(room_id)
@@ -100,8 +100,8 @@ pub fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uuid) -> A
 pub fn insert_connected_agent(
     conn: &PgConnection,
     agent_id: &AgentId,
-    room_id: Uuid,
-    rtc_id: Uuid,
+    room_id: db::room::Id,
+    rtc_id: db::rtc::Id,
 ) -> (Agent, AgentConnection) {
     insert_connected_to_handle_agent(
         conn,
@@ -117,7 +117,7 @@ pub async fn create_handle(janus_url: &str, session_id: SessionId) -> HandleId {
         .unwrap()
         .create_handle(CreateHandleRequest {
             session_id,
-            opaque_id: Uuid::new_v4().to_string(),
+            opaque_id: db::janus_rtc_stream::Id::random(),
         })
         .await
         .unwrap()
@@ -130,7 +130,7 @@ pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
     let handle = janus_client
         .create_handle(CreateHandleRequest {
             session_id,
-            opaque_id: Uuid::new_v4().to_string(),
+            opaque_id: db::janus_rtc_stream::Id::random(),
         })
         .await
         .unwrap()
@@ -141,8 +141,8 @@ pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
 pub fn insert_connected_to_handle_agent(
     conn: &PgConnection,
     agent_id: &AgentId,
-    room_id: Uuid,
-    rtc_id: Uuid,
+    room_id: db::room::Id,
+    rtc_id: db::rtc::Id,
     handle_id: crate::backend::janus::client::HandleId,
 ) -> (Agent, AgentConnection) {
     let agent = insert_agent(conn, agent_id, room_id);

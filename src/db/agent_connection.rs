@@ -1,11 +1,13 @@
 use chrono::{DateTime, Utc};
 use diesel::{dsl::count_star, pg::PgConnection, result::Error};
 use svc_agent::AgentId;
-use uuid::Uuid;
 
 use crate::{
     backend::janus::client::HandleId,
-    db::agent::{Object as Agent, Status as AgentStatus},
+    db::{
+        self,
+        agent::{Object as Agent, Status as AgentStatus},
+    },
     schema::{agent, agent_connection},
 };
 
@@ -30,10 +32,10 @@ const ALL_COLUMNS: AllColumns = (
 #[table_name = "agent_connection"]
 #[primary_key(agent_id)]
 pub struct Object {
-    agent_id: Uuid,
+    agent_id: super::agent::Id,
     handle_id: HandleId,
     created_at: DateTime<Utc>,
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 }
 
 impl Object {
@@ -46,11 +48,11 @@ impl Object {
 
 pub struct FindQuery<'a> {
     agent_id: &'a AgentId,
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 }
 
 impl<'a> FindQuery<'a> {
-    pub fn new(agent_id: &'a AgentId, rtc_id: Uuid) -> Self {
+    pub fn new(agent_id: &'a AgentId, rtc_id: db::rtc::Id) -> Self {
         Self { agent_id, rtc_id }
     }
 
@@ -91,14 +93,14 @@ impl CountQuery {
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "agent_connection"]
 pub struct UpsertQuery {
-    agent_id: Uuid,
-    rtc_id: Uuid,
+    agent_id: db::agent::Id,
+    rtc_id: db::rtc::Id,
     handle_id: HandleId,
     created_at: DateTime<Utc>,
 }
 
 impl UpsertQuery {
-    pub fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: HandleId) -> Self {
+    pub fn new(agent_id: db::agent::Id, rtc_id: db::rtc::Id, handle_id: HandleId) -> Self {
         Self {
             agent_id,
             rtc_id,
@@ -132,11 +134,11 @@ const BULK_DISCONNECT_BY_ROOM_SQL: &str = r#"
 
 #[derive(Debug)]
 pub struct BulkDisconnectByRoomQuery {
-    room_id: Uuid,
+    room_id: db::room::Id,
 }
 
 impl BulkDisconnectByRoomQuery {
-    pub fn new(room_id: Uuid) -> Self {
+    pub fn new(room_id: db::room::Id) -> Self {
         Self { room_id }
     }
 
@@ -153,11 +155,11 @@ impl BulkDisconnectByRoomQuery {
 
 #[derive(Debug)]
 pub struct BulkDisconnectByRtcQuery {
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 }
 
 impl BulkDisconnectByRtcQuery {
-    pub fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: db::rtc::Id) -> Self {
         Self { rtc_id }
     }
 

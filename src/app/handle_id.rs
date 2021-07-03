@@ -2,23 +2,24 @@ use std::{fmt, str::FromStr};
 
 use anyhow::anyhow;
 use svc_agent::AgentId;
-use uuid::Uuid;
+
+use crate::db;
 
 #[derive(Debug, Clone)]
 pub struct HandleId {
-    rtc_stream_id: Uuid,
-    rtc_id: Uuid,
+    rtc_stream_id: db::janus_rtc_stream::Id,
+    rtc_id: db::rtc::Id,
     janus_handle_id: crate::backend::janus::client::HandleId,
     janus_session_id: crate::backend::janus::client::SessionId,
     backend_id: AgentId,
 }
 
 impl HandleId {
-    pub fn rtc_stream_id(&self) -> Uuid {
+    pub fn rtc_stream_id(&self) -> db::janus_rtc_stream::Id {
         self.rtc_stream_id
     }
 
-    pub fn rtc_id(&self) -> Uuid {
+    pub fn rtc_id(&self) -> db::rtc::Id {
         self.rtc_id
     }
 
@@ -37,8 +38,8 @@ impl HandleId {
 
 impl HandleId {
     pub fn new(
-        rtc_stream_id: Uuid,
-        rtc_id: Uuid,
+        rtc_stream_id: db::janus_rtc_stream::Id,
+        rtc_id: db::rtc::Id,
         janus_handle_id: crate::backend::janus::client::HandleId,
         janus_session_id: crate::backend::janus::client::SessionId,
         backend_id: AgentId,
@@ -75,8 +76,8 @@ impl FromStr for HandleId {
         match parts[..] {
             [ref rtc_stream_id, ref rtc_id, ref janus_handle_id, ref janus_session_id, ref rest] => {
                 Ok(Self::new(
-                    Uuid::from_str(rtc_stream_id)?,
-                    Uuid::from_str(rtc_id)?,
+                    rtc_stream_id.parse()?,
+                    rtc_id.parse()?,
                     janus_handle_id.parse()?,
                     janus_session_id.parse()?,
                     rest.parse()?,

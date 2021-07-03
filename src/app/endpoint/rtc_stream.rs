@@ -9,7 +9,6 @@ use svc_agent::mqtt::{
     IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
     ResponseStatus, ShortTermTimingProperties,
 };
-use uuid::Uuid;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
@@ -22,8 +21,8 @@ const MAX_LIMIT: i64 = 25;
 
 #[derive(Debug, Deserialize)]
 pub struct ListRequest {
-    room_id: Uuid,
-    rtc_id: Option<Uuid>,
+    room_id: db::room::Id,
+    rtc_id: Option<db::rtc::Id>,
     #[serde(default)]
     #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
     time: Option<db::room::Time>,
@@ -71,7 +70,7 @@ impl RequestHandler for ListHandler {
             .authorize(room.audience(), reqp, object, "read")
             .await?;
         context.metrics().observe_auth(authz_time);
-        
+
         let conn = context.get_conn().await?;
         let rtc_streams = task::spawn_blocking(move || {
             let mut query = db::janus_rtc_stream::ListQuery::new().room_id(payload.room_id);
@@ -114,7 +113,7 @@ impl RequestHandler for ListHandler {
 pub type ObjectUpdateEvent = OutgoingMessage<db::janus_rtc_stream::Object>;
 
 pub fn update_event(
-    room_id: Uuid,
+    room_id: db::room::Id,
     object: db::janus_rtc_stream::Object,
     start_timestamp: DateTime<Utc>,
 ) -> StdResult<ObjectUpdateEvent, AppError> {
@@ -261,7 +260,7 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = ListRequest {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
                 rtc_id: None,
                 time: None,
                 offset: None,

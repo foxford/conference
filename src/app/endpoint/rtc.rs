@@ -12,7 +12,6 @@ use svc_agent::{
     },
     Addressable,
 };
-use uuid::Uuid;
 
 use crate::{
     app::{
@@ -43,7 +42,7 @@ pub type ConnectResponse = OutgoingResponse<ConnectResponseData>;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateRequest {
-    room_id: Uuid,
+    room_id: db::room::Id,
 }
 
 pub struct CreateHandler;
@@ -133,7 +132,7 @@ impl RequestHandler for CreateHandler {
 
 #[derive(Debug, Deserialize)]
 pub struct ReadRequest {
-    id: Uuid,
+    id: db::rtc::Id,
 }
 
 pub struct ReadHandler;
@@ -201,7 +200,7 @@ const MAX_LIMIT: i64 = 25;
 
 #[derive(Debug, Deserialize)]
 pub struct ListRequest {
-    room_id: Uuid,
+    room_id: db::room::Id,
     offset: Option<i64>,
     limit: Option<i64>,
 }
@@ -288,7 +287,7 @@ impl fmt::Display for ConnectIntent {
 
 #[derive(Debug, Deserialize)]
 pub struct ConnectRequest {
-    id: Uuid,
+    id: db::rtc::Id,
     #[serde(default = "ConnectRequest::default_intent")]
     intent: ConnectIntent,
 }
@@ -457,7 +456,7 @@ impl RequestHandler for ConnectHandler {
         }).await?;
 
         context.add_logger_tags(o!("backend_id" => backend.id().to_string()));
-        let rtc_stream_id = Uuid::new_v4();
+        let rtc_stream_id = db::janus_rtc_stream::Id::random();
 
         let handle = context
             .janus_clients()
@@ -465,7 +464,7 @@ impl RequestHandler for ConnectHandler {
             .error(AppErrorKind::BackendClientCreationFailed)?
             .create_handle(CreateHandleRequest {
                 session_id: backend.session_id(),
-                opaque_id: rtc_stream_id.to_string(),
+                opaque_id: rtc_stream_id,
             })
             .await
             .context("Handle creating")
@@ -646,7 +645,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new());
             let payload = CreateRequest {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -904,7 +903,9 @@ mod test {
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new());
-            let payload = ReadRequest { id: Uuid::new_v4() };
+            let payload = ReadRequest {
+                id: db::rtc::Id::random(),
+            };
 
             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
                 .await
@@ -1010,7 +1011,7 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = ListRequest {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
                 offset: None,
                 limit: None,
             };
@@ -2284,7 +2285,7 @@ mod test {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = ConnectRequest {
-                id: Uuid::new_v4(),
+                id: db::rtc::Id::random(),
                 intent: ConnectIntent::Read,
             };
 

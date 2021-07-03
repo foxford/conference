@@ -1,11 +1,10 @@
 use diesel::pg::PgConnection;
 use rand::Rng;
 use svc_agent::{AccountId, AgentId};
-use uuid::Uuid;
 
 use crate::{
     backend::janus::client::{HandleId, SessionId},
-    db,
+    db::{self, agent},
 };
 
 use super::{
@@ -92,7 +91,7 @@ impl<'a> Room<'a> {
 pub struct Agent<'a> {
     audience: Option<&'a str>,
     agent_id: Option<&'a AgentId>,
-    room_id: Option<Uuid>,
+    room_id: Option<db::room::Id>,
     status: db::agent::Status,
 }
 
@@ -113,7 +112,7 @@ impl<'a> Agent<'a> {
         }
     }
 
-    pub fn room_id(self, room_id: Uuid) -> Self {
+    pub fn room_id(self, room_id: db::room::Id) -> Self {
         Self {
             room_id: Some(room_id),
             ..self
@@ -148,13 +147,13 @@ impl<'a> Agent<'a> {
 ///////////////////////////////////////////////////////////////////////////////
 
 pub struct AgentConnection {
-    agent_id: Uuid,
-    rtc_id: Uuid,
+    agent_id: agent::Id,
+    rtc_id: db::rtc::Id,
     handle_id: HandleId,
 }
 
 impl AgentConnection {
-    pub fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: HandleId) -> Self {
+    pub fn new(agent_id: agent::Id, rtc_id: db::rtc::Id, handle_id: HandleId) -> Self {
         Self {
             agent_id,
             rtc_id,
@@ -172,12 +171,12 @@ impl AgentConnection {
 ///////////////////////////////////////////////////////////////////////////////
 
 pub struct Rtc {
-    room_id: Uuid,
+    room_id: db::room::Id,
     created_by: AgentId,
 }
 
 impl Rtc {
-    pub fn new(room_id: Uuid) -> Self {
+    pub fn new(room_id: db::room::Id) -> Self {
         Self {
             room_id,
             created_by: AgentId::new("web", AccountId::new("nevermind", "example.com")),
@@ -317,7 +316,7 @@ impl<'a> JanusRtcStream<'a> {
         };
 
         db::janus_rtc_stream::InsertQuery::new(
-            Uuid::new_v4(),
+            db::janus_rtc_stream::Id::random(),
             backend.handle_id(),
             rtc.id(),
             backend.id(),

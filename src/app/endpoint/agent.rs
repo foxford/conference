@@ -2,7 +2,6 @@ use async_std::{stream, task};
 use async_trait::async_trait;
 use serde::Deserialize;
 use svc_agent::mqtt::{IncomingRequestProperties, ResponseStatus};
-use uuid::Uuid;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
@@ -15,7 +14,7 @@ const MAX_LIMIT: i64 = 25;
 
 #[derive(Debug, Deserialize)]
 pub struct ListRequest {
-    room_id: Uuid,
+    room_id: db::room::Id,
     offset: Option<i64>,
     limit: Option<i64>,
 }
@@ -84,7 +83,6 @@ mod tests {
     mod list {
         use serde::Deserialize;
         use svc_agent::AgentId;
-        use uuid::Uuid;
 
         use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
 
@@ -95,7 +93,7 @@ mod tests {
         #[derive(Deserialize)]
         struct Agent {
             agent_id: AgentId,
-            room_id: Uuid,
+            room_id: db::room::Id,
         }
 
         #[async_std::test]
@@ -225,7 +223,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = ListRequest {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
                 offset: None,
                 limit: None,
             };

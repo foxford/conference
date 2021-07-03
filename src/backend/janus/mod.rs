@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context as AnyhowContext, Result};
 use async_std::{stream, task};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use slog::{error, o};
-use std::{ops::Bound, str::FromStr};
+use std::ops::Bound;
 use svc_agent::{
     mqtt::{
         IncomingEvent as MQTTIncomingEvent, IncomingRequestProperties, IntoPublishableMessage,
@@ -11,7 +11,6 @@ use svc_agent::{
     Addressable,
 };
 use svc_error::Error as SvcError;
-use uuid::Uuid;
 
 use crate::{
     app::{
@@ -23,7 +22,7 @@ use crate::{
         API_VERSION,
     },
     backend::janus::client::{create_handle::CreateHandleRequest, JanusClient},
-    db::{agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc},
+    db::{self, agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc},
     diesel::Connection,
 };
 
@@ -89,7 +88,9 @@ async fn handle_event_impl<C: Context>(
         IncomingEvent::WebRtcUp(ref inev) => {
             context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
 
-            let rtc_stream_id = Uuid::from_str(inev.opaque_id())
+            let rtc_stream_id = inev
+                .opaque_id
+                .parse()
                 .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {:?}", err))
                 .error(AppErrorKind::MessageParsingFailed)?;
 
@@ -269,7 +270,7 @@ async fn handle_event_impl<C: Context>(
                             .ok_or_else(|| anyhow!("Missing 'id' in response"))
                             .error(AppErrorKind::MessageParsingFailed)
                             .and_then(|val| {
-                                serde_json::from_value::<Uuid>(val.clone())
+                                serde_json::from_value::<db::rtc::Id>(val.clone())
                                     .map_err(|err| anyhow!("Invalid value for 'id': {}", err))
                                     .error(AppErrorKind::MessageParsingFailed)
                             })?;
@@ -405,7 +406,9 @@ async fn handle_hangup_detach<C: Context, E: OpaqueId>(
 ) -> Result<MessageStream, AppError> {
     context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_owned()));
 
-    let rtc_stream_id = Uuid::from_str(inev.opaque_id())
+    let rtc_stream_id = inev
+        .opaque_id()
+        .parse()
         .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
         .error(AppErrorKind::MessageParsingFailed)?;
 
@@ -496,7 +499,7 @@ async fn handle_status_event_impl<C: Context>(
         let handle = janus_client
             .create_handle(CreateHandleRequest {
                 session_id: session.id,
-                opaque_id: Uuid::new_v4().to_string(),
+                opaque_id: db::janus_rtc_stream::Id::random(),
             })
             .await
             .context("Create first handle")

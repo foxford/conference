@@ -12,7 +12,6 @@ use svc_agent::{
     AgentId,
 };
 use svc_authn::Authenticable;
-use uuid::Uuid;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, error::Error as AppError},
@@ -32,13 +31,13 @@ use crate::{
 
 #[derive(Debug, Serialize)]
 pub struct RoomUploadEventData {
-    id: Uuid,
+    id: db::room::Id,
     rtcs: Vec<RtcUploadEventData>,
 }
 
 #[derive(Debug, Serialize)]
 struct RtcUploadEventData {
-    id: Uuid,
+    id: db::rtc::Id,
     status: RecordingStatus,
     #[serde(
         serialize_with = "crate::serde::milliseconds_bound_tuples_option",
@@ -62,7 +61,7 @@ pub type RoomUploadEvent = OutgoingMessage<RoomUploadEventData>;
 
 #[derive(Serialize)]
 struct ClosedRoomNotification {
-    room_id: Uuid,
+    room_id: db::room::Id,
 }
 
 #[derive(Debug, Deserialize)]
@@ -314,7 +313,7 @@ mod test {
                 .await
                 .expect("System vacuum failed");
             context.janus_clients().remove_client(backend.id());
-            let recv_rtcs: Vec<Uuid> = [rx.recv().await.unwrap(), rx.recv().await.unwrap()]
+            let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().await.unwrap(), rx.recv().await.unwrap()]
                 .iter()
                 .map(|resp| match resp {
                     IncomingEvent::Event(EventResponse {
