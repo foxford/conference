@@ -1,24 +1,29 @@
-use std::fmt;
-use std::ops::Bound;
+use std::{fmt, ops::Bound};
 
-use chrono::serde::ts_seconds;
-use chrono::{DateTime, Utc};
-use diesel::pg::PgConnection;
-use diesel::result::Error;
-use serde_derive::{Deserialize, Serialize};
+use chrono::{serde::ts_seconds, DateTime, Utc};
+use diesel::{pg::PgConnection, result::Error};
+use diesel_derive_enum::DbEnum;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use crate::backend::janus::JANUS_API_VERSION;
-use crate::db::janus_backend::Object as JanusBackend;
-use crate::db::recording::{Object as Recording, Status as RecordingStatus};
-use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-use crate::schema::{janus_backend, recording, room, rtc};
+use crate::{
+    backend::janus::JANUS_API_VERSION,
+    db::{
+        self,
+        janus_backend::Object as JanusBackend,
+        recording::{Object as Recording, Status as RecordingStatus},
+        rtc::SharingPolicy as RtcSharingPolicy,
+    },
+    schema::{janus_backend, recording, room, rtc},
+};
+use derive_more::{Display, FromStr};
+use diesel_derive_newtype::DieselNewType;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
+pub type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
 type AllColumns = (
     room::id,
@@ -48,12 +53,23 @@ const ALL_COLUMNS: AllColumns = (
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(
+    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
+)]
+pub struct Id(Uuid);
+
+impl Id {
+    pub fn random() -> Self {
+        Id(Uuid::new_v4())
+    }
+}
+
 // Deprecated in favor of `crate::db::rtc::SharingPolicy`.
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 #[DieselType = "Room_backend"]
 // This is not just `Backend` because of clash with `diesel::backend::Backend`.
-pub(crate) enum RoomBackend {
+pub enum RoomBackend {
     None,
     Janus,
 }
@@ -74,11 +90,11 @@ impl From<RtcSharingPolicy> for RoomBackend {
     }
 }
 
-impl Into<RtcSharingPolicy> for RoomBackend {
-    fn into(self) -> RtcSharingPolicy {
-        match self {
-            Self::None => RtcSharingPolicy::None,
-            Self::Janus => RtcSharingPolicy::Shared,
+impl From<RoomBackend> for RtcSharingPolicy {
+    fn from(val: RoomBackend) -> Self {
+        match val {
+            RoomBackend::None => RtcSharingPolicy::None,
+            RoomBackend::Janus => RtcSharingPolicy::Shared,
         }
     }
 }
@@ -90,8 +106,8 @@ impl Into<RtcSharingPolicy> for RoomBackend {
 )]
 #[belongs_to(JanusBackend, foreign_key = "backend_id")]
 #[table_name = "room"]
-pub(crate) struct Object {
-    id: Uuid,
+pub struct Object {
+    id: Id,
     #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
     time: Time,
     audience: String,
@@ -108,23 +124,23 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub(crate) fn audience(&self) -> &str {
+    pub fn audience(&self) -> &str {
         &self.audience
     }
 
-    pub(crate) fn id(&self) -> Uuid {
+    pub fn id(&self) -> Id {
         self.id
     }
 
-    pub(crate) fn time(&self) -> &Time {
+    pub fn time(&self) -> &Time {
         &self.time
     }
 
-    pub(crate) fn reserve(&self) -> Option<i32> {
+    pub fn reserve(&self) -> Option<i32> {
         self.reserve
     }
 
-    pub(crate) fn is_closed(&self) -> bool {
+    pub fn is_closed(&self) -> bool {
         match self.time.1 {
             Bound::Included(t) => t < Utc::now(),
             Bound::Excluded(t) => t <= Utc::now(),
@@ -132,36 +148,36 @@ impl Object {
         }
     }
 
-    pub(crate) fn tags(&self) -> &JsonValue {
+    pub fn tags(&self) -> &JsonValue {
         &self.tags
     }
 
-    pub(crate) fn backend_id(&self) -> Option<&AgentId> {
+    pub fn backend_id(&self) -> Option<&AgentId> {
         self.backend_id.as_ref()
     }
 
-    pub(crate) fn rtc_sharing_policy(&self) -> RtcSharingPolicy {
+    pub fn rtc_sharing_policy(&self) -> RtcSharingPolicy {
         self.rtc_sharing_policy
     }
 
-    pub(crate) fn classroom_id(&self) -> Option<Uuid> {
+    pub fn classroom_id(&self) -> Option<Uuid> {
         self.classroom_id
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) trait FindQueryable {
+pub trait FindQueryable {
     fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error>;
 }
 
 #[derive(Debug)]
-pub(crate) struct FindQuery {
-    id: Uuid,
+pub struct FindQuery {
+    id: Id,
 }
 
 impl FindQuery {
-    pub(crate) fn new(id: Uuid) -> Self {
+    pub fn new(id: Id) -> Self {
         Self { id }
     }
 }
@@ -178,12 +194,12 @@ impl FindQueryable for FindQuery {
 }
 
 #[derive(Debug)]
-pub(crate) struct FindByRtcIdQuery {
-    rtc_id: Uuid,
+pub struct FindByRtcIdQuery {
+    rtc_id: db::rtc::Id,
 }
 
 impl FindByRtcIdQuery {
-    pub(crate) fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: db::rtc::Id) -> Self {
         Self { rtc_id }
     }
 }
@@ -211,7 +227,7 @@ impl FindQueryable for FindByRtcIdQuery {
 // room1 | rtc2 | recording1  -> room1 | rtc2 | recording1
 // room2 | rtc3 | recording2     room2 | rtc3 | recording2
 // room3 | rtc4 | null           room3 | null | null
-pub(crate) fn finished_with_in_progress_recordings(
+pub fn finished_with_in_progress_recordings(
     conn: &PgConnection,
 ) -> Result<Vec<(Object, Recording, JanusBackend)>, Error> {
     use diesel::{dsl::sql, prelude::*};
@@ -237,7 +253,7 @@ pub(crate) fn finished_with_in_progress_recordings(
 
 #[derive(Debug, Insertable)]
 #[table_name = "room"]
-pub(crate) struct InsertQuery<'a> {
+pub struct InsertQuery<'a> {
     time: Time,
     audience: &'a str,
     backend: RoomBackend,
@@ -249,7 +265,7 @@ pub(crate) struct InsertQuery<'a> {
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(time: Time, audience: &'a str, rtc_sharing_policy: RtcSharingPolicy) -> Self {
+    pub fn new(time: Time, audience: &'a str, rtc_sharing_policy: RtcSharingPolicy) -> Self {
         Self {
             time,
             audience,
@@ -262,14 +278,14 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub(crate) fn reserve(self, value: i32) -> Self {
+    pub fn reserve(self, value: i32) -> Self {
         Self {
             reserve: Some(value),
             ..self
         }
     }
 
-    pub(crate) fn tags(self, value: &'a JsonValue) -> Self {
+    pub fn tags(self, value: &'a JsonValue) -> Self {
         Self {
             tags: Some(value),
             ..self
@@ -277,21 +293,21 @@ impl<'a> InsertQuery<'a> {
     }
 
     #[cfg(test)]
-    pub(crate) fn backend_id(self, backend_id: &'a AgentId) -> Self {
+    pub fn backend_id(self, backend_id: &'a AgentId) -> Self {
         Self {
             backend_id: Some(backend_id),
             ..self
         }
     }
 
-    pub(crate) fn classroom_id(self, classroom_id: Uuid) -> Self {
+    pub fn classroom_id(self, classroom_id: Uuid) -> Self {
         Self {
             classroom_id: Some(classroom_id),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::room::dsl::room;
         use diesel::RunQueryDsl;
 
@@ -301,10 +317,10 @@ impl<'a> InsertQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Default, Identifiable, AsChangeset)]
+#[derive(Debug, Identifiable, AsChangeset)]
 #[table_name = "room"]
-pub(crate) struct UpdateQuery<'a> {
-    id: Uuid,
+pub struct UpdateQuery<'a> {
+    id: Id,
     time: Option<Time>,
     reserve: Option<Option<i32>>,
     tags: Option<JsonValue>,
@@ -313,37 +329,41 @@ pub(crate) struct UpdateQuery<'a> {
 }
 
 impl<'a> UpdateQuery<'a> {
-    pub(crate) fn new(id: Uuid) -> Self {
+    pub fn new(id: Id) -> Self {
         Self {
             id,
-            ..Default::default()
+            backend_id: Default::default(),
+            time: Default::default(),
+            reserve: Default::default(),
+            tags: Default::default(),
+            classroom_id: Default::default(),
         }
     }
 
-    pub(crate) fn time(self, time: Option<Time>) -> Self {
+    pub fn time(self, time: Option<Time>) -> Self {
         Self { time, ..self }
     }
 
-    pub(crate) fn reserve(self, reserve: Option<Option<i32>>) -> Self {
+    pub fn reserve(self, reserve: Option<Option<i32>>) -> Self {
         Self { reserve, ..self }
     }
 
-    pub(crate) fn tags(self, tags: Option<JsonValue>) -> Self {
+    pub fn tags(self, tags: Option<JsonValue>) -> Self {
         Self { tags, ..self }
     }
 
-    pub(crate) fn backend_id(self, backend_id: Option<&'a AgentId>) -> Self {
+    pub fn backend_id(self, backend_id: Option<&'a AgentId>) -> Self {
         Self { backend_id, ..self }
     }
 
-    pub(crate) fn classroom_id(self, classroom_id: Option<Uuid>) -> Self {
+    pub fn classroom_id(self, classroom_id: Option<Uuid>) -> Self {
         Self {
             classroom_id,
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use diesel::prelude::*;
 
         diesel::update(self).set(self).get_result(conn)
@@ -356,16 +376,32 @@ impl<'a> UpdateQuery<'a> {
 mod tests {
     mod finished_with_in_progress_recordings {
         use super::super::*;
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            backend::janus::client::{HandleId, SessionId},
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         #[test]
         fn selects_appropriate_backend() {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
             let pool = db.connection_pool();
             let conn = pool.get().expect("Failed to get db connection");
 
-            let backend1 = shared_helpers::insert_janus_backend(&conn);
-            let backend2 = shared_helpers::insert_janus_backend(&conn);
+            let backend1 = shared_helpers::insert_janus_backend(
+                &conn,
+                "test",
+                SessionId::random(),
+                HandleId::random(),
+            );
+            let backend2 = shared_helpers::insert_janus_backend(
+                &conn,
+                "test",
+                SessionId::random(),
+                HandleId::random(),
+            );
 
             let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
             let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());

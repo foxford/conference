@@ -4,21 +4,28 @@ use chrono::{Duration, SubsecRound, Utc};
 use diesel::pg::PgConnection;
 use rand::Rng;
 use svc_agent::AgentId;
-use uuid::Uuid;
 
-use crate::db::agent::{Object as Agent, Status as AgentStatus};
-use crate::db::agent_connection::Object as AgentConnection;
-use crate::db::janus_backend::Object as JanusBackend;
-use crate::db::recording::Object as Recording;
-use crate::db::room::Object as Room;
-use crate::db::rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy};
-use crate::diesel::Identifiable;
+use crate::{
+    backend::janus::client::{
+        create_handle::CreateHandleRequest, HandleId, JanusClient, SessionId,
+    },
+    db::{
+        self,
+        agent::{Object as Agent, Status as AgentStatus},
+        agent_connection::Object as AgentConnection,
+        janus_backend::Object as JanusBackend,
+        recording::Object as Recording,
+        room::Object as Room,
+        rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy},
+    },
+    diesel::Identifiable,
+};
 
 use super::{agent::TestAgent, factory, SVC_AUDIENCE, USR_AUDIENCE};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn insert_room(conn: &PgConnection) -> Room {
+pub fn insert_room(conn: &PgConnection) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -31,7 +38,7 @@ pub(crate) fn insert_room(conn: &PgConnection) -> Room {
         .insert(conn)
 }
 
-pub(crate) fn insert_room_with_backend_id(conn: &PgConnection, backend_id: &AgentId) -> Room {
+pub fn insert_room_with_backend_id(conn: &PgConnection, backend_id: &AgentId) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -45,7 +52,7 @@ pub(crate) fn insert_room_with_backend_id(conn: &PgConnection, backend_id: &Agen
         .insert(conn)
 }
 
-pub(crate) fn insert_closed_room(conn: &PgConnection) -> Room {
+pub fn insert_closed_room(conn: &PgConnection) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -58,10 +65,7 @@ pub(crate) fn insert_closed_room(conn: &PgConnection) -> Room {
         .insert(conn)
 }
 
-pub(crate) fn insert_closed_room_with_backend_id(
-    conn: &PgConnection,
-    backend_id: &AgentId,
-) -> Room {
+pub fn insert_closed_room_with_backend_id(conn: &PgConnection, backend_id: &AgentId) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -75,7 +79,7 @@ pub(crate) fn insert_closed_room_with_backend_id(
         .insert(conn)
 }
 
-pub(crate) fn insert_room_with_owned(conn: &PgConnection) -> Room {
+pub fn insert_room_with_owned(conn: &PgConnection) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -85,7 +89,7 @@ pub(crate) fn insert_room_with_owned(conn: &PgConnection) -> Room {
         .insert(conn)
 }
 
-pub(crate) fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uuid) -> Agent {
+pub fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: db::room::Id) -> Agent {
     factory::Agent::new()
         .agent_id(agent_id)
         .room_id(room_id)
@@ -93,19 +97,67 @@ pub(crate) fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: Uui
         .insert(conn)
 }
 
-pub(crate) fn insert_connected_agent(
+pub fn insert_connected_agent(
     conn: &PgConnection,
     agent_id: &AgentId,
-    room_id: Uuid,
-    rtc_id: Uuid,
+    room_id: db::room::Id,
+    rtc_id: db::rtc::Id,
+) -> (Agent, AgentConnection) {
+    insert_connected_to_handle_agent(
+        conn,
+        agent_id,
+        room_id,
+        rtc_id,
+        crate::backend::janus::client::HandleId::stub_id(),
+    )
+}
+
+pub async fn create_handle(janus_url: &str, session_id: SessionId) -> HandleId {
+    JanusClient::new(janus_url)
+        .unwrap()
+        .create_handle(CreateHandleRequest {
+            session_id,
+            opaque_id: db::janus_rtc_stream::Id::random(),
+        })
+        .await
+        .unwrap()
+        .id
+}
+
+pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
+    let janus_client = JanusClient::new(janus_url).unwrap();
+    let session_id = janus_client.create_session().await.unwrap().id;
+    let handle = janus_client
+        .create_handle(CreateHandleRequest {
+            session_id,
+            opaque_id: db::janus_rtc_stream::Id::random(),
+        })
+        .await
+        .unwrap()
+        .id;
+    (session_id, handle)
+}
+
+pub fn insert_connected_to_handle_agent(
+    conn: &PgConnection,
+    agent_id: &AgentId,
+    room_id: db::room::Id,
+    rtc_id: db::rtc::Id,
+    handle_id: crate::backend::janus::client::HandleId,
 ) -> (Agent, AgentConnection) {
     let agent = insert_agent(conn, agent_id, room_id);
-    let agent_connection = factory::AgentConnection::new(*agent.id(), rtc_id, 123).insert(conn);
+    let agent_connection =
+        factory::AgentConnection::new(*agent.id(), rtc_id, handle_id).insert(conn);
     (agent, agent_connection)
 }
 
-pub(crate) fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {
-    let mut rng = rand::thread_rng();
+pub fn insert_janus_backend(
+    conn: &PgConnection,
+    url: &str,
+    session_id: SessionId,
+    handle_id: crate::backend::janus::client::HandleId,
+) -> JanusBackend {
+    let rng = rand::thread_rng();
 
     let label_suffix: String = rng
         .sample_iter(&rand::distributions::Alphanumeric)
@@ -114,18 +166,24 @@ pub(crate) fn insert_janus_backend(conn: &PgConnection) -> JanusBackend {
     let label = format!("janus-gateway-{}", label_suffix);
 
     let agent = TestAgent::new("alpha", &label, SVC_AUDIENCE);
-    factory::JanusBackend::new(agent.agent_id().to_owned(), rng.gen(), rng.gen()).insert(conn)
+    factory::JanusBackend::new(
+        agent.agent_id().to_owned(),
+        handle_id,
+        session_id,
+        url.to_owned(),
+    )
+    .insert(conn)
 }
 
-pub(crate) fn insert_rtc(conn: &PgConnection) -> Rtc {
+pub fn insert_rtc(conn: &PgConnection) -> Rtc {
     let room = insert_room(conn);
     factory::Rtc::new(room.id()).insert(conn)
 }
 
-pub(crate) fn insert_rtc_with_room(conn: &PgConnection, room: &Room) -> Rtc {
+pub fn insert_rtc_with_room(conn: &PgConnection, room: &Room) -> Rtc {
     factory::Rtc::new(room.id()).insert(conn)
 }
 
-pub(crate) fn insert_recording(conn: &PgConnection, rtc: &Rtc) -> Recording {
+pub fn insert_recording(conn: &PgConnection, rtc: &Rtc) -> Recording {
     factory::Recording::new().rtc(rtc).insert(conn)
 }

@@ -1,21 +1,23 @@
-use std::sync::{atomic::AtomicI64, Arc};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use prometheus::Registry;
 use serde_json::json;
-use slog::{Logger, OwnedKV, SendSyncRefUnwindSafeKV};
-use svc_agent::{queue_counter::QueueCounterHandle, AgentId};
-use svc_authz::cache::ConnectionPool as RedisConnectionPool;
-use svc_authz::ClientMap as Authz;
+use slog::{o, Logger, OwnedKV, SendSyncRefUnwindSafeKV};
+use svc_agent::AgentId;
+use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 
-use crate::app::context::{Context, GlobalContext, JanusTopics, MessageContext};
-use crate::app::metrics::DynamicStatsCollector;
-use crate::backend::janus::Client as JanusClient;
-use crate::config::Config;
-use crate::db::ConnectionPool as Db;
+use crate::{
+    app::{
+        context::{Context, GlobalContext, JanusTopics, MessageContext},
+        metrics::Metrics,
+    },
+    backend::janus::{client::IncomingEvent, client_pool::Clients},
+    config::Config,
+    db::ConnectionPool as Db,
+};
 
-use super::authz::TestAuthz;
-use super::db::TestDb;
-use super::{SVC_AUDIENCE, USR_AUDIENCE};
+use super::{authz::TestAuthz, db::TestDb, SVC_AUDIENCE, USR_AUDIENCE};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -36,6 +38,12 @@ fn build_config() -> Config {
         "mqtt": {
             "uri": "mqtt://0.0.0.0:1883",
             "clean_session": false,
+        },
+        "metrics": {
+            "http": {
+                "bind_address": "0.0.0.0:1234",
+            },
+            "janus_metrics_collect_interval": "100 seconds"
         },
         "backend": {
             "id": backend_id,
@@ -66,38 +74,39 @@ fn build_config() -> Config {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Clone)]
-pub(crate) struct TestContext {
+pub struct TestContext {
     config: Config,
     authz: Authz,
     db: TestDb,
     agent_id: AgentId,
-    janus_client: Arc<JanusClient>,
     janus_topics: JanusTopics,
     logger: Logger,
     start_timestamp: DateTime<Utc>,
+    clients: Option<Clients>,
 }
 
 impl TestContext {
-    pub(crate) fn new(db: TestDb, authz: TestAuthz) -> Self {
+    pub fn new(db: TestDb, authz: TestAuthz) -> Self {
         let config = build_config();
         let agent_id = AgentId::new(&config.agent_label, config.id.clone());
-
-        let janus_client = JanusClient::start(&config.backend, agent_id.clone(), None)
-            .expect("Failed to start janus client");
 
         Self {
             config,
             authz: authz.into(),
             db,
             agent_id,
-            janus_client: Arc::new(janus_client),
-            janus_topics: JanusTopics::new("ignore", "ignore", "ignore"),
+            janus_topics: JanusTopics::new("ignore"),
             logger: crate::LOG.new(o!()),
             start_timestamp: Utc::now(),
+            clients: None,
         }
     }
 
-    pub(crate) fn config_mut(&mut self) -> &mut Config {
+    pub fn with_janus(&mut self, events_sink: async_std::channel::Sender<IncomingEvent>) {
+        self.clients = Some(Clients::new(events_sink));
+    }
+
+    pub fn config_mut(&mut self) -> &mut Config {
         &mut self.config
     }
 }
@@ -119,32 +128,24 @@ impl GlobalContext for TestContext {
         &self.agent_id
     }
 
-    fn janus_client(&self) -> Arc<JanusClient> {
-        self.janus_client.clone()
-    }
-
     fn janus_topics(&self) -> &JanusTopics {
         &self.janus_topics
-    }
-
-    fn queue_counter(&self) -> &Option<QueueCounterHandle> {
-        &None
     }
 
     fn redis_pool(&self) -> &Option<RedisConnectionPool> {
         &None
     }
 
-    fn dynamic_stats(&self) -> Option<&DynamicStatsCollector> {
-        None
+    fn janus_clients(&self) -> crate::backend::janus::client_pool::Clients {
+        self.clients
+            .as_ref()
+            .expect("You should initialise janus")
+            .clone()
     }
 
-    fn get_metrics(&self) -> anyhow::Result<Vec<crate::app::metrics::Metric>> {
-        Ok(vec![])
-    }
-
-    fn running_requests(&self) -> Option<Arc<AtomicI64>> {
-        None
+    fn metrics(&self) -> Arc<Metrics> {
+        let registry = Registry::new();
+        Arc::new(Metrics::new(&registry).unwrap())
     }
 }
 

@@ -1,29 +1,41 @@
 use std::fmt;
 
-use chrono::serde::ts_seconds;
-use chrono::{DateTime, Utc};
+use crate::db;
+use chrono::{serde::ts_seconds, DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
-use serde_derive::{Deserialize, Serialize};
+use diesel_derive_enum::DbEnum;
+use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use super::recording::Object as Recording;
-use super::room::Object as Room;
+use super::{recording::Object as Recording, room::Object as Room};
 use crate::schema::{recording, rtc};
+use derive_more::{Display, FromStr};
+use diesel_derive_newtype::DieselNewType;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
+pub type AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
 
-pub(crate) const ALL_COLUMNS: AllColumns =
-    (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
+pub const ALL_COLUMNS: AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
 
 ////////////////////////////////////////////////////////////////////////////////
+
+#[derive(
+    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
+)]
+pub struct Id(Uuid);
+
+impl Id {
+    pub fn random() -> Self {
+        Id(Uuid::new_v4())
+    }
+}
 
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 #[DieselType = "Rtc_sharing_policy"]
-pub(crate) enum SharingPolicy {
+pub enum SharingPolicy {
     None,
     Shared,
     Owned,
@@ -43,45 +55,45 @@ impl fmt::Display for SharingPolicy {
 )]
 #[belongs_to(Room, foreign_key = "room_id")]
 #[table_name = "rtc"]
-pub(crate) struct Object {
-    id: Uuid,
-    room_id: Uuid,
+pub struct Object {
+    id: Id,
+    room_id: db::room::Id,
     #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
     created_by: AgentId,
 }
 
 impl Object {
-    pub(crate) fn id(&self) -> Uuid {
+    pub fn id(&self) -> Id {
         self.id
     }
 
-    pub(crate) fn room_id(&self) -> Uuid {
+    pub fn room_id(&self) -> db::room::Id {
         self.room_id
     }
 
-    pub(crate) fn created_by(&self) -> &AgentId {
+    pub fn created_by(&self) -> &AgentId {
         &self.created_by
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct FindQuery {
-    id: Option<Uuid>,
+pub struct FindQuery {
+    id: Option<Id>,
 }
 
 impl FindQuery {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self { id: None }
     }
 
-    pub(crate) fn id(mut self, id: Uuid) -> Self {
+    pub fn id(mut self, id: Id) -> Self {
         self.id = Some(id);
         self
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         match self.id {
@@ -96,47 +108,47 @@ impl FindQuery {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Default)]
-pub(crate) struct ListQuery<'a> {
-    room_id: Option<Uuid>,
+pub struct ListQuery<'a> {
+    room_id: Option<db::room::Id>,
     created_by: Option<&'a [&'a AgentId]>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
 impl<'a> ListQuery<'a> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Default::default()
     }
 
-    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
+    pub fn room_id(self, room_id: db::room::Id) -> Self {
         Self {
             room_id: Some(room_id),
             ..self
         }
     }
 
-    pub(crate) fn created_by(self, created_by: &'a [&'a AgentId]) -> Self {
+    pub fn created_by(self, created_by: &'a [&'a AgentId]) -> Self {
         Self {
             created_by: Some(created_by),
             ..self
         }
     }
 
-    pub(crate) fn offset(self, offset: i64) -> Self {
+    pub fn offset(self, offset: i64) -> Self {
         Self {
             offset: Some(offset),
             ..self
         }
     }
 
-    pub(crate) fn limit(self, limit: i64) -> Self {
+    pub fn limit(self, limit: i64) -> Self {
         Self {
             limit: Some(limit),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
 
         let mut q = rtc::table.into_boxed();
@@ -163,20 +175,16 @@ impl<'a> ListQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Default)]
-pub(crate) struct ListWithRecordingQuery {
-    room_id: Uuid,
+pub struct ListWithRecordingQuery {
+    room_id: db::room::Id,
 }
 
 impl ListWithRecordingQuery {
-    pub(crate) fn new(room_id: Uuid) -> Self {
+    pub fn new(room_id: db::room::Id) -> Self {
         Self { room_id }
     }
 
-    pub(crate) fn execute(
-        &self,
-        conn: &PgConnection,
-    ) -> Result<Vec<(Object, Option<Recording>)>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Option<Recording>)>, Error> {
         use diesel::prelude::*;
 
         rtc::table
@@ -190,14 +198,14 @@ impl ListWithRecordingQuery {
 
 #[derive(Debug, Insertable)]
 #[table_name = "rtc"]
-pub(crate) struct InsertQuery<'a> {
-    id: Option<Uuid>,
-    room_id: Uuid,
+pub struct InsertQuery<'a> {
+    id: Option<Id>,
+    room_id: db::room::Id,
     created_by: &'a AgentId,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub(crate) fn new(room_id: Uuid, created_by: &'a AgentId) -> Self {
+    pub fn new(room_id: db::room::Id, created_by: &'a AgentId) -> Self {
         Self {
             id: None,
             room_id,
@@ -205,7 +213,7 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::rtc::dsl::rtc;
         use diesel::RunQueryDsl;
 

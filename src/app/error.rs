@@ -1,10 +1,9 @@
-use std::error::Error as StdError;
-use std::fmt;
+use std::{error::Error as StdError, fmt};
 
-use slog::Logger;
+use enum_iterator::IntoEnumIterator;
+use slog::{warn, Logger};
 use svc_agent::mqtt::ResponseStatus;
 use svc_error::{extension::sentry, Error as SvcError};
-
 ////////////////////////////////////////////////////////////////////////////////
 
 struct ErrorKindProperties {
@@ -14,15 +13,16 @@ struct ErrorKindProperties {
     is_notify_sentry: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum ErrorKind {
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, IntoEnumIterator)]
+pub enum ErrorKind {
     AccessDenied,
     AgentNotConnected,
     AgentNotEnteredTheRoom,
     AuthorizationFailed,
     BackendRecordingMissing,
     BackendRequestFailed,
-    BackendRequestTimedOut,
+    BackendClientCreationFailed,
+    _BackendRequestTimedOut,
     BackendNotFound,
     BrokerRequestFailed,
     CapacityExceeded,
@@ -46,26 +46,25 @@ pub(crate) enum ErrorKind {
     RoomNotFound,
     RoomTimeChangingForbidden,
     RtcNotFound,
-    StatsCollectionFailed,
 }
 
 impl ErrorKind {
-    pub(crate) fn status(self) -> ResponseStatus {
+    pub fn status(self) -> ResponseStatus {
         let properties: ErrorKindProperties = self.into();
         properties.status
     }
 
-    pub(crate) fn kind(self) -> &'static str {
+    pub fn kind(self) -> &'static str {
         let properties: ErrorKindProperties = self.into();
         properties.kind
     }
 
-    pub(crate) fn title(self) -> &'static str {
+    pub fn title(self) -> &'static str {
         let properties: ErrorKindProperties = self.into();
         properties.title
     }
 
-    pub(crate) fn is_notify_sentry(self) -> bool {
+    pub fn is_notify_sentry(self) -> bool {
         let properties: ErrorKindProperties = self.into();
         properties.is_notify_sentry
     }
@@ -78,194 +77,194 @@ impl fmt::Display for ErrorKind {
     }
 }
 
-impl Into<ErrorKindProperties> for ErrorKind {
-    fn into(self) -> ErrorKindProperties {
-        match self {
-            Self::AccessDenied => ErrorKindProperties {
+impl From<ErrorKind> for ErrorKindProperties {
+    fn from(val: ErrorKind) -> Self {
+        match val {
+            ErrorKind::AccessDenied => ErrorKindProperties {
                 status: ResponseStatus::FORBIDDEN,
                 kind: "access_denied",
                 title: "Access denied",
                 is_notify_sentry: false,
             },
-            Self::AgentNotConnected => ErrorKindProperties {
+            ErrorKind::AgentNotConnected => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "agent_not_connected",
                 title: "Agent not connected to the RTC",
                 is_notify_sentry: false,
             },
-            Self::AgentNotEnteredTheRoom => ErrorKindProperties {
+            ErrorKind::AgentNotEnteredTheRoom => ErrorKindProperties {
                 status: ResponseStatus::NOT_FOUND,
                 kind: "agent_not_entered_the_room",
                 title: "Agent not entered the room",
                 is_notify_sentry: false,
             },
-            Self::AuthorizationFailed => ErrorKindProperties {
+            ErrorKind::AuthorizationFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "authorization_failed",
                 title: "Authorization failed",
                 is_notify_sentry: false,
             },
-            Self::BackendRecordingMissing => ErrorKindProperties {
+            ErrorKind::BackendRecordingMissing => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "backend_recording_missing",
                 title: "Janus recording missing",
                 is_notify_sentry: true,
             },
-            Self::BackendRequestFailed => ErrorKindProperties {
+            ErrorKind::BackendRequestFailed => ErrorKindProperties {
                 status: ResponseStatus::FAILED_DEPENDENCY,
                 kind: "backend_request_failed",
                 title: "Janus request failed",
                 is_notify_sentry: true,
             },
-            Self::BackendRequestTimedOut => ErrorKindProperties {
+            ErrorKind::BackendClientCreationFailed => ErrorKindProperties {
+                status: ResponseStatus::FAILED_DEPENDENCY,
+                kind: "backend_client_creation_failed",
+                title: "Janus create client failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::_BackendRequestTimedOut => ErrorKindProperties {
                 status: ResponseStatus::FAILED_DEPENDENCY,
                 kind: "backend_request_timed_out",
                 title: "Janus request timed out",
                 is_notify_sentry: true,
             },
-            Self::BackendNotFound => ErrorKindProperties {
+            ErrorKind::BackendNotFound => ErrorKindProperties {
                 status: ResponseStatus::NOT_FOUND,
                 kind: "backend_not_found",
                 title: "Backend not found",
                 is_notify_sentry: true,
             },
-            Self::BrokerRequestFailed => ErrorKindProperties {
+            ErrorKind::BrokerRequestFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "broker_request_failed",
                 title: "Broker request failed",
                 is_notify_sentry: true,
             },
-            Self::ConfigKeyMissing => ErrorKindProperties {
+            ErrorKind::ConfigKeyMissing => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "config_key_missing",
                 title: "Config key missing",
                 is_notify_sentry: true,
             },
-            Self::CapacityExceeded => ErrorKindProperties {
+            ErrorKind::CapacityExceeded => ErrorKindProperties {
                 status: ResponseStatus::SERVICE_UNAVAILABLE,
                 kind: "capacity_exceeded",
                 title: "Capacity exceeded",
                 is_notify_sentry: true,
             },
-            Self::DbConnAcquisitionFailed => ErrorKindProperties {
+            ErrorKind::DbConnAcquisitionFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "database_connection_acquisition_failed",
                 title: "Database connection acquisition failed",
                 is_notify_sentry: true,
             },
-            Self::DbQueryFailed => ErrorKindProperties {
+            ErrorKind::DbQueryFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "database_query_failed",
                 title: "Database query failed",
                 is_notify_sentry: true,
             },
-            Self::InvalidHandleId => ErrorKindProperties {
+            ErrorKind::InvalidHandleId => ErrorKindProperties {
                 status: ResponseStatus::BAD_REQUEST,
                 kind: "invalid_handle_id",
                 title: "Invalid handle ID",
                 is_notify_sentry: false,
             },
-            Self::InvalidJsepFormat => ErrorKindProperties {
+            ErrorKind::InvalidJsepFormat => ErrorKindProperties {
                 status: ResponseStatus::BAD_REQUEST,
                 kind: "invalid_jsep_format",
                 title: "Invalid JSEP format",
                 is_notify_sentry: false,
             },
-            Self::InvalidPayload => ErrorKindProperties {
+            ErrorKind::InvalidPayload => ErrorKindProperties {
                 status: ResponseStatus::BAD_REQUEST,
                 kind: "invalid_payload",
                 title: "Invalid payload",
                 is_notify_sentry: false,
             },
-            Self::InvalidRoomTime => ErrorKindProperties {
+            ErrorKind::InvalidRoomTime => ErrorKindProperties {
                 status: ResponseStatus::BAD_REQUEST,
                 kind: "invalid_room_time",
                 title: "Invalid room time",
                 is_notify_sentry: true,
             },
-            Self::InvalidSdpType => ErrorKindProperties {
+            ErrorKind::InvalidSdpType => ErrorKindProperties {
                 status: ResponseStatus::BAD_REQUEST,
                 kind: "invalid_sdp_type",
                 title: "Invalid SDP type",
                 is_notify_sentry: false,
             },
-            Self::InvalidSubscriptionObject => ErrorKindProperties {
+            ErrorKind::InvalidSubscriptionObject => ErrorKindProperties {
                 status: ResponseStatus::BAD_REQUEST,
                 kind: "invalid_subscription_object",
                 title: "Invalid subscription object",
                 is_notify_sentry: true,
             },
-            Self::MessageBuildingFailed => ErrorKindProperties {
+            ErrorKind::MessageBuildingFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "message_building_failed",
                 title: "Message building failed",
                 is_notify_sentry: true,
             },
-            Self::MessageHandlingFailed => ErrorKindProperties {
+            ErrorKind::MessageHandlingFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "message_handling_failed",
                 title: "Message handling failed",
                 is_notify_sentry: true,
             },
-            Self::MessageParsingFailed => ErrorKindProperties {
+            ErrorKind::MessageParsingFailed => ErrorKindProperties {
                 status: ResponseStatus::BAD_REQUEST,
                 kind: "message_parsing_failed",
                 title: "Message parsing failed",
                 is_notify_sentry: true,
             },
-            Self::NoAvailableBackends => ErrorKindProperties {
+            ErrorKind::NoAvailableBackends => ErrorKindProperties {
                 status: ResponseStatus::SERVICE_UNAVAILABLE,
                 kind: "no_available_backends",
                 title: "No available backends",
                 is_notify_sentry: true,
             },
-            Self::NotImplemented => ErrorKindProperties {
+            ErrorKind::NotImplemented => ErrorKindProperties {
                 status: ResponseStatus::INTERNAL_SERVER_ERROR,
                 kind: "not_implemented",
                 title: "Not implemented",
                 is_notify_sentry: true,
             },
-            Self::PublishFailed => ErrorKindProperties {
+            ErrorKind::PublishFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "publish_failed",
                 title: "Publish failed",
                 is_notify_sentry: true,
             },
-            Self::ResubscriptionFailed => ErrorKindProperties {
+            ErrorKind::ResubscriptionFailed => ErrorKindProperties {
                 status: ResponseStatus::INTERNAL_SERVER_ERROR,
                 kind: "resubscription_failed",
                 title: "Resubscription failed",
                 is_notify_sentry: true,
             },
-            Self::RoomClosed => ErrorKindProperties {
+            ErrorKind::RoomClosed => ErrorKindProperties {
                 status: ResponseStatus::NOT_FOUND,
                 kind: "room_closed",
                 title: "Room closed",
                 is_notify_sentry: false,
             },
-            Self::RoomNotFound => ErrorKindProperties {
+            ErrorKind::RoomNotFound => ErrorKindProperties {
                 status: ResponseStatus::NOT_FOUND,
                 kind: "room_not_found",
                 title: "Room not found",
                 is_notify_sentry: false,
             },
-            Self::RoomTimeChangingForbidden => ErrorKindProperties {
+            ErrorKind::RoomTimeChangingForbidden => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "room_time_changing_forbidden",
                 title: "Room time changing forbidden",
                 is_notify_sentry: false,
             },
-            Self::RtcNotFound => ErrorKindProperties {
+            ErrorKind::RtcNotFound => ErrorKindProperties {
                 status: ResponseStatus::NOT_FOUND,
                 kind: "rtc_not_found",
                 title: "RTC not found",
                 is_notify_sentry: false,
-            },
-            Self::StatsCollectionFailed => ErrorKindProperties {
-                status: ResponseStatus::UNPROCESSABLE_ENTITY,
-                kind: "stats_collection_failed",
-                title: "Stats collection failed",
-                is_notify_sentry: true,
             },
         }
     }
@@ -273,15 +272,15 @@ impl Into<ErrorKindProperties> for ErrorKind {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct Error {
+pub struct Error {
     kind: ErrorKind,
-    source: Box<dyn AsRef<dyn StdError + Send + Sync + 'static>>,
+    source: Box<dyn AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static>,
 }
 
 impl Error {
-    pub(crate) fn new<E>(kind: ErrorKind, source: E) -> Self
+    pub fn new<E>(kind: ErrorKind, source: E) -> Self
     where
-        E: AsRef<dyn StdError + Send + Sync + 'static> + 'static,
+        E: AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static,
     {
         Self {
             kind,
@@ -289,23 +288,27 @@ impl Error {
         }
     }
 
-    pub(crate) fn status(&self) -> ResponseStatus {
+    pub fn status(&self) -> ResponseStatus {
         self.kind.status()
     }
 
-    pub(crate) fn kind(&self) -> &str {
+    pub fn error_kind(&self) -> ErrorKind {
+        self.kind
+    }
+
+    pub fn kind(&self) -> &str {
         self.kind.kind()
     }
 
-    pub(crate) fn title(&self) -> &str {
+    pub fn title(&self) -> &str {
         self.kind.title()
     }
 
-    pub(crate) fn source(&self) -> &(dyn StdError + Send + Sync + 'static) {
+    pub fn source(&self) -> &(dyn StdError + Send + Sync + 'static) {
         self.source.as_ref().as_ref()
     }
 
-    pub(crate) fn to_svc_error(&self) -> SvcError {
+    pub fn to_svc_error(&self) -> SvcError {
         let properties: ErrorKindProperties = self.kind.into();
 
         SvcError::builder()
@@ -315,7 +318,7 @@ impl Error {
             .build()
     }
 
-    pub(crate) fn notify_sentry(&self, logger: &Logger) {
+    pub fn notify_sentry(&self, logger: &Logger) {
         if !self.kind.is_notify_sentry() {
             return;
         }
@@ -372,11 +375,13 @@ impl From<diesel::result::Error> for Error {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) trait ErrorExt<T> {
+pub trait ErrorExt<T> {
     fn error(self, kind: ErrorKind) -> Result<T, Error>;
 }
 
-impl<T, E: AsRef<dyn StdError + Send + Sync + 'static> + 'static> ErrorExt<T> for Result<T, E> {
+impl<T, E: AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static> ErrorExt<T>
+    for Result<T, E>
+{
     fn error(self, kind: ErrorKind) -> Result<T, Error> {
         self.map_err(|source| Error::new(kind, source))
     }

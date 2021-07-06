@@ -1,16 +1,12 @@
-use diesel::pg::PgConnection;
-use diesel::r2d2::{ConnectionManager, Pool};
-use std::sync::Arc;
-use std::time::Duration;
+use diesel::{
+    pg::PgConnection,
+    r2d2::{ConnectionManager, Pool},
+};
+use std::{sync::Arc, time::Duration};
 
-pub(crate) type ConnectionPool = Arc<Pool<ConnectionManager<PgConnection>>>;
+pub type ConnectionPool = Arc<Pool<ConnectionManager<PgConnection>>>;
 
-pub(crate) fn create_pool(
-    url: &str,
-    size: u32,
-    idle_size: Option<u32>,
-    timeout: u64,
-) -> ConnectionPool {
+pub fn create_pool(url: &str, size: u32, idle_size: Option<u32>, timeout: u64) -> ConnectionPool {
     let manager = ConnectionManager::<PgConnection>::new(url);
 
     let builder = Pool::builder()
@@ -25,19 +21,19 @@ pub(crate) fn create_pool(
 }
 
 pub mod sql {
-    pub use super::agent::Agent_status;
-    pub use super::recording::Recording_status;
-    pub use super::room::Room_backend;
-    pub use super::rtc::Rtc_sharing_policy;
+    pub use super::{
+        agent::Agent_status, recording::Recording_status, room::Room_backend,
+        rtc::Rtc_sharing_policy,
+    };
     pub use svc_agent::sql::{Account_id, Agent_id};
 }
 
-pub(crate) mod agent;
-pub(crate) mod agent_connection;
-pub(crate) mod janus_backend;
-pub(crate) mod janus_rtc_stream;
-pub(crate) mod recording;
-pub(crate) mod room;
-pub(crate) mod rtc;
-pub(crate) mod rtc_reader_config;
-pub(crate) mod rtc_writer_config;
+pub mod agent;
+pub mod agent_connection;
+pub mod janus_backend;
+pub mod janus_rtc_stream;
+pub mod recording;
+pub mod room;
+pub mod rtc;
+pub mod rtc_reader_config;
+pub mod rtc_writer_config;

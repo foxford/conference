@@ -8,25 +8,25 @@ use crate::test_helpers::USR_AUDIENCE;
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Clone, Debug)]
-pub(crate) struct TestAuthz {
+pub struct TestAuthz {
     records: Vec<LocalWhitelistRecord>,
     audience: String,
 }
 
 impl TestAuthz {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             records: vec![],
             audience: USR_AUDIENCE.to_owned(),
         }
     }
 
-    pub(crate) fn set_audience(&mut self, audience: &str) -> &mut Self {
+    pub fn set_audience(&mut self, audience: &str) -> &mut Self {
         self.audience = audience.to_owned();
         self
     }
 
-    pub(crate) fn allow<A: Authenticable>(&mut self, subject: &A, object: Vec<&str>, action: &str) {
+    pub fn allow<A: Authenticable>(&mut self, subject: &A, object: Vec<&str>, action: &str) {
         let record = LocalWhitelistRecord::new(subject, object, action);
         self.records.push(record);
     }

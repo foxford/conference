@@ -1,38 +1,35 @@
-use std::result::Result as StdResult;
-
-use async_std::stream;
+use anyhow::anyhow;
+use async_std::{stream, task};
 use async_trait::async_trait;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use slog::o;
+use std::result::Result as StdResult;
 use svc_agent::{
     mqtt::{
         IncomingEventProperties, IncomingRequestProperties, IncomingResponseProperties,
         IntoPublishableMessage, OutgoingEvent, ResponseStatus, ShortTermTimingProperties,
-        TrackingProperties,
     },
     Addressable, AgentId, Authenticable,
 };
-use uuid::Uuid;
 
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
-use crate::db;
+use crate::{
+    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
+    db,
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct CorrelationDataPayload {
+pub struct CorrelationDataPayload {
     reqp: IncomingRequestProperties,
     subject: AgentId,
     object: Vec<String>,
 }
 
 impl CorrelationDataPayload {
-    pub(crate) fn new(
-        reqp: IncomingRequestProperties,
-        subject: AgentId,
-        object: Vec<String>,
-    ) -> Self {
+    pub fn new(reqp: IncomingRequestProperties, subject: AgentId, object: Vec<String>) -> Self {
         Self {
             reqp,
             subject,
@@ -42,13 +39,13 @@ impl CorrelationDataPayload {
 }
 
 #[derive(Deserialize, Serialize)]
-pub(crate) struct RoomEnterLeaveEvent {
-    id: Uuid,
+pub struct RoomEnterLeaveEvent {
+    id: db::room::Id,
     agent_id: AgentId,
 }
 
 impl RoomEnterLeaveEvent {
-    pub(crate) fn new(id: Uuid, agent_id: AgentId) -> Self {
+    pub fn new(id: db::room::Id, agent_id: AgentId) -> Self {
         Self { id, agent_id }
     }
 }
@@ -56,9 +53,9 @@ impl RoomEnterLeaveEvent {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct CreateDeleteResponsePayload {}
+pub struct CreateDeleteResponsePayload {}
 
-pub(crate) struct CreateResponseHandler;
+pub struct CreateResponseHandler;
 
 #[async_trait]
 impl ResponseHandler for CreateResponseHandler {
@@ -81,22 +78,20 @@ impl ResponseHandler for CreateResponseHandler {
 
         // Find room.
         let room_id = try_room_id(&corr_data.object)?;
-
-        {
-            let conn = context.get_conn()?;
-
-            helpers::find_room_by_id(
-                context,
-                room_id,
-                helpers::RoomTimeRequirement::NotClosed,
-                &conn,
-            )?;
+        let conn = context.get_conn().await?;
+        let subject = corr_data.subject.clone();
+        let room = task::spawn_blocking(move || {
+            let room =
+                helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)?;
 
             // Update agent state to `ready`.
-            db::agent::UpdateQuery::new(&corr_data.subject, room_id)
+            db::agent::UpdateQuery::new(&subject, room_id)
                 .status(db::agent::Status::Ready)
                 .execute(&conn)?;
-        }
+            Ok::<_, AppError>(room)
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         // Send a response to the original `room.enter` request and a room-wide notification.
         let response = helpers::build_response(
@@ -114,6 +109,11 @@ impl ResponseHandler for CreateResponseHandler {
             &corr_data.reqp,
             context.start_timestamp(),
         );
+        context
+            .metrics()
+            .request_duration
+            .subscription_create
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::from_iter(vec![response, notification])))
     }
@@ -121,7 +121,7 @@ impl ResponseHandler for CreateResponseHandler {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct DeleteResponseHandler;
+pub struct DeleteResponseHandler;
 
 #[async_trait]
 impl ResponseHandler for DeleteResponseHandler {
@@ -136,44 +136,43 @@ impl ResponseHandler for DeleteResponseHandler {
     ) -> Result {
         ensure_broker(context, respp)?;
         let room_id = try_room_id(&corr_data.object)?;
-        let maybe_left = leave_room(context, &corr_data.subject, room_id, respp.tracking())?;
+        let maybe_left = leave_room(context, &corr_data.subject, room_id).await?;
+        if maybe_left {
+            let response = helpers::build_response(
+                ResponseStatus::OK,
+                json!({}),
+                &corr_data.reqp,
+                context.start_timestamp(),
+                None,
+            );
 
-        match maybe_left {
-            (false, _) => {
-                Err(anyhow!("The agent is not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
-            }
-            (true, mut messages) => {
-                let response = helpers::build_response(
-                    ResponseStatus::OK,
-                    json!({}),
-                    &corr_data.reqp,
-                    context.start_timestamp(),
-                    None,
-                );
+            let notification = helpers::build_notification(
+                "room.leave",
+                &format!("rooms/{}/events", room_id),
+                RoomEnterLeaveEvent::new(room_id, corr_data.subject.to_owned()),
+                &corr_data.reqp,
+                context.start_timestamp(),
+            );
+            context
+                .metrics()
+                .request_duration
+                .subscription_delete_response
+                .observe_timestamp(context.start_timestamp());
 
-                let notification = helpers::build_notification(
-                    "room.leave",
-                    &format!("rooms/{}/events", room_id),
-                    RoomEnterLeaveEvent::new(room_id, corr_data.subject.to_owned()),
-                    &corr_data.reqp,
-                    context.start_timestamp(),
-                );
-
-                messages.push(response);
-                messages.push(notification);
-                Ok(Box::new(stream::from_iter(messages)))
-            }
+            Ok(Box::new(stream::from_iter(vec![response, notification])))
+        } else {
+            Err(anyhow!("The agent is not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct DeleteEventPayload {
+pub struct DeleteEventPayload {
     subject: AgentId,
     object: Vec<String>,
 }
 
-pub(crate) struct DeleteEventHandler;
+pub struct DeleteEventHandler;
 
 #[async_trait]
 impl EventHandler for DeleteEventHandler {
@@ -186,24 +185,23 @@ impl EventHandler for DeleteEventHandler {
     ) -> Result {
         ensure_broker(context, evp)?;
         let room_id = try_room_id(&payload.object)?;
+        if leave_room(context, &payload.subject, room_id).await? {
+            let outgoing_event_payload =
+                RoomEnterLeaveEvent::new(room_id, payload.subject.to_owned());
+            let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
+            let props = evp.to_event("room.leave", short_term_timing);
+            let to_uri = format!("rooms/{}/events", room_id);
+            let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
+            let notification = Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send>;
+            context
+                .metrics()
+                .request_duration
+                .subscription_delete_event
+                .observe_timestamp(context.start_timestamp());
 
-        match leave_room(context, &payload.subject, room_id, evp.tracking())? {
-            (false, _) => Ok(Box::new(stream::empty())),
-            (true, mut messages) => {
-                let outgoing_event_payload =
-                    RoomEnterLeaveEvent::new(room_id, payload.subject.to_owned());
-                let short_term_timing =
-                    ShortTermTimingProperties::until_now(context.start_timestamp());
-                let props = evp.to_event("room.leave", short_term_timing);
-                let to_uri = format!("rooms/{}/events", room_id);
-                let outgoing_event =
-                    OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
-                let notification =
-                    Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send>;
-
-                messages.push(notification);
-                Ok(Box::new(stream::from_iter(messages)))
-            }
+            Ok(Box::new(stream::once(notification)))
+        } else {
+            Ok(Box::new(stream::empty()))
         }
     }
 }
@@ -226,13 +224,13 @@ fn ensure_broker<C: Context, A: Addressable>(
     }
 }
 
-fn try_room_id(object: &[String]) -> StdResult<Uuid, AppError> {
+fn try_room_id(object: &[String]) -> StdResult<db::room::Id, AppError> {
     let object: Vec<&str> = object.iter().map(AsRef::as_ref).collect();
 
     match object.as_slice() {
-        ["rooms", room_id, "events"] => {
-            Uuid::parse_str(room_id).map_err(|err| anyhow!("UUID parse error: {}", err))
-        }
+        ["rooms", room_id, "events"] => room_id
+            .parse()
+            .map_err(|err| anyhow!("UUID parse error: {}", err)),
         _ => Err(anyhow!(
             "Bad 'object' format; expected [\"room\", <ROOM_ID>, \"events\"], got: {:?}",
             object
@@ -241,80 +239,89 @@ fn try_room_id(object: &[String]) -> StdResult<Uuid, AppError> {
     .error(AppErrorKind::InvalidSubscriptionObject)
 }
 
-fn leave_room<C: Context>(
+async fn leave_room<C: Context>(
     context: &mut C,
     agent_id: &AgentId,
-    room_id: Uuid,
-    tracking: &TrackingProperties,
-) -> StdResult<(bool, Vec<Box<dyn IntoPublishableMessage + Send>>), AppError> {
+    room_id: db::room::Id,
+) -> StdResult<bool, AppError> {
     // Delete agent from the DB.
     context.add_logger_tags(o!("room_id" => room_id.to_string()));
-    let conn = context.get_conn()?;
 
-    let row_count = db::agent::DeleteQuery::new()
-        .agent_id(agent_id)
-        .room_id(room_id)
-        .execute(&conn)?;
+    let conn = context.get_conn().await?;
+    let backends = task::spawn_blocking({
+        let agent_id = agent_id.clone();
 
-    if row_count != 1 {
-        return Ok((false, vec![]));
-    }
+        move || {
+            let row_count = db::agent::DeleteQuery::new()
+                .agent_id(&agent_id)
+                .room_id(room_id)
+                .execute(&conn)?;
 
-    // `agent.leave` requests to Janus instances that host active streams in this room.
-    let streams = db::janus_rtc_stream::ListQuery::new()
-        .room_id(room_id)
-        .active(true)
-        .execute(&conn)?;
-
-    let mut maybe_stopped_rtc_id = None;
-    let mut messages: Vec<Box<dyn IntoPublishableMessage + Send>> =
-        Vec::with_capacity(streams.len() + 1);
-
-    for stream in streams.iter() {
-        // If the agent is a publisher.
-        if stream.sent_by() == agent_id {
-            // Stop the stream.
-            db::janus_rtc_stream::stop(stream.id(), &conn)?;
-            maybe_stopped_rtc_id = Some(stream.rtc_id());
-        }
-    }
-
-    // Disconnect stream readers since the stream has gone.
-    if let Some(rtc_id) = maybe_stopped_rtc_id {
-        db::agent_connection::BulkDisconnectByRtcQuery::new(rtc_id).execute(&conn)?;
-    }
-
-    // Send agent.leave requests to those backends where the agent is connected to.
-    let mut backend_ids = streams
-        .iter()
-        .map(|stream| stream.backend_id())
-        .collect::<Vec<&AgentId>>();
-
-    backend_ids.dedup();
-
-    let backends = db::janus_backend::ListQuery::new()
-        .ids(&backend_ids[..])
-        .execute(&conn)?;
-
-    for backend in backends {
-        let result = context.janus_client().agent_leave_request(
-            backend.session_id(),
-            backend.handle_id(),
-            &agent_id,
-            backend.id(),
-            tracking,
-        );
-
-        match result {
-            Ok(req) => messages.push(Box::new(req)),
-            Err(err) => {
-                return Err(err.context("Error creating a backend request"))
-                    .error(AppErrorKind::MessageBuildingFailed);
+            if row_count != 1 {
+                return Ok::<_, AppError>(None);
             }
-        }
-    }
 
-    Ok((true, messages))
+            // `agent.leave` requests to Janus instances that host active streams in this room.
+            let streams = db::janus_rtc_stream::ListQuery::new()
+                .room_id(room_id)
+                .active(true)
+                .execute(&conn)?;
+
+            let mut maybe_stopped_rtc_id = None;
+
+            for stream in streams.iter() {
+                // If the agent is a publisher.
+                if stream.sent_by() == &agent_id {
+                    // Stop the stream.
+                    db::janus_rtc_stream::stop(stream.id(), &conn)?;
+                    maybe_stopped_rtc_id = Some(stream.rtc_id());
+                }
+            }
+
+            // Disconnect stream readers since the stream has gone.
+            if let Some(rtc_id) = maybe_stopped_rtc_id {
+                db::agent_connection::BulkDisconnectByRtcQuery::new(rtc_id).execute(&conn)?;
+            }
+
+            // Send agent.leave requests to those backends where the agent is connected to.
+            let mut backend_ids = streams
+                .iter()
+                .map(|stream| stream.backend_id())
+                .collect::<Vec<&AgentId>>();
+
+            backend_ids.dedup();
+
+            let backends = db::janus_backend::ListQuery::new()
+                .ids(&backend_ids[..])
+                .execute(&conn)?;
+            Ok::<_, AppError>(Some(backends))
+        }
+    })
+    .await?;
+
+    match backends {
+        Some(backends) => {
+            let mut leave_tasks = Vec::new();
+            for backend in backends {
+                let request = AgentLeaveRequest {
+                    body: AgentLeaveRequestBody::new(agent_id.to_owned()),
+                    handle_id: backend.handle_id(),
+                    session_id: backend.session_id(),
+                };
+                let client = context
+                    .janus_clients()
+                    .get_or_insert(&backend)
+                    .error(AppErrorKind::BackendClientCreationFailed)?;
+                leave_tasks.push(async move { client.agent_leave(request).await });
+            }
+            futures::future::try_join_all(leave_tasks)
+                .await
+                .error(AppErrorKind::BackendRequestFailed)?;
+
+            Ok(true)
+        }
+        None => Ok(false),
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -324,416 +331,438 @@ mod tests {
     mod create_response {
         use svc_agent::mqtt::ResponseStatus;
 
-        use crate::app::API_VERSION;
-        use crate::db::agent::{ListQuery as AgentListQuery, Status as AgentStatus};
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            app::API_VERSION,
+            db::agent::{ListQuery as AgentListQuery, Status as AgentStatus},
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
-        #[test]
-        fn create_subscription() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+        #[async_std::test]
+        async fn create_subscription() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let room = {
-                    // Create room.
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                    let room = shared_helpers::insert_room(&conn);
+            let room = {
+                // Create room.
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    // Put agent in the room in `in_progress` status.
-                    factory::Agent::new()
-                        .room_id(room.id())
-                        .agent_id(agent.agent_id())
-                        .insert(&conn);
+                let room = shared_helpers::insert_room(&conn);
 
-                    room
-                };
-
-                // Send subscription.create response.
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let reqp = build_reqp(agent.agent_id(), "room.enter");
-                let room_id = room.id().to_string();
-
-                let corr_data = CorrelationDataPayload {
-                    reqp: reqp.clone(),
-                    subject: agent.agent_id().to_owned(),
-                    object: vec!["rooms".to_string(), room_id, "events".to_string()],
-                };
-
-                let broker_account_label = context.config().broker_id.label();
-                let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
-
-                let messages = handle_response::<CreateResponseHandler>(
-                    &mut context,
-                    &broker,
-                    CreateDeleteResponsePayload {},
-                    &corr_data,
-                )
-                .await
-                .expect("Subscription creation failed");
-
-                // Assert original request response.
-                let (_payload, respp, topic) =
-                    find_response::<CreateDeleteResponsePayload>(messages.as_slice());
-
-                let expected_topic = format!(
-                    "agents/{}/api/{}/in/conference.{}",
-                    agent.agent_id(),
-                    API_VERSION,
-                    SVC_AUDIENCE,
-                );
-
-                assert_eq!(topic, &expected_topic);
-                assert_eq!(respp.status(), ResponseStatus::OK);
-                assert_eq!(respp.correlation_data(), reqp.correlation_data());
-
-                // Assert notification.
-                let (payload, evp, topic) = find_event::<RoomEnterLeaveEvent>(messages.as_slice());
-                assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
-                assert_eq!(evp.label(), "room.enter");
-                assert_eq!(payload.id, room.id());
-                assert_eq!(&payload.agent_id, agent.agent_id());
-
-                // Assert agent turned to `ready` status.
-                let conn = context.get_conn().expect("Failed to get DB connection");
-
-                let db_agents = AgentListQuery::new()
-                    .agent_id(agent.agent_id())
+                // Put agent in the room in `in_progress` status.
+                factory::Agent::new()
                     .room_id(room.id())
-                    .execute(&conn)
-                    .expect("Failed to execute agent list query");
+                    .agent_id(agent.agent_id())
+                    .insert(&conn);
 
-                let db_agent = db_agents.first().expect("Missing agent in the DB");
-                assert_eq!(db_agent.status(), AgentStatus::Ready);
-            });
+                room
+            };
+
+            // Send subscription.create response.
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let reqp = build_reqp(agent.agent_id(), "room.enter");
+            let room_id = room.id().to_string();
+
+            let corr_data = CorrelationDataPayload {
+                reqp: reqp.clone(),
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
+
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+
+            let messages = handle_response::<CreateResponseHandler>(
+                &mut context,
+                &broker,
+                CreateDeleteResponsePayload {},
+                &corr_data,
+            )
+            .await
+            .expect("Subscription creation failed");
+
+            // Assert original request response.
+            let (_payload, respp, topic) =
+                find_response::<CreateDeleteResponsePayload>(messages.as_slice());
+
+            let expected_topic = format!(
+                "agents/{}/api/{}/in/conference.{}",
+                agent.agent_id(),
+                API_VERSION,
+                SVC_AUDIENCE,
+            );
+
+            assert_eq!(topic, &expected_topic);
+            assert_eq!(respp.status(), ResponseStatus::OK);
+            assert_eq!(respp.correlation_data(), reqp.correlation_data());
+
+            // Assert notification.
+            let (payload, evp, topic) = find_event::<RoomEnterLeaveEvent>(messages.as_slice());
+            assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
+            assert_eq!(evp.label(), "room.enter");
+            assert_eq!(payload.id, room.id());
+            assert_eq!(&payload.agent_id, agent.agent_id());
+
+            // Assert agent turned to `ready` status.
+            let conn = context
+                .get_conn()
+                .await
+                .expect("Failed to get DB connection");
+
+            let db_agents = AgentListQuery::new()
+                .agent_id(agent.agent_id())
+                .room_id(room.id())
+                .execute(&conn)
+                .expect("Failed to execute agent list query");
+
+            let db_agent = db_agents.first().expect("Missing agent in the DB");
+            assert_eq!(db_agent.status(), AgentStatus::Ready);
         }
 
-        #[test]
-        fn create_subscription_missing_room() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-                let room_id = Uuid::new_v4().to_string();
+        #[async_std::test]
+        async fn create_subscription_missing_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let corr_data = CorrelationDataPayload {
-                    reqp: build_reqp(agent.agent_id(), "room.enter"),
-                    subject: agent.agent_id().to_owned(),
-                    object: vec!["rooms".to_string(), room_id, "events".to_string()],
-                };
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let room_id = db::room::Id::random().to_string();
 
-                let broker_account_label = context.config().broker_id.label();
-                let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+            let corr_data = CorrelationDataPayload {
+                reqp: build_reqp(agent.agent_id(), "room.enter"),
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
 
-                let err = handle_response::<CreateResponseHandler>(
-                    &mut context,
-                    &broker,
-                    CreateDeleteResponsePayload {},
-                    &corr_data,
-                )
-                .await
-                .expect_err("Unexpected success on subscription creation");
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            let err = handle_response::<CreateResponseHandler>(
+                &mut context,
+                &broker,
+                CreateDeleteResponsePayload {},
+                &corr_data,
+            )
+            .await
+            .expect_err("Unexpected success on subscription creation");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[test]
-        fn create_subscription_closed_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn create_subscription_closed_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    shared_helpers::insert_closed_room(&conn)
-                };
+                shared_helpers::insert_closed_room(&conn)
+            };
 
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let room_id = room.id().to_string();
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let room_id = room.id().to_string();
 
-                let corr_data = CorrelationDataPayload {
-                    reqp: build_reqp(agent.agent_id(), "room.enter"),
-                    subject: agent.agent_id().to_owned(),
-                    object: vec!["rooms".to_string(), room_id, "events".to_string()],
-                };
+            let corr_data = CorrelationDataPayload {
+                reqp: build_reqp(agent.agent_id(), "room.enter"),
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
 
-                let broker_account_label = context.config().broker_id.label();
-                let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
 
-                let err = handle_response::<CreateResponseHandler>(
-                    &mut context,
-                    &broker,
-                    CreateDeleteResponsePayload {},
-                    &corr_data,
-                )
-                .await
-                .expect_err("Unexpected success on subscription creation");
+            let err = handle_response::<CreateResponseHandler>(
+                &mut context,
+                &broker,
+                CreateDeleteResponsePayload {},
+                &corr_data,
+            )
+            .await
+            .expect_err("Unexpected success on subscription creation");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_closed");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_closed");
         }
     }
 
     mod delete_response {
         use svc_agent::mqtt::ResponseStatus;
 
-        use crate::app::API_VERSION;
-        use crate::db::agent::ListQuery as AgentListQuery;
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            app::API_VERSION,
+            db::agent::ListQuery as AgentListQuery,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
-        #[test]
-        fn delete_subscription() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+        #[async_std::test]
+        async fn delete_subscription() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let room = {
-                    // Create room and put the agent online.
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                    let room = shared_helpers::insert_room(&conn);
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    room
-                };
+            let room = {
+                // Create room and put the agent online.
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                // Send subscription.delete response.
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let reqp = build_reqp(agent.agent_id(), "room.leave");
-                let room_id = room.id().to_string();
+                let room = shared_helpers::insert_room(&conn);
+                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                room
+            };
 
-                let corr_data = CorrelationDataPayload {
-                    reqp: reqp.clone(),
-                    subject: agent.agent_id().to_owned(),
-                    object: vec!["rooms".to_string(), room_id, "events".to_string()],
-                };
+            // Send subscription.delete response.
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let reqp = build_reqp(agent.agent_id(), "room.leave");
+            let room_id = room.id().to_string();
 
-                let broker_account_label = context.config().broker_id.label();
-                let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+            let corr_data = CorrelationDataPayload {
+                reqp: reqp.clone(),
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
 
-                let messages = handle_response::<DeleteResponseHandler>(
-                    &mut context,
-                    &broker,
-                    CreateDeleteResponsePayload {},
-                    &corr_data,
-                )
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+
+            let messages = handle_response::<DeleteResponseHandler>(
+                &mut context,
+                &broker,
+                CreateDeleteResponsePayload {},
+                &corr_data,
+            )
+            .await
+            .expect("Subscription deletion failed");
+
+            // Assert original request response.
+            let (_payload, respp, topic) =
+                find_response::<CreateDeleteResponsePayload>(messages.as_slice());
+
+            let expected_topic = format!(
+                "agents/{}/api/{}/in/conference.{}",
+                agent.agent_id(),
+                API_VERSION,
+                SVC_AUDIENCE,
+            );
+
+            assert_eq!(topic, &expected_topic);
+            assert_eq!(respp.status(), ResponseStatus::OK);
+            assert_eq!(respp.correlation_data(), reqp.correlation_data());
+
+            // Assert notification.
+            let (payload, evp, topic) = find_event::<RoomEnterLeaveEvent>(messages.as_slice());
+            assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
+            assert_eq!(evp.label(), "room.leave");
+            assert_eq!(payload.id, room.id());
+            assert_eq!(&payload.agent_id, agent.agent_id());
+
+            // Assert agent deleted from the DB.
+            let conn = context
+                .get_conn()
                 .await
-                .expect("Subscription deletion failed");
+                .expect("Failed to get DB connection");
 
-                // Assert original request response.
-                let (_payload, respp, topic) =
-                    find_response::<CreateDeleteResponsePayload>(messages.as_slice());
+            let db_agents = AgentListQuery::new()
+                .agent_id(agent.agent_id())
+                .room_id(room.id())
+                .execute(&conn)
+                .expect("Failed to execute agent list query");
 
-                let expected_topic = format!(
-                    "agents/{}/api/{}/in/conference.{}",
-                    agent.agent_id(),
-                    API_VERSION,
-                    SVC_AUDIENCE,
-                );
-
-                assert_eq!(topic, &expected_topic);
-                assert_eq!(respp.status(), ResponseStatus::OK);
-                assert_eq!(respp.correlation_data(), reqp.correlation_data());
-
-                // Assert notification.
-                let (payload, evp, topic) = find_event::<RoomEnterLeaveEvent>(messages.as_slice());
-                assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
-                assert_eq!(evp.label(), "room.leave");
-                assert_eq!(payload.id, room.id());
-                assert_eq!(&payload.agent_id, agent.agent_id());
-
-                // Assert agent deleted from the DB.
-                let conn = context.get_conn().expect("Failed to get DB connection");
-
-                let db_agents = AgentListQuery::new()
-                    .agent_id(agent.agent_id())
-                    .room_id(room.id())
-                    .execute(&conn)
-                    .expect("Failed to execute agent list query");
-
-                assert_eq!(db_agents.len(), 0);
-            });
+            assert_eq!(db_agents.len(), 0);
         }
 
-        #[test]
-        fn delete_subscription_missing_agent() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn delete_subscription_missing_agent() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    shared_helpers::insert_room(&conn)
-                };
+                shared_helpers::insert_room(&conn)
+            };
 
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let room_id = room.id().to_string();
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let room_id = room.id().to_string();
 
-                let corr_data = CorrelationDataPayload {
-                    reqp: build_reqp(agent.agent_id(), "room.leave"),
-                    subject: agent.agent_id().to_owned(),
-                    object: vec!["rooms".to_string(), room_id, "events".to_string()],
-                };
+            let corr_data = CorrelationDataPayload {
+                reqp: build_reqp(agent.agent_id(), "room.leave"),
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
 
-                let broker_account_label = context.config().broker_id.label();
-                let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
 
-                let err = handle_response::<DeleteResponseHandler>(
-                    &mut context,
-                    &broker,
-                    CreateDeleteResponsePayload {},
-                    &corr_data,
-                )
-                .await
-                .expect_err("Unexpected success on subscription deletion");
+            let err = handle_response::<DeleteResponseHandler>(
+                &mut context,
+                &broker,
+                CreateDeleteResponsePayload {},
+                &corr_data,
+            )
+            .await
+            .expect_err("Unexpected success on subscription deletion");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "agent_not_entered_the_room");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-        #[test]
-        fn delete_subscription_missing_room() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
-                let room_id = Uuid::new_v4().to_string();
+        #[async_std::test]
+        async fn delete_subscription_missing_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let corr_data = CorrelationDataPayload {
-                    reqp: build_reqp(agent.agent_id(), "room.leave"),
-                    subject: agent.agent_id().to_owned(),
-                    object: vec!["rooms".to_string(), room_id, "events".to_string()],
-                };
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let room_id = db::room::Id::random().to_string();
 
-                let broker_account_label = context.config().broker_id.label();
-                let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+            let corr_data = CorrelationDataPayload {
+                reqp: build_reqp(agent.agent_id(), "room.leave"),
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
 
-                let err = handle_response::<DeleteResponseHandler>(
-                    &mut context,
-                    &broker,
-                    CreateDeleteResponsePayload {},
-                    &corr_data,
-                )
-                .await
-                .expect_err("Unexpected success on subscription deletion");
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "agent_not_entered_the_room");
-            });
+            let err = handle_response::<DeleteResponseHandler>(
+                &mut context,
+                &broker,
+                CreateDeleteResponsePayload {},
+                &corr_data,
+            )
+            .await
+            .expect_err("Unexpected success on subscription deletion");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
     }
 
     mod delete_event {
-        use crate::db::agent::ListQuery as AgentListQuery;
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            db::agent::ListQuery as AgentListQuery,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
-        #[test]
-        fn delete_subscription() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+        #[async_std::test]
+        async fn delete_subscription() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let room = {
-                    // Create room and put the agent online.
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                    let room = shared_helpers::insert_room(&conn);
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    room
-                };
+            let room = {
+                // Create room and put the agent online.
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                // Send subscription.delete event.
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let room_id = room.id().to_string();
+                let room = shared_helpers::insert_room(&conn);
+                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                room
+            };
 
-                let payload = DeleteEventPayload {
-                    subject: agent.agent_id().to_owned(),
-                    object: vec!["rooms".to_string(), room_id, "events".to_string()],
-                };
+            // Send subscription.delete event.
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let room_id = room.id().to_string();
 
-                let broker_account_label = context.config().broker_id.label();
-                let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+            let payload = DeleteEventPayload {
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
 
-                let messages = handle_event::<DeleteEventHandler>(&mut context, &broker, payload)
-                    .await
-                    .expect("Subscription deletion failed");
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
 
-                // Assert notification.
-                let (payload, evp, topic) = find_event::<RoomEnterLeaveEvent>(messages.as_slice());
-                assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
-                assert_eq!(evp.label(), "room.leave");
-                assert_eq!(payload.id, room.id());
-                assert_eq!(&payload.agent_id, agent.agent_id());
+            let messages = handle_event::<DeleteEventHandler>(&mut context, &broker, payload)
+                .await
+                .expect("Subscription deletion failed");
 
-                // Assert agent deleted from the DB.
-                let conn = context.get_conn().expect("Failed to get DB connection");
+            // Assert notification.
+            let (payload, evp, topic) = find_event::<RoomEnterLeaveEvent>(messages.as_slice());
+            assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
+            assert_eq!(evp.label(), "room.leave");
+            assert_eq!(payload.id, room.id());
+            assert_eq!(&payload.agent_id, agent.agent_id());
 
-                let db_agents = AgentListQuery::new()
-                    .agent_id(agent.agent_id())
-                    .room_id(room.id())
-                    .execute(&conn)
-                    .expect("Failed to execute agent list query");
+            // Assert agent deleted from the DB.
+            let conn = context
+                .get_conn()
+                .await
+                .expect("Failed to get DB connection");
 
-                assert_eq!(db_agents.len(), 0);
-            });
+            let db_agents = AgentListQuery::new()
+                .agent_id(agent.agent_id())
+                .room_id(room.id())
+                .execute(&conn)
+                .expect("Failed to execute agent list query");
+
+            assert_eq!(db_agents.len(), 0);
         }
 
-        #[test]
-        fn delete_subscription_missing_agent() {
-            async_std::task::block_on(async {
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let db = TestDb::new();
+        #[async_std::test]
+        async fn delete_subscription_missing_agent() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                let room = {
-                    let conn = db
-                        .connection_pool()
-                        .get()
-                        .expect("Failed to get DB connection");
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
 
-                    shared_helpers::insert_room(&conn)
-                };
+                shared_helpers::insert_room(&conn)
+            };
 
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let room_id = room.id().to_string();
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let room_id = room.id().to_string();
 
-                let payload = DeleteEventPayload {
-                    subject: agent.agent_id().to_owned(),
-                    object: vec!["rooms".to_string(), room_id, "events".to_string()],
-                };
+            let payload = DeleteEventPayload {
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
 
-                let broker_account_label = context.config().broker_id.label();
-                let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
 
-                let messages = handle_event::<DeleteEventHandler>(&mut context, &broker, payload)
-                    .await
-                    .expect("Subscription deletion failed");
+            let messages = handle_event::<DeleteEventHandler>(&mut context, &broker, payload)
+                .await
+                .expect("Subscription deletion failed");
 
-                assert!(messages.is_empty());
-            });
+            assert!(messages.is_empty());
         }
     }
 }

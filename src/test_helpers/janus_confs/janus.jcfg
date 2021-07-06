@@ -1,0 +1,27 @@
+general: {
+  configs_folder = "/opt/janus/etc/janus"
+  plugins_folder = "/opt/janus/lib/janus/plugins"
+  transports_folder = "/opt/janus/lib/janus/transports"
+  events_folder = "/opt/janus/lib/janus/events"
+  debug_level = 4
+  debug_colors = false
+  debug_timestamps = false
+  log_to_stdout = false
+  admin_secret = "janusoverlord"
+  session_timeout = 0
+  opaqueid_in_api = true
+}
+media: {
+  rtp_port_range = "30000-31000"
+  no_media_timer = 10
+}
+plugins: {
+  disable = "libjanus_audiobridge.so,libjanus_echotest.so,libjanus_nosip.so,libjanus_recordplay.so,libjanus_sip.so,libjanus_streaming.so,libjanus_textroom.so,libjanus_videocall.so,libjanus_videoroom.so,libjanus_voicemail.so"
+}
+transports: {
+  disable = "libjanus_pfunix.so,libjanus_websockets.so, libjanus_mqtt.so"
+}
+events: {
+  broadcast = false
+  disable = "libjanus_sampleevh.so,libjanus_gelfevh.so,libjanus_wsevh.so"
+}

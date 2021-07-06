@@ -1,13 +1,16 @@
+use crate::db;
+use crate::{
+    backend::janus::{
+        client::{HandleId, SessionId},
+        JANUS_API_VERSION,
+    },
+    schema::janus_backend,
+};
 use chrono::{DateTime, Utc};
-use diesel::pg::PgConnection;
-use diesel::result::Error;
+use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
-use uuid::Uuid;
 
-use crate::backend::janus::JANUS_API_VERSION;
-use crate::schema::janus_backend;
-
-pub(crate) type AllColumns = (
+pub type AllColumns = (
     janus_backend::id,
     janus_backend::handle_id,
     janus_backend::session_id,
@@ -19,7 +22,7 @@ pub(crate) type AllColumns = (
     janus_backend::janus_url,
 );
 
-pub(crate) const ALL_COLUMNS: AllColumns = (
+pub const ALL_COLUMNS: AllColumns = (
     janus_backend::id,
     janus_backend::handle_id,
     janus_backend::session_id,
@@ -35,42 +38,46 @@ pub(crate) const ALL_COLUMNS: AllColumns = (
 
 #[derive(Debug, Identifiable, Queryable, QueryableByName, Associations)]
 #[table_name = "janus_backend"]
-pub(crate) struct Object {
+pub struct Object {
     id: AgentId,
-    handle_id: i64,
-    session_id: i64,
+    handle_id: HandleId,
+    session_id: SessionId,
     created_at: DateTime<Utc>,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     api_version: String,
     group: Option<String>,
-    janus_url: Option<String>,
+    janus_url: String,
 }
 
 impl Object {
-    pub(crate) fn id(&self) -> &AgentId {
+    pub fn id(&self) -> &AgentId {
         &self.id
     }
 
-    pub(crate) fn handle_id(&self) -> i64 {
+    pub fn handle_id(&self) -> HandleId {
         self.handle_id
     }
 
-    pub(crate) fn session_id(&self) -> i64 {
+    pub fn session_id(&self) -> SessionId {
         self.session_id
+    }
+
+    pub fn janus_url(&self) -> &str {
+        &self.janus_url
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct ListQuery<'a> {
+pub struct ListQuery<'a> {
     ids: Option<&'a [&'a AgentId]>,
     offset: Option<i64>,
     limit: Option<i64>,
 }
 
 impl<'a> ListQuery<'a> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             ids: None,
             offset: None,
@@ -78,14 +85,14 @@ impl<'a> ListQuery<'a> {
         }
     }
 
-    pub(crate) fn ids(self, ids: &'a [&'a AgentId]) -> Self {
+    pub fn ids(self, ids: &'a [&'a AgentId]) -> Self {
         Self {
             ids: Some(ids),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
         use diesel::prelude::*;
 
         let mut q = janus_backend::table.into_boxed();
@@ -104,20 +111,20 @@ impl<'a> ListQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct FindQuery<'a> {
+pub struct FindQuery<'a> {
     id: Option<&'a AgentId>,
 }
 
 impl<'a> FindQuery<'a> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self { id: None }
     }
 
-    pub(crate) fn id(self, id: &'a AgentId) -> Self {
+    pub fn id(self, id: &'a AgentId) -> Self {
         Self { id: Some(id) }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         match self.id {
@@ -133,19 +140,24 @@ impl<'a> FindQuery<'a> {
 
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "janus_backend"]
-pub(crate) struct UpsertQuery<'a> {
+pub struct UpsertQuery<'a> {
     id: &'a AgentId,
-    handle_id: i64,
-    session_id: i64,
+    handle_id: HandleId,
+    session_id: SessionId,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     api_version: String,
     group: Option<&'a str>,
-    janus_url: Option<&'a str>,
+    janus_url: &'a str,
 }
 
 impl<'a> UpsertQuery<'a> {
-    pub(crate) fn new(id: &'a AgentId, handle_id: i64, session_id: i64) -> Self {
+    pub fn new(
+        id: &'a AgentId,
+        handle_id: HandleId,
+        session_id: SessionId,
+        janus_url: &'a str,
+    ) -> Self {
         Self {
             id,
             handle_id,
@@ -154,39 +166,32 @@ impl<'a> UpsertQuery<'a> {
             balancer_capacity: None,
             api_version: JANUS_API_VERSION.to_string(),
             group: None,
-            janus_url: None,
+            janus_url,
         }
     }
 
-    pub(crate) fn capacity(self, capacity: i32) -> Self {
+    pub fn capacity(self, capacity: i32) -> Self {
         Self {
             capacity: Some(capacity),
             ..self
         }
     }
 
-    pub(crate) fn balancer_capacity(self, balancer_capacity: i32) -> Self {
+    pub fn balancer_capacity(self, balancer_capacity: i32) -> Self {
         Self {
             balancer_capacity: Some(balancer_capacity),
             ..self
         }
     }
 
-    pub(crate) fn group(self, group: &'a str) -> Self {
+    pub fn group(self, group: &'a str) -> Self {
         Self {
             group: Some(group),
             ..self
         }
     }
 
-    pub(crate) fn janus_url(self, janus_url: &'a str) -> Self {
-        Self {
-            janus_url: Some(janus_url),
-            ..self
-        }
-    }
-
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::janus_backend::dsl::janus_backend;
         use diesel::RunQueryDsl;
 
@@ -201,16 +206,16 @@ impl<'a> UpsertQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct DeleteQuery<'a> {
+pub struct DeleteQuery<'a> {
     id: &'a AgentId,
 }
 
 impl<'a> DeleteQuery<'a> {
-    pub(crate) fn new(id: &'a AgentId) -> Self {
+    pub fn new(id: &'a AgentId) -> Self {
         Self { id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use diesel::prelude::*;
 
         diesel::delete(janus_backend::table.filter(janus_backend::id.eq(self.id))).execute(conn)
@@ -278,13 +283,15 @@ const MOST_LOADED_SQL: &str = r#"
     LIMIT 1
 "#;
 
-pub(crate) fn most_loaded(
-    room_id: Uuid,
+pub fn most_loaded(
+    room_id: db::room::Id,
     group: Option<&str>,
     conn: &PgConnection,
 ) -> Result<Option<Object>, Error> {
-    use diesel::prelude::*;
-    use diesel::sql_types::{Nullable, Text, Uuid};
+    use diesel::{
+        prelude::*,
+        sql_types::{Nullable, Text, Uuid},
+    };
 
     diesel::sql_query(MOST_LOADED_SQL)
         .bind::<Uuid, _>(room_id)
@@ -347,13 +354,15 @@ const LEAST_LOADED_SQL: &str = r#"
     LIMIT 1
 "#;
 
-pub(crate) fn least_loaded(
-    room_id: Uuid,
+pub fn least_loaded(
+    room_id: db::room::Id,
     group: Option<&str>,
     conn: &PgConnection,
 ) -> Result<Option<Object>, Error> {
-    use diesel::prelude::*;
-    use diesel::sql_types::{Nullable, Text, Uuid};
+    use diesel::{
+        prelude::*,
+        sql_types::{Nullable, Text, Uuid},
+    };
 
     diesel::sql_query(LEAST_LOADED_SQL)
         .bind::<Uuid, _>(room_id)
@@ -446,9 +455,8 @@ struct FreeCapacityQueryRow {
     free_capacity: i32,
 }
 
-pub(crate) fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Error> {
-    use diesel::prelude::*;
-    use diesel::sql_types::Uuid;
+pub fn free_capacity(rtc_id: db::rtc::Id, conn: &PgConnection) -> Result<i32, Error> {
+    use diesel::{prelude::*, sql_types::Uuid};
 
     diesel::sql_query(FREE_CAPACITY_SQL)
         .bind::<Uuid, _>(rtc_id)
@@ -458,9 +466,8 @@ pub(crate) fn free_capacity(rtc_id: Uuid, conn: &PgConnection) -> Result<i32, Er
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
-    use diesel::dsl::sum;
-    use diesel::prelude::*;
+pub fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
+    use diesel::{dsl::sum, prelude::*};
 
     janus_backend::table
         .select(sum(janus_backend::capacity))
@@ -468,9 +475,8 @@ pub(crate) fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
         .map(|v| v.unwrap_or(0))
 }
 
-pub(crate) fn count(conn: &PgConnection) -> Result<i64, Error> {
-    use diesel::dsl::count;
-    use diesel::prelude::*;
+pub fn count(conn: &PgConnection) -> Result<i64, Error> {
+    use diesel::{dsl::count, prelude::*};
 
     janus_backend::table
         .select(count(janus_backend::id))
@@ -478,7 +484,7 @@ pub(crate) fn count(conn: &PgConnection) -> Result<i64, Error> {
 }
 
 #[derive(QueryableByName, Debug)]
-pub(crate) struct ReserveLoadQueryLoad {
+pub struct ReserveLoadQueryLoad {
     #[sql_type = "svc_agent::sql::Agent_id"]
     pub backend_id: AgentId,
     #[sql_type = "diesel::sql_types::BigInt"]
@@ -487,7 +493,7 @@ pub(crate) struct ReserveLoadQueryLoad {
     pub taken: i64,
 }
 
-pub(crate) fn reserve_load_for_each_backend(
+pub fn reserve_load_for_each_backend(
     conn: &PgConnection,
 ) -> Result<Vec<ReserveLoadQueryLoad>, Error> {
     use diesel::prelude::*;
@@ -548,75 +554,94 @@ mod tests {
     use chrono::{Duration, Utc};
     use std::ops::Bound;
 
-    use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-    use crate::test_helpers::prelude::*;
+    use crate::{
+        backend::janus::client::{HandleId, SessionId},
+        db::rtc::SharingPolicy as RtcSharingPolicy,
+        test_helpers::{prelude::*, test_deps::LocalDeps},
+    };
 
-    #[test]
-    fn reserve_load_for_each_backend() {
-        async_std::task::block_on(async {
-            // Insert an rtc and janus backend.
-            let now = Utc::now();
+    #[async_std::test]
+    async fn reserve_load_for_each_backend() {
+        // Insert an rtc and janus backend.
+        let now = Utc::now();
 
-            let conn = TestDb::new()
-                .connection_pool()
-                .get()
-                .expect("Failed to get db conn");
-            // Insert janus backends.
-            let backend1 = shared_helpers::insert_janus_backend(&conn);
-            let backend2 = shared_helpers::insert_janus_backend(&conn);
-            let backend3 = shared_helpers::insert_janus_backend(&conn);
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let conn = TestDb::with_local_postgres(&postgres)
+            .connection_pool()
+            .get()
+            .expect("Failed to get db conn");
 
-            let room1 = factory::Room::new()
-                .audience(USR_AUDIENCE)
-                .time((
-                    Bound::Included(now),
-                    Bound::Excluded(now + Duration::hours(1)),
-                ))
-                .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                .backend_id(backend1.id())
-                .reserve(200)
-                .insert(&conn);
+        // Insert janus backends.
+        let backend1 = shared_helpers::insert_janus_backend(
+            &conn,
+            "test",
+            SessionId::random(),
+            HandleId::random(),
+        );
+        let backend2 = shared_helpers::insert_janus_backend(
+            &conn,
+            "test",
+            SessionId::random(),
+            HandleId::random(),
+        );
+        let backend3 = shared_helpers::insert_janus_backend(
+            &conn,
+            "test",
+            SessionId::random(),
+            HandleId::random(),
+        );
 
-            let room2 = factory::Room::new()
-                .audience(USR_AUDIENCE)
-                .time((
-                    Bound::Included(now),
-                    Bound::Excluded(now + Duration::hours(1)),
-                ))
-                .reserve(300)
-                .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                .backend_id(backend1.id())
-                .insert(&conn);
+        let room1 = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((
+                Bound::Included(now),
+                Bound::Excluded(now + Duration::hours(1)),
+            ))
+            .rtc_sharing_policy(RtcSharingPolicy::Shared)
+            .backend_id(backend1.id())
+            .reserve(200)
+            .insert(&conn);
 
-            let room3 = factory::Room::new()
-                .audience(USR_AUDIENCE)
-                .time((
-                    Bound::Included(now),
-                    Bound::Excluded(now + Duration::hours(1)),
-                ))
-                .reserve(400)
-                .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                .backend_id(backend2.id())
-                .insert(&conn);
+        let room2 = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((
+                Bound::Included(now),
+                Bound::Excluded(now + Duration::hours(1)),
+            ))
+            .reserve(300)
+            .rtc_sharing_policy(RtcSharingPolicy::Shared)
+            .backend_id(backend1.id())
+            .insert(&conn);
 
-            shared_helpers::insert_rtc_with_room(&conn, &room1);
-            shared_helpers::insert_rtc_with_room(&conn, &room2);
-            shared_helpers::insert_rtc_with_room(&conn, &room3);
+        let room3 = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((
+                Bound::Included(now),
+                Bound::Excluded(now + Duration::hours(1)),
+            ))
+            .reserve(400)
+            .rtc_sharing_policy(RtcSharingPolicy::Shared)
+            .backend_id(backend2.id())
+            .insert(&conn);
 
-            let loads = super::reserve_load_for_each_backend(&conn).expect("Db query failed");
-            assert_eq!(loads.len(), 3);
+        shared_helpers::insert_rtc_with_room(&conn, &room1);
+        shared_helpers::insert_rtc_with_room(&conn, &room2);
+        shared_helpers::insert_rtc_with_room(&conn, &room3);
 
-            [backend1, backend2, backend3]
-                .iter()
-                .zip([500, 400, 0].iter())
-                .for_each(|(backend, expected_load)| {
-                    let b = loads
-                        .iter()
-                        .find(|load| load.backend_id == *backend.id())
-                        .expect("Failed to find backend in query results");
+        let loads = super::reserve_load_for_each_backend(&conn).expect("Db query failed");
+        assert_eq!(loads.len(), 3);
 
-                    assert_eq!(b.load, *expected_load as i64);
-                });
-        });
+        [backend1, backend2, backend3]
+            .iter()
+            .zip([500, 400, 0].iter())
+            .for_each(|(backend, expected_load)| {
+                let b = loads
+                    .iter()
+                    .find(|load| load.backend_id == *backend.id())
+                    .expect("Failed to find backend in query results");
+
+                assert_eq!(b.load, *expected_load as i64);
+            });
     }
 }

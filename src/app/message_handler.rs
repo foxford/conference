@@ -1,12 +1,11 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::time::Instant;
-
-use anyhow::Context as AnyhowContext;
-use async_std::prelude::*;
-use async_std::stream::{self, Stream};
+use anyhow::{anyhow, Context as AnyhowContext};
+use async_std::{
+    prelude::*,
+    stream::{self, Stream},
+};
 use chrono::{DateTime, Utc};
-use futures_util::pin_mut;
+use slog::{error, o, warn};
+use std::{future::Future, pin::Pin};
 use svc_agent::{
     mqtt::{
         Agent, IncomingEvent, IncomingMessage, IncomingRequest, IncomingRequestProperties,
@@ -17,54 +16,64 @@ use svc_agent::{
 };
 use svc_error::Error as SvcError;
 
-use crate::app::context::{AppMessageContext, Context, GlobalContext, MessageContext};
-use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
-use crate::app::{endpoint, API_VERSION};
+use crate::{
+    app::{
+        context::{AppMessageContext, Context, GlobalContext, MessageContext},
+        endpoint,
+        error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
+        API_VERSION,
+    },
+    backend::{janus, janus::handle_event},
+};
 
-pub(crate) type MessageStream =
+pub type MessageStream =
     Box<dyn Stream<Item = Box<dyn IntoPublishableMessage + Send>> + Send + Unpin>;
 
-type TimingChannel = crossbeam_channel::Sender<(std::time::Duration, String)>;
-
-pub(crate) struct MessageHandler<C: GlobalContext> {
+pub struct MessageHandler<C: GlobalContext> {
     agent: Agent,
     global_context: C,
-    tx: TimingChannel,
 }
 
 impl<C: GlobalContext + Sync> MessageHandler<C> {
-    pub(crate) fn new(agent: Agent, global_context: C, tx: TimingChannel) -> Self {
+    pub fn new(agent: Agent, global_context: C) -> Self {
         Self {
             agent,
             global_context,
-            tx,
         }
     }
 
-    pub(crate) fn agent(&self) -> &Agent {
+    pub fn agent(&self) -> &Agent {
         &self.agent
     }
 
-    pub(crate) fn global_context(&self) -> &C {
+    pub fn global_context(&self) -> &C {
         &self.global_context
     }
 
-    pub(crate) async fn handle(
-        &self,
-        message: &Result<IncomingMessage<String>, String>,
-        topic: &str,
-    ) {
+    pub async fn handle(&self, message: &Result<IncomingMessage<String>, String>, topic: &str) {
         let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
 
         match message {
             Ok(ref msg) => {
-                if let Err(err) = self.handle_message(&mut msg_context, msg, topic).await {
+                let handle_result = self.handle_message(&mut msg_context, msg, topic).await;
+                msg_context.metrics().observe_app_result(&handle_result);
+                if let Err(err) = handle_result {
                     Self::report_error(&mut msg_context, message, &err.to_string()).await;
                 }
             }
             Err(e) => {
                 Self::report_error(&mut msg_context, message, e).await;
             }
+        }
+    }
+
+    pub async fn handle_events(&self, message: janus::client::IncomingEvent) {
+        let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
+
+        let messages = handle_event(&mut msg_context, message).await;
+
+        if let Err(err) = self.publish_outgoing_messages(messages).await {
+            warn!(msg_context.logger(), "Incoming event error: {:?}", err);
         }
     }
 
@@ -92,38 +101,10 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         message: &IncomingMessage<String>,
         topic: &str,
     ) -> Result<(), AppError> {
-        let mut timer = if msg_context.dynamic_stats().is_some() {
-            Some(MessageHandlerTiming::new(self.tx.clone()))
-        } else {
-            None
-        };
-
         match message {
-            IncomingMessage::Request(req) => {
-                if let Some(ref mut timer) = timer {
-                    timer.set_method(req.properties().method().into());
-                }
-                self.handle_request(msg_context, req, topic).await
-            }
-            IncomingMessage::Response(resp) => {
-                if let Some(ref mut timer) = timer {
-                    timer.set_method("response".into());
-                }
-
-                self.handle_response(msg_context, resp, topic).await
-            }
-            IncomingMessage::Event(event) => {
-                if let Some(ref mut timer) = timer {
-                    let label = match event.properties().label() {
-                        Some(label) => format!("event-{}", label),
-                        None => "event-none".into(),
-                    };
-
-                    timer.set_method(label);
-                }
-
-                self.handle_event(msg_context, event, topic).await
-            }
+            IncomingMessage::Request(req) => self.handle_request(msg_context, req, topic).await,
+            IncomingMessage::Response(resp) => self.handle_response(msg_context, resp, topic).await,
+            IncomingMessage::Event(event) => self.handle_event(msg_context, event, topic).await,
         }
     }
 
@@ -213,10 +194,9 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
 
     async fn publish_outgoing_messages(
         &self,
-        message_stream: MessageStream,
+        mut message_stream: MessageStream,
     ) -> Result<(), AppError> {
         let mut agent = self.agent.clone();
-        pin_mut!(message_stream);
 
         while let Some(message) = message_stream.next().await {
             publish_message(&mut agent, message)?;
@@ -247,7 +227,7 @@ fn error_response(
     Box::new(stream::once(boxed_resp))
 }
 
-pub(crate) fn publish_message(
+pub fn publish_message(
     agent: &mut Agent,
     message: Box<dyn IntoPublishableMessage>,
 ) -> Result<(), AppError> {
@@ -264,7 +244,7 @@ pub(crate) fn publish_message(
 // So we don't implement these generic things in each handler.
 // We just need to specify the payload type and specific logic.
 
-pub(crate) trait RequestEnvelopeHandler<'async_trait> {
+pub trait RequestEnvelopeHandler<'async_trait> {
     fn handle_envelope<C: Context>(
         context: &'async_trait mut C,
         req: &'async_trait IncomingRequest<String>,
@@ -306,7 +286,7 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
 
                             error!(
                                 context.logger(),
-                                "Failed to handle request: {}",
+                                "Failed to handle request: {:?}",
                                 app_error.source(),
                             );
 
@@ -339,7 +319,7 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
     }
 }
 
-pub(crate) trait ResponseEnvelopeHandler<'async_trait, CD> {
+pub trait ResponseEnvelopeHandler<'async_trait, CD> {
     fn handle_envelope<C: Context>(
         context: &'async_trait mut C,
         envelope: &'async_trait IncomingResponse<String>,
@@ -380,7 +360,7 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
 
                             error!(
                                 context.logger(),
-                                "Failed to handle response: {}",
+                                "Failed to handle response: {:?}",
                                 app_error.source(),
                             );
 
@@ -390,7 +370,7 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
                 }
                 Err(err) => {
                     // Bad envelope or payload format.
-                    error!(context.logger(), "Failed to parse response: {}", err);
+                    error!(context.logger(), "Failed to parse response: {:?}", err);
                     Box::new(stream::empty())
                 }
             }
@@ -400,7 +380,7 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
     }
 }
 
-pub(crate) trait EventEnvelopeHandler<'async_trait> {
+pub trait EventEnvelopeHandler<'async_trait> {
     fn handle_envelope<C: Context>(
         context: &'async_trait mut C,
         event: &'async_trait IncomingEvent<String>,
@@ -438,7 +418,7 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
 
                             error!(
                                 context.logger(),
-                                "Failed to handle event: {}",
+                                "Failed to handle event: {:?}",
                                 app_error.source(),
                             );
 
@@ -448,47 +428,13 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
                 }
                 Err(err) => {
                     // Bad envelope or payload format.
-                    error!(context.logger(), "Failed to parse event: {}", err);
+                    error!(context.logger(), "Failed to parse event: {:?}", err);
                     Box::new(stream::empty())
                 }
             }
         }
 
         Box::pin(handle_envelope::<H, C>(context, event))
-    }
-}
-
-struct MessageHandlerTiming {
-    start: Instant,
-    sender: TimingChannel,
-    method: String,
-}
-
-impl MessageHandlerTiming {
-    fn new(sender: TimingChannel) -> Self {
-        Self {
-            start: Instant::now(),
-            method: "none".into(),
-            sender,
-        }
-    }
-
-    fn set_method(&mut self, method: String) {
-        self.method = method;
-    }
-}
-
-impl Drop for MessageHandlerTiming {
-    fn drop(&mut self) {
-        if let Err(e) = self
-            .sender
-            .try_send((self.start.elapsed(), self.method.clone()))
-        {
-            warn!(
-                crate::LOG,
-                "Failed to send msg handler future timing, reason = {:?}", e
-            );
-        }
     }
 }
 

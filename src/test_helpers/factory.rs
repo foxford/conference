@@ -1,16 +1,20 @@
 use diesel::pg::PgConnection;
 use rand::Rng;
 use svc_agent::{AccountId, AgentId};
-use uuid::Uuid;
 
-use crate::db;
+use crate::{
+    backend::janus::client::{HandleId, SessionId},
+    db::{self, agent},
+};
 
-use super::agent::TestAgent;
-use super::shared_helpers::{insert_janus_backend, insert_room, insert_rtc};
+use super::{
+    agent::TestAgent,
+    shared_helpers::{insert_janus_backend, insert_room, insert_rtc},
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct Room<'a> {
+pub struct Room<'a> {
     audience: Option<String>,
     time: Option<db::room::Time>,
     rtc_sharing_policy: db::rtc::SharingPolicy,
@@ -19,7 +23,7 @@ pub(crate) struct Room<'a> {
 }
 
 impl<'a> Room<'a> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             audience: None,
             time: None,
@@ -29,42 +33,42 @@ impl<'a> Room<'a> {
         }
     }
 
-    pub(crate) fn audience(self, audience: &str) -> Self {
+    pub fn audience(self, audience: &str) -> Self {
         Self {
             audience: Some(audience.to_owned()),
             ..self
         }
     }
 
-    pub(crate) fn time(self, time: db::room::Time) -> Self {
+    pub fn time(self, time: db::room::Time) -> Self {
         Self {
             time: Some(time),
             ..self
         }
     }
 
-    pub(crate) fn reserve(self, reserve: i32) -> Self {
+    pub fn reserve(self, reserve: i32) -> Self {
         Self {
             reserve: Some(reserve),
             ..self
         }
     }
 
-    pub(crate) fn rtc_sharing_policy(self, rtc_sharing_policy: db::rtc::SharingPolicy) -> Self {
+    pub fn rtc_sharing_policy(self, rtc_sharing_policy: db::rtc::SharingPolicy) -> Self {
         Self {
             rtc_sharing_policy,
             ..self
         }
     }
 
-    pub(crate) fn backend_id(self, backend_id: &'a AgentId) -> Self {
+    pub fn backend_id(self, backend_id: &'a AgentId) -> Self {
         Self {
             backend_id: Some(backend_id),
             ..self
         }
     }
 
-    pub(crate) fn insert(self, conn: &PgConnection) -> db::room::Object {
+    pub fn insert(self, conn: &PgConnection) -> db::room::Object {
         let audience = self.audience.expect("Audience not set");
         let time = self.time.expect("Time not set");
 
@@ -87,12 +91,12 @@ impl<'a> Room<'a> {
 pub struct Agent<'a> {
     audience: Option<&'a str>,
     agent_id: Option<&'a AgentId>,
-    room_id: Option<Uuid>,
+    room_id: Option<db::room::Id>,
     status: db::agent::Status,
 }
 
 impl<'a> Agent<'a> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             audience: None,
             agent_id: None,
@@ -101,25 +105,25 @@ impl<'a> Agent<'a> {
         }
     }
 
-    pub(crate) fn agent_id(self, agent_id: &'a AgentId) -> Self {
+    pub fn agent_id(self, agent_id: &'a AgentId) -> Self {
         Self {
             agent_id: Some(agent_id),
             ..self
         }
     }
 
-    pub(crate) fn room_id(self, room_id: Uuid) -> Self {
+    pub fn room_id(self, room_id: db::room::Id) -> Self {
         Self {
             room_id: Some(room_id),
             ..self
         }
     }
 
-    pub(crate) fn status(self, status: db::agent::Status) -> Self {
+    pub fn status(self, status: db::agent::Status) -> Self {
         Self { status, ..self }
     }
 
-    pub(crate) fn insert(&self, conn: &PgConnection) -> db::agent::Object {
+    pub fn insert(&self, conn: &PgConnection) -> db::agent::Object {
         let agent_id = match (self.agent_id, self.audience) {
             (Some(agent_id), _) => agent_id.to_owned(),
             (None, Some(audience)) => {
@@ -142,14 +146,14 @@ impl<'a> Agent<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct AgentConnection {
-    agent_id: Uuid,
-    rtc_id: Uuid,
-    handle_id: i64,
+pub struct AgentConnection {
+    agent_id: agent::Id,
+    rtc_id: db::rtc::Id,
+    handle_id: HandleId,
 }
 
 impl AgentConnection {
-    pub(crate) fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: i64) -> Self {
+    pub fn new(agent_id: agent::Id, rtc_id: db::rtc::Id, handle_id: HandleId) -> Self {
         Self {
             agent_id,
             rtc_id,
@@ -157,7 +161,7 @@ impl AgentConnection {
         }
     }
 
-    pub(crate) fn insert(&self, conn: &PgConnection) -> db::agent_connection::Object {
+    pub fn insert(&self, conn: &PgConnection) -> db::agent_connection::Object {
         db::agent_connection::UpsertQuery::new(self.agent_id, self.rtc_id, self.handle_id)
             .execute(conn)
             .expect("Failed to insert agent_connection")
@@ -166,24 +170,24 @@ impl AgentConnection {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct Rtc {
-    room_id: Uuid,
+pub struct Rtc {
+    room_id: db::room::Id,
     created_by: AgentId,
 }
 
 impl Rtc {
-    pub(crate) fn new(room_id: Uuid) -> Self {
+    pub fn new(room_id: db::room::Id) -> Self {
         Self {
             room_id,
             created_by: AgentId::new("web", AccountId::new("nevermind", "example.com")),
         }
     }
 
-    pub(crate) fn created_by(self, created_by: AgentId) -> Self {
+    pub fn created_by(self, created_by: AgentId) -> Self {
         Self { created_by, ..self }
     }
 
-    pub(crate) fn insert(&self, conn: &PgConnection) -> db::rtc::Object {
+    pub fn insert(&self, conn: &PgConnection) -> db::rtc::Object {
         db::rtc::InsertQuery::new(self.room_id, &self.created_by)
             .execute(conn)
             .expect("Failed to insert janus_backend")
@@ -192,17 +196,18 @@ impl Rtc {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct JanusBackend {
+pub struct JanusBackend {
     id: AgentId,
-    handle_id: i64,
-    session_id: i64,
+    handle_id: HandleId,
+    session_id: SessionId,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     group: Option<String>,
+    janus_url: String,
 }
 
 impl JanusBackend {
-    pub(crate) fn new(id: AgentId, handle_id: i64, session_id: i64) -> Self {
+    pub fn new(id: AgentId, handle_id: HandleId, session_id: SessionId, janus_url: String) -> Self {
         Self {
             id,
             handle_id,
@@ -210,32 +215,38 @@ impl JanusBackend {
             capacity: None,
             balancer_capacity: None,
             group: None,
+            janus_url,
         }
     }
 
-    pub(crate) fn capacity(self, capacity: i32) -> Self {
+    pub fn capacity(self, capacity: i32) -> Self {
         Self {
             capacity: Some(capacity),
             ..self
         }
     }
 
-    pub(crate) fn balancer_capacity(self, balancer_capacity: i32) -> Self {
+    pub fn balancer_capacity(self, balancer_capacity: i32) -> Self {
         Self {
             balancer_capacity: Some(balancer_capacity),
             ..self
         }
     }
 
-    pub(crate) fn group(self, group: &str) -> Self {
+    pub fn group(self, group: &str) -> Self {
         Self {
             group: Some(group.to_owned()),
             ..self
         }
     }
 
-    pub(crate) fn insert(&self, conn: &PgConnection) -> db::janus_backend::Object {
-        let mut q = db::janus_backend::UpsertQuery::new(&self.id, self.handle_id, self.session_id);
+    pub fn insert(&self, conn: &PgConnection) -> db::janus_backend::Object {
+        let mut q = db::janus_backend::UpsertQuery::new(
+            &self.id,
+            self.handle_id,
+            self.session_id,
+            &self.janus_url,
+        );
 
         if let Some(capacity) = self.capacity {
             q = q.capacity(capacity);
@@ -255,7 +266,7 @@ impl JanusBackend {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct JanusRtcStream<'a> {
+pub struct JanusRtcStream<'a> {
     audience: &'a str,
     backend: Option<&'a db::janus_backend::Object>,
     rtc: Option<&'a db::rtc::Object>,
@@ -263,7 +274,7 @@ pub(crate) struct JanusRtcStream<'a> {
 }
 
 impl<'a> JanusRtcStream<'a> {
-    pub(crate) fn new(audience: &'a str) -> Self {
+    pub fn new(audience: &'a str) -> Self {
         Self {
             audience,
             backend: None,
@@ -272,13 +283,14 @@ impl<'a> JanusRtcStream<'a> {
         }
     }
 
-    pub(crate) fn insert(&self, conn: &PgConnection) -> db::janus_rtc_stream::Object {
+    pub fn insert(&self, conn: &PgConnection) -> db::janus_rtc_stream::Object {
         let default_backend;
 
         let backend = match self.backend {
             Some(value) => value,
             None => {
-                default_backend = insert_janus_backend(conn);
+                default_backend =
+                    insert_janus_backend(conn, "test", SessionId::random(), HandleId::random());
                 &default_backend
             }
         };
@@ -304,7 +316,7 @@ impl<'a> JanusRtcStream<'a> {
         };
 
         db::janus_rtc_stream::InsertQuery::new(
-            Uuid::new_v4(),
+            db::janus_rtc_stream::Id::random(),
             backend.handle_id(),
             rtc.id(),
             backend.id(),
@@ -319,23 +331,23 @@ impl<'a> JanusRtcStream<'a> {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Default)]
-pub(crate) struct Recording<'a> {
+pub struct Recording<'a> {
     rtc: Option<&'a db::rtc::Object>,
 }
 
 impl<'a> Recording<'a> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Default::default()
     }
 
-    pub(crate) fn rtc(self, rtc: &'a db::rtc::Object) -> Self {
+    pub fn rtc(self, rtc: &'a db::rtc::Object) -> Self {
         Self {
             rtc: Some(rtc),
             ..self
         }
     }
 
-    pub(crate) fn insert(&self, conn: &PgConnection) -> db::recording::Object {
+    pub fn insert(&self, conn: &PgConnection) -> db::recording::Object {
         let default_rtc;
 
         let rtc = match self.rtc {
@@ -354,7 +366,7 @@ impl<'a> Recording<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct RtcReaderConfig<'a> {
+pub struct RtcReaderConfig<'a> {
     rtc: &'a db::rtc::Object,
     reader_id: &'a AgentId,
     receive_video: Option<bool>,
@@ -362,7 +374,7 @@ pub(crate) struct RtcReaderConfig<'a> {
 }
 
 impl<'a> RtcReaderConfig<'a> {
-    pub(crate) fn new(rtc: &'a db::rtc::Object, reader_id: &'a AgentId) -> Self {
+    pub fn new(rtc: &'a db::rtc::Object, reader_id: &'a AgentId) -> Self {
         Self {
             rtc,
             reader_id,
@@ -371,21 +383,21 @@ impl<'a> RtcReaderConfig<'a> {
         }
     }
 
-    pub(crate) fn receive_video(self, receive_video: bool) -> Self {
+    pub fn receive_video(self, receive_video: bool) -> Self {
         Self {
             receive_video: Some(receive_video),
             ..self
         }
     }
 
-    pub(crate) fn receive_audio(self, receive_audio: bool) -> Self {
+    pub fn receive_audio(self, receive_audio: bool) -> Self {
         Self {
             receive_audio: Some(receive_audio),
             ..self
         }
     }
 
-    pub(crate) fn insert(&self, conn: &PgConnection) -> db::rtc_reader_config::Object {
+    pub fn insert(&self, conn: &PgConnection) -> db::rtc_reader_config::Object {
         let mut q = db::rtc_reader_config::UpsertQuery::new(self.rtc.id(), self.reader_id);
 
         if let Some(receive_video) = self.receive_video {
@@ -402,7 +414,7 @@ impl<'a> RtcReaderConfig<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct RtcWriterConfig<'a> {
+pub struct RtcWriterConfig<'a> {
     rtc: &'a db::rtc::Object,
     send_video: Option<bool>,
     send_audio: Option<bool>,
@@ -411,7 +423,7 @@ pub(crate) struct RtcWriterConfig<'a> {
 }
 
 impl<'a> RtcWriterConfig<'a> {
-    pub(crate) fn new(rtc: &'a db::rtc::Object) -> Self {
+    pub fn new(rtc: &'a db::rtc::Object) -> Self {
         Self {
             rtc,
             send_video: None,
@@ -421,35 +433,35 @@ impl<'a> RtcWriterConfig<'a> {
         }
     }
 
-    pub(crate) fn send_video(self, send_video: bool) -> Self {
+    pub fn send_video(self, send_video: bool) -> Self {
         Self {
             send_video: Some(send_video),
             ..self
         }
     }
 
-    pub(crate) fn send_audio(self, send_audio: bool) -> Self {
+    pub fn send_audio(self, send_audio: bool) -> Self {
         Self {
             send_audio: Some(send_audio),
             ..self
         }
     }
 
-    pub(crate) fn video_remb(self, video_remb: i64) -> Self {
+    pub fn video_remb(self, video_remb: i64) -> Self {
         Self {
             video_remb: Some(video_remb),
             ..self
         }
     }
 
-    pub(crate) fn send_audio_updated_by(self, send_audio_updated_by: &'a AgentId) -> Self {
+    pub fn send_audio_updated_by(self, send_audio_updated_by: &'a AgentId) -> Self {
         Self {
             send_audio_updated_by: Some(send_audio_updated_by),
             ..self
         }
     }
 
-    pub(crate) fn insert(&self, conn: &PgConnection) -> db::rtc_writer_config::Object {
+    pub fn insert(&self, conn: &PgConnection) -> db::rtc_writer_config::Object {
         let mut q = db::rtc_writer_config::UpsertQuery::new(self.rtc.id());
 
         if let Some(send_video) = self.send_video {

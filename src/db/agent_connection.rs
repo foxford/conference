@@ -1,10 +1,15 @@
 use chrono::{DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
+use diesel::{dsl::count_star, pg::PgConnection, result::Error};
 use svc_agent::AgentId;
-use uuid::Uuid;
 
-use crate::db::agent::{Object as Agent, Status as AgentStatus};
-use crate::schema::{agent, agent_connection};
+use crate::{
+    backend::janus::client::HandleId,
+    db::{
+        self,
+        agent::{Object as Agent, Status as AgentStatus},
+    },
+    schema::{agent, agent_connection},
+};
 
 type AllColumns = (
     agent_connection::agent_id,
@@ -26,32 +31,32 @@ const ALL_COLUMNS: AllColumns = (
 #[belongs_to(Agent, foreign_key = "agent_id")]
 #[table_name = "agent_connection"]
 #[primary_key(agent_id)]
-pub(crate) struct Object {
-    agent_id: Uuid,
-    handle_id: i64,
+pub struct Object {
+    agent_id: super::agent::Id,
+    handle_id: HandleId,
     created_at: DateTime<Utc>,
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 }
 
 impl Object {
-    pub(crate) fn handle_id(&self) -> i64 {
+    pub fn handle_id(&self) -> HandleId {
         self.handle_id
     }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct FindQuery<'a> {
+pub struct FindQuery<'a> {
     agent_id: &'a AgentId,
-    rtc_id: Uuid,
+    rtc_id: db::rtc::Id,
 }
 
 impl<'a> FindQuery<'a> {
-    pub(crate) fn new(agent_id: &'a AgentId, rtc_id: Uuid) -> Self {
+    pub fn new(agent_id: &'a AgentId, rtc_id: db::rtc::Id) -> Self {
         Self { agent_id, rtc_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         agent_connection::table
@@ -67,18 +72,19 @@ impl<'a> FindQuery<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct CountQuery {}
+pub struct CountQuery {}
 
 impl CountQuery {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {}
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
-        use diesel::dsl::count;
+    pub fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
         use diesel::prelude::*;
 
-        agent::table.select(count(agent::id)).get_result(conn)
+        agent_connection::table
+            .select(count_star())
+            .get_result(conn)
     }
 }
 
@@ -86,15 +92,15 @@ impl CountQuery {
 
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "agent_connection"]
-pub(crate) struct UpsertQuery {
-    agent_id: Uuid,
-    rtc_id: Uuid,
-    handle_id: i64,
+pub struct UpsertQuery {
+    agent_id: db::agent::Id,
+    rtc_id: db::rtc::Id,
+    handle_id: HandleId,
     created_at: DateTime<Utc>,
 }
 
 impl UpsertQuery {
-    pub(crate) fn new(agent_id: Uuid, rtc_id: Uuid, handle_id: i64) -> Self {
+    pub fn new(agent_id: db::agent::Id, rtc_id: db::rtc::Id, handle_id: HandleId) -> Self {
         Self {
             agent_id,
             rtc_id,
@@ -103,7 +109,7 @@ impl UpsertQuery {
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::agent_connection::dsl::*;
         use diesel::prelude::*;
 
@@ -127,18 +133,17 @@ const BULK_DISCONNECT_BY_ROOM_SQL: &str = r#"
 "#;
 
 #[derive(Debug)]
-pub(crate) struct BulkDisconnectByRoomQuery {
-    room_id: Uuid,
+pub struct BulkDisconnectByRoomQuery {
+    room_id: db::room::Id,
 }
 
 impl BulkDisconnectByRoomQuery {
-    pub(crate) fn new(room_id: Uuid) -> Self {
+    pub fn new(room_id: db::room::Id) -> Self {
         Self { room_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-        use diesel::sql_types::Uuid;
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+        use diesel::{prelude::*, sql_types::Uuid};
 
         diesel::sql_query(BULK_DISCONNECT_BY_ROOM_SQL)
             .bind::<Uuid, _>(self.room_id)
@@ -149,16 +154,16 @@ impl BulkDisconnectByRoomQuery {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
-pub(crate) struct BulkDisconnectByRtcQuery {
-    rtc_id: Uuid,
+pub struct BulkDisconnectByRtcQuery {
+    rtc_id: db::rtc::Id,
 }
 
 impl BulkDisconnectByRtcQuery {
-    pub(crate) fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: db::rtc::Id) -> Self {
         Self { rtc_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use diesel::prelude::*;
 
         diesel::delete(agent_connection::table)
@@ -180,16 +185,16 @@ const BULK_DISCONNECT_BY_BACKEND_SQL: &str = r#"
 "#;
 
 #[derive(Debug)]
-pub(crate) struct BulkDisconnectByBackendQuery<'a> {
+pub struct BulkDisconnectByBackendQuery<'a> {
     backend_id: &'a AgentId,
 }
 
 impl<'a> BulkDisconnectByBackendQuery<'a> {
-    pub(crate) fn new(backend_id: &'a AgentId) -> Self {
+    pub fn new(backend_id: &'a AgentId) -> Self {
         Self { backend_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use crate::db::sql::Agent_id;
         use diesel::prelude::*;
 

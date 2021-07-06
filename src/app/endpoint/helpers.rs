@@ -1,9 +1,19 @@
 use std::ops::Bound;
 
+use crate::{
+    app::{
+        context::Context,
+        error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
+        API_VERSION,
+    },
+    db,
+    db::room::Object as Room,
+};
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, Utc};
 use diesel::pg::PgConnection;
 use serde::Serialize;
+use slog::o;
 use svc_agent::{
     mqtt::{
         IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
@@ -11,17 +21,10 @@ use svc_agent::{
     },
     AgentId,
 };
-use uuid::Uuid;
-
-use crate::app::context::Context;
-use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
-use crate::app::API_VERSION;
-use crate::db;
-use crate::db::room::Object as Room;
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn build_response(
+pub fn build_response(
     status: ResponseStatus,
     payload: impl Serialize + Send + 'static,
     reqp: &IncomingRequestProperties,
@@ -38,7 +41,7 @@ pub(crate) fn build_response(
     Box::new(OutgoingResponse::unicast(payload, props, reqp, API_VERSION))
 }
 
-pub(crate) fn build_notification(
+pub fn build_notification(
     label: &'static str,
     path: &str,
     payload: impl Serialize + Send + 'static,
@@ -53,51 +56,43 @@ pub(crate) fn build_notification(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) enum RoomTimeRequirement {
+pub enum RoomTimeRequirement {
     Any,
     NotClosed,
     NotClosedOrUnboundedOpen,
     Open,
 }
 
-pub(crate) fn find_room_by_id<C: Context>(
-    context: &mut C,
-    id: Uuid,
+pub fn find_room_by_id(
+    id: db::room::Id,
     opening_requirement: RoomTimeRequirement,
     conn: &PgConnection,
 ) -> Result<db::room::Object, AppError> {
-    context.add_logger_tags(o!("room_id" => id.to_string()));
     let query = db::room::FindQuery::new(id);
-    find_room(context, query, opening_requirement, conn)
+    find_room(query, opening_requirement, conn)
 }
 
-pub(crate) fn find_room_by_rtc_id<C: Context>(
-    context: &mut C,
-    rtc_id: Uuid,
+pub fn find_room_by_rtc_id(
+    rtc_id: db::rtc::Id,
     opening_requirement: RoomTimeRequirement,
     conn: &PgConnection,
 ) -> Result<db::room::Object, AppError> {
-    context.add_logger_tags(o!("rtc_id" => rtc_id.to_string()));
     let query = db::room::FindByRtcIdQuery::new(rtc_id);
-    find_room(context, query, opening_requirement, conn)
+    find_room(query, opening_requirement, conn)
 }
 
-fn find_room<C, Q>(
-    context: &mut C,
+fn find_room<Q>(
     query: Q,
     opening_requirement: RoomTimeRequirement,
     conn: &PgConnection,
 ) -> Result<Room, AppError>
 where
-    C: Context,
     Q: db::room::FindQueryable,
 {
     let room = query
         .execute(&conn)?
         .ok_or_else(|| anyhow!("Room not found"))
         .error(AppErrorKind::RoomNotFound)?;
-
-    add_room_logger_tags(context, &room);
 
     match opening_requirement {
         // Room time doesn't matter.
@@ -158,7 +153,7 @@ where
     }
 }
 
-pub(crate) fn check_room_presence(
+pub fn check_room_presence(
     room: &db::room::Object,
     agent_id: &AgentId,
     conn: &PgConnection,
@@ -175,7 +170,7 @@ pub(crate) fn check_room_presence(
     }
 }
 
-pub(crate) fn add_room_logger_tags<C: Context>(context: &mut C, room: &db::room::Object) {
+pub fn add_room_logger_tags<C: Context>(context: &mut C, room: &db::room::Object) {
     context.add_logger_tags(o!("room_id" => room.id().to_string()));
 
     if let Some(scope) = room.tags().get("scope") {

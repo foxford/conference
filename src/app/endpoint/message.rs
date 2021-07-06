@@ -1,40 +1,42 @@
-use async_std::stream;
-use async_trait::async_trait;
-use serde_derive::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
-use svc_agent::mqtt::{
-    IncomingRequestProperties, IncomingResponseProperties, IntoPublishableMessage, OutgoingRequest,
-    OutgoingResponse, OutgoingResponseProperties, ResponseStatus, ShortTermTimingProperties,
-    SubscriptionTopic,
+use crate::{
+    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt, API_VERSION},
+    db,
 };
-use svc_agent::{Addressable, AgentId, Subscription};
-use uuid::Uuid;
-
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
-use crate::app::API_VERSION;
+use anyhow::anyhow;
+use async_std::{stream, task};
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value as JsonValue};
+use svc_agent::{
+    mqtt::{
+        IncomingRequestProperties, IncomingResponseProperties, IntoPublishableMessage,
+        OutgoingRequest, OutgoingResponse, OutgoingResponseProperties, ResponseStatus,
+        ShortTermTimingProperties, SubscriptionTopic,
+    },
+    Addressable, AgentId, Subscription,
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct CorrelationDataPayload {
+pub struct CorrelationDataPayload {
     reqp: IncomingRequestProperties,
 }
 
 impl CorrelationDataPayload {
-    pub(crate) fn new(reqp: IncomingRequestProperties) -> Self {
+    pub fn new(reqp: IncomingRequestProperties) -> Self {
         Self { reqp }
     }
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct UnicastRequest {
+pub struct UnicastRequest {
     agent_id: AgentId,
-    room_id: Uuid,
+    room_id: db::room::Id,
     data: JsonValue,
 }
 
-pub(crate) struct UnicastHandler;
+pub struct UnicastHandler;
 
 #[async_trait]
 impl RequestHandler for UnicastHandler {
@@ -47,17 +49,20 @@ impl RequestHandler for UnicastHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         {
-            let conn = context.get_conn()?;
+            let conn = context.get_conn().await?;
+            let room_id = payload.room_id;
+            let reqp_agent_id = reqp.as_agent_id().clone();
+            let payload_agent_id = payload.agent_id.clone();
+            let room = task::spawn_blocking(move || {
+                let room =
+                    helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
 
-            let room = helpers::find_room_by_id(
-                context,
-                payload.room_id,
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?;
-
-            helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
-            helpers::check_room_presence(&room, &payload.agent_id, &conn)?;
+                helpers::check_room_presence(&room, &reqp_agent_id, &conn)?;
+                helpers::check_room_presence(&room, &payload_agent_id, &conn)?;
+                Ok::<_, AppError>(room)
+            })
+            .await?;
+            helpers::add_room_logger_tags(context, &room);
         }
 
         let response_topic =
@@ -85,6 +90,11 @@ impl RequestHandler for UnicastHandler {
             &payload.agent_id,
             API_VERSION,
         );
+        context
+            .metrics()
+            .request_duration
+            .message_unicast_request
+            .observe_timestamp(context.start_timestamp());
 
         let boxed_req = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
         Ok(Box::new(stream::once(boxed_req)))
@@ -94,13 +104,13 @@ impl RequestHandler for UnicastHandler {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct BroadcastRequest {
-    room_id: Uuid,
+pub struct BroadcastRequest {
+    room_id: db::room::Id,
     data: JsonValue,
     label: Option<String>,
 }
 
-pub(crate) struct BroadcastHandler;
+pub struct BroadcastHandler;
 
 #[async_trait]
 impl RequestHandler for BroadcastHandler {
@@ -112,25 +122,20 @@ impl RequestHandler for BroadcastHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let room = {
-            let conn = context.get_conn()?;
+        let conn = context.get_conn().await?;
+        let room = task::spawn_blocking({
+            let agent_id = reqp.as_agent_id().clone();
+            let room_id = payload.room_id;
+            move || {
+                let room =
+                    helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
 
-            let room = helpers::find_room_by_id(
-                context,
-                payload.room_id,
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?;
-
-            helpers::check_room_presence(&room, &reqp.as_agent_id(), &conn)?;
-            room
-        };
-
-        if let Some(stats) = context.dynamic_stats() {
-            if let Some(label) = payload.label {
-                stats.collect(&format!("message_broadcast_{}", label), 1);
+                helpers::check_room_presence(&room, &agent_id, &conn)?;
+                Ok::<_, AppError>(room)
             }
-        }
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
         // Respond and broadcast to the room topic.
         let response = helpers::build_response(
@@ -148,6 +153,11 @@ impl RequestHandler for BroadcastHandler {
             reqp,
             context.start_timestamp(),
         );
+        context
+            .metrics()
+            .request_duration
+            .message_broadcast
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::from_iter(vec![response, notification])))
     }
@@ -155,7 +165,7 @@ impl RequestHandler for BroadcastHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct UnicastResponseHandler;
+pub struct UnicastResponseHandler;
 
 #[async_trait]
 impl ResponseHandler for UnicastResponseHandler {
@@ -186,6 +196,11 @@ impl ResponseHandler for UnicastResponseHandler {
 
         let resp = OutgoingResponse::unicast(payload, props, &corr_data.reqp, API_VERSION);
         let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+        context
+            .metrics()
+            .request_duration
+            .message_unicast_response
+            .observe_timestamp(context.start_timestamp());
         Ok(Box::new(stream::once(boxed_resp)))
     }
 }
@@ -195,265 +210,267 @@ impl ResponseHandler for UnicastResponseHandler {
 #[cfg(test)]
 mod test {
     mod unicast {
-        use uuid::Uuid;
 
-        use crate::app::API_VERSION;
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            app::API_VERSION,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
-        #[test]
-        fn unicast_message() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
-                let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
+        #[async_std::test]
+        async fn unicast_message() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+            let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
-                // Insert room with online both sender and receiver.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let room = shared_helpers::insert_room(&conn);
-                        shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
-                        shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
-                        room
-                    })
-                    .expect("Failed to insert room");
+            // Insert room with online both sender and receiver.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let room = shared_helpers::insert_room(&conn);
+                    shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
+                    shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
+                    room
+                })
+                .expect("Failed to insert room");
 
-                // Make message.unicast request.
-                let mut context = TestContext::new(db, TestAuthz::new());
+            // Make message.unicast request.
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = UnicastRequest {
-                    agent_id: receiver.agent_id().to_owned(),
-                    room_id: room.id(),
-                    data: json!({ "key": "value" }),
-                };
+            let payload = UnicastRequest {
+                agent_id: receiver.agent_id().to_owned(),
+                room_id: room.id(),
+                data: json!({ "key": "value" }),
+            };
 
-                let messages = handle_request::<UnicastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect("Unicast message sending failed");
+            let messages = handle_request::<UnicastHandler>(&mut context, &sender, payload)
+                .await
+                .expect("Unicast message sending failed");
 
-                // Assert outgoing request.
-                let (payload, _reqp, topic) = find_request::<JsonValue>(messages.as_slice());
+            // Assert outgoing request.
+            let (payload, _reqp, topic) = find_request::<JsonValue>(messages.as_slice());
 
-                let expected_topic = format!(
-                    "agents/{}/api/{}/in/conference.{}",
-                    receiver.agent_id(),
-                    API_VERSION,
-                    SVC_AUDIENCE,
-                );
+            let expected_topic = format!(
+                "agents/{}/api/{}/in/conference.{}",
+                receiver.agent_id(),
+                API_VERSION,
+                SVC_AUDIENCE,
+            );
 
-                assert_eq!(topic, expected_topic);
-                assert_eq!(payload, json!({"key": "value"}));
-            });
+            assert_eq!(topic, expected_topic);
+            assert_eq!(payload, json!({"key": "value"}));
         }
 
-        #[test]
-        fn unicast_message_to_missing_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
-                let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
+        #[async_std::test]
+        async fn unicast_message_to_missing_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                let payload = UnicastRequest {
-                    agent_id: receiver.agent_id().to_owned(),
-                    room_id: Uuid::new_v4(),
-                    data: json!({ "key": "value" }),
-                };
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+            let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
-                let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect_err("Unexpected success on unicast message sending");
+            let payload = UnicastRequest {
+                agent_id: receiver.agent_id().to_owned(),
+                room_id: db::room::Id::random(),
+                data: json!({ "key": "value" }),
+            };
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
+                .await
+                .expect_err("Unexpected success on unicast message sending");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[test]
-        fn unicast_message_when_sender_is_not_in_the_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
-                let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
+        #[async_std::test]
+        async fn unicast_message_when_sender_is_not_in_the_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+            let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
-                // Insert room with online receiver only.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let room = shared_helpers::insert_room(&conn);
-                        shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
-                        room
-                    })
-                    .expect("Failed to insert room");
+            // Insert room with online receiver only.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let room = shared_helpers::insert_room(&conn);
+                    shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
+                    room
+                })
+                .expect("Failed to insert room");
 
-                // Make message.unicast request.
-                let mut context = TestContext::new(db, TestAuthz::new());
+            // Make message.unicast request.
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = UnicastRequest {
-                    agent_id: receiver.agent_id().to_owned(),
-                    room_id: room.id(),
-                    data: json!({ "key": "value" }),
-                };
+            let payload = UnicastRequest {
+                agent_id: receiver.agent_id().to_owned(),
+                room_id: room.id(),
+                data: json!({ "key": "value" }),
+            };
 
-                let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect_err("Unexpected success on unicast message sending");
+            let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
+                .await
+                .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "agent_not_entered_the_room");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-        #[test]
-        fn unicast_message_when_receiver_is_not_in_the_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
-                let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
+        #[async_std::test]
+        async fn unicast_message_when_receiver_is_not_in_the_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+            let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
-                // Insert room with online sender only.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let room = shared_helpers::insert_room(&conn);
-                        shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
-                        room
-                    })
-                    .expect("Failed to insert room");
+            // Insert room with online sender only.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let room = shared_helpers::insert_room(&conn);
+                    shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
+                    room
+                })
+                .expect("Failed to insert room");
 
-                // Make message.unicast request.
-                let mut context = TestContext::new(db, TestAuthz::new());
+            // Make message.unicast request.
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = UnicastRequest {
-                    agent_id: receiver.agent_id().to_owned(),
-                    room_id: room.id(),
-                    data: json!({ "key": "value" }),
-                };
+            let payload = UnicastRequest {
+                agent_id: receiver.agent_id().to_owned(),
+                room_id: room.id(),
+                data: json!({ "key": "value" }),
+            };
 
-                let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect_err("Unexpected success on unicast message sending");
+            let err = handle_request::<UnicastHandler>(&mut context, &sender, payload)
+                .await
+                .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "agent_not_entered_the_room");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
     }
 
     mod broadcast {
-        use uuid::Uuid;
-
-        use crate::app::API_VERSION;
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            app::API_VERSION,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
-        #[test]
-        fn broadcast_message() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+        #[async_std::test]
+        async fn broadcast_message() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
-                // Insert room with online agent.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        let room = shared_helpers::insert_room(&conn);
-                        let agent_factory = factory::Agent::new().room_id(room.id());
-                        agent_factory.agent_id(sender.agent_id()).insert(&conn);
-                        room
-                    })
-                    .expect("Failed to insert room");
+            // Insert room with online agent.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let room = shared_helpers::insert_room(&conn);
+                    let agent_factory = factory::Agent::new().room_id(room.id());
+                    agent_factory.agent_id(sender.agent_id()).insert(&conn);
+                    room
+                })
+                .expect("Failed to insert room");
 
-                // Make message.broadcast request.
-                let mut context = TestContext::new(db, TestAuthz::new());
+            // Make message.broadcast request.
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = BroadcastRequest {
-                    room_id: room.id(),
-                    data: json!({ "key": "value" }),
-                    label: None,
-                };
+            let payload = BroadcastRequest {
+                room_id: room.id(),
+                data: json!({ "key": "value" }),
+                label: None,
+            };
 
-                let messages = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect("Broadcast message sending failed");
+            let messages = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
+                .await
+                .expect("Broadcast message sending failed");
 
-                // Assert response.
-                let (_, respp, _) = find_response::<JsonValue>(messages.as_slice());
-                assert_eq!(respp.status(), ResponseStatus::OK);
+            // Assert response.
+            let (_, respp, _) = find_response::<JsonValue>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::OK);
 
-                // Assert broadcast event.
-                let (payload, _evp, topic) = find_event::<JsonValue>(messages.as_slice());
+            // Assert broadcast event.
+            let (payload, _evp, topic) = find_event::<JsonValue>(messages.as_slice());
 
-                let expected_topic = format!(
-                    "apps/conference.{}/api/{}/rooms/{}/events",
-                    SVC_AUDIENCE,
-                    API_VERSION,
-                    room.id(),
-                );
+            let expected_topic = format!(
+                "apps/conference.{}/api/{}/rooms/{}/events",
+                SVC_AUDIENCE,
+                API_VERSION,
+                room.id(),
+            );
 
-                assert_eq!(topic, expected_topic);
-                assert_eq!(payload, json!({"key": "value"}));
-            });
+            assert_eq!(topic, expected_topic);
+            assert_eq!(payload, json!({"key": "value"}));
         }
 
-        #[test]
-        fn broadcast_message_to_missing_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut context = TestContext::new(db, TestAuthz::new());
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+        #[async_std::test]
+        async fn broadcast_message_to_missing_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
-                let payload = BroadcastRequest {
-                    room_id: Uuid::new_v4(),
-                    data: json!({ "key": "value" }),
-                    label: None,
-                };
+            let payload = BroadcastRequest {
+                room_id: db::room::Id::random(),
+                data: json!({ "key": "value" }),
+                label: None,
+            };
 
-                let err = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect_err("Unexpected success on unicast message sending");
+            let err = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
+                .await
+                .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "room_not_found");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[test]
-        fn broadcast_message_when_not_in_the_room() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+        #[async_std::test]
+        async fn broadcast_message_when_not_in_the_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
-                // Insert room with online agent.
-                let room = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| shared_helpers::insert_room(&conn))
-                    .expect("Failed to insert room");
+            // Insert room with online agent.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| shared_helpers::insert_room(&conn))
+                .expect("Failed to insert room");
 
-                // Make message.broadcast request.
-                let mut context = TestContext::new(db, TestAuthz::new());
+            // Make message.broadcast request.
+            let mut context = TestContext::new(db, TestAuthz::new());
 
-                let payload = BroadcastRequest {
-                    room_id: room.id(),
-                    data: json!({ "key": "value" }),
-                    label: None,
-                };
+            let payload = BroadcastRequest {
+                room_id: room.id(),
+                data: json!({ "key": "value" }),
+                label: None,
+            };
 
-                let err = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
-                    .await
-                    .expect_err("Unexpected success on unicast message sending");
+            let err = handle_request::<BroadcastHandler>(&mut context, &sender, payload)
+                .await
+                .expect_err("Unexpected success on unicast message sending");
 
-                assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-                assert_eq!(err.kind(), "agent_not_entered_the_room");
-            });
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
     }
 }

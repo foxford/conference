@@ -1,41 +1,43 @@
-use std::ops::Bound;
-use std::result::Result as StdResult;
-
-use async_std::stream;
+use anyhow::anyhow;
+use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
+use std::{ops::Bound, result::Result as StdResult};
 use svc_agent::{
     mqtt::{
-        IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
-        OutgoingMessage, ShortTermTimingProperties, TrackingProperties,
+        IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
+        ShortTermTimingProperties,
     },
     AgentId,
 };
 use svc_authn::Authenticable;
-use uuid::Uuid;
 
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
-use crate::app::error::Error as AppError;
-use crate::backend::janus::requests::UploadStreamRequestBody;
-use crate::config::UploadConfig;
-use crate::db;
-use crate::db::recording::{Object as Recording, Status as RecordingStatus};
-use crate::db::room::Object as Room;
-use crate::db::rtc::SharingPolicy;
+use crate::{
+    app::{context::Context, endpoint::prelude::*, error::Error as AppError},
+    backend::janus::client::upload_stream::{
+        UploadStreamRequest, UploadStreamRequestBody, UploadStreamTransaction,
+    },
+    config::UploadConfig,
+    db,
+    db::{
+        recording::{Object as Recording, Status as RecordingStatus},
+        room::Object as Room,
+        rtc::SharingPolicy,
+    },
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Serialize)]
-pub(crate) struct RoomUploadEventData {
-    id: Uuid,
+pub struct RoomUploadEventData {
+    id: db::room::Id,
     rtcs: Vec<RtcUploadEventData>,
 }
 
 #[derive(Debug, Serialize)]
 struct RtcUploadEventData {
-    id: Uuid,
+    id: db::rtc::Id,
     status: RecordingStatus,
     #[serde(
         serialize_with = "crate::serde::milliseconds_bound_tuples_option",
@@ -53,19 +55,19 @@ struct RtcUploadEventData {
     mjr_dumps_uris: Option<Vec<String>>,
 }
 
-pub(crate) type RoomUploadEvent = OutgoingMessage<RoomUploadEventData>;
+pub type RoomUploadEvent = OutgoingMessage<RoomUploadEventData>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Serialize)]
 struct ClosedRoomNotification {
-    room_id: Uuid,
+    room_id: db::room::Id,
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct VacuumRequest {}
+pub struct VacuumRequest {}
 
-pub(crate) struct VacuumHandler;
+pub struct VacuumHandler;
 
 #[async_trait]
 impl RequestHandler for VacuumHandler {
@@ -86,36 +88,44 @@ impl RequestHandler for VacuumHandler {
             .await?;
 
         let mut requests = Vec::new();
-        let conn = context.get_conn()?;
-        let rooms = db::room::finished_with_in_progress_recordings(&conn)?;
+        let conn = context.get_conn().await?;
+        let rooms =
+            task::spawn_blocking(move || db::room::finished_with_in_progress_recordings(&conn))
+                .await?;
 
         for (room, recording, backend) in rooms.into_iter() {
-            db::agent::DeleteQuery::new()
-                .room_id(room.id())
-                .execute(&conn)?;
+            let conn = context.get_conn().await?;
+            let room_id = room.id();
+            task::spawn_blocking(move || {
+                db::agent::DeleteQuery::new()
+                    .room_id(room_id)
+                    .execute(&conn)
+            })
+            .await?;
 
             let config = upload_config(context, &room)?;
-
+            let request = UploadStreamRequest {
+                body: UploadStreamRequestBody::new(
+                    recording.rtc_id(),
+                    &config.backend,
+                    &config.bucket,
+                    &record_name(&recording, &room),
+                ),
+                handle_id: backend.handle_id(),
+                session_id: backend.session_id(),
+            };
+            let transaction = UploadStreamTransaction {
+                rtc_id: recording.rtc_id(),
+                start_timestamp: context.start_timestamp(),
+            };
             // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
-            let backreq = context
-                .janus_client()
-                .upload_stream_request(
-                    reqp,
-                    backend.session_id(),
-                    backend.handle_id(),
-                    UploadStreamRequestBody::new(
-                        recording.rtc_id(),
-                        &config.backend,
-                        &config.bucket,
-                        &record_name(&recording, &room),
-                    ),
-                    backend.id(),
-                    context.start_timestamp(),
-                )
-                .map_err(|err| err.context("Error creating a backend request"))
-                .error(AppErrorKind::MessageBuildingFailed)?;
-
-            requests.push(Box::new(backreq) as Box<dyn IntoPublishableMessage + Send>);
+            context
+                .janus_clients()
+                .get_or_insert(&backend)
+                .error(AppErrorKind::BackendClientCreationFailed)?
+                .upload_stream(request, transaction)
+                .await
+                .error(AppErrorKind::BackendRequestFailed)?;
 
             // Publish room closed notification
             let closed_notification = helpers::build_notification(
@@ -135,11 +145,10 @@ impl RequestHandler for VacuumHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn upload_event<C: Context, I>(
+pub fn upload_event<C: Context, I>(
     context: &C,
     room: &db::room::Object,
     recordings: I,
-    tracking: &TrackingProperties,
 ) -> StdResult<RoomUploadEvent, AppError>
 where
     I: Iterator<Item = (db::recording::Object, db::rtc::Object)>,
@@ -179,8 +188,7 @@ where
 
     let uri = format!("audiences/{}/events", room.audience());
     let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
-    let mut props = OutgoingEventProperties::new("room.upload", timing);
-    props.set_tracking(tracking.to_owned());
+    let props = OutgoingEventProperties::new("room.upload", timing);
 
     let event = RoomUploadEventData {
         id: room.id(),
@@ -231,170 +239,119 @@ fn record_name(recording: &Recording, room: &Room) -> String {
 #[cfg(test)]
 mod test {
     mod vacuum {
-        use diesel::prelude::*;
-        use serde_json::Value as JsonValue;
         use svc_agent::mqtt::ResponseStatus;
 
-        use crate::backend::janus::JANUS_API_VERSION;
-        use crate::test_helpers::prelude::*;
-        use crate::test_helpers::{find_event_by_predicate, find_request_by_predicate};
+        use crate::{
+            backend::janus::client::{
+                events::EventResponse, transactions::Transaction, IncomingEvent,
+            },
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
-        #[derive(Debug, PartialEq, Deserialize)]
-        struct VacuumJanusRequest {
-            janus: String,
-            session_id: i64,
-            handle_id: i64,
-            body: VacuumJanusRequestBody,
-        }
+        #[async_std::test]
+        async fn vacuum_system() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+            let mut authz = TestAuthz::new();
+            authz.set_audience(SVC_AUDIENCE);
 
-        #[derive(Debug, PartialEq, Deserialize)]
-        struct VacuumJanusRequestBody {
-            method: String,
-            id: Uuid,
-            backend: String,
-            bucket: String,
-            object: String,
-        }
+            let (rtcs, backend) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    // Insert janus backend and rooms.
+                    let backend = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
 
-        #[test]
-        fn vacuum_system() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-                authz.set_audience(SVC_AUDIENCE);
+                    let room1 =
+                        shared_helpers::insert_closed_room_with_backend_id(&conn, &backend.id());
 
-                let (rtcs, backend) = db
-                    .connection_pool()
-                    .get()
-                    .map(|conn| {
-                        // Insert janus backend and rooms.
-                        let backend = shared_helpers::insert_janus_backend(&conn);
+                    let room2 =
+                        shared_helpers::insert_closed_room_with_backend_id(&conn, &backend.id());
 
-                        let room1 = shared_helpers::insert_closed_room_with_backend_id(
-                            &conn,
-                            &backend.id(),
-                        );
+                    // Insert rtcs.
+                    let rtcs = vec![
+                        shared_helpers::insert_rtc_with_room(&conn, &room1),
+                        shared_helpers::insert_rtc_with_room(&conn, &room2),
+                    ];
 
-                        let room2 = shared_helpers::insert_closed_room_with_backend_id(
-                            &conn,
-                            &backend.id(),
-                        );
+                    let _other_rtc = shared_helpers::insert_rtc(&conn);
 
-                        // Insert rtcs.
-                        let rtcs = vec![
-                            shared_helpers::insert_rtc_with_room(&conn, &room1),
-                            shared_helpers::insert_rtc_with_room(&conn, &room2),
-                        ];
+                    // Insert active agents.
+                    let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                        let _other_rtc = shared_helpers::insert_rtc(&conn);
+                    for rtc in rtcs.iter() {
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), rtc.room_id());
+                        shared_helpers::insert_recording(&conn, rtc);
+                    }
 
-                        // Insert active agents.
-                        let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-
-                        for rtc in rtcs.iter() {
-                            shared_helpers::insert_agent(&conn, agent.agent_id(), rtc.room_id());
-                            shared_helpers::insert_recording(&conn, rtc);
-                        }
-
-                        (rtcs, backend)
-                    })
-                    .unwrap();
-
-                // Allow cron to perform vacuum.
-                let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
-                authz.allow(agent.account_id(), vec!["system"], "update");
-
-                // Make system.vacuum request.
-                let mut context = TestContext::new(db, authz);
-                let payload = VacuumRequest {};
-
-                let messages = handle_request::<VacuumHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("System vacuum failed");
-
-                assert!(messages.len() > 0);
-
-                let conn = context.get_conn().unwrap();
-
-                for rtc in rtcs {
-                    // Assert outgoing Janus stream.upload requests.
-                    let (payload, _, topic) = find_request_by_predicate::<VacuumJanusRequest, _>(
-                        &messages,
-                        |_reqp, p| p.body.method == "stream.upload" && p.body.id == rtc.id(),
+                    (
+                        rtcs.into_iter().map(|x| x.id()).collect::<Vec<_>>(),
+                        backend,
                     )
-                    .expect("Failed to find stream.upload message for rtc");
+                })
+                .unwrap();
 
-                    assert_eq!(
-                        topic,
-                        format!(
-                            "agents/{}/api/{}/in/conference.{}",
-                            backend.id(),
-                            JANUS_API_VERSION,
-                            SVC_AUDIENCE,
-                        )
-                    );
+            // Allow cron to perform vacuum.
+            let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
+            authz.allow(agent.account_id(), vec!["system"], "update");
 
-                    assert_eq!(
-                        payload,
-                        VacuumJanusRequest {
-                            janus: "message".to_string(),
-                            session_id: backend.session_id(),
-                            handle_id: backend.handle_id(),
-                            body: VacuumJanusRequestBody {
-                                method: "stream.upload".to_string(),
-                                id: rtc.id(),
-                                backend: String::from("EXAMPLE"),
-                                bucket: format!("origin.webinar.{}", USR_AUDIENCE).to_string(),
-                                object: format!("{}.source.webm", rtc.id()).to_string(),
-                            }
-                        }
-                    );
+            // Make system.vacuum request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, rx) = async_std::channel::unbounded();
+            context.with_janus(tx.clone());
 
-                    // Assert deleted active agents.
-                    let query = crate::schema::agent::table
-                        .filter(crate::schema::agent::room_id.eq(rtc.room_id()));
+            let payload = VacuumRequest {};
 
-                    assert_eq!(query.execute(&conn).unwrap(), 0);
+            let messages = handle_request::<VacuumHandler>(&mut context, &agent, payload)
+                .await
+                .expect("System vacuum failed");
+            context.janus_clients().remove_client(backend.id());
+            let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().await.unwrap(), rx.recv().await.unwrap()]
+                .iter()
+                .map(|resp| match resp {
+                    IncomingEvent::Event(EventResponse {
+                        transaction:
+                            Transaction::UploadStream(UploadStreamTransaction {
+                                rtc_id,
+                                start_timestamp: _start_timestamp,
+                            }),
+                        ..
+                    }) => *rtc_id,
+                    _ => panic!("Got wrong event"),
+                })
+                .collect();
 
-                    // Assert recording in `in_progress` status.
-                    let recording = crate::schema::recording::table
-                        .filter(crate::schema::recording::rtc_id.eq(rtc.id()))
-                        .get_result::<crate::db::recording::Object>(&conn)
-                        .expect("Failed to get recording from the DB");
-
-                    assert_eq!(recording.status(), &RecordingStatus::InProgress);
-
-                    find_event_by_predicate::<JsonValue, _>(&messages, |evp, p, _| {
-                        evp.label() == "room.close"
-                            && p.get("id").and_then(|v| v.as_str())
-                                == Some(rtc.room_id().to_string()).as_deref()
-                    })
-                    .expect("Failed to find room.close event for given rtc");
-                }
-            });
+            assert!(tx.is_empty());
+            assert!(messages.len() > 0);
+            assert_eq!(recv_rtcs, rtcs);
         }
 
-        #[test]
-        fn vacuum_system_unauthorized() {
-            async_std::task::block_on(async {
-                let db = TestDb::new();
-                let mut authz = TestAuthz::new();
-                authz.set_audience(SVC_AUDIENCE);
+        #[async_std::test]
+        async fn vacuum_system_unauthorized() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let mut authz = TestAuthz::new();
+            authz.set_audience(SVC_AUDIENCE);
 
-                // Make system.vacuum request.
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                let mut context = TestContext::new(db, authz);
-                let payload = VacuumRequest {};
+            // Make system.vacuum request.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, authz);
+            let payload = VacuumRequest {};
 
-                let err = handle_request::<VacuumHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect_err("Unexpected success on system vacuum");
+            let err = handle_request::<VacuumHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on system vacuum");
 
-                assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-                assert_eq!(err.kind(), "access_denied");
-            })
+            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+            assert_eq!(err.kind(), "access_denied");
         }
     }
 }

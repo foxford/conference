@@ -1,26 +1,28 @@
 use std::result::Result as StdResult;
 
+pub(self) use crate::app::message_handler::MessageStream;
+use crate::{
+    app::{
+        context::Context,
+        error::Error as AppError,
+        message_handler::{EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler},
+    },
+    backend::janus,
+};
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
+use slog::warn;
 use svc_agent::mqtt::{
     IncomingEvent, IncomingEventProperties, IncomingRequest, IncomingRequestProperties,
     IncomingResponse, IncomingResponseProperties,
 };
 
-use crate::app::context::Context;
-use crate::app::error::Error as AppError;
-pub(self) use crate::app::message_handler::MessageStream;
-use crate::app::message_handler::{
-    EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler,
-};
-use crate::backend::janus;
-
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) type Result = StdResult<MessageStream, AppError>;
+pub type Result = StdResult<MessageStream, AppError>;
 
 #[async_trait]
-pub(crate) trait RequestHandler {
+pub trait RequestHandler {
     type Payload: Send + DeserializeOwned;
     const ERROR_TITLE: &'static str;
 
@@ -33,7 +35,7 @@ pub(crate) trait RequestHandler {
 
 macro_rules! request_routes {
     ($($m: pat => $h: ty),*) => {
-        pub(crate) async fn route_request<C: Context>(
+        pub async fn route_request<C: Context>(
             context: &mut C,
             request: &IncomingRequest<String>,
             _topic: &str,
@@ -73,17 +75,17 @@ request_routes!(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) enum CorrelationData {
+pub enum CorrelationData {
     SubscriptionCreate(subscription::CorrelationDataPayload),
     SubscriptionDelete(subscription::CorrelationDataPayload),
     MessageUnicast(message::CorrelationDataPayload),
 }
 
 #[async_trait]
-pub(crate) trait ResponseHandler {
+pub trait ResponseHandler {
     type Payload: Send + DeserializeOwned;
     type CorrelationData: Sync;
 
@@ -98,31 +100,26 @@ pub(crate) trait ResponseHandler {
 macro_rules! response_routes {
     ($($c: tt => $h: ty),*) => {
         #[allow(unused_variables)]
-        pub(crate) async fn route_response<C: Context>(
+        pub async fn route_response<C: Context>(
             context: &mut C,
             response: &IncomingResponse<String>,
             corr_data: &str,
             topic: &str,
         ) -> MessageStream {
-            // TODO: Refactor janus response handler to use common pattern.
-            if topic == context.janus_topics().responses_topic() {
-                janus::handle_response::<C>(context, response).await
-            } else {
-                let corr_data = match CorrelationData::parse(corr_data) {
-                    Ok(corr_data) => corr_data,
-                    Err(err) => {
-                        warn!(
-                            context.logger(),
-                            "Failed to parse response correlation data '{}': {}", corr_data, err
-                        );
-                        return Box::new(async_std::stream::empty()) as MessageStream;
-                    }
-                };
-                match corr_data {
-                    $(
-                        CorrelationData::$c(cd) => <$h>::handle_envelope::<C>(context, response, &cd).await,
-                    )*
+            let corr_data = match CorrelationData::parse(corr_data) {
+                Ok(corr_data) => corr_data,
+                Err(err) => {
+                    warn!(
+                        context.logger(),
+                        "Failed to parse response correlation data '{}': {:?}", corr_data, err
+                    );
+                    return Box::new(async_std::stream::empty()) as MessageStream;
                 }
+            };
+            match corr_data {
+                $(
+                    CorrelationData::$c(cd) => <$h>::handle_envelope::<C>(context, response, &cd).await,
+                )*
             }
         }
     }
@@ -137,7 +134,7 @@ response_routes!(
 ///////////////////////////////////////////////////////////////////////////////
 
 #[async_trait]
-pub(crate) trait EventHandler {
+pub trait EventHandler {
     type Payload: Send + DeserializeOwned;
 
     async fn handle<C: Context>(
@@ -150,14 +147,12 @@ pub(crate) trait EventHandler {
 macro_rules! event_routes {
     ($($l: pat => $h: ty),*) => {
         #[allow(unused_variables)]
-        pub(crate) async fn route_event<C: Context>(
+        pub async fn route_event<C: Context>(
             context: &mut C,
             event: &IncomingEvent<String>,
             topic: &str,
         ) -> Option<MessageStream> {
-            if topic == context.janus_topics().events_topic() {
-                Some(janus::handle_event::<C>(context, event).await)
-            } else if topic == context.janus_topics().status_events_topic() {
+            if topic == context.janus_topics().status_events_topic() {
                 Some(janus::handle_status_event::<C>(context, event).await)
             } else {
                 match event.properties().label() {
@@ -171,10 +166,29 @@ macro_rules! event_routes {
     }
 }
 
+pub(crate) struct PullHandler;
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct PullPayload {
+    duration: Option<u64>,
+}
+
+#[async_trait]
+impl EventHandler for PullHandler {
+    type Payload = PullPayload;
+
+    async fn handle<C: Context>(
+        _context: &mut C,
+        _payload: Self::Payload,
+        _evp: &IncomingEventProperties,
+    ) -> Result {
+        Ok(Box::new(async_std::stream::empty()))
+    }
+}
 // Event routes configuration: label => EventHandler
 event_routes!(
-    "metric.pull" => metric::PullHandler,
-    "subscription.delete" => subscription::DeleteEventHandler
+    "subscription.delete" => subscription::DeleteEventHandler,
+    "metric.pull" => PullHandler
 );
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -182,18 +196,19 @@ event_routes!(
 mod agent;
 mod agent_reader_config;
 mod agent_writer_config;
-pub(crate) mod helpers;
+pub mod helpers;
 mod message;
-mod metric;
 mod room;
-pub(crate) mod rtc;
-pub(crate) mod rtc_signal;
-pub(crate) mod rtc_stream;
+pub mod rtc;
+pub mod rtc_signal;
+pub mod rtc_stream;
 mod subscription;
-pub(crate) mod system;
+pub mod system;
 
 pub(self) mod prelude {
     pub(super) use super::{helpers, EventHandler, RequestHandler, ResponseHandler, Result};
-    pub(super) use crate::app::endpoint::CorrelationData;
-    pub(super) use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
+    pub(super) use crate::app::{
+        endpoint::CorrelationData,
+        error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
+    };
 }

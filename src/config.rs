@@ -1,40 +1,40 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use svc_agent::{mqtt::AgentConfig, AccountId};
 use svc_authn::jose::Algorithm;
 use svc_authz::ConfigMap as Authz;
 use svc_error::extension::sentry::Config as SentryConfig;
 
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct Config {
-    pub(crate) id: AccountId,
-    pub(crate) id_token: JwtConfig,
-    pub(crate) agent_label: String,
-    pub(crate) broker_id: AccountId,
-    pub(crate) authz: Authz,
-    pub(crate) mqtt: AgentConfig,
-    pub(crate) sentry: Option<SentryConfig>,
-    pub(crate) backend: BackendConfig,
-    pub(crate) upload: UploadConfigs,
+pub struct Config {
+    pub id: AccountId,
+    pub id_token: JwtConfig,
+    pub agent_label: String,
+    pub broker_id: AccountId,
+    pub authz: Authz,
+    pub mqtt: AgentConfig,
+    pub sentry: Option<SentryConfig>,
+    pub backend: BackendConfig,
+    pub upload: UploadConfigs,
     #[serde(default)]
-    pub(crate) telemetry: TelemetryConfig,
+    pub telemetry: TelemetryConfig,
     #[serde(default)]
-    pub(crate) kruonis: KruonisConfig,
-    pub(crate) metrics: Option<MetricsConfig>,
-    pub(crate) max_room_duration: Option<i64>,
-    pub(crate) janus_group: Option<String>,
+    pub kruonis: KruonisConfig,
+    pub metrics: MetricsConfig,
+    pub max_room_duration: Option<i64>,
+    pub janus_group: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct JwtConfig {
+pub struct JwtConfig {
     #[serde(deserialize_with = "svc_authn::serde::algorithm")]
-    pub(crate) algorithm: Algorithm,
+    pub algorithm: Algorithm,
     #[serde(deserialize_with = "svc_authn::serde::file")]
-    pub(crate) key: Vec<u8>,
+    pub key: Vec<u8>,
 }
 
-pub(crate) fn load() -> Result<Config, config::ConfigError> {
+pub fn load() -> Result<Config, config::ConfigError> {
     let mut parser = config::Config::default();
     parser.merge(config::File::with_name("App"))?;
     parser.merge(config::Environment::with_prefix("APP").separator("__"))?;
@@ -42,40 +42,42 @@ pub(crate) fn load() -> Result<Config, config::ConfigError> {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct BackendConfig {
-    pub(crate) id: AccountId,
-    pub(crate) default_timeout: u64,
-    pub(crate) stream_upload_timeout: u64,
-    pub(crate) transaction_watchdog_check_period: u64,
+pub struct BackendConfig {
+    pub id: AccountId,
+    pub default_timeout: u64,
+    pub stream_upload_timeout: u64,
+    pub transaction_watchdog_check_period: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct UploadConfigs {
-    pub(crate) shared: UploadConfigMap,
-    pub(crate) owned: UploadConfigMap,
+pub struct UploadConfigs {
+    pub shared: UploadConfigMap,
+    pub owned: UploadConfigMap,
 }
 
-pub(crate) type UploadConfigMap = HashMap<String, UploadConfig>;
+pub type UploadConfigMap = HashMap<String, UploadConfig>;
 
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct UploadConfig {
-    pub(crate) backend: String,
-    pub(crate) bucket: String,
+pub struct UploadConfig {
+    pub backend: String,
+    pub bucket: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub(crate) struct TelemetryConfig {
-    pub(crate) id: Option<AccountId>,
+pub struct TelemetryConfig {
+    pub id: Option<AccountId>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub(crate) struct KruonisConfig {
-    pub(crate) id: Option<AccountId>,
+pub struct KruonisConfig {
+    pub id: Option<AccountId>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct MetricsConfig {
     pub http: MetricsHttpConfig,
+    #[serde(with = "humantime_serde")]
+    pub janus_metrics_collect_interval: Duration,
 }
 
 #[derive(Clone, Debug, Deserialize)]

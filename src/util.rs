@@ -1,7 +1,6 @@
 use anyhow::Result;
-use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
-pub(crate) fn to_base64<T>(val: &T) -> Result<String>
+pub fn to_base64<T>(val: &T) -> Result<String>
 where
     T: serde::Serialize,
 {
@@ -10,7 +9,7 @@ where
     Ok(b)
 }
 
-pub(crate) fn from_base64<T>(val: &str) -> Result<T>
+pub fn from_base64<T>(val: &str) -> Result<T>
 where
     T: serde::de::DeserializeOwned,
 {
@@ -18,13 +17,4 @@ where
     let s = std::str::from_utf8(a.as_slice())?;
     let r = serde_json::from_str::<T>(s)?;
     Ok(r)
-}
-
-const CORRELATION_DATA_LENGTH: usize = 16;
-
-pub(crate) fn generate_correlation_data() -> String {
-    thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(CORRELATION_DATA_LENGTH)
-        .collect()
 }

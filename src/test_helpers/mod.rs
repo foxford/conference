@@ -8,24 +8,28 @@ use svc_agent::{
 };
 use uuid::Uuid;
 
-use crate::app::endpoint::{EventHandler, RequestHandler, ResponseHandler};
-use crate::app::error::Error as AppError;
-use crate::app::message_handler::MessageStream;
-use crate::app::API_VERSION;
+use crate::app::{
+    endpoint::{EventHandler, RequestHandler, ResponseHandler},
+    error::Error as AppError,
+    message_handler::MessageStream,
+    API_VERSION,
+};
 
-use self::agent::TestAgent;
-use self::context::TestContext;
-use self::outgoing_envelope::{
-    OutgoingEnvelope, OutgoingEnvelopeProperties, OutgoingEventProperties,
-    OutgoingRequestProperties, OutgoingResponseProperties,
+use self::{
+    agent::TestAgent,
+    context::TestContext,
+    outgoing_envelope::{
+        OutgoingEnvelope, OutgoingEnvelopeProperties, OutgoingEventProperties,
+        OutgoingRequestProperties, OutgoingResponseProperties,
+    },
 };
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) const SVC_AUDIENCE: &'static str = "dev.svc.example.org";
-pub(crate) const USR_AUDIENCE: &'static str = "dev.usr.example.org";
+pub const SVC_AUDIENCE: &'static str = "dev.svc.example.org";
+pub const USR_AUDIENCE: &'static str = "dev.usr.example.org";
 
-pub(crate) async fn handle_request<H: RequestHandler>(
+pub async fn handle_request<H: RequestHandler>(
     context: &mut TestContext,
     agent: &TestAgent,
     payload: H::Payload,
@@ -35,7 +39,7 @@ pub(crate) async fn handle_request<H: RequestHandler>(
     Ok(parse_messages(messages).await)
 }
 
-pub(crate) async fn handle_response<H: ResponseHandler>(
+pub async fn handle_response<H: ResponseHandler>(
     context: &mut TestContext,
     agent: &TestAgent,
     payload: H::Payload,
@@ -46,7 +50,7 @@ pub(crate) async fn handle_response<H: ResponseHandler>(
     Ok(parse_messages(messages).await)
 }
 
-pub(crate) async fn handle_event<H: EventHandler>(
+pub async fn handle_event<H: EventHandler>(
     context: &mut TestContext,
     agent: &TestAgent,
     payload: H::Payload,
@@ -74,7 +78,7 @@ async fn parse_messages(mut messages: MessageStream) -> Vec<OutgoingEnvelope> {
     parsed_messages
 }
 
-pub(crate) fn find_event<P>(messages: &[OutgoingEnvelope]) -> (P, &OutgoingEventProperties, &str)
+pub fn find_event<P>(messages: &[OutgoingEnvelope]) -> (P, &OutgoingEventProperties, &str)
 where
     P: DeserializeOwned,
 {
@@ -87,7 +91,7 @@ where
     panic!("Event not found");
 }
 
-pub(crate) fn find_event_by_predicate<P, F>(
+pub fn find_event_by_predicate<P, F>(
     messages: &[OutgoingEnvelope],
     f: F,
 ) -> Option<(P, &OutgoingEventProperties, &str)>
@@ -106,9 +110,7 @@ where
     return None;
 }
 
-pub(crate) fn find_response<P>(
-    messages: &[OutgoingEnvelope],
-) -> (P, &OutgoingResponseProperties, &str)
+pub fn find_response<P>(messages: &[OutgoingEnvelope]) -> (P, &OutgoingResponseProperties, &str)
 where
     P: DeserializeOwned,
 {
@@ -121,9 +123,7 @@ where
     panic!("Response not found");
 }
 
-pub(crate) fn find_request<P>(
-    messages: &[OutgoingEnvelope],
-) -> (P, &OutgoingRequestProperties, &str)
+pub fn find_request<P>(messages: &[OutgoingEnvelope]) -> (P, &OutgoingRequestProperties, &str)
 where
     P: DeserializeOwned,
 {
@@ -136,26 +136,7 @@ where
     panic!("Request not found");
 }
 
-pub(crate) fn find_request_by_predicate<P, F>(
-    messages: &[OutgoingEnvelope],
-    f: F,
-) -> Option<(P, &OutgoingRequestProperties, &str)>
-where
-    P: DeserializeOwned,
-    F: Fn(&OutgoingRequestProperties, P) -> bool,
-{
-    for message in messages {
-        if let OutgoingEnvelopeProperties::Request(reqp) = message.properties() {
-            if f(reqp, message.payload::<P>()) {
-                return Some((message.payload::<P>(), reqp, message.topic()));
-            }
-        }
-    }
-
-    None
-}
-
-pub(crate) fn build_reqp(agent_id: &AgentId, method: &str) -> IncomingRequestProperties {
+pub fn build_reqp(agent_id: &AgentId, method: &str) -> IncomingRequestProperties {
     let now = Utc::now().timestamp_millis().to_string();
 
     let reqp_json = json!({
@@ -183,7 +164,7 @@ pub(crate) fn build_reqp(agent_id: &AgentId, method: &str) -> IncomingRequestPro
     serde_json::from_value::<IncomingRequestProperties>(reqp_json).expect("Failed to parse reqp")
 }
 
-pub(crate) fn build_respp(agent_id: &AgentId) -> IncomingResponseProperties {
+pub fn build_respp(agent_id: &AgentId) -> IncomingResponseProperties {
     let now = Utc::now().timestamp_millis().to_string();
 
     let respp_json = json!({
@@ -207,7 +188,7 @@ pub(crate) fn build_respp(agent_id: &AgentId) -> IncomingResponseProperties {
     serde_json::from_value::<IncomingResponseProperties>(respp_json).expect("Failed to parse respp")
 }
 
-pub(crate) fn build_evp(agent_id: &AgentId, label: &str) -> IncomingEventProperties {
+pub fn build_evp(agent_id: &AgentId, label: &str) -> IncomingEventProperties {
     let now = Utc::now().timestamp_millis().to_string();
 
     let evp_json = json!({
@@ -232,22 +213,23 @@ pub(crate) fn build_evp(agent_id: &AgentId, label: &str) -> IncomingEventPropert
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub(crate) mod prelude {
+pub mod prelude {
     #[allow(unused_imports)]
-    pub(crate) use crate::app::context::GlobalContext;
+    pub use crate::app::context::GlobalContext;
 
     #[allow(unused_imports)]
-    pub(crate) use super::{
+    pub use super::{
         agent::TestAgent, authz::TestAuthz, build_evp, build_reqp, build_respp,
         context::TestContext, db::TestDb, factory, find_event, find_request, find_response,
         handle_event, handle_request, handle_response, shared_helpers, SVC_AUDIENCE, USR_AUDIENCE,
     };
 }
 
-pub(crate) mod agent;
-pub(crate) mod authz;
-pub(crate) mod context;
-pub(crate) mod db;
-pub(crate) mod factory;
-pub(crate) mod outgoing_envelope;
-pub(crate) mod shared_helpers;
+pub mod agent;
+pub mod authz;
+pub mod context;
+pub mod db;
+pub mod factory;
+pub mod outgoing_envelope;
+pub mod shared_helpers;
+pub mod test_deps;

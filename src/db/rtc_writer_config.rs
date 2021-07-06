@@ -1,9 +1,11 @@
 use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
-use uuid::Uuid;
 
-use crate::db::rtc::Object as Rtc;
-use crate::schema::{rtc, rtc_writer_config};
+use crate::{
+    db,
+    db::rtc::Object as Rtc,
+    schema::{rtc, rtc_writer_config},
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -29,8 +31,8 @@ const ALL_COLUMNS: AllColumns = (
 #[belongs_to(Rtc, foreign_key = "rtc_id")]
 #[table_name = "rtc_writer_config"]
 #[primary_key(rtc_id)]
-pub(crate) struct Object {
-    rtc_id: Uuid,
+pub struct Object {
+    rtc_id: db::rtc::Id,
     send_video: bool,
     send_audio: bool,
     video_remb: Option<i64>,
@@ -38,19 +40,19 @@ pub(crate) struct Object {
 }
 
 impl Object {
-    pub(crate) fn send_video(&self) -> bool {
+    pub fn send_video(&self) -> bool {
         self.send_video
     }
 
-    pub(crate) fn send_audio(&self) -> bool {
+    pub fn send_audio(&self) -> bool {
         self.send_audio
     }
 
-    pub(crate) fn video_remb(&self) -> Option<i64> {
+    pub fn video_remb(&self) -> Option<i64> {
         self.video_remb
     }
 
-    pub(crate) fn send_audio_updated_by(&self) -> Option<&AgentId> {
+    pub fn send_audio_updated_by(&self) -> Option<&AgentId> {
         self.send_audio_updated_by.as_ref()
     }
 }
@@ -58,16 +60,16 @@ impl Object {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
-pub(crate) struct ListWithRtcQuery {
-    room_id: Uuid,
+pub struct ListWithRtcQuery {
+    room_id: db::room::Id,
 }
 
 impl ListWithRtcQuery {
-    pub(crate) fn new(room_id: Uuid) -> Self {
+    pub fn new(room_id: db::room::Id) -> Self {
         Self { room_id }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Rtc)>, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Rtc)>, Error> {
         use diesel::prelude::*;
 
         rtc_writer_config::table
@@ -80,10 +82,10 @@ impl ListWithRtcQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Debug, Default, Insertable, AsChangeset)]
+#[derive(Clone, Debug, Insertable, AsChangeset)]
 #[table_name = "rtc_writer_config"]
-pub(crate) struct UpsertQuery<'a> {
-    rtc_id: Uuid,
+pub struct UpsertQuery<'a> {
+    rtc_id: db::rtc::Id,
     send_video: Option<bool>,
     send_audio: Option<bool>,
     video_remb: Option<i64>,
@@ -91,42 +93,45 @@ pub(crate) struct UpsertQuery<'a> {
 }
 
 impl<'a> UpsertQuery<'a> {
-    pub(crate) fn new(rtc_id: Uuid) -> Self {
+    pub fn new(rtc_id: db::rtc::Id) -> Self {
         Self {
             rtc_id,
-            ..Default::default()
+            send_audio: Default::default(),
+            send_audio_updated_by: Default::default(),
+            send_video: Default::default(),
+            video_remb: Default::default(),
         }
     }
 
-    pub(crate) fn send_video(self, send_video: bool) -> Self {
+    pub fn send_video(self, send_video: bool) -> Self {
         Self {
             send_video: Some(send_video),
             ..self
         }
     }
 
-    pub(crate) fn send_audio(self, send_audio: bool) -> Self {
+    pub fn send_audio(self, send_audio: bool) -> Self {
         Self {
             send_audio: Some(send_audio),
             ..self
         }
     }
 
-    pub(crate) fn video_remb(self, video_remb: i64) -> Self {
+    pub fn video_remb(self, video_remb: i64) -> Self {
         Self {
             video_remb: Some(video_remb),
             ..self
         }
     }
 
-    pub(crate) fn send_audio_updated_by(self, send_audio_updated_by: &'a AgentId) -> Self {
+    pub fn send_audio_updated_by(self, send_audio_updated_by: &'a AgentId) -> Self {
         Self {
             send_audio_updated_by: Some(send_audio_updated_by),
             ..self
         }
     }
 
-    pub(crate) fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use diesel::prelude::*;
 
         let mut insert_values = self.clone();

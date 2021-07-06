@@ -1,35 +1,38 @@
 use std::collections::HashMap;
 
-use async_std::stream;
+use crate::{
+    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    backend::janus::client::update_agent_reader_config::{
+        UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
+        UpdateReaderConfigRequestBodyConfigItem,
+    },
+    db,
+    db::{rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},
+    diesel::Connection,
+};
+use anyhow::{anyhow, Context as AnyhowContext};
+use async_std::{stream, task};
 use async_trait::async_trait;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
     Addressable, AgentId,
 };
-use uuid::Uuid;
-
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
-use crate::db;
-use crate::db::rtc::Object as Rtc;
-use crate::db::rtc_reader_config::Object as RtcReaderConfig;
-use crate::diesel::Connection;
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct State {
-    room_id: Uuid,
+pub struct State {
+    room_id: db::room::Id,
     configs: Vec<StateConfigItem>,
 }
 
 impl State {
-    fn new(room_id: Uuid, rtc_reader_configs: &[(RtcReaderConfig, Rtc)]) -> State {
+    fn new(room_id: db::room::Id, rtc_reader_configs: &[(RtcReaderConfig, Rtc)]) -> State {
         let configs = rtc_reader_configs
-            .into_iter()
+            .iter()
             .map(|(rtc_reader_config, rtc)| {
                 StateConfigItem::new(rtc.created_by().to_owned())
                     .receive_video(rtc_reader_config.receive_video())
@@ -42,7 +45,7 @@ impl State {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct StateConfigItem {
+pub struct StateConfigItem {
     agent_id: AgentId,
     receive_video: Option<bool>,
     receive_audio: Option<bool>,
@@ -74,7 +77,7 @@ impl StateConfigItem {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct UpdateHandler;
+pub struct UpdateHandler;
 
 #[async_trait]
 impl RequestHandler for UpdateHandler {
@@ -91,71 +94,113 @@ impl RequestHandler for UpdateHandler {
                 .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let conn = context.get_conn()?;
+        let conn = context.get_conn().await?;
+        let (room, rtc_reader_configs_with_rtcs, maybe_backend) = task::spawn_blocking({
+            let agent_id = reqp.as_agent_id().clone();
+            move || {
+                let room = helpers::find_room_by_id(
+                    payload.room_id,
+                    helpers::RoomTimeRequirement::Open,
+                    &conn,
+                )?;
 
-        let room = helpers::find_room_by_id(
-            context,
-            payload.room_id,
-            helpers::RoomTimeRequirement::Open,
-            &conn,
-        )?;
-
-        if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-            return Err(anyhow!(
-                "Agent reader config is available only for rooms with owned RTC sharing policy"
-            ))
-            .error(AppErrorKind::InvalidPayload)?;
-        }
-
-        helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
-
-        let rtc_reader_configs_with_rtcs = conn.transaction::<_, AppError, _>(|| {
-            // Find RTCs owned by agents.
-            let agent_ids = payload
-                .configs
-                .iter()
-                .map(|c| &c.agent_id)
-                .collect::<Vec<_>>();
-
-            let rtcs = db::rtc::ListQuery::new()
-                .room_id(room.id())
-                .created_by(agent_ids.as_slice())
-                .execute(&conn)?;
-
-            let agents_to_rtcs = rtcs
-                .iter()
-                .map(|rtc| (rtc.created_by(), rtc.id()))
-                .collect::<HashMap<_, _>>();
-
-            // Create or update the config.
-            for state_config_item in payload.configs {
-                let rtc_id = agents_to_rtcs
-                    .get(&state_config_item.agent_id)
-                    .ok_or_else(|| anyhow!("{} has no owned RTC", state_config_item.agent_id))
+                if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+                    return Err(anyhow!(
+                    "Agent reader config is available only for rooms with owned RTC sharing policy"
+                ))
                     .error(AppErrorKind::InvalidPayload)?;
-
-                let mut q = db::rtc_reader_config::UpsertQuery::new(*rtc_id, reqp.as_agent_id());
-
-                if let Some(receive_video) = state_config_item.receive_video {
-                    q = q.receive_video(receive_video);
                 }
 
-                if let Some(receive_audio) = state_config_item.receive_audio {
-                    q = q.receive_audio(receive_audio);
-                }
+                helpers::check_room_presence(&room, &agent_id, &conn)?;
 
-                q.execute(&conn)?;
+                let rtc_reader_configs_with_rtcs = conn.transaction::<_, AppError, _>(|| {
+                    // Find RTCs owned by agents.
+                    let agent_ids = payload
+                        .configs
+                        .iter()
+                        .map(|c| &c.agent_id)
+                        .collect::<Vec<_>>();
+
+                    let rtcs = db::rtc::ListQuery::new()
+                        .room_id(room.id())
+                        .created_by(agent_ids.as_slice())
+                        .execute(&conn)?;
+
+                    let agents_to_rtcs = rtcs
+                        .iter()
+                        .map(|rtc| (rtc.created_by(), rtc.id()))
+                        .collect::<HashMap<_, _>>();
+
+                    // Create or update the config.
+                    for state_config_item in payload.configs {
+                        let rtc_id = agents_to_rtcs
+                            .get(&state_config_item.agent_id)
+                            .ok_or_else(|| {
+                                anyhow!("{} has no owned RTC", state_config_item.agent_id)
+                            })
+                            .error(AppErrorKind::InvalidPayload)?;
+
+                        let mut q = db::rtc_reader_config::UpsertQuery::new(*rtc_id, &agent_id);
+
+                        if let Some(receive_video) = state_config_item.receive_video {
+                            q = q.receive_video(receive_video);
+                        }
+
+                        if let Some(receive_audio) = state_config_item.receive_audio {
+                            q = q.receive_audio(receive_audio);
+                        }
+
+                        q.execute(&conn)?;
+                    }
+
+                    // Retrieve state data.
+                    let rtc_reader_configs_with_rtcs =
+                        db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &agent_id)
+                            .execute(&conn)?;
+
+                    Ok(rtc_reader_configs_with_rtcs)
+                })?;
+
+                // Find backend and send updates to it if present.
+                let maybe_backend = match room.backend_id() {
+                    None => None,
+                    Some(backend_id) => db::janus_backend::FindQuery::new()
+                        .id(backend_id)
+                        .execute(&conn)?,
+                };
+                Ok::<_, AppError>((room, rtc_reader_configs_with_rtcs, maybe_backend))
             }
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
 
-            // Retrieve state data.
-            let rtc_reader_configs_with_rtcs =
-                db::rtc_reader_config::ListWithRtcQuery::new(room.id(), reqp.as_agent_id())
-                    .execute(&conn)?;
+        if let Some(backend) = maybe_backend {
+            let items = rtc_reader_configs_with_rtcs
+                .iter()
+                .map(
+                    |(rtc_reader_config, rtc)| UpdateReaderConfigRequestBodyConfigItem {
+                        reader_id: rtc_reader_config.reader_id().to_owned(),
+                        stream_id: rtc.id(),
+                        receive_video: rtc_reader_config.receive_video(),
+                        receive_audio: rtc_reader_config.receive_audio(),
+                    },
+                )
+                .collect();
 
-            Ok(rtc_reader_configs_with_rtcs)
-        })?;
-
-        // Respond to the agent.
+            let request = UpdateReaderConfigRequest {
+                session_id: backend.session_id(),
+                handle_id: backend.handle_id(),
+                body: UpdateReaderConfigRequestBody::new(items),
+            };
+            context
+                .janus_clients()
+                .get_or_insert(&backend)
+                .error(AppErrorKind::BackendClientCreationFailed)?
+                .reader_update(request)
+                .await
+                .context("Reader update")
+                .error(AppErrorKind::BackendRequestFailed)?
+        }
         let response = helpers::build_response(
             ResponseStatus::OK,
             State::new(room.id(), &rtc_reader_configs_with_rtcs),
@@ -163,43 +208,23 @@ impl RequestHandler for UpdateHandler {
             context.start_timestamp(),
             None,
         );
-
-        let mut messages = vec![response];
-
-        // Find backend and send updates to it if present.
-        let maybe_backend = match room.backend_id() {
-            None => None,
-            Some(backend_id) => db::janus_backend::FindQuery::new()
-                .id(backend_id)
-                .execute(&conn)?,
-        };
-
-        if let Some(backend) = maybe_backend {
-            let backend_request = context
-                .janus_client()
-                .update_agent_reader_config_request(
-                    reqp.to_owned(),
-                    &backend,
-                    &rtc_reader_configs_with_rtcs,
-                    context.start_timestamp(),
-                )
-                .or_else(|err| Err(err).error(AppErrorKind::MessageBuildingFailed))?;
-
-            messages.push(Box::new(backend_request));
-        }
-
-        Ok(Box::new(stream::from_iter(messages)))
+        context
+            .metrics()
+            .request_duration
+            .agent_reader_config_update
+            .observe_timestamp(context.start_timestamp());
+        Ok(Box::new(stream::once(response)))
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ReadRequest {
-    room_id: Uuid,
+pub struct ReadRequest {
+    room_id: db::room::Id,
 }
 
-pub(crate) struct ReadHandler;
+pub struct ReadHandler;
 
 #[async_trait]
 impl RequestHandler for ReadHandler {
@@ -211,27 +236,39 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let conn = context.get_conn()?;
+        let conn = context.get_conn().await?;
 
-        let room = helpers::find_room_by_id(
-            context,
-            payload.room_id,
-            helpers::RoomTimeRequirement::Open,
-            &conn,
-        )?;
+        let (room, rtc_reader_configs_with_rtcs) = task::spawn_blocking({
+            let agent_id = reqp.as_agent_id().clone();
+            move || {
+                let room = helpers::find_room_by_id(
+                    payload.room_id,
+                    helpers::RoomTimeRequirement::Open,
+                    &conn,
+                )?;
 
-        if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-            return Err(anyhow!(
-                "Agent reader config is available only for rooms with owned RTC sharing policy"
-            ))
-            .error(AppErrorKind::InvalidPayload)?;
-        }
+                if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+                    return Err(anyhow!(
+                    "Agent reader config is available only for rooms with owned RTC sharing policy"
+                ))
+                    .error(AppErrorKind::InvalidPayload)?;
+                }
 
-        helpers::check_room_presence(&room, reqp.as_agent_id(), &conn)?;
+                helpers::check_room_presence(&room, &agent_id, &conn)?;
 
-        let rtc_reader_configs_with_rtcs =
-            db::rtc_reader_config::ListWithRtcQuery::new(room.id(), reqp.as_agent_id())
-                .execute(&conn)?;
+                let rtc_reader_configs_with_rtcs =
+                    db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &agent_id)
+                        .execute(&conn)?;
+                Ok::<_, AppError>((room, rtc_reader_configs_with_rtcs))
+            }
+        })
+        .await?;
+        helpers::add_room_logger_tags(context, &room);
+        context
+            .metrics()
+            .request_duration
+            .agent_reader_config_read
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
@@ -250,39 +287,34 @@ mod tests {
     mod update {
         use std::ops::Bound;
 
+        use crate::{
+            db::rtc::SharingPolicy as RtcSharingPolicy,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
         use chrono::{Duration, Utc};
-        use serde_derive::Deserialize;
-        use uuid::Uuid;
-
-        use crate::backend::janus::{self, requests::UpdateReaderConfigRequestBody};
-        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-        use crate::test_helpers::prelude::*;
 
         use super::super::*;
 
-        #[derive(Debug, Deserialize)]
-        struct UpdateReaderConfigJanusRequest {
-            janus: String,
-            session_id: i64,
-            handle_id: i64,
-            body: UpdateReaderConfigRequestBody,
-        }
-
         #[async_std::test]
         async fn update_agent_reader_config() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
             let agent4 = TestAgent::new("web", "user4", USR_AUDIENCE);
 
             // Insert a room with agents and RTCs.
-            let (room, backend, rtcs) = db
+            let (room, backend, _rtcs) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(&conn);
-
+                    let backend = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
                         .time((Bound::Included(Utc::now()), Bound::Unbounded))
@@ -309,6 +341,8 @@ mod tests {
 
             // Make agent_reader_config.update request.
             let mut context = TestContext::new(db, TestAuthz::new());
+            let (tx, _rx) = async_std::channel::unbounded();
+            context.with_janus(tx);
 
             let payload = State {
                 room_id: room.id(),
@@ -353,44 +387,6 @@ mod tests {
 
             assert_eq!(agent3_config.receive_video, Some(false));
             assert_eq!(agent3_config.receive_audio, Some(false));
-
-            // Assert backend request.
-            let (req, _reqp, topic) =
-                find_request::<UpdateReaderConfigJanusRequest>(messages.as_slice());
-
-            let expected_topic = format!(
-                "agents/{}/api/{}/in/{}",
-                backend.id(),
-                janus::JANUS_API_VERSION,
-                context.config().id,
-            );
-
-            assert_eq!(topic, expected_topic);
-            assert_eq!(req.janus, "message");
-            assert_eq!(req.session_id, backend.session_id());
-            assert_eq!(req.handle_id, backend.handle_id());
-            assert_eq!(req.body.method(), "reader_config.update");
-
-            let configs = req.body.configs();
-            assert_eq!(configs.len(), 2);
-
-            let agent2_config = configs
-                .iter()
-                .find(|c| c.stream_id() == rtcs[0].id())
-                .expect("Config for agent2's RTC not found");
-
-            assert_eq!(agent2_config.reader_id(), agent1.agent_id());
-            assert_eq!(agent2_config.receive_video(), true);
-            assert_eq!(agent2_config.receive_audio(), false);
-
-            let agent3_config = configs
-                .iter()
-                .find(|c| c.stream_id() == rtcs[1].id())
-                .expect("Config for agent3's RTC not found");
-
-            assert_eq!(agent3_config.reader_id(), agent1.agent_id());
-            assert_eq!(agent3_config.receive_video(), false);
-            assert_eq!(agent3_config.receive_audio(), false);
 
             // Make one more agent_reader_config.update request.
             let payload = State {
@@ -446,60 +442,18 @@ mod tests {
             assert_eq!(agent4_config.receive_video, Some(true));
             assert_eq!(agent4_config.receive_audio, Some(true));
 
-            // Assert backend request.
-            let (req, _reqp, topic) =
-                find_request::<UpdateReaderConfigJanusRequest>(messages.as_slice());
-
-            let expected_topic = format!(
-                "agents/{}/api/{}/in/{}",
-                backend.id(),
-                janus::JANUS_API_VERSION,
-                context.config().id,
-            );
-
-            assert_eq!(topic, expected_topic);
-            assert_eq!(req.janus, "message");
-            assert_eq!(req.session_id, backend.session_id());
-            assert_eq!(req.handle_id, backend.handle_id());
-            assert_eq!(req.body.method(), "reader_config.update");
-
-            let configs = req.body.configs();
-            assert_eq!(configs.len(), 3);
-
-            let agent2_config = configs
-                .iter()
-                .find(|c| c.stream_id() == rtcs[0].id())
-                .expect("Config for agent2's RTC not found");
-
-            assert_eq!(agent2_config.reader_id(), agent1.agent_id());
-            assert_eq!(agent2_config.receive_video(), true);
-            assert_eq!(agent2_config.receive_audio(), false);
-
-            let agent3_config = configs
-                .iter()
-                .find(|c| c.stream_id() == rtcs[1].id())
-                .expect("Config for agent3's RTC not found");
-
-            assert_eq!(agent3_config.reader_id(), agent1.agent_id());
-            assert_eq!(agent3_config.receive_video(), false);
-            assert_eq!(agent3_config.receive_audio(), true);
-
-            let agent4_config = configs
-                .iter()
-                .find(|c| c.stream_id() == rtcs[2].id())
-                .expect("Config for agent4's RTC not found");
-
-            assert_eq!(agent4_config.reader_id(), agent1.agent_id());
-            assert_eq!(agent4_config.receive_video(), true);
-            assert_eq!(agent4_config.receive_audio(), true);
+            context.janus_clients().remove_client(backend.id());
             Ok(())
         }
 
         #[async_std::test]
         async fn too_many_config_items() -> std::io::Result<()> {
             // Make agent_reader_config.update request.
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user", USR_AUDIENCE);
-            let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new());
 
             let configs = (0..(MAX_STATE_CONFIGS_LEN + 1))
                 .map(|i| {
@@ -514,7 +468,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             let payload = State {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
                 configs,
             };
 
@@ -530,7 +484,9 @@ mod tests {
 
         #[async_std::test]
         async fn agent_without_rtc() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
@@ -576,7 +532,9 @@ mod tests {
 
         #[async_std::test]
         async fn not_entered() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room.
@@ -606,7 +564,9 @@ mod tests {
 
         #[async_std::test]
         async fn closed_room() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room with an agent.
@@ -649,7 +609,9 @@ mod tests {
 
         #[async_std::test]
         async fn room_with_wrong_rtc_policy() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room with an agent.
@@ -690,11 +652,14 @@ mod tests {
         #[async_std::test]
         async fn missing_room() -> std::io::Result<()> {
             // Make agent_reader_config.update request.
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
                 configs: vec![],
             };
 
@@ -713,16 +678,19 @@ mod tests {
         use std::ops::Bound;
 
         use chrono::{Duration, Utc};
-        use uuid::Uuid;
 
-        use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-        use crate::test_helpers::prelude::*;
+        use crate::{
+            db::rtc::SharingPolicy as RtcSharingPolicy,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
 
         use super::super::*;
 
         #[async_std::test]
         async fn read_state() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
@@ -800,7 +768,9 @@ mod tests {
 
         #[async_std::test]
         async fn not_entered() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room.
@@ -827,7 +797,9 @@ mod tests {
 
         #[async_std::test]
         async fn closed_room() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room with an agent.
@@ -867,7 +839,9 @@ mod tests {
 
         #[async_std::test]
         async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
-            let db = TestDb::new();
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room with an agent.
@@ -905,11 +879,14 @@ mod tests {
         #[async_std::test]
         async fn missing_room() -> std::io::Result<()> {
             // Make agent_reader_config.read request.
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(TestDb::new(), TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = ReadRequest {
-                room_id: Uuid::new_v4(),
+                room_id: db::room::Id::random(),
             };
 
             // Assert error.
