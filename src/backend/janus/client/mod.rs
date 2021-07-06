@@ -235,6 +235,7 @@ impl SessionId {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[serde(tag = "janus")]
+#[allow(clippy::large_enum_variant)]
 pub enum IncomingEvent {
     WebRtcUp(WebRtcUpEvent),
     Media(MediaEvent),
