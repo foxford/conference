@@ -25,4 +25,4 @@ jobs:
     - name: fmt
       run: cargo fmt -- --check
     - name: Run tests
-      run: cargo test --verbose --test-threads=4
+      run: cargo test --verbose -- --test-threads=4
