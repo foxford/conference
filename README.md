@@ -1,7 +1,5 @@
 # Conference
 
-[![Build Status][travis-img]][travis]
-
 A WebRTC based conference media server.
 
 
