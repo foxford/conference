@@ -25,6 +25,6 @@ jobs:
     - name: fmt
       run: cargo fmt -- --check
     - name: Run tests
-      run: cargo test --verbose 
+      run: cargo test --verbose update_agent_reader_config
       env:
         RUST_BACKTRACE: 1
