@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use chrono::{DateTime, Utc};
 use enum_iterator::IntoEnumIterator;
 use prometheus::{
-    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts, Registry,
+    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
 };
 use prometheus_static_metric::make_static_metric;
 
@@ -67,6 +67,7 @@ pub struct Metrics {
     pub app_results_errors: HashMap<ErrorKind, IntCounter>,
     pub total_requests: IntCounter,
     pub authorization_time: Histogram,
+    pub running_requests_total: IntGauge,
 }
 
 impl Metrics {
@@ -80,11 +81,13 @@ impl Metrics {
         let total_requests = IntCounter::new("incoming_requests_total", "Total requests")?;
         let authorization_time =
             Histogram::with_opts(HistogramOpts::new("auth_time", "Authorization time"))?;
+        let running_requests_total =
+            IntGauge::new("running_requests_total", "Total running requests")?;
         registry.register(Box::new(request_duration.clone()))?;
         registry.register(Box::new(request_stats.clone()))?;
         registry.register(Box::new(total_requests.clone()))?;
         registry.register(Box::new(authorization_time.clone()))?;
-
+        registry.register(Box::new(running_requests_total.clone()))?;
         Ok(Self {
             request_duration: RequestDuration::from(&request_duration),
             total_requests,
@@ -98,6 +101,7 @@ impl Metrics {
                 })
                 .collect::<anyhow::Result<_>>()?,
             authorization_time,
+            running_requests_total,
         })
     }
 
@@ -119,5 +123,26 @@ impl Metrics {
                 }
             }
         }
+    }
+
+    pub fn request_started(&self) -> StartedRequest {
+        StartedRequest::new(&self.running_requests_total)
+    }
+}
+
+pub struct StartedRequest<'a> {
+    metric: &'a IntGauge,
+}
+
+impl<'a> StartedRequest<'a> {
+    fn new(metric: &'a IntGauge) -> Self {
+        metric.inc();
+        Self { metric }
+    }
+}
+
+impl<'a> Drop for StartedRequest<'a> {
+    fn drop(&mut self) {
+        self.metric.dec()
     }
 }

@@ -157,9 +157,10 @@ pub async fn run(
                     break;
                 }
                 let message = mq_rx.recv().await.expect("Messages sender must be alive");
-
                 let message_handler = message_handler.clone();
                 task::spawn(async move {
+                    let metrics = message_handler.global_context().metrics();
+                    let _metric_handle = metrics.request_started();
                     match message {
                         AgentNotification::Message(message, metadata) => {
                             message_handler
