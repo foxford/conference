@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
 use enum_iterator::IntoEnumIterator;
@@ -125,24 +125,24 @@ impl Metrics {
         }
     }
 
-    pub fn request_started(&self) -> StartedRequest {
-        StartedRequest::new(&self.running_requests_total)
+    pub fn request_started(self: Arc<Self>) -> StartedRequest {
+        StartedRequest::new(self)
     }
 }
 
-pub struct StartedRequest<'a> {
-    metric: &'a IntGauge,
+pub struct StartedRequest {
+    metric: Arc<Metrics>,
 }
 
-impl<'a> StartedRequest<'a> {
-    fn new(metric: &'a IntGauge) -> Self {
-        metric.inc();
+impl StartedRequest {
+    fn new(metric: Arc<Metrics>) -> Self {
+        metric.running_requests_total.inc();
         Self { metric }
     }
 }
 
-impl<'a> Drop for StartedRequest<'a> {
+impl Drop for StartedRequest {
     fn drop(&mut self) {
-        self.metric.dec()
+        self.metric.running_requests_total.dec();
     }
 }
