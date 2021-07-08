@@ -1,0 +1,37 @@
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: 'Namespace'
+        required: true
+        default: 'testing01'
+      version:
+        description: 'Commit/tag/branch'
+        required: false
+
+jobs:
+  deploy:
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        ref: ${{ github.event.inputs.version }}
+        fetch-depth: 0
+    - uses: satackey/action-docker-layer-caching@46d2c640b1d8ef50d185452ad6fb324e6bd1d052
+      continue-on-error: true
+    - name: Deploy
+      run: ./deploy.init.sh && ./deploy/github-actions-run.sh
+      env:
+        NAMESPACE: ${{ github.event.inputs.namespace }}
+        KUBE_TOKEN_TESTING: ${{ secrets.KUBE_TOKEN_TESTING }}
+        KUBE_SERVER_TESTING: ${{ secrets.KUBE_SERVER_TESTING }}
+        OVPN_CONFIG: ${{ secrets.OVPN_CONFIG }}
+        OVPN_CA: ${{ secrets.OVPN_CA }}
+        OVPN_CERT: ${{ secrets.OVPN_CERT }}
+        OVPN_KEY: ${{ secrets.OVPN_KEY }}
+        GITHUB_TOKEN: ${{ secrets._GITHUB_TOKEN }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
