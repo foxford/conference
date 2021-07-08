@@ -2,14 +2,19 @@
 vacuum_interval = 10000
 
 [recordings]
-enabled = false
-directory = "/recordings"
 delete_records = true
+directory = "/recordings"
+enabled = false
 
 [constraint.writer]
+audio_bitrate = 30000
 default_video_bitrate = 300000
 max_video_remb = 1000000
-audio_bitrate = 30000
 
 [upload]
 backends = []
+
+[metrics]
+bind_addr = "0.0.0.0:8081"
+recorders_metrics_load_interval = "10 seconds"
+switchboard_metrics_load_interval = "10 seconds"
