@@ -157,7 +157,7 @@ pub async fn run(
                     break;
                 }
                 let message = mq_rx.recv().await.expect("Messages sender must be alive");
-
+                let metric_handle = message_handler.global_context().metrics().request_started();
                 let message_handler = message_handler.clone();
                 task::spawn(async move {
                     match message {
@@ -195,6 +195,7 @@ pub async fn run(
                             error!(crate::LOG, "Disconnected from broker")
                         }
                     }
+                    drop(metric_handle)
                 });
             }
         }
