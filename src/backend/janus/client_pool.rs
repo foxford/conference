@@ -16,13 +16,15 @@ use svc_agent::AgentId;
 pub struct Clients {
     clients: Arc<RwLock<HashMap<AgentId, ClientHandle>>>,
     events_sink: Sender<IncomingEvent>,
+    group: Option<String>,
 }
 
 impl Clients {
-    pub fn new(events_sink: Sender<IncomingEvent>) -> Self {
+    pub fn new(events_sink: Sender<IncomingEvent>, group: Option<String>) -> Self {
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
             events_sink,
+            group,
         }
     }
 
@@ -51,17 +53,19 @@ impl Clients {
                     client: client.clone(),
                     is_cancelled: is_cancelled.clone(),
                 });
-                async_std::task::spawn({
-                    let client = client.clone();
-                    async move {
-                        let sink = this.events_sink.clone();
-                        let _guard = PollerGuard {
-                            clients: &this,
-                            agent_id: &agent_id,
-                        };
-                        start_polling(client, session_id, sink, &is_cancelled).await;
-                    }
-                });
+                if self.group.as_deref() == backend.group() {
+                    async_std::task::spawn({
+                        let client = client.clone();
+                        async move {
+                            let sink = this.events_sink.clone();
+                            let _guard = PollerGuard {
+                                clients: &this,
+                                agent_id: &agent_id,
+                            };
+                            start_polling(client, session_id, sink, &is_cancelled).await;
+                        }
+                    });
+                }
                 Ok(client)
             }
         }
