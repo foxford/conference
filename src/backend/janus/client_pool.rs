@@ -54,6 +54,7 @@ impl Clients {
                     is_cancelled: is_cancelled.clone(),
                 });
                 if self.group.as_deref() == backend.group() {
+                    let agent = backend.id().clone();
                     async_std::task::spawn({
                         let client = client.clone();
                         async move {
@@ -62,7 +63,7 @@ impl Clients {
                                 clients: &this,
                                 agent_id: &agent_id,
                             };
-                            start_polling(client, session_id, sink, &is_cancelled).await;
+                            start_polling(client, session_id, sink, &is_cancelled, agent).await;
                         }
                     });
                 }
@@ -109,6 +110,7 @@ async fn start_polling(
     session_id: SessionId,
     sink: async_std::channel::Sender<IncomingEvent>,
     is_cancelled: &AtomicBool,
+    agent: AgentId,
 ) {
     let mut retries_count = 5;
     loop {
@@ -121,7 +123,10 @@ async fn start_polling(
         let poll_result = janus_client.poll(session_id).await;
         match poll_result {
             Ok(PollResult::SessionNotFound) => {
-                warn!(crate::LOG, "Session {} not found", session_id);
+                warn!(
+                    crate::LOG,
+                    "Session {} not found on agent {}", session_id, agent
+                );
                 break;
             }
             Ok(PollResult::Events(events)) => {
