@@ -1985,7 +1985,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             // Create an RTC.
-            let rtc = db
+            let (rtc, backend) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -2007,7 +2007,7 @@ mod test {
                         .created_by(creator.agent_id().to_owned())
                         .insert(&conn);
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    rtc
+                    (rtc, backend)
                 })
                 .unwrap();
 
@@ -2031,6 +2031,7 @@ mod test {
             handle_request::<ConnectHandler>(&mut context, &agent, payload)
                 .await
                 .expect("RTC connect failed");
+            context.janus_clients().remove_client(backend.id());
         }
 
         #[async_std::test]

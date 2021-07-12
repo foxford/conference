@@ -114,7 +114,7 @@ pub async fn run(
     let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
 
     let (ev_tx, mut ev_rx) = async_std::channel::unbounded();
-    let clients = Clients::new(ev_tx);
+    let clients = Clients::new(ev_tx, config.janus_group.clone());
     // Context
     let context = AppContext::new(
         config.clone(),

@@ -103,7 +103,7 @@ impl TestContext {
     }
 
     pub fn with_janus(&mut self, events_sink: async_std::channel::Sender<IncomingEvent>) {
-        self.clients = Some(Clients::new(events_sink));
+        self.clients = Some(Clients::new(events_sink, None));
     }
 
     pub fn config_mut(&mut self) -> &mut Config {

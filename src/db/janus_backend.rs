@@ -66,6 +66,11 @@ impl Object {
     pub fn janus_url(&self) -> &str {
         &self.janus_url
     }
+
+    /// Get a reference to the object's group.
+    pub fn group(&self) -> Option<&str> {
+        self.group.as_deref()
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
