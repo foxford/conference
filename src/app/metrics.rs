@@ -7,7 +7,7 @@ use prometheus::{
 };
 use prometheus_static_metric::make_static_metric;
 
-use super::error::ErrorKind;
+use super::{endpoint, error::ErrorKind};
 
 pub trait HistogramExt {
     fn observe_timestamp(&self, start: DateTime<Utc>);
@@ -65,6 +65,9 @@ pub struct Metrics {
     pub request_duration: RequestDuration,
     pub app_result_ok: IntCounter,
     pub app_results_errors: HashMap<ErrorKind, IntCounter>,
+    pub mqtt_reconnection: IntCounter,
+    pub mqtt_disconnect: IntCounter,
+    pub mqtt_connection_error: IntCounter,
     pub total_requests: IntCounter,
     pub authorization_time: Histogram,
     pub running_requests_total: IntGauge,
@@ -83,6 +86,11 @@ impl Metrics {
             Histogram::with_opts(HistogramOpts::new("auth_time", "Authorization time"))?;
         let running_requests_total =
             IntGauge::new("running_requests_total", "Total running requests")?;
+        let mqtt_errors = IntCounterVec::new(
+            Opts::new("mqtt_messages", "Mqtt message types"),
+            &["status"],
+        )?;
+        registry.register(Box::new(mqtt_errors.clone()))?;
         registry.register(Box::new(request_duration.clone()))?;
         registry.register(Box::new(request_stats.clone()))?;
         registry.register(Box::new(total_requests.clone()))?;
@@ -102,6 +110,10 @@ impl Metrics {
                 .collect::<anyhow::Result<_>>()?,
             authorization_time,
             running_requests_total,
+            mqtt_connection_error: mqtt_errors
+                .get_metric_with_label_values(&["connection_error"])?,
+            mqtt_disconnect: mqtt_errors.get_metric_with_label_values(&["disconnect"])?,
+            mqtt_reconnection: mqtt_errors.get_metric_with_label_values(&["reconnect"])?,
         })
     }
 
@@ -112,7 +124,7 @@ impl Metrics {
         }
     }
 
-    pub fn observe_app_result(&self, result: &Result<(), crate::app::AppError>) {
+    pub fn observe_app_result(&self, result: &endpoint::Result) {
         match result {
             Ok(_) => {
                 self.app_result_ok.inc();

@@ -56,7 +56,6 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         match message {
             Ok(ref msg) => {
                 let handle_result = self.handle_message(&mut msg_context, msg, topic).await;
-                msg_context.metrics().observe_app_result(&handle_result);
                 if let Err(err) = handle_result {
                     Self::report_error(&mut msg_context, message, &err.to_string()).await;
                 }
@@ -276,32 +275,32 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
             match payload {
                 // Call handler.
                 Ok(payload) => {
-                    H::handle(context, payload, reqp)
-                        .await
-                        .unwrap_or_else(|app_error| {
-                            context.add_logger_tags(o!(
-                                "status" => app_error.status().as_u16(),
-                                "kind" => app_error.kind().to_owned(),
-                            ));
+                    let app_result = H::handle(context, payload, reqp).await;
+                    context.metrics().observe_app_result(&app_result);
+                    app_result.unwrap_or_else(|app_error| {
+                        context.add_logger_tags(o!(
+                            "status" => app_error.status().as_u16(),
+                            "kind" => app_error.kind().to_owned(),
+                        ));
 
-                            error!(
-                                context.logger(),
-                                "Failed to handle request: {:?}",
-                                app_error.source(),
-                            );
+                        error!(
+                            context.logger(),
+                            "Failed to handle request: {:?}",
+                            app_error.source(),
+                        );
 
-                            app_error.notify_sentry(context.logger());
+                        app_error.notify_sentry(context.logger());
 
-                            // Handler returned an error.
-                            error_response(
-                                app_error.status(),
-                                app_error.kind(),
-                                app_error.title(),
-                                &app_error.source().to_string(),
-                                &reqp,
-                                context.start_timestamp(),
-                            )
-                        })
+                        // Handler returned an error.
+                        error_response(
+                            app_error.status(),
+                            app_error.kind(),
+                            app_error.title(),
+                            &app_error.source().to_string(),
+                            &reqp,
+                            context.start_timestamp(),
+                        )
+                    })
                 }
                 // Bad envelope or payload format => 400.
                 Err(err) => error_response(
