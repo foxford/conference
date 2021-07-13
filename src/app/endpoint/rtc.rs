@@ -222,14 +222,23 @@ impl RequestHandler for ListHandler {
             let _timer = metrics.conn_ack.start_timer();
             context.get_conn().await?
         };
-        let room = task::spawn_blocking({
-            let payload_room_id = payload.room_id;
-            move || {
-                let _timer = metrics.room_find.start_timer();
-                helpers::find_room_by_id(payload_room_id, helpers::RoomTimeRequirement::Open, &conn)
-            }
-        })
-        .await?;
+        let timer = metrics.room_find.start_timer();
+        let room = {
+            let metrics = metrics.clone();
+            task::spawn_blocking({
+                let payload_room_id = payload.room_id;
+                move || {
+                    let _timer = metrics.room_find_without_blocking.start_timer();
+                    helpers::find_room_by_id(
+                        payload_room_id,
+                        helpers::RoomTimeRequirement::Open,
+                        &conn,
+                    )
+                }
+            })
+            .await?
+        };
+        drop(timer);
         helpers::add_room_logger_tags(context, &room);
 
         // Authorize rtc listing.
@@ -247,20 +256,25 @@ impl RequestHandler for ListHandler {
             let _timer = metrics.conn_ack.start_timer();
             context.get_conn().await?
         };
-        let rtcs = task::spawn_blocking(move || {
-            let _timer = metrics.rtc_find.start_timer();
-            let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
+        let timer = metrics.rtc_find.start_timer();
+        let rtcs = {
+            let metrics = metrics.clone();
+            task::spawn_blocking(move || {
+                let _timer = metrics.rtc_find_without_blocking.start_timer();
+                let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
 
-            if let Some(offset) = payload.offset {
-                query = query.offset(offset);
-            }
+                if let Some(offset) = payload.offset {
+                    query = query.offset(offset);
+                }
 
-            let limit = std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT);
-            query = query.limit(limit);
+                let limit = std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT);
+                query = query.limit(limit);
 
-            Ok::<_, AppError>(query.execute(&conn)?)
-        })
-        .await?;
+                Ok::<_, AppError>(query.execute(&conn)?)
+            })
+            .await?
+        };
+        drop(timer);
         context
             .metrics()
             .request_duration

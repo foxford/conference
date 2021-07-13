@@ -73,7 +73,9 @@ pub struct Metrics {
     pub running_requests_total: IntGauge,
     pub conn_ack: Histogram,
     pub room_find: Histogram,
+    pub room_find_without_blocking: Histogram,
     pub rtc_find: Histogram,
+    pub rtc_find_without_blocking: Histogram,
     pub conn_ack_without_blocking: Histogram,
 }
 
@@ -127,7 +129,11 @@ impl Metrics {
             room_find: db_duration.get_metric_with_label_values(&["room"])?,
             rtc_find: db_duration.get_metric_with_label_values(&["rtc"])?,
             conn_ack_without_blocking: db_duration
-                .get_metric_with_label_values(&["without_spawn"])?,
+                .get_metric_with_label_values(&["conn_without_spawn"])?,
+            room_find_without_blocking: db_duration
+                .get_metric_with_label_values(&["room_without_spawn"])?,
+            rtc_find_without_blocking: db_duration
+                .get_metric_with_label_values(&["rtc_without_spawn"])?,
         })
     }
 
