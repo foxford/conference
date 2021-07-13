@@ -71,6 +71,9 @@ pub struct Metrics {
     pub total_requests: IntCounter,
     pub authorization_time: Histogram,
     pub running_requests_total: IntGauge,
+    pub conn_ack: Histogram,
+    pub room_find: Histogram,
+    pub rtc_find: Histogram,
 }
 
 impl Metrics {
@@ -90,6 +93,11 @@ impl Metrics {
             Opts::new("mqtt_messages", "Mqtt message types"),
             &["status"],
         )?;
+        let db_duration = HistogramVec::new(
+            HistogramOpts::new("db_duration", "Request duration"),
+            &["method"],
+        )?;
+        registry.register(Box::new(db_duration.clone()))?;
         registry.register(Box::new(mqtt_errors.clone()))?;
         registry.register(Box::new(request_duration.clone()))?;
         registry.register(Box::new(request_stats.clone()))?;
@@ -114,6 +122,9 @@ impl Metrics {
                 .get_metric_with_label_values(&["connection_error"])?,
             mqtt_disconnect: mqtt_errors.get_metric_with_label_values(&["disconnect"])?,
             mqtt_reconnection: mqtt_errors.get_metric_with_label_values(&["reconnect"])?,
+            conn_ack: db_duration.get_metric_with_label_values(&["conn"])?,
+            room_find: db_duration.get_metric_with_label_values(&["room"])?,
+            rtc_find: db_duration.get_metric_with_label_values(&["rtc"])?,
         })
     }
 
