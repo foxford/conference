@@ -225,7 +225,7 @@ impl RequestHandler for ListHandler {
         let room = task::spawn_blocking({
             let payload_room_id = payload.room_id;
             move || {
-                let _timer = metrics.conn_ack.start_timer();
+                let _timer = metrics.room_find.start_timer();
                 helpers::find_room_by_id(payload_room_id, helpers::RoomTimeRequirement::Open, &conn)
             }
         })
@@ -248,7 +248,7 @@ impl RequestHandler for ListHandler {
             context.get_conn().await?
         };
         let rtcs = task::spawn_blocking(move || {
-            let _timer = metrics.conn_ack.start_timer();
+            let _timer = metrics.rtc_find.start_timer();
             let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
 
             if let Some(offset) = payload.offset {
