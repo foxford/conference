@@ -217,10 +217,15 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let conn = context.get_conn().await?;
+        let metrics = context.metrics();
+        let conn = {
+            let _timer = metrics.conn_ack.start_timer();
+            context.get_conn().await?
+        };
         let room = task::spawn_blocking({
             let payload_room_id = payload.room_id;
             move || {
+                let _timer = metrics.conn_ack.start_timer();
                 helpers::find_room_by_id(payload_room_id, helpers::RoomTimeRequirement::Open, &conn)
             }
         })
@@ -237,8 +242,13 @@ impl RequestHandler for ListHandler {
             .await?;
         context.metrics().observe_auth(authz_time);
         // Return rtc list.
-        let conn = context.get_conn().await?;
+        let metrics = context.metrics();
+        let conn = {
+            let _timer = metrics.conn_ack.start_timer();
+            context.get_conn().await?
+        };
         let rtcs = task::spawn_blocking(move || {
+            let _timer = metrics.conn_ack.start_timer();
             let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
 
             if let Some(offset) = payload.offset {
