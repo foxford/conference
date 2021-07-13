@@ -160,18 +160,15 @@ pub async fn run(
                 let metric_handle = message_handler.global_context().metrics().request_started();
                 let message_handler = message_handler.clone();
                 task::spawn(async move {
+                    let metrics = message_handler.global_context().metrics();
                     match message {
                         AgentNotification::Message(message, metadata) => {
-                            message_handler
-                                .global_context()
-                                .metrics()
-                                .total_requests
-                                .inc();
+                            metrics.total_requests.inc();
                             message_handler.handle(&message, &metadata.topic).await;
                         }
                         AgentNotification::Reconnection => {
                             error!(crate::LOG, "Reconnected to broker");
-
+                            metrics.mqtt_reconnection.inc();
                             resubscribe(
                                 &mut message_handler.agent().to_owned(),
                                 message_handler.global_context().agent_id(),
@@ -183,7 +180,9 @@ pub async fn run(
                         AgentNotification::Pubcomp(_) => (),
                         AgentNotification::Suback(_) => (),
                         AgentNotification::Unsuback(_) => (),
-                        AgentNotification::ConnectionError => (),
+                        AgentNotification::ConnectionError => {
+                            metrics.mqtt_connection_error.inc();
+                        }
                         AgentNotification::Connect(_) => (),
                         AgentNotification::Connack(_) => (),
                         AgentNotification::Pubrel(_) => (),
@@ -192,6 +191,7 @@ pub async fn run(
                         AgentNotification::PingReq => (),
                         AgentNotification::PingResp => (),
                         AgentNotification::Disconnect => {
+                            metrics.mqtt_disconnect.inc();
                             error!(crate::LOG, "Disconnected from broker")
                         }
                     }

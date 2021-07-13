@@ -163,6 +163,11 @@ impl RequestHandler for ReadHandler {
             .authorize(room.audience(), reqp, object, "read")
             .await?;
         context.metrics().observe_auth(authz_time);
+        context
+            .metrics()
+            .request_duration
+            .room_read
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::once(helpers::build_response(
             ResponseStatus::OK,
@@ -312,6 +317,11 @@ impl RequestHandler for UpdateHandler {
                 ));
             }
         }
+        context
+            .metrics()
+            .request_duration
+            .room_update
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::from_iter(responses)))
     }
