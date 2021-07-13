@@ -37,7 +37,9 @@ pub trait GlobalContext: Sync {
         &self,
     ) -> JoinHandle<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
         let db = self.db().clone();
+        let metrics = self.metrics();
         async_std::task::spawn_blocking(move || {
+            let _timer = metrics.conn_ack_without_blocking.start_timer();
             db.get()
                 .map_err(|err| anyhow::Error::from(err).context("Failed to acquire DB connection"))
                 .error(AppErrorKind::DbConnAcquisitionFailed)

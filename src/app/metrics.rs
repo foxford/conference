@@ -74,6 +74,7 @@ pub struct Metrics {
     pub conn_ack: Histogram,
     pub room_find: Histogram,
     pub rtc_find: Histogram,
+    pub conn_ack_without_blocking: Histogram,
 }
 
 impl Metrics {
@@ -125,6 +126,8 @@ impl Metrics {
             conn_ack: db_duration.get_metric_with_label_values(&["conn"])?,
             room_find: db_duration.get_metric_with_label_values(&["room"])?,
             rtc_find: db_duration.get_metric_with_label_values(&["rtc"])?,
+            conn_ack_without_blocking: db_duration
+                .get_metric_with_label_values(&["without_spawn"])?,
         })
     }
 
