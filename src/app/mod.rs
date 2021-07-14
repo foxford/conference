@@ -121,6 +121,12 @@ pub async fn run(
                     .global_context()
                     .janus_clients()
                     .stop_polling();
+                while let Ok(msg) = ev_rx.try_recv() {
+                    let message_handler = message_handler.clone();
+                    async_std::task::spawn(async move {
+                        message_handler.handle_events(msg).await;
+                    });
+                }
                 break;
             }
             select! {
