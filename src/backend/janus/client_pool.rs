@@ -1,6 +1,6 @@
 use super::client::{IncomingEvent, JanusClient, PollResult, SessionId};
 use crate::db::janus_backend;
-use async_std::channel::Sender;
+use crossbeam_channel::Sender;
 use slog::{error, warn};
 use std::{
     collections::{hash_map::Entry, HashMap},
@@ -79,9 +79,9 @@ impl Clients {
         }
     }
 
-    pub fn clear(&self) {
-        let mut guard = self.clients.write().expect("Must not panic");
-        for (_, handle) in guard.drain() {
+    pub fn stop_polling(&self) {
+        let guard = self.clients.read().expect("Must not panic");
+        for (_, handle) in guard.iter() {
             handle.is_cancelled.store(true, Ordering::SeqCst)
         }
     }
@@ -108,7 +108,7 @@ impl<'a> Drop for PollerGuard<'a> {
 async fn start_polling(
     janus_client: JanusClient,
     session_id: SessionId,
-    sink: async_std::channel::Sender<IncomingEvent>,
+    sink: Sender<IncomingEvent>,
     is_cancelled: &AtomicBool,
     agent: AgentId,
 ) {
@@ -131,7 +131,7 @@ async fn start_polling(
             }
             Ok(PollResult::Events(events)) => {
                 for event in events {
-                    sink.send(event).await.expect("Receiver must exist");
+                    sink.send(event).expect("Receiver must exist");
                 }
             }
             Err(err) => {

@@ -18,6 +18,7 @@ use anyhow::{Context as AnyhowContext, Result};
 use async_std::task;
 use chrono::Utc;
 use context::{AppContext, GlobalContext, JanusTopics};
+use crossbeam_channel::select;
 use futures::StreamExt;
 use message_handler::MessageHandler;
 use prometheus::{Encoder, Registry, TextEncoder};
@@ -67,26 +68,6 @@ pub async fn run(
         .start(&agent_config)
         .context("Failed to create an agent")?;
 
-    // Event loop for incoming messages of MQTT Agent
-    let (mq_tx, mq_rx) = async_std::channel::unbounded();
-
-    thread::Builder::new()
-        .name("conference-notifications-loop".to_owned())
-        .spawn({
-            let is_stopped = is_stopped.clone();
-            move || {
-                for message in rx {
-                    if is_stopped.load(std::sync::atomic::Ordering::SeqCst) {
-                        break;
-                    }
-                    mq_tx
-                        .try_send(message)
-                        .expect("Messages receiver must be alive")
-                }
-            }
-        })
-        .expect("Failed to start conference notifications loop");
-
     // Authz
     let authz = svc_authz::ClientMap::new(&config.id, authz_cache, config.authz.clone())
         .context("Error converting authz config to clients")?;
@@ -112,17 +93,17 @@ pub async fn run(
 
     // Subscribe to topics
     let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
-
-    let (ev_tx, mut ev_rx) = async_std::channel::unbounded();
+    let (ev_tx, ev_rx) = crossbeam_channel::unbounded();
     let clients = Clients::new(ev_tx, config.janus_group.clone());
     // Context
+    let metrics = Arc::new(metrics);
     let context = AppContext::new(
         config.clone(),
         authz,
         db.clone(),
         janus_topics,
-        clients,
-        Arc::new(metrics),
+        clients.clone(),
+        metrics.clone(),
     );
 
     let context = match redis_pool {
@@ -131,85 +112,86 @@ pub async fn run(
     };
 
     // Message handler
-    let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
-
-    let events_task = {
-        let message_handler = message_handler.clone();
-        async_std::task::spawn(async move {
-            loop {
-                let ev = ev_rx
-                    .next()
-                    .await
-                    .expect("At least one events sender must be alive");
-                let message_handler = message_handler.clone();
-                async_std::task::spawn(async move {
-                    message_handler.handle_events(ev).await;
-                });
-            }
-        })
-    };
-    let messages_task = async_std::task::spawn({
-        let message_handler = message_handler.clone();
+    let message_handler = Arc::new(MessageHandler::new(agent, context));
+    {
         let is_stopped = is_stopped.clone();
-        async move {
-            loop {
-                if is_stopped.load(Ordering::SeqCst) {
-                    break;
-                }
-                let message = mq_rx.recv().await.expect("Messages sender must be alive");
-                let metric_handle = message_handler.global_context().metrics().request_started();
-                let message_handler = message_handler.clone();
-                task::spawn(async move {
-                    let metrics = message_handler.global_context().metrics();
-                    match message {
-                        AgentNotification::Message(message, metadata) => {
-                            metrics.total_requests.inc();
-                            message_handler.handle(&message, &metadata.topic).await;
-                        }
-                        AgentNotification::Reconnection => {
-                            error!(crate::LOG, "Reconnected to broker");
-                            metrics.mqtt_reconnection.inc();
-                            resubscribe(
-                                &mut message_handler.agent().to_owned(),
-                                message_handler.global_context().agent_id(),
-                                message_handler.global_context().config(),
-                            );
-                        }
-                        AgentNotification::Puback(_) => (),
-                        AgentNotification::Pubrec(_) => (),
-                        AgentNotification::Pubcomp(_) => (),
-                        AgentNotification::Suback(_) => (),
-                        AgentNotification::Unsuback(_) => (),
-                        AgentNotification::ConnectionError => {
-                            metrics.mqtt_connection_error.inc();
-                        }
-                        AgentNotification::Connect(_) => (),
-                        AgentNotification::Connack(_) => (),
-                        AgentNotification::Pubrel(_) => (),
-                        AgentNotification::Subscribe(_) => (),
-                        AgentNotification::Unsubscribe(_) => (),
-                        AgentNotification::PingReq => (),
-                        AgentNotification::PingResp => (),
-                        AgentNotification::Disconnect => {
-                            metrics.mqtt_disconnect.inc();
-                            error!(crate::LOG, "Disconnected from broker")
-                        }
-                    }
-                    drop(metric_handle)
-                });
+        thread::spawn(move || loop {
+            if is_stopped.load(Ordering::SeqCst) {
+                message_handler
+                    .global_context()
+                    .janus_clients()
+                    .stop_polling();
+                break;
             }
-        }
-    });
-
+            select! {
+                recv(rx) -> msg => {
+                    let msg = msg.expect("Agent must be alive");
+                    handle_message(msg, message_handler.clone());
+                },
+                recv(ev_rx) -> msg => {
+                    let msg = msg.expect("Events sender must exist");
+                    let message_handler = message_handler.clone();
+                    async_std::task::spawn(async move {
+                        message_handler.handle_events(msg).await;
+                    });
+                },
+            }
+        });
+    }
     let mut signals_stream = signal_hook_async_std::Signals::new(TERM_SIGNALS)?.fuse();
     let signals = signals_stream.next();
-    let app = futures::future::join_all([events_task, messages_task]);
-    futures::future::select(app, signals).await;
+    let _ = signals.await;
     is_stopped.store(true, Ordering::SeqCst);
-    message_handler.global_context().janus_clients().clear();
-    // wait 5 seconds for stop
     task::sleep(Duration::from_secs(5)).await;
+    info!(
+        crate::LOG,
+        "Running requests left: {}",
+        metrics.running_requests_total.get(),
+    );
     Ok(())
+}
+
+fn handle_message(message: AgentNotification, message_handler: Arc<MessageHandler<AppContext>>) {
+    let metric_handle = message_handler.global_context().metrics().request_started();
+    let message_handler = message_handler.clone();
+    task::spawn(async move {
+        let metrics = message_handler.global_context().metrics();
+        match message {
+            AgentNotification::Message(message, metadata) => {
+                metrics.total_requests.inc();
+                message_handler.handle(&message, &metadata.topic).await;
+            }
+            AgentNotification::Reconnection => {
+                error!(crate::LOG, "Reconnected to broker");
+                metrics.mqtt_reconnection.inc();
+                resubscribe(
+                    &mut message_handler.agent().to_owned(),
+                    message_handler.global_context().agent_id(),
+                    message_handler.global_context().config(),
+                );
+            }
+            AgentNotification::Puback(_) => (),
+            AgentNotification::Pubrec(_) => (),
+            AgentNotification::Pubcomp(_) => (),
+            AgentNotification::Suback(_) => (),
+            AgentNotification::Unsuback(_) => (),
+            AgentNotification::ConnectionError => {
+                metrics.mqtt_connection_error.inc();
+            }
+            AgentNotification::Connect(_) => (),
+            AgentNotification::Connack(_) => (),
+            AgentNotification::Pubrel(_) => (),
+            AgentNotification::Subscribe(_) => (),
+            AgentNotification::Unsubscribe(_) => (),
+            AgentNotification::PingReq => (),
+            AgentNotification::PingResp => (),
+            AgentNotification::Disconnect => {
+                metrics.mqtt_disconnect.inc();
+                error!(crate::LOG, "Disconnected from broker")
+            }
+        }
+        drop(metric_handle)
+    });
 }
 
 fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<JanusTopics> {
