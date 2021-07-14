@@ -159,7 +159,6 @@ pub async fn run(
 
 fn handle_message(message: AgentNotification, message_handler: Arc<MessageHandler<AppContext>>) {
     let metric_handle = message_handler.global_context().metrics().request_started();
-    let message_handler = message_handler.clone();
     task::spawn(async move {
         let metrics = message_handler.global_context().metrics();
         match message {
