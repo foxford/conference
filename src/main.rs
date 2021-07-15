@@ -17,7 +17,7 @@ pub static LOG: Lazy<slog::Logger> = Lazy::new(|| {
 
 #[async_std::main]
 async fn main() -> Result<()> {
-    let _guard = slog_envlogger::init().unwrap();
+    slog_envlogger::init().unwrap().cancel_reset();
 
     let db = {
         let url = var("DATABASE_URL").expect("DATABASE_URL must be specified");
