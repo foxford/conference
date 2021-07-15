@@ -148,7 +148,7 @@ pub async fn run(
     let signals = signals_stream.next();
     let _ = signals.await;
     is_stopped.store(true, Ordering::SeqCst);
-    task::sleep(Duration::from_secs(5)).await;
+    task::sleep(Duration::from_secs(2)).await;
     info!(
         crate::LOG,
         "Running requests left: {}",
