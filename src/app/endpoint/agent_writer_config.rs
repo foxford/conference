@@ -215,12 +215,16 @@ impl RequestHandler for UpdateHandler {
 
                         q.execute(&conn)?;
 
-                        let snapshot_q = db::rtc_writer_config_snapshot::InsertQuery::new(
-                            *rtc_id,
-                            state_config_item.send_video,
-                            state_config_item.send_audio,
-                        );
-                        snapshot_q.execute(&conn)?;
+                        if state_config_item.send_video.is_some()
+                            || state_config_item.send_audio.is_some()
+                        {
+                            let snapshot_q = db::rtc_writer_config_snapshot::InsertQuery::new(
+                                *rtc_id,
+                                state_config_item.send_video,
+                                state_config_item.send_audio,
+                            );
+                            snapshot_q.execute(&conn)?;
+                        }
                     }
 
                     // Retrieve state data.
