@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use crossbeam_channel::Sender;
 use prometheus::Registry;
 use serde_json::json;
 use slog::{o, Logger, OwnedKV, SendSyncRefUnwindSafeKV};
@@ -102,7 +103,7 @@ impl TestContext {
         }
     }
 
-    pub fn with_janus(&mut self, events_sink: async_std::channel::Sender<IncomingEvent>) {
+    pub fn with_janus(&mut self, events_sink: Sender<IncomingEvent>) {
         self.clients = Some(Clients::new(events_sink, None));
     }
 
