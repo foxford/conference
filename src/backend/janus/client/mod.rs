@@ -303,7 +303,7 @@ fn trickle(request: TrickleRequest) -> JanusRequest<TrickleRequest> {
         transaction: Uuid::new_v4().to_string(),
         janus: "trickle",
         plugin: None,
-        data: request,
+        data: dbg!(request),
     }
 }
 
