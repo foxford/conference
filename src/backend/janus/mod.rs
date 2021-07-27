@@ -394,6 +394,10 @@ async fn handle_event_impl<C: Context>(
                         .observe_timestamp(tn.start_timestamp);
                     response
                 }
+                Transaction::SpeakingNotification => {
+                    dbg!(resp.plugindata);
+                    Ok(Box::new(stream::empty()))
+                }
             }
         }
         IncomingEvent::KeepAlive => Ok(Box::new(stream::empty())),
