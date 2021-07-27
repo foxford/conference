@@ -101,7 +101,7 @@ impl JanusClient {
         transaction: CreateStreamTransaction,
     ) -> anyhow::Result<()> {
         let _response: AckResponse = self
-            .send_request(create_stream(request, transaction)?)
+            .send_request(create_stream(dbg!(request), transaction)?)
             .await?;
         Ok(())
     }
