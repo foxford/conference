@@ -130,7 +130,7 @@ async fn handle_event_impl<C: Context>(
                 Transaction::AgentLeave => Ok(Box::new(stream::empty())),
                 Transaction::CreateStream(tn) => {
                     context.add_logger_tags(o!("method" => tn.reqp.method().to_string()));
-                    let jsep = resp.jsep;
+                    let jsep = dbg!(resp.jsep);
                     resp.plugindata
                         .data
                         .as_ref()
