@@ -101,7 +101,7 @@ impl JanusClient {
         transaction: CreateStreamTransaction,
     ) -> anyhow::Result<()> {
         let _response: AckResponse = self
-            .send_request(create_stream(dbg!(request), transaction)?)
+            .send_request(create_stream(request, transaction)?)
             .await?;
         Ok(())
     }
@@ -303,7 +303,7 @@ fn trickle(request: TrickleRequest) -> JanusRequest<TrickleRequest> {
         transaction: Uuid::new_v4().to_string(),
         janus: "trickle",
         plugin: None,
-        data: dbg!(request),
+        data: request,
     }
 }
 
@@ -372,9 +372,4 @@ fn upload_stream(
         plugin: None,
         data: request,
     })
-}
-
-#[test]
-fn test() {
-    // dbg!(serde_json::to_string_pretty(&create_session()));
 }
