@@ -394,7 +394,7 @@ async fn handle_event_impl<C: Context>(
                         .observe_timestamp(tn.start_timestamp);
                     response
                 }
-                Transaction::SpeakingNotification => {
+                Transaction::AgentSpeaking => {
                     dbg!(resp.plugindata);
                     Ok(Box::new(stream::empty()))
                 }
