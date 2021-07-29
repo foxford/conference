@@ -89,9 +89,11 @@ impl RequestHandler for VacuumHandler {
 
         let mut requests = Vec::new();
         let conn = context.get_conn().await?;
-        let rooms =
-            task::spawn_blocking(move || db::room::finished_with_in_progress_recordings(&conn))
-                .await?;
+        let group = context.config().janus_group.clone();
+        let rooms = task::spawn_blocking(move || {
+            db::room::finished_with_in_progress_recordings(&conn, group.as_deref())
+        })
+        .await?;
 
         for (room, recording, backend) in rooms.into_iter() {
             let conn = context.get_conn().await?;
