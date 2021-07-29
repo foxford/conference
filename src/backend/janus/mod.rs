@@ -395,7 +395,11 @@ async fn handle_event_impl<C: Context>(
                     let notification: SpeakingNotification = serde_json::from_value(data)
                         .map_err(anyhow::Error::from)
                         .error(AppErrorKind::MessageParsingFailed)?;
-                    let uri = format!("rooms/{}/events", resp.opaque_id.room_id);
+                    let opaque_id = resp
+                        .opaque_id
+                        .ok_or_else(|| anyhow!("Missing opaque id"))
+                        .error(AppErrorKind::MessageParsingFailed)?;
+                    let uri = format!("rooms/{}/events", opaque_id.room_id);
                     let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
                     let props = OutgoingEventProperties::new("rtc_stream.agent_speaking", timing);
                     let event = OutgoingEvent::broadcast(notification, props, &uri);

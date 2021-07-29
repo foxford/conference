@@ -10,7 +10,7 @@ pub struct EventResponse {
     pub transaction: Transaction,
     pub session_id: SessionId,
     #[serde(with = "super::serialize_as_base64")]
-    pub opaque_id: OpaqueId,
+    pub opaque_id: Option<OpaqueId>,
     pub plugindata: EventResponsePluginData,
     pub jsep: Option<Value>,
 }

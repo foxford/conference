@@ -388,12 +388,12 @@ mod serialize_as_base64 {
         from_base64(s).map_err(de::Error::custom)
     }
 
-    pub fn serialize<S, T>(transaction: &T, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S, T>(obj: &T, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ser::Serializer,
         T: serde::Serialize,
     {
-        let s = to_base64(transaction).map_err(ser::Error::custom)?;
+        let s = to_base64(obj).map_err(ser::Error::custom)?;
         serializer.serialize_str(&s)
     }
 }
