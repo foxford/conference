@@ -6,9 +6,10 @@ use std::ops::Bound;
 use svc_agent::{
     mqtt::{
         IncomingEvent as MQTTIncomingEvent, IncomingRequestProperties, IntoPublishableMessage,
-        OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
+        OutgoingEvent, OutgoingEventProperties, OutgoingResponse, ResponseStatus,
+        ShortTermTimingProperties,
     },
-    Addressable,
+    Addressable, AgentId,
 };
 use svc_error::Error as SvcError;
 
@@ -26,19 +27,15 @@ use crate::{
     diesel::Connection,
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-use self::client::{transactions::Transaction, IncomingEvent};
+use self::client::{create_handle::OpaqueId, transactions::Transaction, IncomingEvent};
 
 ////////////////////////////////////////////////////////////////////////////////
 
 pub const JANUS_API_VERSION: &str = "v1";
 
 const ALREADY_RUNNING_STATE: &str = "already_running";
-
-pub trait OpaqueId {
-    fn opaque_id(&self) -> &str;
-}
 
 fn handle_response_error<C: Context>(
     context: &mut C,
@@ -85,14 +82,8 @@ async fn handle_event_impl<C: Context>(
     payload: IncomingEvent,
 ) -> Result<MessageStream, AppError> {
     match payload {
-        IncomingEvent::WebRtcUp(ref inev) => {
-            context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
-
-            let rtc_stream_id = inev
-                .opaque_id
-                .parse()
-                .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {:?}", err))
-                .error(AppErrorKind::MessageParsingFailed)?;
+        IncomingEvent::WebRtcUp(inev) => {
+            context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id.stream_id.to_string()));
 
             // If the event relates to a publisher's handle,
             // we will find the corresponding stream and send event w/ updated stream object
@@ -100,7 +91,8 @@ async fn handle_event_impl<C: Context>(
             let conn = context.get_conn().await?;
             let start_timestamp = context.start_timestamp();
             task::spawn_blocking(move || {
-                if let Some(rtc_stream) = janus_rtc_stream::start(rtc_stream_id, &conn)? {
+                if let Some(rtc_stream) = janus_rtc_stream::start(inev.opaque_id.stream_id, &conn)?
+                {
                     let room = endpoint::helpers::find_room_by_rtc_id(
                         rtc_stream.rtc_id(),
                         endpoint::helpers::RoomTimeRequirement::Open,
@@ -119,8 +111,8 @@ async fn handle_event_impl<C: Context>(
             })
             .await
         }
-        IncomingEvent::HangUp(ref inev) => handle_hangup_detach(context, inev).await,
-        IncomingEvent::Detached(ref inev) => handle_hangup_detach(context, inev).await,
+        IncomingEvent::HangUp(inev) => handle_hangup_detach(context, inev.opaque_id).await,
+        IncomingEvent::Detached(inev) => handle_hangup_detach(context, inev.opaque_id).await,
         IncomingEvent::Media(_) | IncomingEvent::Timeout(_) | IncomingEvent::SlowLink(_) => {
             // Ignore these kinds of events.
             Ok(Box::new(stream::empty()))
@@ -130,6 +122,7 @@ async fn handle_event_impl<C: Context>(
                 Transaction::AgentLeave => Ok(Box::new(stream::empty())),
                 Transaction::CreateStream(tn) => {
                     context.add_logger_tags(o!("method" => tn.reqp.method().to_string()));
+                    let jsep = resp.jsep;
                     resp.plugindata
                         .data
                         .as_ref()
@@ -394,8 +387,22 @@ async fn handle_event_impl<C: Context>(
                     response
                 }
                 Transaction::AgentSpeaking => {
-                    dbg!(resp.plugindata);
-                    Ok(Box::new(stream::empty()))
+                    let data = resp
+                        .plugindata
+                        .data
+                        .ok_or_else(|| anyhow!("Missing data int response"))
+                        .error(AppErrorKind::MessageParsingFailed)?;
+                    let notification: SpeakingNotification = serde_json::from_value(data)
+                        .map_err(anyhow::Error::from)
+                        .error(AppErrorKind::MessageParsingFailed)?;
+                    let uri = format!("rooms/{}/events", resp.opaque_id.room_id);
+                    let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
+                    let props = OutgoingEventProperties::new("rtc_stream.agent_speaking", timing);
+                    let event = OutgoingEvent::broadcast(notification, props, &uri);
+
+                    Ok(Box::new(stream::once(
+                        Box::new(event) as Box<dyn IntoPublishableMessage + Send>
+                    )) as MessageStream)
                 }
             }
         }
@@ -403,17 +410,17 @@ async fn handle_event_impl<C: Context>(
     }
 }
 
-async fn handle_hangup_detach<C: Context, E: OpaqueId>(
-    context: &mut C,
-    inev: &E,
-) -> Result<MessageStream, AppError> {
-    context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_owned()));
+#[derive(Debug, Deserialize, Serialize)]
+struct SpeakingNotification {
+    speaking: bool,
+    agent_id: AgentId,
+}
 
-    let rtc_stream_id = inev
-        .opaque_id()
-        .parse()
-        .map_err(|err| anyhow!("Failed to parse opaque id as UUID: {}", err))
-        .error(AppErrorKind::MessageParsingFailed)?;
+async fn handle_hangup_detach<C: Context>(
+    context: &mut C,
+    opaque_id: OpaqueId,
+) -> Result<MessageStream, AppError> {
+    context.add_logger_tags(o!("rtc_stream_id" => opaque_id.stream_id.to_string()));
 
     // If the event relates to the publisher's handle,
     // we will find the corresponding stream and send an event w/ updated stream object
@@ -421,7 +428,7 @@ async fn handle_hangup_detach<C: Context, E: OpaqueId>(
     let conn = context.get_conn().await?;
     let start_timestamp = context.start_timestamp();
     task::spawn_blocking(move || {
-        if let Some(rtc_stream) = janus_rtc_stream::stop(rtc_stream_id, &conn)? {
+        if let Some(rtc_stream) = janus_rtc_stream::stop(opaque_id.stream_id, &conn)? {
             let room = endpoint::helpers::find_room_by_rtc_id(
                 rtc_stream.rtc_id(),
                 endpoint::helpers::RoomTimeRequirement::Open,
@@ -502,7 +509,7 @@ async fn handle_status_event_impl<C: Context>(
         let handle = janus_client
             .create_handle(CreateHandleRequest {
                 session_id: session.id,
-                opaque_id: db::janus_rtc_stream::Id::random(),
+                opaque_id: None,
             })
             .await
             .context("Create first handle")

@@ -1,24 +1,16 @@
-use serde::{de, Deserialize};
+use serde::Deserialize;
 use serde_json::Value;
 
-use crate::{backend::janus::OpaqueId, util::from_base64};
-
-use super::{transactions::Transaction, HandleId, SessionId};
-
-fn deserialize_json_string<'de, D>(deserializer: D) -> Result<Transaction, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let s: &str = de::Deserialize::deserialize(deserializer)?;
-    from_base64(s).map_err(de::Error::custom)
-}
+use super::{create_handle::OpaqueId, transactions::Transaction, HandleId, SessionId};
 
 // A response on a request sent to a plugin handle.
 #[derive(Debug, Deserialize)]
 pub struct EventResponse {
-    #[serde(deserialize_with = "deserialize_json_string")]
+    #[serde(with = "super::serialize_as_base64")]
     pub transaction: Transaction,
     pub session_id: SessionId,
+    #[serde(with = "super::serialize_as_base64")]
+    pub opaque_id: OpaqueId,
     pub plugindata: EventResponsePluginData,
     pub jsep: Option<Value>,
 }
@@ -34,13 +26,8 @@ pub struct EventResponsePluginData {
 pub struct WebRtcUpEvent {
     pub session_id: SessionId,
     pub sender: HandleId,
-    pub opaque_id: String,
-}
-
-impl OpaqueId for WebRtcUpEvent {
-    fn opaque_id(&self) -> &str {
-        &self.opaque_id
-    }
+    #[serde(with = "super::serialize_as_base64")]
+    pub opaque_id: OpaqueId,
 }
 
 // A RTCPeerConnection closed for a DTLS alert (normal shutdown).
@@ -49,14 +36,9 @@ impl OpaqueId for WebRtcUpEvent {
 pub struct HangUpEvent {
     pub session_id: SessionId,
     pub sender: HandleId,
-    pub opaque_id: String,
+    #[serde(with = "super::serialize_as_base64")]
+    pub opaque_id: OpaqueId,
     pub reason: String,
-}
-
-impl OpaqueId for HangUpEvent {
-    fn opaque_id(&self) -> &str {
-        &self.opaque_id
-    }
 }
 
 // Audio or video bytes being received by a plugin handle.
@@ -64,7 +46,8 @@ impl OpaqueId for HangUpEvent {
 pub struct MediaEvent {
     pub session_id: SessionId,
     pub sender: HandleId,
-    pub opaque_id: String,
+    #[serde(with = "super::serialize_as_base64")]
+    pub opaque_id: OpaqueId,
     #[serde(rename = "type")]
     pub kind: String,
     pub receiving: bool,
@@ -92,11 +75,6 @@ pub struct SlowLinkEvent {
 pub struct DetachedEvent {
     pub session_id: SessionId,
     pub sender: HandleId,
-    pub opaque_id: String,
-}
-
-impl OpaqueId for DetachedEvent {
-    fn opaque_id(&self) -> &str {
-        &self.opaque_id
-    }
+    #[serde(with = "super::serialize_as_base64")]
+    pub opaque_id: OpaqueId,
 }
