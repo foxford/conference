@@ -478,7 +478,7 @@ async fn handle_status_event_impl<C: Context>(
     let evp = event.properties();
     context.add_logger_tags(o!("label" => evp.label().unwrap_or("").to_string()));
 
-    let payload = MQTTIncomingEvent::convert_payload::<StatusEvent>(&event)
+    let payload = MQTTIncomingEvent::convert_payload::<StatusEvent>(event)
         .map_err(|err| anyhow!("Failed to parse event: {}", err))
         .error(AppErrorKind::MessageParsingFailed)?;
 
