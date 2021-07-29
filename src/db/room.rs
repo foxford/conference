@@ -229,10 +229,11 @@ impl FindQueryable for FindByRtcIdQuery {
 // room3 | rtc4 | null           room3 | null | null
 pub fn finished_with_in_progress_recordings(
     conn: &PgConnection,
+    maybe_group: Option<&str>,
 ) -> Result<Vec<(Object, Recording, JanusBackend)>, Error> {
     use diesel::{dsl::sql, prelude::*};
 
-    room::table
+    let query = room::table
         .inner_join(rtc::table.inner_join(recording::table))
         .inner_join(janus_backend::table.on(janus_backend::id.nullable().eq(room::backend_id)))
         .filter(
@@ -245,8 +246,19 @@ pub fn finished_with_in_progress_recordings(
             self::ALL_COLUMNS,
             super::recording::ALL_COLUMNS,
             super::janus_backend::ALL_COLUMNS,
-        ))
-        .load(conn)
+        ));
+
+    if let Some(group) = maybe_group {
+        query
+            .filter(
+                janus_backend::group
+                    .eq(group)
+                    .or(janus_backend::group.is_null()),
+            )
+            .load(conn)
+    } else {
+        query.load(conn)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -422,7 +434,7 @@ mod tests {
             shared_helpers::insert_recording(&conn, &rtc1);
             shared_helpers::insert_recording(&conn, &rtc2);
 
-            let rooms = finished_with_in_progress_recordings(&conn)
+            let rooms = finished_with_in_progress_recordings(&conn, None)
                 .expect("finished_with_in_progress_recordings call failed");
 
             assert_eq!(rooms.len(), 2);
@@ -439,6 +451,46 @@ mod tests {
                 assert_eq!(rooms[0].0.id(), room2.id());
                 assert_eq!(rooms[0].2.id(), backend2.id());
             }
+        }
+
+        #[test]
+        fn selects_appropriate_backend_by_group() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            let pool = db.connection_pool();
+            let conn = pool.get().expect("Failed to get db connection");
+
+            let backend1 = shared_helpers::insert_janus_backend_with_group(
+                &conn,
+                "test",
+                SessionId::random(),
+                HandleId::random(),
+                "webinar",
+            );
+            let backend2 = shared_helpers::insert_janus_backend_with_group(
+                &conn,
+                "test",
+                SessionId::random(),
+                HandleId::random(),
+                "minigroup",
+            );
+
+            let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
+            let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());
+
+            let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+            let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+
+            shared_helpers::insert_recording(&conn, &rtc1);
+            shared_helpers::insert_recording(&conn, &rtc2);
+
+            let rooms = finished_with_in_progress_recordings(&conn, Some("minigroup"))
+                .expect("finished_with_in_progress_recordings call failed");
+
+            assert_eq!(rooms.len(), 1);
+            assert_eq!(rooms[0].0.id(), room2.id());
         }
     }
 }

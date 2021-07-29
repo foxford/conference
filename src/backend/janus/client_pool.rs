@@ -36,7 +36,14 @@ impl Clients {
 
     fn get_client(&self, backend: &janus_backend::Object) -> Option<JanusClient> {
         let guard = self.clients.read().expect("Must not panic");
-        Some(guard.get(backend.id())?.client.clone())
+        let handle = guard.get(backend.id())?;
+        if handle.janus_url != backend.janus_url() {
+            drop(guard);
+            self.remove_client(backend.id());
+            None
+        } else {
+            Some(handle.client.clone())
+        }
     }
 
     fn put_client(&self, backend: &janus_backend::Object) -> anyhow::Result<JanusClient> {
@@ -52,6 +59,7 @@ impl Clients {
                 v.insert(ClientHandle {
                     client: client.clone(),
                     is_cancelled: is_cancelled.clone(),
+                    janus_url: backend.janus_url().to_owned(),
                 });
                 if self.group.as_deref() == backend.group() {
                     let agent = backend.id().clone();
@@ -91,6 +99,7 @@ impl Clients {
 struct ClientHandle {
     client: JanusClient,
     is_cancelled: Arc<AtomicBool>,
+    janus_url: String,
 }
 
 #[derive(Debug, Clone)]

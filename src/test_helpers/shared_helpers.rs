@@ -175,6 +175,32 @@ pub fn insert_janus_backend(
     .insert(conn)
 }
 
+pub fn insert_janus_backend_with_group(
+    conn: &PgConnection,
+    url: &str,
+    session_id: SessionId,
+    handle_id: crate::backend::janus::client::HandleId,
+    group: &str,
+) -> JanusBackend {
+    let rng = rand::thread_rng();
+
+    let label_suffix: String = rng
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(5)
+        .collect();
+    let label = format!("janus-gateway-{}", label_suffix);
+
+    let agent = TestAgent::new("alpha", &label, SVC_AUDIENCE);
+    factory::JanusBackend::new(
+        agent.agent_id().to_owned(),
+        handle_id,
+        session_id,
+        url.to_owned(),
+    )
+    .group(group)
+    .insert(conn)
+}
+
 pub fn insert_rtc(conn: &PgConnection) -> Rtc {
     let room = insert_room(conn);
     factory::Rtc::new(room.id()).insert(conn)
