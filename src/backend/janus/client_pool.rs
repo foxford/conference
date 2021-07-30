@@ -101,7 +101,7 @@ struct PollerGuard<'a> {
 
 impl<'a> Drop for PollerGuard<'a> {
     fn drop(&mut self) {
-        self.clients.remove_client(&self.agent_id)
+        self.clients.remove_client(self.agent_id)
     }
 }
 

@@ -90,7 +90,7 @@ where
     Q: db::room::FindQueryable,
 {
     let room = query
-        .execute(&conn)?
+        .execute(conn)?
         .ok_or_else(|| anyhow!("Room not found"))
         .error(AppErrorKind::RoomNotFound)?;
 

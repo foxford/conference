@@ -168,8 +168,8 @@ where
             RecordingStatus::Missing => None,
             RecordingStatus::Ready => Some(format!(
                 "s3://{}/{}",
-                &upload_config(context, &room)?.bucket,
-                record_name(&recording, &room)
+                &upload_config(context, room)?.bucket,
+                record_name(&recording, room)
             )),
         };
 
