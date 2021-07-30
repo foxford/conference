@@ -263,6 +263,7 @@ impl IncomingEvent {
                 Transaction::UpdateReaderConfig => "UpdateReaderConfig",
                 Transaction::UpdateWriterConfig => "UpdateWriterConfig",
                 Transaction::UploadStream(_) => "UploadStream",
+                Transaction::AgentSpeaking => "AgentSpeaking",
             },
             IncomingEvent::KeepAlive => "KeepAlive",
         }
