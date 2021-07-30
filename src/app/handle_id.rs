@@ -74,15 +74,13 @@ impl FromStr for HandleId {
     fn from_str(val: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = val.splitn(5, '.').collect();
         match parts[..] {
-            [ref rtc_stream_id, ref rtc_id, ref janus_handle_id, ref janus_session_id, ref rest] => {
-                Ok(Self::new(
-                    rtc_stream_id.parse()?,
-                    rtc_id.parse()?,
-                    janus_handle_id.parse()?,
-                    janus_session_id.parse()?,
-                    rest.parse()?,
-                ))
-            }
+            [rtc_stream_id, rtc_id, janus_handle_id, janus_session_id, rest] => Ok(Self::new(
+                rtc_stream_id.parse()?,
+                rtc_id.parse()?,
+                janus_handle_id.parse()?,
+                janus_session_id.parse()?,
+                rest.parse()?,
+            )),
             _ => Err(anyhow!("Invalid handle id: {}", val)),
         }
     }

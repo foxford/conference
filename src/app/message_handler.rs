@@ -297,7 +297,7 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
                             app_error.kind(),
                             app_error.title(),
                             &app_error.source().to_string(),
-                            &reqp,
+                            reqp,
                             context.start_timestamp(),
                         )
                     })

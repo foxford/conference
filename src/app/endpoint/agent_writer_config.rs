@@ -215,12 +215,16 @@ impl RequestHandler for UpdateHandler {
 
                         q.execute(&conn)?;
 
-                        let snapshot_q = db::rtc_writer_config_snapshot::InsertQuery::new(
-                            *rtc_id,
-                            state_config_item.send_video,
-                            state_config_item.send_audio,
-                        );
-                        snapshot_q.execute(&conn)?;
+                        if state_config_item.send_video.is_some()
+                            || state_config_item.send_audio.is_some()
+                        {
+                            let snapshot_q = db::rtc_writer_config_snapshot::InsertQuery::new(
+                                *rtc_id,
+                                state_config_item.send_video,
+                                state_config_item.send_audio,
+                            );
+                            snapshot_q.execute(&conn)?;
+                        }
                     }
 
                     // Retrieve state data.
@@ -425,7 +429,7 @@ mod tests {
 
             // Make agent_writer_config.update request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _rx) = async_std::channel::unbounded();
+            let (tx, _rx) = crossbeam_channel::unbounded();
             context.with_janus(tx);
 
             let payload = State {

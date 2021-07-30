@@ -341,7 +341,7 @@ mod tests {
 
             // Make agent_reader_config.update request.
             let mut context = TestContext::new(db, TestAuthz::new());
-            let (tx, _rx) = async_std::channel::unbounded();
+            let (tx, _rx) = crossbeam_channel::unbounded();
             context.with_janus(tx);
 
             let payload = State {

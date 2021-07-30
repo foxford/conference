@@ -168,8 +168,8 @@ where
             RecordingStatus::Missing => None,
             RecordingStatus::Ready => Some(format!(
                 "s3://{}/{}",
-                &upload_config(context, &room)?.bucket,
-                record_name(&recording, &room)
+                &upload_config(context, room)?.bucket,
+                record_name(&recording, room)
             )),
         };
 
@@ -304,7 +304,7 @@ mod test {
 
             // Make system.vacuum request.
             let mut context = TestContext::new(db, authz);
-            let (tx, rx) = async_std::channel::unbounded();
+            let (tx, rx) = crossbeam_channel::unbounded();
             context.with_janus(tx.clone());
 
             let payload = VacuumRequest {};
@@ -313,7 +313,7 @@ mod test {
                 .await
                 .expect("System vacuum failed");
             context.janus_clients().remove_client(backend.id());
-            let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().await.unwrap(), rx.recv().await.unwrap()]
+            let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().unwrap(), rx.recv().unwrap()]
                 .iter()
                 .map(|resp| match resp {
                     IncomingEvent::Event(EventResponse {
