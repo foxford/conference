@@ -247,6 +247,28 @@ pub enum IncomingEvent {
     KeepAlive,
 }
 
+impl IncomingEvent {
+    pub fn event_kind(&self) -> &'static str {
+        match self {
+            IncomingEvent::WebRtcUp(_) => "WebRtcUp",
+            IncomingEvent::Media(_) => "Media",
+            IncomingEvent::Timeout(_) => "Media",
+            IncomingEvent::HangUp(_) => "HangUp",
+            IncomingEvent::SlowLink(_) => "SlowLink",
+            IncomingEvent::Detached(_) => "Detached",
+            IncomingEvent::Event(e) => match &e.transaction {
+                Transaction::AgentLeave => "AgentLeave",
+                Transaction::CreateStream(_) => "CreateStream",
+                Transaction::ReadStream(_) => "ReadStream",
+                Transaction::UpdateReaderConfig => "UpdateReaderConfig",
+                Transaction::UpdateWriterConfig => "UpdateWriterConfig",
+                Transaction::UploadStream(_) => "UploadStream",
+            },
+            IncomingEvent::KeepAlive => "KeepAlive",
+        }
+    }
+}
+
 #[derive(Deserialize, Debug)]
 enum Ack {
     #[serde(rename = "ack")]

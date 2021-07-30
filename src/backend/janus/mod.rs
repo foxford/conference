@@ -84,6 +84,7 @@ async fn handle_event_impl<C: Context>(
     context: &mut C,
     payload: IncomingEvent,
 ) -> Result<MessageStream, AppError> {
+    context.add_logger_tags(o!("janus_event" => payload.event_kind()));
     match payload {
         IncomingEvent::WebRtcUp(ref inev) => {
             context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id().to_string()));
