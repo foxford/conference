@@ -396,7 +396,26 @@ fn upload_stream(
     })
 }
 
-#[test]
-fn test() {
-    // dbg!(serde_json::to_string_pretty(&create_session()));
+mod serialize_as_base64 {
+    use serde::{de, ser};
+
+    use crate::util::{from_base64, to_base64};
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: de::Deserializer<'de>,
+        T: serde::de::DeserializeOwned,
+    {
+        let s: &str = de::Deserialize::deserialize(deserializer)?;
+        from_base64(s).map_err(de::Error::custom)
+    }
+
+    pub fn serialize<S, T>(obj: &T, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+        T: serde::Serialize,
+    {
+        let s = to_base64(obj).map_err(ser::Error::custom)?;
+        serializer.serialize_str(&s)
+    }
 }

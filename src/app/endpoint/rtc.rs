@@ -18,7 +18,10 @@ use crate::{
         context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId,
         metrics::HistogramExt,
     },
-    backend::janus::{client::create_handle::CreateHandleRequest, JANUS_API_VERSION},
+    backend::janus::{
+        client::create_handle::{CreateHandleRequest, OpaqueId},
+        JANUS_API_VERSION,
+    },
     db::{self, agent, agent_connection, rtc::SharingPolicy as RtcSharingPolicy},
     diesel::{Connection, Identifiable},
 };
@@ -464,7 +467,10 @@ impl RequestHandler for ConnectHandler {
             .error(AppErrorKind::BackendClientCreationFailed)?
             .create_handle(CreateHandleRequest {
                 session_id: backend.session_id(),
-                opaque_id: rtc_stream_id,
+                opaque_id: Some(OpaqueId {
+                    room_id,
+                    stream_id: rtc_stream_id,
+                }),
             })
             .await
             .context("Handle creating")

@@ -467,6 +467,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                     jsep: Some(_jsep),
                     session_id: s_id,
                     plugindata: _,
+                    opaque_id: _,
                 }) => {
                     assert_eq!(session_id, s_id);
                 }
