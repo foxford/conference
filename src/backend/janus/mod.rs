@@ -509,7 +509,7 @@ async fn handle_status_event_impl<C: Context>(
             }
         })
         .await?;
-        if janus_backend.is_none() {
+        if janus_backend.is_some() {
             return Ok(Box::new(stream::empty()));
         }
         let janus_url = payload
