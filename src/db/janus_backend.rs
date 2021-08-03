@@ -202,7 +202,8 @@ impl<'a> InsertQuery<'a> {
 
         diesel::insert_into(janus_backend)
             .values(self)
-            .on_conflict_do_nothing()
+            .on_conflict(crate::schema::janus_backend::id)
+            .do_nothing()
             .get_result(conn)
     }
 }
