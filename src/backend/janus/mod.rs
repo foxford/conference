@@ -434,21 +434,19 @@ async fn handle_hangup_detach<C: Context>(
     let start_timestamp = context.start_timestamp();
     task::spawn_blocking(move || {
         if let Some(rtc_stream) = janus_rtc_stream::stop(opaque_id.stream_id, &conn)? {
-            let room = endpoint::helpers::find_room_by_rtc_id(
-                rtc_stream.rtc_id(),
-                endpoint::helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?;
-
             // Publish the update event only if the stream object has been changed.
             // If there's no actual media stream, the object wouldn't contain its start time.
             if rtc_stream.time().is_some() {
                 // Disconnect agents.
-                agent_connection::BulkDisconnectByRoomQuery::new(room.id()).execute(&conn)?;
+                agent_connection::BulkDisconnectByRtcQuery::new(rtc_stream.rtc_id())
+                    .execute(&conn)?;
 
                 // Send rtc_stream.update event.
-                let event =
-                    endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp)?;
+                let event = endpoint::rtc_stream::update_event(
+                    opaque_id.room_id,
+                    rtc_stream,
+                    start_timestamp,
+                )?;
 
                 let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
                 return Ok(Box::new(stream::once(boxed_event)) as MessageStream);
