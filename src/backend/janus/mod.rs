@@ -524,7 +524,7 @@ async fn handle_status_event_impl<C: Context>(
 
         let backend = task::spawn_blocking(move || {
             let mut q =
-                janus_backend::UpsertQuery::new(&backend_id, handle.id, session.id, &janus_url);
+                janus_backend::InsertQuery::new(&backend_id, handle.id, session.id, &janus_url);
 
             if let Some(capacity) = payload.capacity {
                 q = q.capacity(capacity);
