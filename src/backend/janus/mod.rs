@@ -346,7 +346,8 @@ async fn handle_event_impl<C: Context>(
                                 )?;
 
                                 let rtcs_with_recs =
-                                    rtc::ListWithRecordingQuery::new(room.id()).execute(&conn)?;
+                                    rtc::ListWithReadyRecordingQuery::new(room.id())
+                                        .execute(&conn)?;
 
                                 Ok::<_, AppError>((room, rtcs_with_recs))
                             })

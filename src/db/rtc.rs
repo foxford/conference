@@ -175,11 +175,11 @@ impl<'a> ListQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub struct ListWithRecordingQuery {
+pub struct ListWithReadyRecordingQuery {
     room_id: db::room::Id,
 }
 
-impl ListWithRecordingQuery {
+impl ListWithReadyRecordingQuery {
     pub fn new(room_id: db::room::Id) -> Self {
         Self { room_id }
     }
@@ -190,6 +190,7 @@ impl ListWithRecordingQuery {
         rtc::table
             .left_join(recording::table)
             .filter(rtc::room_id.eq(self.room_id))
+            .filter(recording::status.eq(db::recording::Status::Ready))
             .get_results(conn)
     }
 }
