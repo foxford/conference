@@ -124,35 +124,6 @@ impl UpsertQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// Diesel doesn't support joins in UPDATE/DELETE queries so it's raw SQL.
-const BULK_DISCONNECT_BY_ROOM_SQL: &str = r#"
-    DELETE FROM agent_connection AS ac
-    USING agent AS a
-    WHERE a.id = ac.agent_id
-    AND   a.room_id = $1
-"#;
-
-#[derive(Debug)]
-pub struct BulkDisconnectByRoomQuery {
-    room_id: db::room::Id,
-}
-
-impl BulkDisconnectByRoomQuery {
-    pub fn new(room_id: db::room::Id) -> Self {
-        Self { room_id }
-    }
-
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::{prelude::*, sql_types::Uuid};
-
-        diesel::sql_query(BULK_DISCONNECT_BY_ROOM_SQL)
-            .bind::<Uuid, _>(self.room_id)
-            .execute(conn)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug)]
 pub struct BulkDisconnectByRtcQuery {
     rtc_id: db::rtc::Id,
