@@ -145,7 +145,7 @@ impl<'a> FindQuery<'a> {
 
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "janus_backend"]
-pub struct UpsertQuery<'a> {
+pub struct InsertQuery<'a> {
     id: &'a AgentId,
     handle_id: HandleId,
     session_id: SessionId,
@@ -156,7 +156,7 @@ pub struct UpsertQuery<'a> {
     janus_url: &'a str,
 }
 
-impl<'a> UpsertQuery<'a> {
+impl<'a> InsertQuery<'a> {
     pub fn new(
         id: &'a AgentId,
         handle_id: HandleId,
@@ -203,8 +203,7 @@ impl<'a> UpsertQuery<'a> {
         diesel::insert_into(janus_backend)
             .values(self)
             .on_conflict(crate::schema::janus_backend::id)
-            .do_update()
-            .set(self)
+            .do_nothing()
             .get_result(conn)
     }
 }
