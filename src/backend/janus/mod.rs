@@ -497,20 +497,6 @@ async fn handle_status_event_impl<C: Context>(
         .error(AppErrorKind::MessageParsingFailed)?;
 
     if payload.online {
-        let backend_id = evp.as_agent_id().clone();
-        let janus_backend = task::spawn_blocking({
-            let conn = context.get_conn().await?;
-            let backend_id = backend_id.clone();
-            move || {
-                db::janus_backend::FindQuery::new()
-                    .id(&backend_id)
-                    .execute(&conn)
-            }
-        })
-        .await?;
-        if janus_backend.is_some() {
-            return Ok(Box::new(stream::empty()));
-        }
         let janus_url = payload
             .janus_url
             .as_ref()
@@ -532,11 +518,12 @@ async fn handle_status_event_impl<C: Context>(
             .await
             .context("Create first handle")
             .error(AppErrorKind::BackendRequestFailed)?;
+        let backend_id = evp.as_agent_id().clone();
         let conn = context.get_conn().await?;
 
         let backend = task::spawn_blocking(move || {
             let mut q =
-                janus_backend::InsertQuery::new(&backend_id, handle.id, session.id, &janus_url);
+                janus_backend::UpsertQuery::new(&backend_id, handle.id, session.id, &janus_url);
 
             if let Some(capacity) = payload.capacity {
                 q = q.capacity(capacity);
