@@ -460,7 +460,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             handle_request::<CreateHandler>(&mut context, &agent, payload)
                 .await
                 .expect("Rtc signal creation failed");
-            context.janus_clients().remove_client(agent.agent_id());
+            context.janus_clients().remove_client(&backend);
             match rx.recv().unwrap() {
                 IncomingEvent::Event(EventResponse {
                     transaction: Transaction::CreateStream(_tn),
@@ -731,7 +731,7 @@ a=rtcp-fb:120 ccm fir
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
                 .await
                 .expect("Rtc signal creation failed");
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
             let (resp, _, _) = find_response::<CreateResponseData>(&messages);
 
             assert!(resp.jsep.is_none());

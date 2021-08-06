@@ -618,7 +618,7 @@ mod tests {
             assert_eq!(agent4_config.send_video, Some(true));
             assert_eq!(agent4_config.send_audio, Some(true));
             assert_eq!(agent4_config.video_remb, Some(1_000_000));
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
             Ok(())
         }
 

@@ -314,7 +314,7 @@ mod test {
             let messages = handle_request::<VacuumHandler>(&mut context, &agent, payload)
                 .await
                 .expect("System vacuum failed");
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
             let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().unwrap(), rx.recv().unwrap()]
                 .iter()
                 .map(|resp| match resp {

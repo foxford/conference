@@ -412,7 +412,6 @@ async fn handle_event_impl<C: Context>(
                 }
             }
         }
-        IncomingEvent::KeepAlive => Ok(Box::new(stream::empty())),
     }
 }
 
@@ -546,7 +545,19 @@ async fn handle_status_event_impl<C: Context>(
             .error(AppErrorKind::BrokerRequestFailed)?;
         Ok(Box::new(stream::empty()))
     } else {
-        context.janus_clients().remove_client(evp.as_agent_id());
+        let janus_backend = task::spawn_blocking({
+            let conn = context.get_conn().await?;
+            let backend_id = evp.as_agent_id().clone();
+            move || {
+                db::janus_backend::FindQuery::new()
+                    .id(&backend_id)
+                    .execute(&conn)
+            }
+        })
+        .await?;
+        if let Some(backend) = janus_backend {
+            context.janus_clients().remove_client(&backend);
+        }
         let conn = context.get_conn().await?;
         let agent_id = evp.as_agent_id().clone();
         let streams_with_rtc = task::spawn_blocking(move || {

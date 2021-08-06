@@ -442,7 +442,7 @@ mod tests {
             assert_eq!(agent4_config.receive_video, Some(true));
             assert_eq!(agent4_config.receive_audio, Some(true));
 
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
             Ok(())
         }
 

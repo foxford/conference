@@ -1132,7 +1132,7 @@ mod test {
                 .await
                 .expect("RTC connect failed");
             let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
 
             assert_eq!(respp.status(), StatusCode::OK);
             assert_eq!(resp.handle_id.rtc_id(), rtc.id());
@@ -1191,7 +1191,7 @@ mod test {
                 .await
                 .expect("RTC connect failed");
             let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
 
             assert_eq!(respp.status(), StatusCode::OK);
             assert_eq!(resp.handle_id.rtc_id(), rtc.id());
@@ -1292,7 +1292,7 @@ mod test {
                 .await
                 .expect("RTC connect failed");
             let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
 
             assert_eq!(respp.status(), StatusCode::OK);
             assert_eq!(resp.handle_id.rtc_id(), rtc.id());
@@ -1419,7 +1419,7 @@ mod test {
             handle_request::<ConnectHandler>(&mut context, &reader1, payload)
                 .await
                 .expect("RTC connect failed");
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
         }
 
         #[async_std::test]
@@ -1488,7 +1488,7 @@ mod test {
             handle_request::<ConnectHandler>(&mut context, &reader, payload)
                 .await
                 .expect("RTC connect failed");
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
         }
 
         #[async_std::test]
@@ -1642,7 +1642,7 @@ mod test {
             handle_request::<ConnectHandler>(&mut context, &writer, payload)
                 .await
                 .expect("RTC connect failed");
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
         }
 
         #[async_std::test]
@@ -1802,7 +1802,7 @@ mod test {
                 .await
                 .expect("RTC connect failed");
             let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
 
             assert_eq!(respp.status(), StatusCode::OK);
             assert_eq!(resp.handle_id.rtc_id(), rtc.id());
@@ -1977,7 +1977,7 @@ mod test {
             handle_request::<ConnectHandler>(&mut context, &new_reader, payload)
                 .await
                 .expect("RTC connect failed");
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
         }
 
         #[async_std::test]
@@ -2037,7 +2037,7 @@ mod test {
             handle_request::<ConnectHandler>(&mut context, &agent, payload)
                 .await
                 .expect("RTC connect failed");
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
         }
 
         #[async_std::test]
@@ -2096,7 +2096,7 @@ mod test {
             let err = handle_request::<ConnectHandler>(&mut context, &agent, payload)
                 .await
                 .expect_err("Unexpected success on RTC connection");
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
 
             assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
             assert_eq!(err.kind(), "access_denied");
@@ -2159,7 +2159,7 @@ mod test {
             handle_request::<ConnectHandler>(&mut context, &agent, payload)
                 .await
                 .expect("RTC connect failed");
-            context.janus_clients().remove_client(backend.id())
+            context.janus_clients().remove_client(&backend)
         }
 
         #[async_std::test]
@@ -2242,7 +2242,7 @@ mod test {
                 .await
                 .expect("RTC connect failed");
             let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
-            context.janus_clients().remove_client(backend.id());
+            context.janus_clients().remove_client(&backend);
 
             assert_eq!(respp.status(), StatusCode::OK);
             assert_eq!(resp.handle_id.rtc_id(), rtc.id());

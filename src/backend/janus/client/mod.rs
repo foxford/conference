@@ -26,6 +26,7 @@ use isahc::{
 };
 use rand::Rng;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 use derive_more::{Display, FromStr};
@@ -65,7 +66,7 @@ impl JanusClient {
             return Ok(PollResult::SessionNotFound);
         }
         let body = response.text().await?;
-        let body: Vec<IncomingEvent> = serde_json::from_str(&body).context(body)?;
+        let body: Vec<Value> = serde_json::from_str(&body).context(body)?;
         Ok(PollResult::Events(body))
     }
 
@@ -148,7 +149,7 @@ impl JanusClient {
 
 pub enum PollResult {
     SessionNotFound,
-    Events(Vec<IncomingEvent>),
+    Events(Vec<Value>),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -244,7 +245,6 @@ pub enum IncomingEvent {
     SlowLink(SlowLinkEvent),
     Detached(DetachedEvent),
     Event(EventResponse),
-    KeepAlive,
 }
 
 impl IncomingEvent {
@@ -265,7 +265,6 @@ impl IncomingEvent {
                 Transaction::UploadStream(_) => "UploadStream",
                 Transaction::AgentSpeaking => "AgentSpeaking",
             },
-            IncomingEvent::KeepAlive => "KeepAlive",
         }
     }
 }

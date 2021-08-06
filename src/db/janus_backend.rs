@@ -36,7 +36,9 @@ pub const ALL_COLUMNS: AllColumns = (
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Identifiable, Queryable, QueryableByName, Associations)]
+#[derive(
+    Debug, Identifiable, Queryable, QueryableByName, Associations, PartialEq, Eq, Hash, Clone,
+)]
 #[table_name = "janus_backend"]
 pub struct Object {
     id: AgentId,

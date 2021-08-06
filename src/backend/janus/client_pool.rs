@@ -1,5 +1,6 @@
 use super::client::{IncomingEvent, JanusClient, PollResult, SessionId};
 use crate::db::janus_backend;
+use anyhow::anyhow;
 use crossbeam_channel::Sender;
 use slog::{error, warn};
 use std::{
@@ -10,11 +11,10 @@ use std::{
     },
     time::Duration,
 };
-use svc_agent::AgentId;
 
 #[derive(Debug, Clone)]
 pub struct Clients {
-    clients: Arc<RwLock<HashMap<AgentId, ClientHandle>>>,
+    clients: Arc<RwLock<HashMap<janus_backend::Object, ClientHandle>>>,
     events_sink: Sender<IncomingEvent>,
     group: Option<String>,
 }
@@ -29,60 +29,56 @@ impl Clients {
     }
 
     pub fn get_or_insert(&self, backend: &janus_backend::Object) -> anyhow::Result<JanusClient> {
+        if backend.group() != self.group.as_deref() {
+            return Err(anyhow!(
+                "Wrong backend_group. Expected: {:?}. Got: {:?}",
+                self.group,
+                backend.group()
+            ));
+        }
         self.get_client(backend)
             .map(Ok)
-            .unwrap_or_else(|| self.put_client(backend))
+            .unwrap_or_else(|| self.put_client(backend.clone()))
     }
 
     fn get_client(&self, backend: &janus_backend::Object) -> Option<JanusClient> {
         let guard = self.clients.read().expect("Must not panic");
-        let handle = guard.get(backend.id())?;
-        if handle.janus_url != backend.janus_url() {
-            drop(guard);
-            self.remove_client(backend.id());
-            None
-        } else {
-            Some(handle.client.clone())
-        }
+        Some(guard.get(backend)?.client.clone())
     }
 
-    fn put_client(&self, backend: &janus_backend::Object) -> anyhow::Result<JanusClient> {
+    fn put_client(&self, backend: janus_backend::Object) -> anyhow::Result<JanusClient> {
         let mut guard = self.clients.write().expect("Must not panic");
-        match guard.entry(backend.id().clone()) {
+        match guard.entry(backend.clone()) {
             Entry::Occupied(o) => Ok(o.get().client.clone()),
             Entry::Vacant(v) => {
                 let this = self.clone();
                 let client = JanusClient::new(backend.janus_url())?;
                 let session_id = backend.session_id();
-                let agent_id = backend.id().clone();
                 let is_cancelled = Arc::new(AtomicBool::new(false));
                 v.insert(ClientHandle {
                     client: client.clone(),
                     is_cancelled: is_cancelled.clone(),
                     janus_url: backend.janus_url().to_owned(),
                 });
-                if self.group.as_deref() == backend.group() {
-                    let agent = backend.id().clone();
-                    async_std::task::spawn({
-                        let client = client.clone();
-                        async move {
-                            let sink = this.events_sink.clone();
-                            let _guard = PollerGuard {
-                                clients: &this,
-                                agent_id: &agent_id,
-                            };
-                            start_polling(client, session_id, sink, &is_cancelled, agent).await;
-                        }
-                    });
-                }
+                async_std::task::spawn({
+                    let client = client.clone();
+                    async move {
+                        let sink = this.events_sink.clone();
+                        let _guard = PollerGuard {
+                            clients: &this,
+                            backend: &backend,
+                        };
+                        start_polling(client, session_id, sink, &is_cancelled, &backend).await;
+                    }
+                });
                 Ok(client)
             }
         }
     }
 
-    pub fn remove_client(&self, agent_id: &AgentId) {
+    pub fn remove_client(&self, backend: &janus_backend::Object) {
         let mut guard = self.clients.write().expect("Must not panic");
-        if let Some(handle) = guard.remove(agent_id) {
+        if let Some(handle) = guard.remove(backend) {
             handle.is_cancelled.store(true, Ordering::SeqCst)
         }
     }
@@ -105,12 +101,12 @@ struct ClientHandle {
 #[derive(Debug, Clone)]
 struct PollerGuard<'a> {
     clients: &'a Clients,
-    agent_id: &'a AgentId,
+    backend: &'a janus_backend::Object,
 }
 
 impl<'a> Drop for PollerGuard<'a> {
     fn drop(&mut self) {
-        self.clients.remove_client(self.agent_id)
+        self.clients.remove_client(self.backend)
     }
 }
 
@@ -119,11 +115,13 @@ async fn start_polling(
     session_id: SessionId,
     sink: Sender<IncomingEvent>,
     is_cancelled: &AtomicBool,
-    agent: AgentId,
+    janus_backend: &janus_backend::Object,
 ) {
-    let mut retries_count = 5;
+    let mut fail_retries_count = 5;
+    // 120 keep_alive retries equals one hour of polling.
+    let mut keep_alive_count = 120;
     loop {
-        if retries_count == 0 {
+        if keep_alive_count == 0 || fail_retries_count == 0 {
             break;
         }
         if is_cancelled.load(Ordering::SeqCst) {
@@ -134,19 +132,41 @@ async fn start_polling(
             Ok(PollResult::SessionNotFound) => {
                 warn!(
                     crate::LOG,
-                    "Session {} not found on agent {}", session_id, agent
+                    "Session {} not found on backend {:?}", session_id, janus_backend
                 );
                 break;
             }
             Ok(PollResult::Events(events)) => {
+                if let [event] = events.as_slice() {
+                    let keep_alive = event.get("janus").and_then(|x| x.as_str());
+                    if Some("keepalive") == keep_alive {
+                        keep_alive_count -= 1;
+                        continue;
+                    }
+                }
+                keep_alive_count = 120;
+                fail_retries_count = 5;
                 for event in events {
-                    sink.send(event).expect("Receiver must exist");
+                    match serde_json::from_value(event) {
+                        Ok(event) => {
+                            sink.send(event).expect("Receiver must exist");
+                        }
+                        Err(err) => {
+                            warn!(crate::LOG, "Got unknown event: {:?}", err);
+                        }
+                    }
                 }
             }
             Err(err) => {
-                error!(crate::LOG, "Polling error for {}: {:?}", session_id, err);
+                error!(
+                    crate::LOG,
+                    "Polling error for session {} on backend {:?}: {:?}",
+                    session_id,
+                    janus_backend,
+                    err
+                );
                 async_std::task::sleep(Duration::from_millis(500)).await;
-                retries_count -= 1;
+                fail_retries_count -= 1;
             }
         }
     }
