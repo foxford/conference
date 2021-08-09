@@ -141,7 +141,8 @@ pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
         session_id,
         handle_id,
         body: ServicePingRequestBody::new(),
-    })(session_id, handle_id)
+    });
+    (session_id, handle_id)
 }
 
 pub fn insert_connected_to_handle_agent(
