@@ -12,6 +12,7 @@ use self::{
         WebRtcUpEvent,
     },
     read_stream::{ReadStreamRequest, ReadStreamTransaction},
+    service_ping::ServicePingRequest,
     transactions::Transaction,
     trickle::TrickleRequest,
     update_agent_reader_config::UpdateReaderConfigRequest,
@@ -37,6 +38,7 @@ pub mod create_session;
 pub mod create_stream;
 pub mod events;
 pub mod read_stream;
+pub mod service_ping;
 pub mod transactions;
 pub mod trickle;
 pub mod update_agent_reader_config;
@@ -137,6 +139,11 @@ impl JanusClient {
         let response: JanusResponse<CreateSessionResponse> =
             self.send_request(create_session()).await?;
         Ok(response.data)
+    }
+
+    pub async fn service_ping(&self, request: ServicePingRequest) -> anyhow::Result<()> {
+        let _response: AckResponse = self.send_request(service_ping(request)?).await?;
+        Ok(())
     }
 
     async fn send_request<R: DeserializeOwned>(&self, body: impl Serialize) -> anyhow::Result<R> {
@@ -264,6 +271,7 @@ impl IncomingEvent {
                 Transaction::UpdateWriterConfig => "UpdateWriterConfig",
                 Transaction::UploadStream(_) => "UploadStream",
                 Transaction::AgentSpeaking => "AgentSpeaking",
+                Transaction::ServicePing => "ServicePing",
             },
         }
     }
@@ -390,6 +398,15 @@ fn upload_stream(
 ) -> anyhow::Result<JanusRequest<UploadStreamRequest>> {
     Ok(JanusRequest {
         transaction: to_base64(&Transaction::UploadStream(transaction))?,
+        janus: "message",
+        plugin: None,
+        data: request,
+    })
+}
+
+fn service_ping(request: ServicePingRequest) -> anyhow::Result<JanusRequest<ServicePingRequest>> {
+    Ok(JanusRequest {
+        transaction: to_base64(&Transaction::ServicePing)?,
         janus: "message",
         plugin: None,
         data: request,

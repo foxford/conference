@@ -118,13 +118,8 @@ async fn start_polling(
     janus_backend: &janus_backend::Object,
 ) {
     let mut fail_retries_count = 5;
-    // 120 keep_alive retries equals one hour of polling.
-    let mut keep_alive_count = 120;
     loop {
-        if keep_alive_count == 0 || fail_retries_count == 0 {
-            break;
-        }
-        if is_cancelled.load(Ordering::SeqCst) {
+        if fail_retries_count == 0 || is_cancelled.load(Ordering::SeqCst) {
             break;
         }
         let poll_result = janus_client.poll(session_id).await;
@@ -137,15 +132,13 @@ async fn start_polling(
                 break;
             }
             Ok(PollResult::Events(events)) => {
+                fail_retries_count = 5;
                 if let [event] = events.as_slice() {
                     let keep_alive = event.get("janus").and_then(|x| x.as_str());
                     if Some("keepalive") == keep_alive {
-                        keep_alive_count -= 1;
                         continue;
                     }
                 }
-                keep_alive_count = 120;
-                fail_retries_count = 5;
                 for event in events {
                     match serde_json::from_value(event) {
                         Ok(event) => {

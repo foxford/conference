@@ -13,4 +13,5 @@ pub enum Transaction {
     UpdateWriterConfig,
     UploadStream(UploadStreamTransaction),
     AgentSpeaking,
+    ServicePing,
 }

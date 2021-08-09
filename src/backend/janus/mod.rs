@@ -22,7 +22,11 @@ use crate::{
         metrics::HistogramExt,
         API_VERSION,
     },
-    backend::janus::client::{create_handle::CreateHandleRequest, JanusClient},
+    backend::janus::client::{
+        create_handle::CreateHandleRequest,
+        service_ping::{ServicePingRequest, ServicePingRequestBody},
+        JanusClient,
+    },
     db::{self, agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc},
     diesel::Connection,
 };
@@ -220,6 +224,7 @@ async fn handle_event_impl<C: Context>(
                 }
                 Transaction::UpdateReaderConfig => Ok(Box::new(stream::empty())),
                 Transaction::UpdateWriterConfig => Ok(Box::new(stream::empty())),
+                Transaction::ServicePing => Ok(Box::new(stream::empty())),
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
                 Transaction::UploadStream(ref tn) => {
                     context.add_logger_tags(o!(
@@ -494,82 +499,121 @@ async fn handle_status_event_impl<C: Context>(
     let payload = MQTTIncomingEvent::convert_payload::<StatusEvent>(event)
         .map_err(|err| anyhow!("Failed to parse event: {}", err))
         .error(AppErrorKind::MessageParsingFailed)?;
-
-    if payload.online {
-        let janus_url = payload
-            .janus_url
-            .as_ref()
-            .ok_or_else(|| anyhow!("Missing url"))
-            .error(AppErrorKind::BackendClientCreationFailed)?
-            .clone();
-        let janus_client =
-            JanusClient::new(&janus_url).error(AppErrorKind::BackendClientCreationFailed)?;
-        let session = janus_client
-            .create_session()
-            .await
-            .context("CreateSession")
-            .error(AppErrorKind::BackendRequestFailed)?;
-        let handle = janus_client
-            .create_handle(CreateHandleRequest {
-                session_id: session.id,
-                opaque_id: None,
-            })
-            .await
-            .context("Create first handle")
-            .error(AppErrorKind::BackendRequestFailed)?;
-        let backend_id = evp.as_agent_id().clone();
+    let janus_backend = task::spawn_blocking({
         let conn = context.get_conn().await?;
-
-        let backend = task::spawn_blocking(move || {
-            let mut q =
-                janus_backend::UpsertQuery::new(&backend_id, handle.id, session.id, &janus_url);
-
-            if let Some(capacity) = payload.capacity {
-                q = q.capacity(capacity);
-            }
-
-            if let Some(balancer_capacity) = payload.balancer_capacity {
-                q = q.balancer_capacity(balancer_capacity);
-            }
-
-            if let Some(group) = payload.group.as_deref() {
-                q = q.group(group);
-            }
-
-            q.execute(&conn)
-        })
-        .await?;
-        context
-            .janus_clients()
-            .get_or_insert(&backend)
-            .error(AppErrorKind::BrokerRequestFailed)?;
+        let backend_id = evp.as_agent_id().clone();
+        move || {
+            db::janus_backend::FindQuery::new()
+                .id(&backend_id)
+                .execute(&conn)
+        }
+    })
+    .await?;
+    if payload.online {
+        handle_online(payload, evp.as_agent_id(), janus_backend, context).await?;
         Ok(Box::new(stream::empty()))
     } else {
-        let janus_backend = task::spawn_blocking({
-            let conn = context.get_conn().await?;
-            let backend_id = evp.as_agent_id().clone();
-            move || {
-                db::janus_backend::FindQuery::new()
-                    .id(&backend_id)
-                    .execute(&conn)
-            }
-        })
-        .await?;
-        if let Some(backend) = janus_backend {
-            context.janus_clients().remove_client(&backend);
+        handle_offline(janus_backend, context).await
+    }
+}
+
+async fn handle_online(
+    event: StatusEvent,
+    backend_id: &AgentId,
+    existing_backend: Option<janus_backend::Object>,
+    context: &mut impl Context,
+) -> Result<(), AppError> {
+    let janus_url = event
+        .janus_url
+        .as_ref()
+        .ok_or_else(|| anyhow!("Missing url"))
+        .error(AppErrorKind::BackendClientCreationFailed)?
+        .clone();
+    let janus_client =
+        JanusClient::new(&janus_url).error(AppErrorKind::BackendClientCreationFailed)?;
+    if let Some(backend) = existing_backend {
+        let ping_response = janus_client
+            .service_ping(ServicePingRequest {
+                session_id: backend.session_id(),
+                handle_id: backend.handle_id(),
+                body: ServicePingRequestBody::new(),
+            })
+            .await;
+        if ping_response.is_ok() {
+            context
+                .janus_clients()
+                .get_or_insert(&backend)
+                .error(AppErrorKind::BackendClientCreationFailed)?;
+
+            return Ok(());
         }
+    }
+
+    let session = janus_client
+        .create_session()
+        .await
+        .context("CreateSession")
+        .error(AppErrorKind::BackendRequestFailed)?;
+    let handle = janus_client
+        .create_handle(CreateHandleRequest {
+            session_id: session.id,
+            opaque_id: None,
+        })
+        .await
+        .context("Create first handle")
+        .error(AppErrorKind::BackendRequestFailed)?;
+    janus_client
+        .service_ping(ServicePingRequest {
+            session_id: session.id,
+            handle_id: handle.id,
+            body: ServicePingRequestBody::new(),
+        })
+        .await
+        .error(AppErrorKind::BackendRequestFailed)?;
+
+    let backend_id = backend_id.clone();
+    let conn = context.get_conn().await?;
+
+    let backend = task::spawn_blocking(move || {
+        let mut q = janus_backend::UpsertQuery::new(&backend_id, handle.id, session.id, &janus_url);
+
+        if let Some(capacity) = event.capacity {
+            q = q.capacity(capacity);
+        }
+
+        if let Some(balancer_capacity) = event.balancer_capacity {
+            q = q.balancer_capacity(balancer_capacity);
+        }
+
+        if let Some(group) = event.group.as_deref() {
+            q = q.group(group);
+        }
+
+        q.execute(&conn)
+    })
+    .await?;
+    context
+        .janus_clients()
+        .get_or_insert(&backend)
+        .error(AppErrorKind::BackendClientCreationFailed)?;
+    Ok(())
+}
+
+async fn handle_offline(
+    existing_backend: Option<janus_backend::Object>,
+    context: &mut impl Context,
+) -> Result<MessageStream, AppError> {
+    if let Some(backend) = existing_backend {
         let conn = context.get_conn().await?;
-        let agent_id = evp.as_agent_id().clone();
+        let backend_id = backend.id().clone();
         let streams_with_rtc = task::spawn_blocking(move || {
             conn.transaction::<_, AppError, _>(|| {
                 let streams_with_rtc = janus_rtc_stream::ListWithRtcQuery::new()
                     .active(true)
-                    .backend_id(&agent_id)
+                    .backend_id(&backend_id)
                     .execute(&conn)?;
-
-                agent_connection::BulkDisconnectByBackendQuery::new(&agent_id).execute(&conn)?;
-
-                janus_backend::DeleteQuery::new(&agent_id).execute(&conn)?;
+                agent_connection::BulkDisconnectByBackendQuery::new(&backend_id).execute(&conn)?;
+                janus_backend::DeleteQuery::new(&backend_id).execute(&conn)?;
                 Ok(streams_with_rtc)
             })
         })
@@ -589,8 +633,10 @@ async fn handle_status_event_impl<C: Context>(
 
             events.push(Box::new(event) as Box<dyn IntoPublishableMessage + Send>);
         }
-
+        context.janus_clients().remove_client(&backend);
         Ok(Box::new(stream::from_iter(events)))
+    } else {
+        Ok(Box::new(stream::empty()))
     }
 }
 
