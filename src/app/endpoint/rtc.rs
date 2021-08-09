@@ -2229,7 +2229,7 @@ mod test {
             // Configure the app to the `right` janus group.
             let mut context = TestContext::new(db, authz);
             context.config_mut().janus_group = Some(String::from("right"));
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _rx) = crossbeam_channel::unbounded();
             context.with_grouped_janus("right", tx);
 
             // Make rtc.connect request.
