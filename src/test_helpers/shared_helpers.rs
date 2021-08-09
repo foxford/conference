@@ -137,7 +137,7 @@ pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
         .await
         .unwrap()
         .id;
-    janus_client
+    let _ = janus_client
         .service_ping(ServicePingRequest {
             session_id,
             handle_id,
