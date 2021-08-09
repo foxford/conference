@@ -137,11 +137,13 @@ pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
         .await
         .unwrap()
         .id;
-    janus_client.service_ping(ServicePingRequest {
-        session_id,
-        handle_id,
-        body: ServicePingRequestBody::new(),
-    });
+    janus_client
+        .service_ping(ServicePingRequest {
+            session_id,
+            handle_id,
+            body: ServicePingRequestBody::new(),
+        })
+        .await;
     (session_id, handle_id)
 }
 
