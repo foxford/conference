@@ -2230,7 +2230,7 @@ mod test {
             let mut context = TestContext::new(db, authz);
             context.config_mut().janus_group = Some(String::from("right"));
             let (tx, _) = crossbeam_channel::unbounded();
-            context.with_janus(tx);
+            context.with_grouped_janus("right", tx);
 
             // Make rtc.connect request.
             let payload = ConnectRequest {

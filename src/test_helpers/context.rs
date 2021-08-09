@@ -107,6 +107,10 @@ impl TestContext {
         self.clients = Some(Clients::new(events_sink, None));
     }
 
+    pub fn with_grouped_janus(&mut self, group: &str, events_sink: Sender<IncomingEvent>) {
+        self.clients = Some(Clients::new(events_sink, Some(group.to_string())));
+    }
+
     pub fn config_mut(&mut self) -> &mut Config {
         &mut self.config
     }
