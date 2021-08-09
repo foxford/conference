@@ -644,3 +644,153 @@ async fn handle_offline(
 pub mod client;
 pub mod client_pool;
 pub mod metrics;
+
+#[cfg(test)]
+mod test {
+    use std::time::Duration;
+
+    use rand::Rng;
+
+    use crate::{
+        backend::janus::{
+            client::service_ping::{ServicePingRequest, ServicePingRequestBody},
+            handle_offline,
+        },
+        db,
+        test_helpers::{
+            authz::TestAuthz,
+            context::TestContext,
+            db::TestDb,
+            prelude::{GlobalContext, TestAgent},
+            shared_helpers,
+            test_deps::LocalDeps,
+            SVC_AUDIENCE,
+        },
+    };
+
+    use super::{handle_online, StatusEvent};
+
+    #[async_std::test]
+    async fn test_online_when_backends_absent() -> anyhow::Result<()> {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let janus = local_deps.run_janus();
+        let db = TestDb::with_local_postgres(&postgres);
+        let mut context = TestContext::new(db, TestAuthz::new());
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        context.with_janus(tx);
+        let rng = rand::thread_rng();
+        let label_suffix: String = rng
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(5)
+            .collect();
+        let label = format!("janus-gateway-{}", label_suffix);
+        let backend_id = TestAgent::new("alpha", &label, SVC_AUDIENCE);
+        let event = StatusEvent {
+            online: true,
+            capacity: Some(1),
+            balancer_capacity: Some(2),
+            group: None,
+            janus_url: Some(janus.url.clone()),
+        };
+
+        handle_online(event, backend_id.agent_id(), None, &mut context).await?;
+
+        let conn = context.get_conn().await?;
+        let backend = db::janus_backend::FindQuery::new()
+            .id(backend_id.agent_id())
+            .execute(&conn)?
+            .unwrap();
+        // check if handle expired by timeout;
+        async_std::task::sleep(Duration::from_secs(2)).await;
+        let _ping_response = context
+            .janus_clients()
+            .get_or_insert(&backend)?
+            .service_ping(ServicePingRequest {
+                body: ServicePingRequestBody::new(),
+                handle_id: backend.handle_id(),
+                session_id: backend.session_id(),
+            })
+            .await?;
+        context.janus_clients().remove_client(&backend);
+        Ok(())
+    }
+
+    #[async_std::test]
+    async fn test_online_when_backends_present() -> anyhow::Result<()> {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let janus = local_deps.run_janus();
+        let db = TestDb::with_local_postgres(&postgres);
+        let mut context = TestContext::new(db, TestAuthz::new());
+        let conn = context.get_conn().await?;
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        context.with_janus(tx);
+        let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+        let backend =
+            shared_helpers::insert_janus_backend(&conn, &janus.url, session_id, handle_id);
+        let event = StatusEvent {
+            online: true,
+            capacity: Some(1),
+            balancer_capacity: Some(2),
+            group: None,
+            janus_url: Some(janus.url.clone()),
+        };
+
+        handle_online(event, backend.id(), Some(backend.clone()), &mut context).await?;
+
+        let new_backend = db::janus_backend::FindQuery::new()
+            .id(backend.id())
+            .execute(&conn)?
+            .unwrap();
+        assert_eq!(backend, new_backend);
+        context.janus_clients().remove_client(&backend);
+        context.janus_clients().remove_client(&new_backend);
+        Ok(())
+    }
+
+    #[async_std::test]
+    async fn test_online_after_offline() -> anyhow::Result<()> {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let janus = local_deps.run_janus();
+        let db = TestDb::with_local_postgres(&postgres);
+        let mut context = TestContext::new(db, TestAuthz::new());
+        let conn = context.get_conn().await?;
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        context.with_janus(tx);
+        let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+        let backend =
+            shared_helpers::insert_janus_backend(&conn, &janus.url, session_id, handle_id);
+        let event = StatusEvent {
+            online: true,
+            capacity: Some(1),
+            balancer_capacity: Some(2),
+            group: None,
+            janus_url: Some(janus.url.clone()),
+        };
+
+        let _ = handle_offline(Some(backend.clone()), &mut context).await?;
+        handle_online(event, backend.id(), None, &mut context).await?;
+
+        let new_backend = db::janus_backend::FindQuery::new()
+            .id(backend.id())
+            .execute(&conn)?
+            .unwrap();
+        assert_ne!(backend, new_backend);
+        // check if handle expired by timeout;
+        async_std::task::sleep(Duration::from_secs(2)).await;
+        let _ping_response = context
+            .janus_clients()
+            .get_or_insert(&new_backend)?
+            .service_ping(ServicePingRequest {
+                body: ServicePingRequestBody::new(),
+                handle_id: new_backend.handle_id(),
+                session_id: new_backend.session_id(),
+            })
+            .await?;
+        context.janus_clients().remove_client(&backend);
+        context.janus_clients().remove_client(&new_backend);
+        Ok(())
+    }
+}

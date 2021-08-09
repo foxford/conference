@@ -36,7 +36,7 @@ impl LocalDeps {
 
     pub fn run_janus(&self) -> JanusHandle {
         let base_dir = env!("CARGO_MANIFEST_DIR");
-        let image = images::generic::GenericImage::new("foxford/janus-gateway:v0.8.11")
+        let image = images::generic::GenericImage::new("foxford/janus-gateway:5c21ee9")
             .with_volume(
                 format!("{}/{}", base_dir, "src/test_helpers/janus_confs/"),
                 "/opt/janus/etc/janus/",

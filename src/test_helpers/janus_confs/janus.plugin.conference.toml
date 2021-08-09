@@ -1,5 +1,7 @@
 [general]
-vacuum_interval = 10000
+vacuum_interval = "1 seconds"
+fir_interval = "15 minutes"
+sessions_ttl = "1 seconds"
 
 [recordings]
 delete_records = true

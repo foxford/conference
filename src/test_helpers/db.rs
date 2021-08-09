@@ -11,7 +11,7 @@ pub struct TestDb {
 
 impl TestDb {
     pub fn with_local_postgres(postgres: &PostgresHandle) -> Self {
-        let connection_pool = create_pool(&postgres.connection_string, 1, None, TIMEOUT);
+        let connection_pool = create_pool(&postgres.connection_string, 10, None, TIMEOUT);
         diesel_migrations::run_pending_migrations(
             &connection_pool
                 .get()
