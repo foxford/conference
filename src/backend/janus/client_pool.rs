@@ -7,7 +7,7 @@ use std::{
     collections::{hash_map::Entry, HashMap},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc, PoisonError, RwLock,
     },
     time::Duration,
 };
@@ -26,6 +26,13 @@ impl Clients {
             events_sink,
             group,
         }
+    }
+
+    pub fn clients_count(&self) -> usize {
+        self.clients
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
     }
 
     pub fn get_or_insert(&self, backend: &janus_backend::Object) -> anyhow::Result<JanusClient> {
