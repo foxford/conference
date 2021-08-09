@@ -460,6 +460,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             handle_request::<CreateHandler>(&mut context, &agent, payload)
                 .await
                 .expect("Rtc signal creation failed");
+            rx.recv().unwrap();
             context.janus_clients().remove_client(&backend);
             match rx.recv().unwrap() {
                 IncomingEvent::Event(EventResponse {

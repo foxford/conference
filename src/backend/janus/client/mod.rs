@@ -154,6 +154,7 @@ impl JanusClient {
     }
 }
 
+#[derive(Debug)]
 pub enum PollResult {
     SessionNotFound,
     Events(Vec<Value>),
@@ -423,8 +424,8 @@ mod serialize_as_base64 {
         D: de::Deserializer<'de>,
         T: serde::de::DeserializeOwned,
     {
-        let s: &str = de::Deserialize::deserialize(deserializer)?;
-        from_base64(s).map_err(de::Error::custom)
+        let s: String = de::Deserialize::deserialize(deserializer)?;
+        from_base64(&s).map_err(de::Error::custom)
     }
 
     pub fn serialize<S, T>(obj: &T, serializer: S) -> Result<S::Ok, S::Error>
