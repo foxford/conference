@@ -308,13 +308,12 @@ mod test {
             let mut context = TestContext::new(db, authz);
             let (tx, rx) = crossbeam_channel::unbounded();
             context.with_janus(tx.clone());
-
             let payload = VacuumRequest {};
 
             let messages = handle_request::<VacuumHandler>(&mut context, &agent, payload)
                 .await
                 .expect("System vacuum failed");
-            context.janus_clients().remove_client(backend.id());
+            rx.recv().unwrap();
             let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().unwrap(), rx.recv().unwrap()]
                 .iter()
                 .map(|resp| match resp {
@@ -329,7 +328,7 @@ mod test {
                     _ => panic!("Got wrong event"),
                 })
                 .collect();
-
+            context.janus_clients().remove_client(&backend);
             assert!(tx.is_empty());
             assert!(messages.len() > 0);
             assert_eq!(recv_rtcs, rtcs);

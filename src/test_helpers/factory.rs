@@ -241,7 +241,7 @@ impl JanusBackend {
     }
 
     pub fn insert(&self, conn: &PgConnection) -> db::janus_backend::Object {
-        let mut q = db::janus_backend::InsertQuery::new(
+        let mut q = db::janus_backend::UpsertQuery::new(
             &self.id,
             self.handle_id,
             self.session_id,

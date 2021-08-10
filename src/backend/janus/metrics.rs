@@ -6,11 +6,14 @@ use slog::error;
 
 use crate::db::{agent_connection, ConnectionPool};
 
+use super::client_pool::Clients;
+
 pub struct Metrics {
     online: IntGauge,
     total: IntGauge,
     connected_agents: IntGauge,
     load: IntGaugeVec,
+    polling_janusses: IntGauge,
 }
 
 impl Metrics {
@@ -23,6 +26,8 @@ impl Metrics {
         let total = janus_basic_metrics.get_metric_with_label_values(&["total"])?;
         let connected_agents =
             janus_basic_metrics.get_metric_with_label_values(&["connected_agents"])?;
+        let polling_janusses =
+            janus_basic_metrics.get_metric_with_label_values(&["polling_janusses_count"])?;
         let load = IntGaugeVec::new(
             Opts::new("janus_load", "Janus load metrics"),
             &["kind", "agent"],
@@ -34,19 +39,25 @@ impl Metrics {
             total,
             connected_agents,
             load,
+            polling_janusses,
         })
     }
 
-    pub fn start_collector(self, connection_pool: ConnectionPool, collect_interval: Duration) {
+    pub fn start_collector(
+        self,
+        connection_pool: ConnectionPool,
+        clients: Clients,
+        collect_interval: Duration,
+    ) {
         loop {
-            if let Err(err) = self.collect(&connection_pool) {
+            if let Err(err) = self.collect(&connection_pool, &clients) {
                 error!(crate::LOG, "Janus' metrics collecting errored: {:?}", err);
             }
             std::thread::sleep(collect_interval);
         }
     }
 
-    fn collect(&self, pool: &ConnectionPool) -> anyhow::Result<()> {
+    fn collect(&self, pool: &ConnectionPool, clients: &Clients) -> anyhow::Result<()> {
         let conn = pool.get()?;
 
         let online_backends_count =
@@ -74,6 +85,8 @@ impl Metrics {
             reserve.set(backend_load.load);
             agent_load.set(backend_load.taken);
         }
+
+        self.polling_janusses.set(clients.clients_count() as i64);
 
         Ok(())
     }

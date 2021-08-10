@@ -7,7 +7,9 @@ use svc_agent::AgentId;
 
 use crate::{
     backend::janus::client::{
-        create_handle::CreateHandleRequest, HandleId, JanusClient, SessionId,
+        create_handle::CreateHandleRequest,
+        service_ping::{ServicePingRequest, ServicePingRequestBody},
+        HandleId, JanusClient, SessionId,
     },
     db::{
         self,
@@ -127,7 +129,7 @@ pub async fn create_handle(janus_url: &str, session_id: SessionId) -> HandleId {
 pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
     let janus_client = JanusClient::new(janus_url).unwrap();
     let session_id = janus_client.create_session().await.unwrap().id;
-    let handle = janus_client
+    let handle_id = janus_client
         .create_handle(CreateHandleRequest {
             session_id,
             opaque_id: None,
@@ -135,7 +137,14 @@ pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
         .await
         .unwrap()
         .id;
-    (session_id, handle)
+    let _ = janus_client
+        .service_ping(ServicePingRequest {
+            session_id,
+            handle_id,
+            body: ServicePingRequestBody::new(),
+        })
+        .await;
+    (session_id, handle_id)
 }
 
 pub fn insert_connected_to_handle_agent(

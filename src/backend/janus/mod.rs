@@ -22,7 +22,11 @@ use crate::{
         metrics::HistogramExt,
         API_VERSION,
     },
-    backend::janus::client::{create_handle::CreateHandleRequest, JanusClient},
+    backend::janus::client::{
+        create_handle::CreateHandleRequest,
+        service_ping::{ServicePingRequest, ServicePingRequestBody},
+        JanusClient,
+    },
     db::{self, agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc},
     diesel::Connection,
 };
@@ -220,6 +224,7 @@ async fn handle_event_impl<C: Context>(
                 }
                 Transaction::UpdateReaderConfig => Ok(Box::new(stream::empty())),
                 Transaction::UpdateWriterConfig => Ok(Box::new(stream::empty())),
+                Transaction::ServicePing => Ok(Box::new(stream::empty())),
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
                 Transaction::UploadStream(ref tn) => {
                     context.add_logger_tags(o!(
@@ -414,7 +419,6 @@ async fn handle_event_impl<C: Context>(
                 }
             }
         }
-        IncomingEvent::KeepAlive => Ok(Box::new(stream::empty())),
     }
 }
 
@@ -497,83 +501,121 @@ async fn handle_status_event_impl<C: Context>(
     let payload = MQTTIncomingEvent::convert_payload::<StatusEvent>(event)
         .map_err(|err| anyhow!("Failed to parse event: {}", err))
         .error(AppErrorKind::MessageParsingFailed)?;
-
-    if payload.online {
-        let backend_id = evp.as_agent_id().clone();
-        let janus_backend = task::spawn_blocking({
-            let conn = context.get_conn().await?;
-            let backend_id = backend_id.clone();
-            move || {
-                db::janus_backend::FindQuery::new()
-                    .id(&backend_id)
-                    .execute(&conn)
-            }
-        })
-        .await?;
-        if janus_backend.is_some() {
-            return Ok(Box::new(stream::empty()));
-        }
-        let janus_url = payload
-            .janus_url
-            .as_ref()
-            .ok_or_else(|| anyhow!("Missing url"))
-            .error(AppErrorKind::BackendClientCreationFailed)?
-            .clone();
-        let janus_client =
-            JanusClient::new(&janus_url).error(AppErrorKind::BackendClientCreationFailed)?;
-        let session = janus_client
-            .create_session()
-            .await
-            .context("CreateSession")
-            .error(AppErrorKind::BackendRequestFailed)?;
-        let handle = janus_client
-            .create_handle(CreateHandleRequest {
-                session_id: session.id,
-                opaque_id: None,
-            })
-            .await
-            .context("Create first handle")
-            .error(AppErrorKind::BackendRequestFailed)?;
+    let janus_backend = task::spawn_blocking({
         let conn = context.get_conn().await?;
-
-        let backend = task::spawn_blocking(move || {
-            let mut q =
-                janus_backend::InsertQuery::new(&backend_id, handle.id, session.id, &janus_url);
-
-            if let Some(capacity) = payload.capacity {
-                q = q.capacity(capacity);
-            }
-
-            if let Some(balancer_capacity) = payload.balancer_capacity {
-                q = q.balancer_capacity(balancer_capacity);
-            }
-
-            if let Some(group) = payload.group.as_deref() {
-                q = q.group(group);
-            }
-
-            q.execute(&conn)
-        })
-        .await?;
-        context
-            .janus_clients()
-            .get_or_insert(&backend)
-            .error(AppErrorKind::BrokerRequestFailed)?;
+        let backend_id = evp.as_agent_id().clone();
+        move || {
+            db::janus_backend::FindQuery::new()
+                .id(&backend_id)
+                .execute(&conn)
+        }
+    })
+    .await?;
+    if payload.online {
+        handle_online(payload, evp.as_agent_id(), janus_backend, context).await?;
         Ok(Box::new(stream::empty()))
     } else {
-        context.janus_clients().remove_client(evp.as_agent_id());
+        handle_offline(janus_backend, context).await
+    }
+}
+
+async fn handle_online(
+    event: StatusEvent,
+    backend_id: &AgentId,
+    existing_backend: Option<janus_backend::Object>,
+    context: &mut impl Context,
+) -> Result<(), AppError> {
+    let janus_url = event
+        .janus_url
+        .as_ref()
+        .ok_or_else(|| anyhow!("Missing url"))
+        .error(AppErrorKind::BackendClientCreationFailed)?
+        .clone();
+    let janus_client =
+        JanusClient::new(&janus_url).error(AppErrorKind::BackendClientCreationFailed)?;
+    if let Some(backend) = existing_backend {
+        let ping_response = janus_client
+            .service_ping(ServicePingRequest {
+                session_id: backend.session_id(),
+                handle_id: backend.handle_id(),
+                body: ServicePingRequestBody::new(),
+            })
+            .await;
+        if ping_response.is_ok() {
+            context
+                .janus_clients()
+                .get_or_insert(&backend)
+                .error(AppErrorKind::BackendClientCreationFailed)?;
+
+            return Ok(());
+        }
+    }
+
+    let session = janus_client
+        .create_session()
+        .await
+        .context("CreateSession")
+        .error(AppErrorKind::BackendRequestFailed)?;
+    let handle = janus_client
+        .create_handle(CreateHandleRequest {
+            session_id: session.id,
+            opaque_id: None,
+        })
+        .await
+        .context("Create first handle")
+        .error(AppErrorKind::BackendRequestFailed)?;
+    janus_client
+        .service_ping(ServicePingRequest {
+            session_id: session.id,
+            handle_id: handle.id,
+            body: ServicePingRequestBody::new(),
+        })
+        .await
+        .error(AppErrorKind::BackendRequestFailed)?;
+
+    let backend_id = backend_id.clone();
+    let conn = context.get_conn().await?;
+
+    let backend = task::spawn_blocking(move || {
+        let mut q = janus_backend::UpsertQuery::new(&backend_id, handle.id, session.id, &janus_url);
+
+        if let Some(capacity) = event.capacity {
+            q = q.capacity(capacity);
+        }
+
+        if let Some(balancer_capacity) = event.balancer_capacity {
+            q = q.balancer_capacity(balancer_capacity);
+        }
+
+        if let Some(group) = event.group.as_deref() {
+            q = q.group(group);
+        }
+
+        q.execute(&conn)
+    })
+    .await?;
+    context
+        .janus_clients()
+        .get_or_insert(&backend)
+        .error(AppErrorKind::BackendClientCreationFailed)?;
+    Ok(())
+}
+
+async fn handle_offline(
+    existing_backend: Option<janus_backend::Object>,
+    context: &mut impl Context,
+) -> Result<MessageStream, AppError> {
+    if let Some(backend) = existing_backend {
         let conn = context.get_conn().await?;
-        let agent_id = evp.as_agent_id().clone();
+        let backend_id = backend.id().clone();
         let streams_with_rtc = task::spawn_blocking(move || {
             conn.transaction::<_, AppError, _>(|| {
                 let streams_with_rtc = janus_rtc_stream::ListWithRtcQuery::new()
                     .active(true)
-                    .backend_id(&agent_id)
+                    .backend_id(&backend_id)
                     .execute(&conn)?;
-
-                agent_connection::BulkDisconnectByBackendQuery::new(&agent_id).execute(&conn)?;
-
-                janus_backend::DeleteQuery::new(&agent_id).execute(&conn)?;
+                agent_connection::BulkDisconnectByBackendQuery::new(&backend_id).execute(&conn)?;
+                janus_backend::DeleteQuery::new(&backend_id).execute(&conn)?;
                 Ok(streams_with_rtc)
             })
         })
@@ -593,8 +635,10 @@ async fn handle_status_event_impl<C: Context>(
 
             events.push(Box::new(event) as Box<dyn IntoPublishableMessage + Send>);
         }
-
+        context.janus_clients().remove_client(&backend);
         Ok(Box::new(stream::from_iter(events)))
+    } else {
+        Ok(Box::new(stream::empty()))
     }
 }
 
@@ -602,3 +646,153 @@ async fn handle_status_event_impl<C: Context>(
 pub mod client;
 pub mod client_pool;
 pub mod metrics;
+
+#[cfg(test)]
+mod test {
+    use std::time::Duration;
+
+    use rand::Rng;
+
+    use crate::{
+        backend::janus::{
+            client::service_ping::{ServicePingRequest, ServicePingRequestBody},
+            handle_offline,
+        },
+        db,
+        test_helpers::{
+            authz::TestAuthz,
+            context::TestContext,
+            db::TestDb,
+            prelude::{GlobalContext, TestAgent},
+            shared_helpers,
+            test_deps::LocalDeps,
+            SVC_AUDIENCE,
+        },
+    };
+
+    use super::{handle_online, StatusEvent};
+
+    #[async_std::test]
+    async fn test_online_when_backends_absent() -> anyhow::Result<()> {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let janus = local_deps.run_janus();
+        let db = TestDb::with_local_postgres(&postgres);
+        let mut context = TestContext::new(db, TestAuthz::new());
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        context.with_janus(tx);
+        let rng = rand::thread_rng();
+        let label_suffix: String = rng
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(5)
+            .collect();
+        let label = format!("janus-gateway-{}", label_suffix);
+        let backend_id = TestAgent::new("alpha", &label, SVC_AUDIENCE);
+        let event = StatusEvent {
+            online: true,
+            capacity: Some(1),
+            balancer_capacity: Some(2),
+            group: None,
+            janus_url: Some(janus.url.clone()),
+        };
+
+        handle_online(event, backend_id.agent_id(), None, &mut context).await?;
+
+        let conn = context.get_conn().await?;
+        let backend = db::janus_backend::FindQuery::new()
+            .id(backend_id.agent_id())
+            .execute(&conn)?
+            .unwrap();
+        // check if handle expired by timeout;
+        async_std::task::sleep(Duration::from_secs(2)).await;
+        let _ping_response = context
+            .janus_clients()
+            .get_or_insert(&backend)?
+            .service_ping(ServicePingRequest {
+                body: ServicePingRequestBody::new(),
+                handle_id: backend.handle_id(),
+                session_id: backend.session_id(),
+            })
+            .await?;
+        context.janus_clients().remove_client(&backend);
+        Ok(())
+    }
+
+    #[async_std::test]
+    async fn test_online_when_backends_present() -> anyhow::Result<()> {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let janus = local_deps.run_janus();
+        let db = TestDb::with_local_postgres(&postgres);
+        let mut context = TestContext::new(db, TestAuthz::new());
+        let conn = context.get_conn().await?;
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        context.with_janus(tx);
+        let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+        let backend =
+            shared_helpers::insert_janus_backend(&conn, &janus.url, session_id, handle_id);
+        let event = StatusEvent {
+            online: true,
+            capacity: Some(1),
+            balancer_capacity: Some(2),
+            group: None,
+            janus_url: Some(janus.url.clone()),
+        };
+
+        handle_online(event, backend.id(), Some(backend.clone()), &mut context).await?;
+
+        let new_backend = db::janus_backend::FindQuery::new()
+            .id(backend.id())
+            .execute(&conn)?
+            .unwrap();
+        assert_eq!(backend, new_backend);
+        context.janus_clients().remove_client(&backend);
+        context.janus_clients().remove_client(&new_backend);
+        Ok(())
+    }
+
+    #[async_std::test]
+    async fn test_online_after_offline() -> anyhow::Result<()> {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let janus = local_deps.run_janus();
+        let db = TestDb::with_local_postgres(&postgres);
+        let mut context = TestContext::new(db, TestAuthz::new());
+        let conn = context.get_conn().await?;
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        context.with_janus(tx);
+        let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+        let backend =
+            shared_helpers::insert_janus_backend(&conn, &janus.url, session_id, handle_id);
+        let event = StatusEvent {
+            online: true,
+            capacity: Some(1),
+            balancer_capacity: Some(2),
+            group: None,
+            janus_url: Some(janus.url.clone()),
+        };
+
+        let _ = handle_offline(Some(backend.clone()), &mut context).await?;
+        handle_online(event, backend.id(), None, &mut context).await?;
+
+        let new_backend = db::janus_backend::FindQuery::new()
+            .id(backend.id())
+            .execute(&conn)?
+            .unwrap();
+        assert_ne!(backend, new_backend);
+        // check if handle expired by timeout;
+        async_std::task::sleep(Duration::from_secs(2)).await;
+        let _ping_response = context
+            .janus_clients()
+            .get_or_insert(&new_backend)?
+            .service_ping(ServicePingRequest {
+                body: ServicePingRequestBody::new(),
+                handle_id: new_backend.handle_id(),
+                session_id: new_backend.session_id(),
+            })
+            .await?;
+        context.janus_clients().remove_client(&backend);
+        context.janus_clients().remove_client(&new_backend);
+        Ok(())
+    }
+}

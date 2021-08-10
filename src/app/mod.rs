@@ -81,10 +81,13 @@ pub async fn run(
     let metrics_registry = Registry::new();
     let metrics = crate::app::metrics::Metrics::new(&metrics_registry)?;
     let janus_metrics = crate::backend::janus::metrics::Metrics::new(&metrics_registry)?;
+    let (ev_tx, ev_rx) = crossbeam_channel::unbounded();
+    let clients = Clients::new(ev_tx, config.janus_group.clone());
     thread::spawn({
         let db = db.clone();
         let collect_interval = config.metrics.janus_metrics_collect_interval;
-        move || janus_metrics.start_collector(db.clone(), collect_interval)
+        let clients = clients.clone();
+        move || janus_metrics.start_collector(db, clients, collect_interval)
     });
     task::spawn(start_metrics_collector(
         metrics_registry,
@@ -93,8 +96,6 @@ pub async fn run(
 
     // Subscribe to topics
     let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
-    let (ev_tx, ev_rx) = crossbeam_channel::unbounded();
-    let clients = Clients::new(ev_tx, config.janus_group.clone());
     // Context
     let metrics = Arc::new(metrics);
     let context = AppContext::new(

@@ -12,6 +12,7 @@ use self::{
         WebRtcUpEvent,
     },
     read_stream::{ReadStreamRequest, ReadStreamTransaction},
+    service_ping::ServicePingRequest,
     transactions::Transaction,
     trickle::TrickleRequest,
     update_agent_reader_config::UpdateReaderConfigRequest,
@@ -26,6 +27,7 @@ use isahc::{
 };
 use rand::Rng;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 use derive_more::{Display, FromStr};
@@ -36,6 +38,7 @@ pub mod create_session;
 pub mod create_stream;
 pub mod events;
 pub mod read_stream;
+pub mod service_ping;
 pub mod transactions;
 pub mod trickle;
 pub mod update_agent_reader_config;
@@ -65,7 +68,7 @@ impl JanusClient {
             return Ok(PollResult::SessionNotFound);
         }
         let body = response.text().await?;
-        let body: Vec<IncomingEvent> = serde_json::from_str(&body).context(body)?;
+        let body: Vec<Value> = serde_json::from_str(&body).context(body)?;
         Ok(PollResult::Events(body))
     }
 
@@ -138,6 +141,11 @@ impl JanusClient {
         Ok(response.data)
     }
 
+    pub async fn service_ping(&self, request: ServicePingRequest) -> anyhow::Result<()> {
+        let _response: AckResponse = self.send_request(service_ping(request)?).await?;
+        Ok(())
+    }
+
     async fn send_request<R: DeserializeOwned>(&self, body: impl Serialize) -> anyhow::Result<R> {
         let body = serde_json::to_vec(&body)?;
         let request = Request::post(self.janus_url.clone()).body(body)?;
@@ -146,9 +154,10 @@ impl JanusClient {
     }
 }
 
+#[derive(Debug)]
 pub enum PollResult {
     SessionNotFound,
-    Events(Vec<IncomingEvent>),
+    Events(Vec<Value>),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -244,7 +253,6 @@ pub enum IncomingEvent {
     SlowLink(SlowLinkEvent),
     Detached(DetachedEvent),
     Event(EventResponse),
-    KeepAlive,
 }
 
 impl IncomingEvent {
@@ -264,8 +272,8 @@ impl IncomingEvent {
                 Transaction::UpdateWriterConfig => "UpdateWriterConfig",
                 Transaction::UploadStream(_) => "UploadStream",
                 Transaction::AgentSpeaking => "AgentSpeaking",
+                Transaction::ServicePing => "ServicePing",
             },
-            IncomingEvent::KeepAlive => "KeepAlive",
         }
     }
 }
@@ -397,6 +405,15 @@ fn upload_stream(
     })
 }
 
+fn service_ping(request: ServicePingRequest) -> anyhow::Result<JanusRequest<ServicePingRequest>> {
+    Ok(JanusRequest {
+        transaction: to_base64(&Transaction::ServicePing)?,
+        janus: "message",
+        plugin: None,
+        data: request,
+    })
+}
+
 mod serialize_as_base64 {
     use serde::{de, ser};
 
@@ -407,8 +424,8 @@ mod serialize_as_base64 {
         D: de::Deserializer<'de>,
         T: serde::de::DeserializeOwned,
     {
-        let s: &str = de::Deserialize::deserialize(deserializer)?;
-        from_base64(s).map_err(de::Error::custom)
+        let s: String = de::Deserialize::deserialize(deserializer)?;
+        from_base64(&s).map_err(de::Error::custom)
     }
 
     pub fn serialize<S, T>(obj: &T, serializer: S) -> Result<S::Ok, S::Error>
