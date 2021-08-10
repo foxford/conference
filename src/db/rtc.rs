@@ -190,7 +190,6 @@ impl ListWithReadyRecordingQuery {
         rtc::table
             .left_join(recording::table)
             .filter(rtc::room_id.eq(self.room_id))
-            .filter(recording::status.eq(db::recording::Status::Ready))
             .get_results(conn)
     }
 }
