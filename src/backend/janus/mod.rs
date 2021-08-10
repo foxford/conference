@@ -355,13 +355,15 @@ async fn handle_event_impl<C: Context>(
                         };
                         endpoint::helpers::add_room_logger_tags(context, &room);
 
-                        // Ensure that all rtcs have a recording.
+                        // Ensure that all rtcs have a ready recording.
                         let rtcs_total = rtcs_with_recs.len();
 
                         let recs_with_rtcs = rtcs_with_recs
                             .into_iter()
                             .filter_map(|(rtc, maybe_recording)| {
-                                maybe_recording.map(|recording| (recording, rtc))
+                                let recording = maybe_recording?;
+                                matches!(recording.status(), db::recording::Status::Ready)
+                                    .then(|| (recording, rtc))
                             })
                             .collect::<Vec<_>>();
 
