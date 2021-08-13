@@ -190,6 +190,7 @@ pub struct UpdateRequest {
     reserve: Option<Option<i32>>,
     tags: Option<JsonValue>,
     classroom_id: Option<Uuid>,
+    host: AgentId,
 }
 pub struct UpdateHandler;
 
