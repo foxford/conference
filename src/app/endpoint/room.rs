@@ -190,7 +190,7 @@ pub struct UpdateRequest {
     reserve: Option<Option<i32>>,
     tags: Option<JsonValue>,
     classroom_id: Option<Uuid>,
-    host: AgentId,
+    host: Option<AgentId>,
 }
 pub struct UpdateHandler;
 
@@ -276,6 +276,7 @@ impl RequestHandler for UpdateHandler {
                 .reserve(payload.reserve)
                 .tags(payload.tags)
                 .classroom_id(payload.classroom_id)
+                .host(payload.host.as_ref())
                 .execute(&conn)?)
         }).await?;
 
@@ -743,6 +744,7 @@ mod test {
                 reserve: Some(Some(123)),
                 tags: Some(json!({"foo": "bar"})),
                 classroom_id: Some(classroom_id),
+                host: Some(agent.agent_id().clone()),
             };
 
             let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -762,6 +764,7 @@ mod test {
             assert_eq!(resp_room.reserve(), Some(123));
             assert_eq!(resp_room.tags(), &json!({"foo": "bar"}));
             assert_eq!(resp_room.classroom_id(), Some(classroom_id));
+            assert_eq!(resp_room.host(), Some(agent.agent_id()));
         }
 
         #[async_std::test]
@@ -808,6 +811,7 @@ mod test {
                 reserve: Some(Some(123)),
                 tags: Some(json!({"foo": "bar"})),
                 classroom_id: None,
+                host: None,
             };
 
             handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -859,6 +863,7 @@ mod test {
                 reserve: Some(Some(123)),
                 tags: Default::default(),
                 classroom_id: Default::default(),
+                host: None,
             };
 
             let messages = handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -932,6 +937,7 @@ mod test {
                 reserve: Default::default(),
                 tags: Default::default(),
                 classroom_id: Default::default(),
+                host: None,
             };
 
             handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -954,6 +960,7 @@ mod test {
                 reserve: Default::default(),
                 tags: Default::default(),
                 classroom_id: Default::default(),
+                host: None,
             };
 
             let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
@@ -989,6 +996,7 @@ mod test {
                 reserve: Default::default(),
                 tags: Default::default(),
                 classroom_id: Default::default(),
+                host: None,
             };
 
             let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)

@@ -36,6 +36,7 @@ type AllColumns = (
     room::backend_id,
     room::rtc_sharing_policy,
     room::classroom_id,
+    room::host,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -49,6 +50,7 @@ const ALL_COLUMNS: AllColumns = (
     room::backend_id,
     room::rtc_sharing_policy,
     room::classroom_id,
+    room::host,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -121,6 +123,7 @@ pub struct Object {
     backend_id: Option<AgentId>,
     rtc_sharing_policy: RtcSharingPolicy,
     classroom_id: Option<Uuid>,
+    host: Option<AgentId>,
 }
 
 impl Object {
@@ -162,6 +165,10 @@ impl Object {
 
     pub fn classroom_id(&self) -> Option<Uuid> {
         self.classroom_id
+    }
+
+    pub fn host(&self) -> Option<&AgentId> {
+        self.host.as_ref()
     }
 }
 
@@ -338,6 +345,7 @@ pub struct UpdateQuery<'a> {
     tags: Option<JsonValue>,
     backend_id: Option<&'a AgentId>,
     classroom_id: Option<Uuid>,
+    host: Option<&'a AgentId>,
 }
 
 impl<'a> UpdateQuery<'a> {
@@ -349,6 +357,7 @@ impl<'a> UpdateQuery<'a> {
             reserve: Default::default(),
             tags: Default::default(),
             classroom_id: Default::default(),
+            host: Default::default(),
         }
     }
 
@@ -373,6 +382,10 @@ impl<'a> UpdateQuery<'a> {
             classroom_id,
             ..self
         }
+    }
+
+    pub fn host(self, host: Option<&'a AgentId>) -> Self {
+        Self { host, ..self }
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
