@@ -108,7 +108,7 @@ impl ResponseHandler for CreateResponseHandler {
             "room.enter",
             &format!("rooms/{}/events", room_id),
             RoomEnterLeaveEvent::new(room_id, corr_data.subject.to_owned()),
-            &corr_data.reqp,
+            &corr_data.reqp.tracking(),
             context.start_timestamp(),
         );
         context
@@ -152,7 +152,7 @@ impl ResponseHandler for DeleteResponseHandler {
                 "room.leave",
                 &format!("rooms/{}/events", room_id),
                 RoomEnterLeaveEvent::new(room_id, corr_data.subject.to_owned()),
-                &corr_data.reqp,
+                &corr_data.reqp.tracking(),
                 context.start_timestamp(),
             );
             context

@@ -17,7 +17,7 @@ use slog::o;
 use svc_agent::{
     mqtt::{
         IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
-        OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
+        OutgoingResponse, ResponseStatus, ShortTermTimingProperties, TrackingProperties,
     },
     AgentId,
 };
@@ -45,12 +45,12 @@ pub fn build_notification(
     label: &'static str,
     path: &str,
     payload: impl Serialize + Send + 'static,
-    reqp: &IncomingRequestProperties,
+    trp: &TrackingProperties,
     start_timestamp: DateTime<Utc>,
 ) -> Box<dyn IntoPublishableMessage + Send> {
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let mut props = OutgoingEventProperties::new(label, timing);
-    props.set_tracking(reqp.tracking().to_owned());
+    props.set_tracking(trp.to_owned());
     Box::new(OutgoingEvent::broadcast(payload, props, path))
 }
 

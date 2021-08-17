@@ -121,7 +121,7 @@ impl RequestHandler for CreateHandler {
             "room.create",
             &format!("audiences/{}/events", audience),
             room,
-            reqp,
+            reqp.tracking(),
             context.start_timestamp(),
         );
 
@@ -293,7 +293,7 @@ impl RequestHandler for UpdateHandler {
             "room.update",
             &format!("audiences/{}/events", room.audience()),
             room.clone(),
-            reqp,
+            reqp.tracking(),
             context.start_timestamp(),
         );
 
@@ -306,7 +306,7 @@ impl RequestHandler for UpdateHandler {
                     "room.close",
                     &format!("rooms/{}/events", room.id()),
                     room.clone(),
-                    reqp,
+                    reqp.tracking(),
                     context.start_timestamp(),
                 ));
 
@@ -314,7 +314,7 @@ impl RequestHandler for UpdateHandler {
                     "room.close",
                     &format!("audiences/{}/events", room.audience()),
                     room.clone(),
-                    reqp,
+                    reqp.tracking(),
                     context.start_timestamp(),
                 ));
             }

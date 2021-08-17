@@ -7,8 +7,8 @@ use slog::{error, info};
 use std::{ops::Bound, result::Result as StdResult};
 use svc_agent::{
     mqtt::{
-        IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
-        ShortTermTimingProperties,
+        IncomingEventProperties, IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties,
+        OutgoingMessage, ShortTermTimingProperties,
     },
     AgentId,
 };
@@ -135,7 +135,7 @@ impl RequestHandler for VacuumHandler {
                 "room.close",
                 &format!("rooms/{}/events", room.id()),
                 room,
-                reqp,
+                reqp.tracking(),
                 context.start_timestamp(),
             );
 
@@ -152,14 +152,13 @@ pub struct OrphanedRoomCloseRequest;
 pub struct OrphanedRoomCloseHandler;
 
 #[async_trait]
-impl RequestHandler for OrphanedRoomCloseHandler {
+impl EventHandler for OrphanedRoomCloseHandler {
     type Payload = OrphanedRoomCloseRequest;
-    const ERROR_TITLE: &'static str = "Failed to close orphaned rooms";
 
     async fn handle<C: Context>(
         context: &mut C,
         _payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        evp: &IncomingEventProperties,
     ) -> Result {
         let audience = context.agent_id().as_account_id().audience();
         let logger = context.logger();
@@ -168,7 +167,7 @@ impl RequestHandler for OrphanedRoomCloseHandler {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         context
             .authz()
-            .authorize(audience, reqp, vec!["system"], "update")
+            .authorize(audience, evp, vec!["system"], "update")
             .await?;
 
         let load_till = Utc::now()
@@ -210,7 +209,7 @@ impl RequestHandler for OrphanedRoomCloseHandler {
                         "room.close",
                         &format!("rooms/{}/events", room.id()),
                         room,
-                        reqp,
+                        evp.tracking(),
                         context.start_timestamp(),
                     ));
                 }
