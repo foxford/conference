@@ -147,7 +147,7 @@ impl RequestHandler for VacuumHandler {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct OrphanedRoomCloseRequest;
+pub struct OrphanedRoomCloseRequest {};
 
 pub struct OrphanedRoomCloseHandler;
 
