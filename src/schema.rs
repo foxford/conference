@@ -62,7 +62,7 @@ table! {
 
     orphaned_room (id) {
         id -> Uuid,
-        host_left_time -> Timestamptz,
+        host_left_at -> Timestamptz,
     }
 }
 

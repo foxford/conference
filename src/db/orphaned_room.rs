@@ -12,17 +12,17 @@ use serde::{Deserialize, Serialize};
 pub struct Object {
     pub id: super::room::Id,
     #[serde(with = "ts_seconds")]
-    pub host_left_time: DateTime<Utc>,
+    pub host_left_at: DateTime<Utc>,
 }
 
 pub fn upsert_room(
     id: super::room::Id,
-    left_time: DateTime<Utc>,
+    host_left_at: DateTime<Utc>,
     connection: &PgConnection,
 ) -> Result<(), Error> {
     let record = (
         orphaned_room::id.eq(id),
-        orphaned_room::host_left_time.eq(left_time),
+        orphaned_room::host_left_at.eq(host_left_at),
     );
     diesel::insert_into(orphaned_room::table)
         .values(&record)
@@ -38,7 +38,7 @@ pub fn get_timeouted(
     connection: &PgConnection,
 ) -> Result<Vec<(Object, Option<super::room::Object>)>, Error> {
     orphaned_room::table
-        .filter(orphaned_room::host_left_time.lt(load_till))
+        .filter(orphaned_room::host_left_at.lt(load_till))
         .left_join(schema::room::table)
         .get_results(connection)
 }

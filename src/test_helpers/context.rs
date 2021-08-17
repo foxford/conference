@@ -67,6 +67,7 @@ fn build_config() -> Config {
             }
         },
         "max_room_duration": 7,
+        "orphaned_room_timeout": "1 seconds",
     });
 
     serde_json::from_value::<Config>(config).expect("Failed to parse test config")

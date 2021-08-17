@@ -3,7 +3,7 @@ use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use slog::{error, info};
+use slog::error;
 use std::{ops::Bound, result::Result as StdResult};
 use svc_agent::{
     mqtt::{
@@ -147,13 +147,13 @@ impl RequestHandler for VacuumHandler {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct OrphanedRoomCloseRequest {}
+pub struct OrphanedRoomCloseEvent {}
 
 pub struct OrphanedRoomCloseHandler;
 
 #[async_trait]
 impl EventHandler for OrphanedRoomCloseHandler {
-    type Payload = OrphanedRoomCloseRequest;
+    type Payload = OrphanedRoomCloseEvent;
 
     async fn handle<C: Context>(
         context: &mut C,
@@ -162,8 +162,6 @@ impl EventHandler for OrphanedRoomCloseHandler {
     ) -> Result {
         let audience = context.agent_id().as_account_id().audience();
         let logger = context.logger();
-        info!(logger, "Closing rooms");
-
         // Authorization: only trusted subjects are allowed to perform operations with the system
         context
             .authz()
@@ -323,6 +321,77 @@ fn record_name(recording: &Recording, room: &Room) -> String {
 
 #[cfg(test)]
 mod test {
+    mod orphaned {
+        use chrono::Utc;
+
+        use crate::{
+            app::endpoint::system::{OrphanedRoomCloseEvent, OrphanedRoomCloseHandler},
+            db,
+            test_helpers::{
+                authz::TestAuthz,
+                context::TestContext,
+                db::TestDb,
+                handle_event,
+                prelude::{GlobalContext, TestAgent},
+                shared_helpers,
+                test_deps::LocalDeps,
+                SVC_AUDIENCE,
+            },
+        };
+
+        #[async_std::test]
+        async fn close_orphaned_rooms() -> anyhow::Result<()> {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let mut authz = TestAuthz::new();
+            authz.set_audience(SVC_AUDIENCE);
+            let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
+            authz.allow(agent.account_id(), vec!["system"], "update");
+            let mut context = TestContext::new(db, authz);
+            let connection = context.get_conn().await?;
+            let opened_room = shared_helpers::insert_room(&connection);
+            let opened_room2 = shared_helpers::insert_room(&connection);
+            let closed_room = shared_helpers::insert_closed_room(&connection);
+            db::orphaned_room::upsert_room(
+                opened_room.id(),
+                Utc::now() - chrono::Duration::seconds(10),
+                &connection,
+            )?;
+            db::orphaned_room::upsert_room(
+                closed_room.id(),
+                Utc::now() - chrono::Duration::seconds(10),
+                &connection,
+            )?;
+            db::orphaned_room::upsert_room(
+                opened_room2.id(),
+                Utc::now() + chrono::Duration::seconds(10),
+                &connection,
+            )?;
+
+            let messages = handle_event::<OrphanedRoomCloseHandler>(
+                &mut context,
+                &agent,
+                OrphanedRoomCloseEvent {},
+            )
+            .await
+            .expect("System vacuum failed");
+
+            let rooms: Vec<db::room::Object> =
+                messages.into_iter().map(|ev| ev.payload()).collect();
+            assert_eq!(rooms.len(), 1);
+            assert!(rooms[0].timeouted());
+            assert_eq!(rooms[0].id(), opened_room.id());
+            let orphaned = db::orphaned_room::get_timeouted(
+                Utc::now() + chrono::Duration::seconds(20),
+                &connection,
+            )?;
+            assert_eq!(orphaned.len(), 1);
+            assert_eq!(orphaned[0].0.id, opened_room2.id());
+            Ok(())
+        }
+    }
+
     mod vacuum {
         use svc_agent::mqtt::ResponseStatus;
 

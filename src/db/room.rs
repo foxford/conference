@@ -174,8 +174,8 @@ impl Object {
         self.host.as_ref()
     }
 
-    pub fn timeouted(&self) -> &bool {
-        &self.timeouted
+    pub fn timeouted(&self) -> bool {
+        self.timeouted
     }
 }
 
