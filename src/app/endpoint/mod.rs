@@ -71,7 +71,6 @@ request_routes!(
     "rtc_signal.create" => rtc_signal::CreateHandler,
     "rtc_stream.list" => rtc_stream::ListHandler,
     "system.vacuum" => system::VacuumHandler,
-    "system.close_orphaned_rooms" => system::OrphanedRoomCloseHandler,
     "writer_config_snapshot.read" => writer_config_snapshot::ReadHandler
 );
 
@@ -190,7 +189,8 @@ impl EventHandler for PullHandler {
 // Event routes configuration: label => EventHandler
 event_routes!(
     "subscription.delete" => subscription::DeleteEventHandler,
-    "metric.pull" => PullHandler
+    "metric.pull" => PullHandler,
+    "system.close_orphaned_rooms" => system::OrphanedRoomCloseHandler
 );
 
 ///////////////////////////////////////////////////////////////////////////////
