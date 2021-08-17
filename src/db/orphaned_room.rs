@@ -1,9 +1,9 @@
 use super::room::Object as Room;
-use crate::diesel::ExpressionMethods;
 use crate::diesel::RunQueryDsl;
 use crate::schema::orphaned_room;
+use crate::{diesel::ExpressionMethods, schema};
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
+use diesel::{dsl::any, pg::PgConnection, result::Error, QueryDsl};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
@@ -21,8 +21,8 @@ pub fn upsert_room(
     connection: &PgConnection,
 ) -> Result<(), Error> {
     let record = (
-        orphaned_room::dsl::id.eq(id),
-        orphaned_room::dsl::host_left_time.eq(left_time),
+        orphaned_room::id.eq(id),
+        orphaned_room::host_left_time.eq(left_time),
     );
     diesel::insert_into(orphaned_room::table)
         .values(&record)
@@ -33,9 +33,26 @@ pub fn upsert_room(
     Ok(())
 }
 
+pub fn get_timeouted(
+    load_till: DateTime<Utc>,
+    connection: &PgConnection,
+) -> Result<Vec<(Object, Option<super::room::Object>)>, Error> {
+    orphaned_room::table
+        .filter(orphaned_room::host_left_time.lt(load_till))
+        .left_join(schema::room::table)
+        .get_results(connection)
+}
+
+pub fn remove_rooms(ids: &[super::room::Id], connection: &PgConnection) -> Result<(), Error> {
+    diesel::delete(orphaned_room::table)
+        .filter(orphaned_room::id.eq(any(ids)))
+        .execute(connection)?;
+    Ok(())
+}
+
 pub fn remove_room(id: super::room::Id, connection: &PgConnection) -> Result<(), Error> {
     diesel::delete(orphaned_room::table)
-        .filter(orphaned_room::dsl::id.eq(id))
+        .filter(orphaned_room::id.eq(id))
         .execute(connection)?;
     Ok(())
 }

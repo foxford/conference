@@ -3,6 +3,7 @@ use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use slog::error;
 use std::{ops::Bound, result::Result as StdResult};
 use svc_agent::{
     mqtt::{
@@ -142,6 +143,86 @@ impl RequestHandler for VacuumHandler {
         }
 
         Ok(Box::new(stream::from_iter(requests)))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OrphanedRoomCloseRequest;
+
+pub struct OrphanedRoomCloseHandler;
+
+#[async_trait]
+impl RequestHandler for OrphanedRoomCloseHandler {
+    type Payload = OrphanedRoomCloseRequest;
+    const ERROR_TITLE: &'static str = "Failed to close orphaned rooms";
+
+    async fn handle<C: Context>(
+        context: &mut C,
+        _payload: Self::Payload,
+        reqp: &IncomingRequestProperties,
+    ) -> Result {
+        // Authorization: only trusted subjects are allowed to perform operations with the system
+        let audience = context.agent_id().as_account_id().audience();
+        let logger = context.logger();
+        context
+            .authz()
+            .authorize(audience, reqp, vec!["system"], "update")
+            .await?;
+
+        let load_till = Utc::now()
+            - chrono::Duration::from_std(context.config().orphaned_room_timeout)
+                .expect("Orphaned room timeout misconfigured");
+        let connection = context.get_conn().await?;
+        let timeouted = async_std::task::spawn_blocking(move || {
+            db::orphaned_room::get_timeouted(load_till, &connection)
+        })
+        .await?;
+
+        let mut close_tasks = vec![];
+        let mut closed_rooms = vec![];
+        for (orphan, room) in timeouted {
+            match room {
+                Some(room) if !room.is_closed() => {
+                    let connection = context.get_conn().await?;
+                    let close_task = async_std::task::spawn_blocking(move || {
+                        let room = db::room::UpdateQuery::new(room.id())
+                            .time(Some((room.time().0, Bound::Excluded(Utc::now()))))
+                            .execute(&connection)?;
+                        Ok::<_, diesel::result::Error>(room)
+                    });
+
+                    close_tasks.push(close_task)
+                }
+
+                _ => {
+                    closed_rooms.push(orphan.id);
+                }
+            }
+        }
+        let mut notifications = vec![];
+        for close_task in close_tasks {
+            match close_task.await {
+                Ok(room) => {
+                    closed_rooms.push(room.id());
+                    notifications.push(helpers::build_notification(
+                        "room.close",
+                        &format!("rooms/{}/events", room.id()),
+                        room,
+                        reqp,
+                        context.start_timestamp(),
+                    ));
+                }
+                Err(err) => {
+                    error!(logger, "Closing room failed: {:?}", err);
+                }
+            }
+        }
+        let connection = context.get_conn().await?;
+        if let Err(err) = db::orphaned_room::remove_rooms(&closed_rooms, &connection) {
+            error!(logger, "Error removing rooms fron orphan table: {:?}", err);
+        }
+
+        Ok(Box::new(stream::from_iter(notifications)))
     }
 }
 

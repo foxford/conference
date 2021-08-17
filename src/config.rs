@@ -24,6 +24,8 @@ pub struct Config {
     pub metrics: MetricsConfig,
     pub max_room_duration: Option<i64>,
     pub janus_group: Option<String>,
+    #[serde(with = "humantime_serde")]
+    pub orphaned_room_timeout: Duration,
 }
 
 #[derive(Clone, Debug, Deserialize)]
