@@ -95,6 +95,7 @@ table! {
         rtc_sharing_policy -> Rtc_sharing_policy,
         classroom_id -> Nullable<Uuid>,
         host -> Nullable<Agent_id>,
+        timeouted -> Bool,
     }
 }
 

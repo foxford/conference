@@ -188,6 +188,7 @@ impl EventHandler for OrphanedRoomCloseHandler {
                     let close_task = async_std::task::spawn_blocking(move || {
                         let room = db::room::UpdateQuery::new(room.id())
                             .time(Some((room.time().0, Bound::Excluded(Utc::now()))))
+                            .timeouted()
                             .execute(&connection)?;
                         Ok::<_, diesel::result::Error>(room)
                     });
