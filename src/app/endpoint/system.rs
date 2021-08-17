@@ -3,7 +3,7 @@ use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use slog::error;
+use slog::{error, info};
 use std::{ops::Bound, result::Result as StdResult};
 use svc_agent::{
     mqtt::{
@@ -161,9 +161,11 @@ impl RequestHandler for OrphanedRoomCloseHandler {
         _payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        // Authorization: only trusted subjects are allowed to perform operations with the system
         let audience = context.agent_id().as_account_id().audience();
         let logger = context.logger();
+        info!(logger, "Closing rooms");
+
+        // Authorization: only trusted subjects are allowed to perform operations with the system
         context
             .authz()
             .authorize(audience, reqp, vec!["system"], "update")
