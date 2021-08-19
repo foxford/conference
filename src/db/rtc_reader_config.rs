@@ -75,6 +75,19 @@ impl<'a> ListWithRtcQuery<'a> {
     }
 }
 
+pub fn read_config(
+    rtc_id: db::rtc::Id,
+    connection: &PgConnection,
+) -> Result<Option<Vec<Object>>, Error> {
+    use diesel::prelude::*;
+
+    rtc_reader_config::table
+        .filter(rtc_reader_config::rtc_id.eq(rtc_id))
+        .select(ALL_COLUMNS)
+        .get_results(connection)
+        .optional()
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Clone, Debug, Insertable, AsChangeset)]

@@ -22,7 +22,8 @@ use crate::{
     backend::janus::{
         client::{
             create_stream::{
-                CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction, WriterConfig,
+                CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction,
+                ReaderConfig, WriterConfig,
             },
             read_stream::{ReadStreamRequest, ReadStreamRequestBody, ReadStreamTransaction},
             trickle::TrickleRequest,
@@ -215,10 +216,15 @@ impl RequestHandler for CreateHandler {
                                 }
                             })
                             .await?;
-                            let writer_config = task::spawn_blocking({
+                            let (writer_config, reader_config) = task::spawn_blocking({
                                 let rtc_id = payload.handle_id.rtc_id();
                                 let conn = context.get_conn().await?;
-                                move || db::rtc_writer_config::read_config(rtc_id, &conn)
+                                move || {
+                                    Ok::<_, diesel::result::Error>((
+                                        db::rtc_writer_config::read_config(rtc_id, &conn)?,
+                                        db::rtc_reader_config::read_config(rtc_id, &conn)?,
+                                    ))
+                                }
                             })
                             .await?;
 
@@ -231,6 +237,15 @@ impl RequestHandler for CreateHandler {
                                         send_video: w.send_video(),
                                         send_audio: w.send_audio(),
                                         video_remb: w.video_remb(),
+                                    }),
+                                    reader_config.map(|r| {
+                                        r.into_iter()
+                                            .map(|r| ReaderConfig {
+                                                reader_id: r.reader_id().to_owned(),
+                                                receive_audio: r.receive_audio(),
+                                                receive_video: r.receive_video(),
+                                            })
+                                            .collect()
                                     }),
                                 ),
                                 handle_id: payload.handle_id.janus_handle_id(),

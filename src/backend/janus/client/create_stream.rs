@@ -29,20 +29,34 @@ pub struct WriterConfig {
 }
 
 #[derive(Serialize, Debug)]
+pub struct ReaderConfig {
+    pub reader_id: AgentId,
+    pub receive_video: bool,
+    pub receive_audio: bool,
+}
+
+#[derive(Serialize, Debug)]
 pub struct CreateStreamRequestBody {
     method: &'static str,
     id: db::rtc::Id,
     agent_id: AgentId,
     writer_config: Option<WriterConfig>,
+    reader_configs: Option<Vec<ReaderConfig>>,
 }
 
 impl CreateStreamRequestBody {
-    pub fn new(id: db::rtc::Id, agent_id: AgentId, writer_config: Option<WriterConfig>) -> Self {
+    pub fn new(
+        id: db::rtc::Id,
+        agent_id: AgentId,
+        writer_config: Option<WriterConfig>,
+        reader_configs: Option<Vec<ReaderConfig>>,
+    ) -> Self {
         Self {
             method: "stream.create",
             id,
             agent_id,
             writer_config,
+            reader_configs,
         }
     }
 }
