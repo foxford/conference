@@ -80,6 +80,19 @@ impl ListWithRtcQuery {
     }
 }
 
+pub fn read_config(
+    rtc_id: db::rtc::Id,
+    connection: &PgConnection,
+) -> Result<Option<Object>, Error> {
+    use diesel::prelude::*;
+
+    rtc_writer_config::table
+        .filter(rtc_writer_config::rtc_id.eq(rtc_id))
+        .select(ALL_COLUMNS)
+        .get_result(connection)
+        .optional()
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Clone, Debug, Insertable, AsChangeset)]

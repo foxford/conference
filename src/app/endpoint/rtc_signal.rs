@@ -22,7 +22,7 @@ use crate::{
     backend::janus::{
         client::{
             create_stream::{
-                CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction,
+                CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction, WriterConfig,
             },
             read_stream::{ReadStreamRequest, ReadStreamRequestBody, ReadStreamTransaction},
             trickle::TrickleRequest,
@@ -215,12 +215,23 @@ impl RequestHandler for CreateHandler {
                                 }
                             })
                             .await?;
+                            let writer_config = task::spawn_blocking({
+                                let rtc_id = payload.handle_id.rtc_id();
+                                let conn = context.get_conn().await?;
+                                move || db::rtc_writer_config::read_config(rtc_id, &conn)
+                            })
+                            .await?;
 
                             let agent_id = reqp.as_agent_id().to_owned();
                             let request = CreateStreamRequest {
                                 body: CreateStreamRequestBody::new(
                                     payload.handle_id.rtc_id(),
                                     agent_id,
+                                    writer_config.map(|w| WriterConfig {
+                                        send_video: w.send_video(),
+                                        send_audio: w.send_audio(),
+                                        video_remb: w.video_remb(),
+                                    }),
                                 ),
                                 handle_id: payload.handle_id.janus_handle_id(),
                                 session_id: payload.handle_id.janus_session_id(),
