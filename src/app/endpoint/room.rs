@@ -300,6 +300,13 @@ impl RequestHandler for UpdateHandler {
         // Publish room closed notification.
         if let (_, Bound::Excluded(closed_at)) = room.time() {
             if room_was_open && *closed_at <= Utc::now() {
+                let room = async_std::task::spawn_blocking({
+                    let room_id = room.id();
+                    let agent = reqp.as_agent_id().to_owned();
+                    let conn = context.get_conn().await?;
+                    move || db::room::set_closed_by(room_id, &agent, &conn)
+                })
+                .await?;
                 responses.push(helpers::build_notification(
                     "room.close",
                     &format!("rooms/{}/events", room.id()),
