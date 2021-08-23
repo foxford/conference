@@ -318,7 +318,7 @@ impl RequestHandler for UpdateHandler {
                 responses.push(helpers::build_notification(
                     "room.close",
                     &format!("audiences/{}/events", room.audience()),
-                    room.clone(),
+                    room,
                     reqp,
                     context.start_timestamp(),
                 ));
