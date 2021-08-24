@@ -111,7 +111,6 @@ impl RequestHandler for VacuumHandler {
                     recording.rtc_id(),
                     &config.backend,
                     &config.bucket,
-                    &record_name(&recording, &room),
                 ),
                 handle_id: backend.handle_id(),
                 session_id: backend.session_id(),
