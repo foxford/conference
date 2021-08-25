@@ -17,7 +17,7 @@ pub struct Transaction {
 impl Transaction {
     pub fn new(kind: TransactionKind) -> Self {
         Self {
-            trace_id: TraceId::get(),
+            trace_id: dbg!(TraceId::get()),
             kind: Some(kind),
         }
     }
