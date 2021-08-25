@@ -11,11 +11,11 @@ use crate::{
 };
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
-use slog::warn;
 use svc_agent::mqtt::{
     IncomingEvent, IncomingEventProperties, IncomingRequest, IncomingRequestProperties,
     IncomingResponse, IncomingResponseProperties,
 };
+use tracing::warn;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -111,8 +111,9 @@ macro_rules! response_routes {
                 Ok(corr_data) => corr_data,
                 Err(err) => {
                     warn!(
-                        context.logger(),
-                        "Failed to parse response correlation data '{}': {:?}", corr_data, err
+                        ?err,
+                        %corr_data,
+                        "Failed to parse response correlation data"
                     );
                     return Box::new(async_std::stream::empty()) as MessageStream;
                 }

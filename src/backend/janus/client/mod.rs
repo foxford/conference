@@ -4,7 +4,7 @@ use crate::util::to_base64;
 
 use self::{
     agent_leave::AgentLeaveRequest,
-    create_handle::{CreateHandleRequest, CreateHandleResponse},
+    create_handle::{CreateHandleRequest, CreateHandleResponse, OpaqueId},
     create_session::CreateSessionResponse,
     create_stream::{CreateStreamRequest, CreateStreamTransaction},
     events::{
@@ -274,6 +274,18 @@ impl IncomingEvent {
                 Transaction::AgentSpeaking => "AgentSpeaking",
                 Transaction::ServicePing => "ServicePing",
             },
+        }
+    }
+
+    pub fn opaque_id(&self) -> Option<&OpaqueId> {
+        match self {
+            IncomingEvent::WebRtcUp(x) => Some(&x.opaque_id),
+            IncomingEvent::Media(x) => Some(&x.opaque_id),
+            IncomingEvent::Timeout(_) => None,
+            IncomingEvent::HangUp(x) => Some(&x.opaque_id),
+            IncomingEvent::SlowLink(x) => Some(&x.opaque_id),
+            IncomingEvent::Detached(x) => Some(&x.opaque_id),
+            IncomingEvent::Event(_) => None,
         }
     }
 }

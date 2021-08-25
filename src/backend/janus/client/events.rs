@@ -65,7 +65,7 @@ pub struct TimeoutEvent {
 pub struct SlowLinkEvent {
     pub session_id: SessionId,
     pub sender: HandleId,
-    pub opaque_id: String,
+    pub opaque_id: OpaqueId,
     pub uplink: bool,
 }
 

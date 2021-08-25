@@ -18,6 +18,7 @@ use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
     Addressable, AgentId,
 };
+use tracing_attributes::instrument;
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
@@ -117,6 +118,7 @@ impl RequestHandler for UpdateHandler {
     type Payload = State;
     const ERROR_TITLE: &'static str = "Failed to update agent writer config";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -146,7 +148,6 @@ impl RequestHandler for UpdateHandler {
             }
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
         // Authorize agent writer config updating on the tenant.
         let is_only_owned_config =
             payload.configs.len() == 1 && &payload.configs[0].agent_id == reqp.as_agent_id();
@@ -315,6 +316,7 @@ impl RequestHandler for ReadHandler {
     type Payload = ReadRequest;
     const ERROR_TITLE: &'static str = "Failed to read agent writer config";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -345,7 +347,6 @@ impl RequestHandler for ReadHandler {
             }
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
         context
             .metrics()
             .request_duration

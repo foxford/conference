@@ -7,6 +7,7 @@ use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
     db,
 };
+use tracing_attributes::instrument;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -26,6 +27,7 @@ impl RequestHandler for ListHandler {
     type Payload = ListRequest;
     const ERROR_TITLE: &'static str = "Failed to list agents";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -37,7 +39,6 @@ impl RequestHandler for ListHandler {
             move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
 
         // Authorize agents listing in the room.
         let room_id = room.id().to_string();
