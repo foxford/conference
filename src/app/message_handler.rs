@@ -24,7 +24,7 @@ use svc_agent::{
     Addressable, Authenticable,
 };
 use svc_error::Error as SvcError;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 use tracing::{field::Empty, Span};
 use tracing_attributes::instrument;
 use uuid::Uuid;
@@ -68,6 +68,9 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
                 sentry_error.notify_sentry();
             }
         }
+        let elapsed = (msg_context.start_timestamp() - Utc::now()).num_milliseconds();
+
+        info!(elapsed = format!("{}ms", elapsed), "message processed");
     }
 
     #[instrument(name = "trace_id", skip(self, message), fields(request_id = Empty))]
@@ -80,6 +83,9 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         let messages = handle_event(&mut msg_context, message).await;
 
         self.publish_outgoing_messages(messages).await;
+
+        let elapsed = (msg_context.start_timestamp() - Utc::now()).num_milliseconds();
+        info!(elapsed = format!("{}ms", elapsed), "event processed");
     }
 
     async fn handle_message(

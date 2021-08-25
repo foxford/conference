@@ -48,7 +48,7 @@ pub struct TraceIdLayer<S> {
 // this function "remembers" the types of the subscriber and the formatter,
 // so that we can downcast to something aware of them without knowing those
 // types at the callsite.
-pub(crate) struct WithContext(fn(&Dispatch, &span::Id, f: &mut dyn FnMut(&TraceId)));
+struct WithContext(fn(&Dispatch, &span::Id, f: &mut dyn FnMut(&TraceId)));
 
 impl<S> Layer<S> for TraceIdLayer<S>
 where
@@ -105,12 +105,7 @@ where
 }
 
 impl WithContext {
-    pub(crate) fn with_context<'a>(
-        &self,
-        dispatch: &'a Dispatch,
-        id: &span::Id,
-        mut f: impl FnMut(&TraceId),
-    ) {
+    fn with_context<'a>(&self, dispatch: &'a Dispatch, id: &span::Id, mut f: impl FnMut(&TraceId)) {
         (self.0)(dispatch, id, &mut f)
     }
 }
