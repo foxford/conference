@@ -1,11 +1,12 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{HandleId, SessionId, create_handle::OpaqueId, transactions::{Transaction}};
+use super::{create_handle::OpaqueId, transactions::Transaction, HandleId, SessionId};
 
 // A response on a request sent to a plugin handle.
 #[derive(Debug, Deserialize)]
 pub struct EventResponse {
+    #[serde(with = "super::serialize_as_str")]
     pub transaction: Transaction,
     pub session_id: SessionId,
     pub opaque_id: Option<OpaqueId>,
