@@ -11,7 +11,7 @@ use svc_agent::{
     },
     Addressable,
 };
-use tracing::{field::Empty, warn, Span};
+use tracing::{warn, Span};
 
 use crate::{
     app::{
@@ -56,7 +56,7 @@ impl RequestHandler for CreateHandler {
     type Payload = CreateRequest;
     const ERROR_TITLE: &'static str = "Failed to create rtc";
 
-    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id, rtc_id = Empty))]
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id, rtc_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,

@@ -150,7 +150,7 @@ async fn start_polling(
                             sink.send(event).expect("Receiver must exist");
                         }
                         Err(err) => {
-                            warn!(?err, "Got unknown event: {:?}", err);
+                            warn!(?err, "Got unknown event");
                         }
                     }
                 }

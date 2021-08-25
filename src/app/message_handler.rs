@@ -24,8 +24,8 @@ use svc_agent::{
     Addressable, Authenticable,
 };
 use svc_error::Error as SvcError;
-use tracing::{error, info, warn};
-use tracing::{field::Empty, Span};
+use tracing::Span;
+use tracing::{error, warn};
 use tracing_attributes::instrument;
 use uuid::Uuid;
 
@@ -70,7 +70,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         }
     }
 
-    #[instrument(name = "trace_id", skip(self, message), fields(request_id = Empty))]
+    #[instrument(name = "trace_id", skip(self, message), fields(request_id))]
     pub async fn handle_events(&self, message: janus::client::IncomingEvent) {
         if let Some(tid) = message.trace_id() {
             Span::current().record("request_id", &tid.as_str());
