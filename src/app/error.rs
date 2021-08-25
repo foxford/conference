@@ -331,11 +331,11 @@ impl Error {
         let svc_err = SvcError::builder()
             .status(properties.status)
             .kind(properties.kind, properties.title)
-            .detail(&format!(
+            .detail(&dbg!(format!(
                 "Error: {:?}, Trace: {:?}",
                 self.source,
                 SpanTrace::capture()
-            ))
+            )))
             .build();
 
         sentry::send(svc_err).unwrap_or_else(|err| {

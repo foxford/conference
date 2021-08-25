@@ -5,6 +5,7 @@ use std::env::var;
 
 use anyhow::Result;
 use svc_authz::cache::{create_pool, Cache};
+use tracing_error::ErrorLayer;
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter};
 
 #[async_std::main]
@@ -15,6 +16,7 @@ async fn main() -> Result<()> {
         .json()
         .flatten_event(true);
     let subscriber = tracing_subscriber::registry()
+        .with(ErrorLayer::default())
         .with(trace_id::TraceIdLayer::new())
         .with(EnvFilter::from_default_env())
         .with(subscriber);
