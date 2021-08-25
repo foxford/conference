@@ -8,6 +8,7 @@ use svc_authz::cache::{create_pool, Cache};
 use tracing_subscriber::{
     fmt::{format::FmtSpan, time},
     prelude::__tracing_subscriber_SubscriberExt,
+    EnvFilter,
 };
 
 #[async_std::main]
@@ -16,10 +17,10 @@ async fn main() -> Result<()> {
     let subscriber = tracing_subscriber::fmt::layer()
         .with_writer(non_blocking)
         // .with_timer(time::ChronoUtc::rfc3339())
-        .with_span_events(FmtSpan::CLOSE)
         .json();
     let subscriber = tracing_subscriber::registry()
         // .with(crate::subs::ErrorLayer::default())
+        .with(EnvFilter::default())
         .with(subscriber);
 
     tracing::subscriber::set_global_default(subscriber)?;
