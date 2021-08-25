@@ -11,7 +11,7 @@ use svc_agent::{
     Addressable, AgentId,
 };
 use svc_error::Error as SvcError;
-use tracing::{error, Span};
+use tracing::{error, field::Empty, Span};
 
 use crate::{
     app::{
@@ -30,10 +30,11 @@ use crate::{
     db::{self, agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc},
     diesel::Connection,
 };
+use tracing_attributes::instrument;
 
 use serde::{Deserialize, Serialize};
 
-use self::client::{create_handle::OpaqueId, transactions::Transaction, IncomingEvent};
+use self::client::{create_handle::OpaqueId, transactions::TransactionKind, IncomingEvent};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -57,6 +58,11 @@ fn handle_response_error<C: Context>(
     Box::new(stream::once(boxed_resp))
 }
 
+#[instrument(skip(context, event), fields(
+    rtc_id = Empty,
+    event_kind = ?event.event_kind(),
+    opaque_id = ?event.opaque_id(),
+))]
 pub async fn handle_event<C: Context>(context: &mut C, event: IncomingEvent) -> MessageStream {
     handle_event_impl(context, event)
         .await
@@ -106,9 +112,9 @@ async fn handle_event_impl<C: Context>(
             Ok(Box::new(stream::empty()))
         }
         IncomingEvent::Event(resp) => {
-            match resp.transaction {
-                Transaction::AgentLeave => Ok(Box::new(stream::empty())),
-                Transaction::CreateStream(tn) => {
+            match resp.transaction.kind {
+                Some(TransactionKind::AgentLeave) => Ok(Box::new(stream::empty())),
+                Some(TransactionKind::CreateStream(tn)) => {
                     let jsep = resp.jsep;
                     resp.plugindata
                         .data
@@ -153,7 +159,7 @@ async fn handle_event_impl<C: Context>(
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
                 }
-                Transaction::ReadStream(tn) => {
+                Some(TransactionKind::ReadStream(tn)) => {
                     let jsep = resp.jsep;
                     resp.plugindata
                         .data
@@ -199,11 +205,11 @@ async fn handle_event_impl<C: Context>(
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
                 }
-                Transaction::UpdateReaderConfig => Ok(Box::new(stream::empty())),
-                Transaction::UpdateWriterConfig => Ok(Box::new(stream::empty())),
-                Transaction::ServicePing => Ok(Box::new(stream::empty())),
+                Some(TransactionKind::UpdateReaderConfig) => Ok(Box::new(stream::empty())),
+                Some(TransactionKind::UpdateWriterConfig) => Ok(Box::new(stream::empty())),
+                Some(TransactionKind::ServicePing) => Ok(Box::new(stream::empty())),
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
-                Transaction::UploadStream(ref tn) => {
+                Some(TransactionKind::UploadStream(ref tn)) => {
                     Span::current().record("rtc_id", &tn.rtc_id.to_string().as_str());
 
                     // TODO: improve error handling
@@ -366,7 +372,7 @@ async fn handle_event_impl<C: Context>(
                         .observe_timestamp(tn.start_timestamp);
                     response
                 }
-                Transaction::AgentSpeaking => {
+                Some(TransactionKind::AgentSpeaking) => {
                     let data = resp
                         .plugindata
                         .data
@@ -388,6 +394,7 @@ async fn handle_event_impl<C: Context>(
                         Box::new(event) as Box<dyn IntoPublishableMessage + Send>
                     )) as MessageStream)
                 }
+                None => Ok(Box::new(stream::empty()) as MessageStream),
             }
         }
     }

@@ -18,11 +18,6 @@ async fn main() -> Result<()> {
         .with(EnvFilter::from_default_env())
         .with(subscriber);
 
-    // let subscriber = tracing_subscriber::registry()
-    //     // .with(crate::subs::ErrorLayer::default())
-    //     .with(EnvFilter::from_default_env())
-    //     .with(subscriber);
-
     tracing::subscriber::set_global_default(subscriber)?;
 
     let db = {

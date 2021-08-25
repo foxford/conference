@@ -1,15 +1,13 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{create_handle::OpaqueId, transactions::Transaction, HandleId, SessionId};
+use super::{HandleId, SessionId, create_handle::OpaqueId, transactions::{Transaction}};
 
 // A response on a request sent to a plugin handle.
 #[derive(Debug, Deserialize)]
 pub struct EventResponse {
-    #[serde(with = "super::serialize_as_base64")]
     pub transaction: Transaction,
     pub session_id: SessionId,
-    #[serde(with = "super::serialize_as_base64")]
     pub opaque_id: Option<OpaqueId>,
     pub plugindata: EventResponsePluginData,
     pub jsep: Option<Value>,
@@ -26,7 +24,6 @@ pub struct EventResponsePluginData {
 pub struct WebRtcUpEvent {
     pub session_id: SessionId,
     pub sender: HandleId,
-    #[serde(with = "super::serialize_as_base64")]
     pub opaque_id: OpaqueId,
 }
 
@@ -36,7 +33,6 @@ pub struct WebRtcUpEvent {
 pub struct HangUpEvent {
     pub session_id: SessionId,
     pub sender: HandleId,
-    #[serde(with = "super::serialize_as_base64")]
     pub opaque_id: OpaqueId,
     pub reason: String,
 }
@@ -46,7 +42,6 @@ pub struct HangUpEvent {
 pub struct MediaEvent {
     pub session_id: SessionId,
     pub sender: HandleId,
-    #[serde(with = "super::serialize_as_base64")]
     pub opaque_id: OpaqueId,
     #[serde(rename = "type")]
     pub kind: String,
@@ -75,6 +70,5 @@ pub struct SlowLinkEvent {
 pub struct DetachedEvent {
     pub session_id: SessionId,
     pub sender: HandleId,
-    #[serde(with = "super::serialize_as_base64")]
     pub opaque_id: OpaqueId,
 }

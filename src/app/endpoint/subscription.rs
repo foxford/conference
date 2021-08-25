@@ -11,7 +11,7 @@ use svc_agent::{
     },
     Addressable, AgentId,
 };
-use tracing::Span;
+use tracing::{field::Empty, Span};
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
@@ -63,7 +63,7 @@ impl ResponseHandler for CreateResponseHandler {
     type Payload = CreateDeleteResponsePayload;
     type CorrelationData = CorrelationDataPayload;
 
-    #[instrument(skip(context, _payload, respp, corr_data))]
+    #[instrument(skip(context, _payload, respp, corr_data), fields(room_id = Empty))]
     async fn handle<C: Context>(
         context: &mut C,
         _payload: Self::Payload,

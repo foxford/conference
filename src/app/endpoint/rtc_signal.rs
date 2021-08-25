@@ -343,7 +343,9 @@ mod test {
         use crate::{
             app::handle_id::HandleId,
             backend::janus::client::{
-                events::EventResponse, transactions::Transaction, IncomingEvent, SessionId,
+                events::EventResponse,
+                transactions::{Transaction, TransactionKind},
+                IncomingEvent, SessionId,
             },
             db::rtc::SharingPolicy as RtcSharingPolicy,
             test_helpers::{prelude::*, test_deps::LocalDeps},
@@ -463,7 +465,11 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             context.janus_clients().remove_client(&backend);
             match rx.recv().unwrap() {
                 IncomingEvent::Event(EventResponse {
-                    transaction: Transaction::CreateStream(_tn),
+                    transaction:
+                        Transaction {
+                            kind: Some(TransactionKind::CreateStream(_tn)),
+                            ..
+                        },
                     jsep: Some(_jsep),
                     session_id: s_id,
                     plugindata: _,

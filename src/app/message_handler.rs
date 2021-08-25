@@ -1,3 +1,12 @@
+use crate::{
+    app::{
+        context::{AppMessageContext, Context, GlobalContext, MessageContext},
+        endpoint,
+        error::{Error as AppError, ErrorKind as AppErrorKind},
+        API_VERSION,
+    },
+    backend::{janus, janus::handle_event},
+};
 use anyhow::anyhow;
 use anyhow::Context as AnyhowContext;
 use async_std::{
@@ -16,18 +25,9 @@ use svc_agent::{
 };
 use svc_error::Error as SvcError;
 use tracing::{error, warn};
+use tracing::{field::Empty, Span};
 use tracing_attributes::instrument;
 use uuid::Uuid;
-
-use crate::{
-    app::{
-        context::{AppMessageContext, Context, GlobalContext, MessageContext},
-        endpoint,
-        error::{Error as AppError, ErrorKind as AppErrorKind},
-        API_VERSION,
-    },
-    backend::{janus, janus::handle_event},
-};
 
 pub type MessageStream =
     Box<dyn Stream<Item = Box<dyn IntoPublishableMessage + Send>> + Send + Unpin>;
@@ -70,9 +70,11 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         }
     }
 
-    //todo add instrument request id
-    #[instrument(skip(self, message), fields(event_kind = message.event_kind(), opaque_id = ?message.opaque_id()))]
+    #[instrument(name = "trace_id", skip(self, message), fields(request_id = Empty))]
     pub async fn handle_events(&self, message: janus::client::IncomingEvent) {
+        if let Some(tid) = message.trace_id() {
+            Span::current().record("request_id", &tid.as_str());
+        }
         let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
 
         let messages = handle_event(&mut msg_context, message).await;
@@ -95,7 +97,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
 
     #[instrument(skip(self, msg_context, request), fields(
         agent_id = %request.properties().as_agent_id(),
-        acocunt_id = %request.properties().as_account_id(),
+        account_id = %request.properties().as_account_id(),
         method = request.properties().method()
     ))]
     async fn handle_request(
