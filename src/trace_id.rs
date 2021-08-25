@@ -40,7 +40,7 @@ impl<'a> Visit for Visitor<'a> {
         }
     }
 }
-pub struct ErrorLayer<S> {
+pub struct TraceIdLayer<S> {
     get_context: WithContext,
     _subscriber: PhantomData<fn(S)>,
 }
@@ -50,12 +50,10 @@ pub struct ErrorLayer<S> {
 // types at the callsite.
 pub(crate) struct WithContext(fn(&Dispatch, &span::Id, f: &mut dyn FnMut(&TraceId)));
 
-impl<S> Layer<S> for ErrorLayer<S>
+impl<S> Layer<S> for TraceIdLayer<S>
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {
-    /// Notifies this layer that a new span was constructed with the given
-    /// `Attributes` and `Id`.
     fn new_span(&self, attrs: &span::Attributes<'_>, id: &span::Id, ctx: layer::Context<'_, S>) {
         let span = ctx.span(id).expect("span must already exist!");
         if span.name() != "trace_id" || span.extensions().get::<TraceId>().is_some() {
@@ -79,13 +77,10 @@ where
     }
 }
 
-impl<S> ErrorLayer<S>
+impl<S> TraceIdLayer<S>
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {
-    /// Returns a new `ErrorLayer` with the provided [field formatter].
-    ///
-    /// [field formatter]: https://docs.rs/tracing-subscriber/0.2.2/tracing_subscriber/fmt/trait.FormatFields.html
     pub fn new() -> Self {
         Self {
             get_context: WithContext(Self::get_context),
@@ -102,7 +97,7 @@ where
             .expect("registry should have a span for the current ID");
         for span in span.scope() {
             if let Some(ext) = span.extensions().get::<TraceId>() {
-                f(&ext);
+                f(ext);
                 return;
             }
         }
@@ -117,14 +112,5 @@ impl WithContext {
         mut f: impl FnMut(&TraceId),
     ) {
         (self.0)(dispatch, id, &mut f)
-    }
-}
-
-impl<S> Default for ErrorLayer<S>
-where
-    S: Subscriber + for<'span> LookupSpan<'span>,
-{
-    fn default() -> Self {
-        Self::new()
     }
 }

@@ -15,6 +15,7 @@ async fn main() -> Result<()> {
         .json()
         .flatten_event(true);
     let subscriber = tracing_subscriber::registry()
+        .with(trace_id::TraceIdLayer::new())
         .with(EnvFilter::from_default_env())
         .with(subscriber);
 
