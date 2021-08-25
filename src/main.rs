@@ -5,21 +5,18 @@ use std::env::var;
 
 use anyhow::Result;
 use svc_authz::cache::{create_pool, Cache};
-use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter};
 
 #[async_std::main]
 async fn main() -> Result<()> {
     let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
-    // let subscriber = tracing_subscriber::fmt::layer()
-    //     .with_writer(non_blocking)
-    //     // .with_timer(time::ChronoUtc::rfc3339())
-    //     .json();
-    let formatting_layer = BunyanFormattingLayer::new("conference".into(), non_blocking);
+    let subscriber = tracing_subscriber::fmt::layer()
+        .with_writer(non_blocking)
+        .json()
+        .flatten_event(true);
     let subscriber = tracing_subscriber::registry()
         .with(EnvFilter::from_default_env())
-        .with(JsonStorageLayer)
-        .with(formatting_layer);
+        .with(subscriber);
 
     // let subscriber = tracing_subscriber::registry()
     //     // .with(crate::subs::ErrorLayer::default())
@@ -97,4 +94,5 @@ mod schema;
 mod serde;
 #[cfg(test)]
 mod test_helpers;
+mod trace_id;
 mod util;
