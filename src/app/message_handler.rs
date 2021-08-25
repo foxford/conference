@@ -72,7 +72,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
 
     #[instrument(name = "trace_id", skip(self, message), fields(request_id = Empty))]
     pub async fn handle_events(&self, message: janus::client::IncomingEvent) {
-        if let Some(tid) = dbg!(message.trace_id()) {
+        if let Some(tid) = message.trace_id() {
             Span::current().record("request_id", &tid.as_str());
         }
         let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
