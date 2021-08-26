@@ -84,6 +84,7 @@ table! {
         backend_id -> Nullable<Agent_id>,
         rtc_sharing_policy -> Rtc_sharing_policy,
         classroom_id -> Nullable<Uuid>,
+        closed_by -> Nullable<Agent_id>,
     }
 }
 
