@@ -28,7 +28,7 @@ jobs:
           NAMESPACE=$NAMESPACE ./deploy.init.sh && NAMESPACE=$NAMESPACE ./deploy/github-actions-run.sh
         done
       env:
-        NAMESPACE: ${{ github.event.inputs.namespace }}
+        NAMESPACES: ${{ github.event.inputs.namespace }}
         KUBE_TOKEN_TESTING: ${{ secrets.KUBE_TOKEN_TESTING }}
         KUBE_SERVER_TESTING: ${{ secrets.KUBE_SERVER_TESTING }}
         OVPN_CONFIG: ${{ secrets.OVPN_CONFIG }}
