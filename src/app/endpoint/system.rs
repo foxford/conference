@@ -1,9 +1,8 @@
 use anyhow::anyhow;
 use async_std::{stream, task};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{ops::Bound, result::Result as StdResult};
+use std::result::Result as StdResult;
 use svc_agent::{
     mqtt::{
         IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
@@ -39,16 +38,6 @@ pub struct RoomUploadEventData {
 struct RtcUploadEventData {
     id: db::rtc::Id,
     status: RecordingStatus,
-    #[serde(
-        serialize_with = "crate::serde::milliseconds_bound_tuples_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    segments: Option<Vec<(Bound<i64>, Bound<i64>)>>,
-    #[serde(
-        serialize_with = "crate::serde::ts_milliseconds_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    started_at: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     uri: Option<String>,
     created_by: AgentId,
@@ -178,8 +167,6 @@ where
             id: recording.rtc_id(),
             status: recording.status().to_owned(),
             uri,
-            segments: recording.segments().to_owned(),
-            started_at: recording.started_at().to_owned(),
             created_by: rtc.created_by().to_owned(),
             mjr_dumps_uris: recording.mjr_dumps_uris().cloned(),
         };
