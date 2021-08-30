@@ -21,18 +21,42 @@ pub struct CreateStreamTransaction {
 }
 
 #[derive(Serialize, Debug)]
+pub struct WriterConfig {
+    pub send_video: bool,
+    pub send_audio: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_remb: Option<i64>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct ReaderConfig {
+    pub reader_id: AgentId,
+    pub receive_video: bool,
+    pub receive_audio: bool,
+}
+
+#[derive(Serialize, Debug)]
 pub struct CreateStreamRequestBody {
     method: &'static str,
     id: db::rtc::Id,
     agent_id: AgentId,
+    writer_config: Option<WriterConfig>,
+    reader_configs: Option<Vec<ReaderConfig>>,
 }
 
 impl CreateStreamRequestBody {
-    pub fn new(id: db::rtc::Id, agent_id: AgentId) -> Self {
+    pub fn new(
+        id: db::rtc::Id,
+        agent_id: AgentId,
+        writer_config: Option<WriterConfig>,
+        reader_configs: Option<Vec<ReaderConfig>>,
+    ) -> Self {
         Self {
             method: "stream.create",
             id,
             agent_id,
+            writer_config,
+            reader_configs,
         }
     }
 }
