@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context as AnyhowContext, Result};
 use async_std::{stream, task};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::Utc;
 use std::ops::Bound;
 use svc_agent::{
     mqtt::{
@@ -260,49 +260,17 @@ async fn handle_event_impl<C: Context>(
                             return Ok(Box::new(stream::empty()) as MessageStream);
                         }
 
-                        let started_at = plugin_data
-                            .get("started_at")
-                            .ok_or_else(|| anyhow!("Missing 'started_at' in response"))
-                            .error(AppErrorKind::MessageParsingFailed)
-                            .and_then(|val| {
-                                let unix_ts = serde_json::from_value::<u64>(val.clone())
-                                    .map_err(|err| {
-                                        anyhow!("Invalid value for 'started_at': {}", err)
-                                    })
-                                    .error(AppErrorKind::MessageParsingFailed)?;
-
-                                let naive_datetime = NaiveDateTime::from_timestamp(
-                                    unix_ts as i64 / 1000,
-                                    ((unix_ts % 1000) * 1_000_000) as u32,
-                                );
-
-                                Ok(DateTime::<Utc>::from_utc(naive_datetime, Utc))
-                            })?;
-
-                        let segments = plugin_data
-                            .get("time")
-                            .ok_or_else(|| anyhow!("Missing time"))
-                            .error(AppErrorKind::MessageParsingFailed)
-                            .and_then(|segments| {
-                                Ok(serde_json::from_value::<Vec<(i64, i64)>>(segments.clone())
-                                    .map_err(|err| anyhow!("Invalid value for 'time': {}", err))
-                                    .error(AppErrorKind::MessageParsingFailed)?
-                                    .into_iter()
-                                    .map(|(start, end)| {
-                                        (Bound::Included(start), Bound::Excluded(end))
-                                    })
-                                    .collect())
-                            })?;
                         let mjr_dumps_uris = plugin_data
                             .get("mjr_dumps_uris")
-                            .map(|dumps| {
+                            .ok_or_else(|| anyhow!("Missing 'mjr_dumps_uris' in response"))
+                            .error(AppErrorKind::MessageParsingFailed)
+                            .and_then(|dumps| {
                                 serde_json::from_value::<Vec<String>>(dumps.clone())
                                     .map_err(|err| {
                                         anyhow!("Invalid value for 'dumps_uris': {}", err)
                                     })
                                     .error(AppErrorKind::MessageParsingFailed)
-                            })
-                            .transpose()?;
+                            })?;
 
                         let (room, rtcs_with_recs): (
                             room::Object,
@@ -312,8 +280,6 @@ async fn handle_event_impl<C: Context>(
                             task::spawn_blocking(move || {
                                 recording::UpdateQuery::new(rtc_id)
                                     .status(recording::Status::Ready)
-                                    .started_at(started_at)
-                                    .segments(segments)
                                     .mjr_dumps_uris(mjr_dumps_uris)
                                     .execute(&conn)?;
 

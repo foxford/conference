@@ -36,6 +36,7 @@ type AllColumns = (
     room::backend_id,
     room::rtc_sharing_policy,
     room::classroom_id,
+    room::closed_by,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -49,6 +50,7 @@ const ALL_COLUMNS: AllColumns = (
     room::backend_id,
     room::rtc_sharing_policy,
     room::classroom_id,
+    room::closed_by,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -121,6 +123,7 @@ pub struct Object {
     backend_id: Option<AgentId>,
     rtc_sharing_policy: RtcSharingPolicy,
     classroom_id: Option<Uuid>,
+    closed_by: Option<AgentId>,
 }
 
 impl Object {
@@ -380,6 +383,13 @@ impl<'a> UpdateQuery<'a> {
 
         diesel::update(self).set(self).get_result(conn)
     }
+}
+
+pub fn set_closed_by(room_id: Id, agent: &AgentId, conn: &PgConnection) -> Result<Object, Error> {
+    use diesel::prelude::*;
+    diesel::update(room::table.filter(room::id.eq(room_id)))
+        .set(room::closed_by.eq(agent))
+        .get_result(conn)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
