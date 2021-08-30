@@ -4,7 +4,6 @@ use chrono::{DateTime, Utc};
 use crossbeam_channel::Sender;
 use prometheus::Registry;
 use serde_json::json;
-use slog::{o, Logger, OwnedKV, SendSyncRefUnwindSafeKV};
 use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 
@@ -81,7 +80,6 @@ pub struct TestContext {
     db: TestDb,
     agent_id: AgentId,
     janus_topics: JanusTopics,
-    logger: Logger,
     start_timestamp: DateTime<Utc>,
     clients: Option<Clients>,
 }
@@ -97,7 +95,6 @@ impl TestContext {
             db,
             agent_id,
             janus_topics: JanusTopics::new("ignore"),
-            logger: crate::LOG.new(o!()),
             start_timestamp: Utc::now(),
             clients: None,
         }
@@ -157,17 +154,6 @@ impl GlobalContext for TestContext {
 impl MessageContext for TestContext {
     fn start_timestamp(&self) -> DateTime<Utc> {
         self.start_timestamp
-    }
-
-    fn logger(&self) -> &Logger {
-        &self.logger
-    }
-
-    fn add_logger_tags<T>(&mut self, tags: OwnedKV<T>)
-    where
-        T: SendSyncRefUnwindSafeKV + Sized + 'static,
-    {
-        self.logger = self.logger.new(tags);
     }
 }
 

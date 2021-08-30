@@ -18,6 +18,7 @@ use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
     Addressable, AgentId,
 };
+use tracing_attributes::instrument;
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
@@ -84,6 +85,7 @@ impl RequestHandler for UpdateHandler {
     type Payload = State;
     const ERROR_TITLE: &'static str = "Failed to update agent reader config";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -172,7 +174,6 @@ impl RequestHandler for UpdateHandler {
             }
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
 
         if let Some(backend) = maybe_backend {
             let items = rtc_reader_configs_with_rtcs
@@ -231,6 +232,7 @@ impl RequestHandler for ReadHandler {
     type Payload = ReadRequest;
     const ERROR_TITLE: &'static str = "Failed to read agent reader config";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -263,7 +265,7 @@ impl RequestHandler for ReadHandler {
             }
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
+
         context
             .metrics()
             .request_duration

@@ -231,7 +231,9 @@ mod test {
 
         use crate::{
             backend::janus::client::{
-                events::EventResponse, transactions::Transaction, IncomingEvent,
+                events::EventResponse,
+                transactions::{Transaction, TransactionKind},
+                IncomingEvent,
             },
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
@@ -305,10 +307,14 @@ mod test {
                 .map(|resp| match resp {
                     IncomingEvent::Event(EventResponse {
                         transaction:
-                            Transaction::UploadStream(UploadStreamTransaction {
-                                rtc_id,
-                                start_timestamp: _start_timestamp,
-                            }),
+                            Transaction {
+                                kind:
+                                    Some(TransactionKind::UploadStream(UploadStreamTransaction {
+                                        rtc_id,
+                                        start_timestamp: _start_timestamp,
+                                    })),
+                                ..
+                            },
                         ..
                     }) => *rtc_id,
                     _ => panic!("Got wrong event"),

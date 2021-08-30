@@ -10,7 +10,7 @@ pub struct CreateHandleRequest {
     pub opaque_id: Option<OpaqueId>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OpaqueId {
     pub stream_id: db::janus_rtc_stream::Id,
     pub room_id: db::room::Id,

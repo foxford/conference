@@ -4,20 +4,24 @@ extern crate diesel;
 use std::env::var;
 
 use anyhow::Result;
-use once_cell::sync::Lazy;
-use slog::{o, Drain};
 use svc_authz::cache::{create_pool, Cache};
-
-pub static LOG: Lazy<slog::Logger> = Lazy::new(|| {
-    let drain = slog_json::Json::default(std::io::stdout()).fuse();
-    let drain = slog_envlogger::new(drain).fuse();
-    let drain = slog_async::Async::new(drain).build().fuse();
-    slog::Logger::root(drain, o!("version" => env!("CARGO_PKG_VERSION")))
-});
+use tracing_error::ErrorLayer;
+use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter};
 
 #[async_std::main]
 async fn main() -> Result<()> {
-    slog_envlogger::init().unwrap().cancel_reset();
+    let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
+    let subscriber = tracing_subscriber::fmt::layer()
+        .with_writer(non_blocking)
+        .json()
+        .flatten_event(true);
+    let subscriber = tracing_subscriber::registry()
+        .with(ErrorLayer::default())
+        .with(trace_id::TraceIdLayer::new())
+        .with(EnvFilter::from_default_env())
+        .with(subscriber);
+
+    tracing::subscriber::set_global_default(subscriber)?;
 
     let db = {
         let url = var("DATABASE_URL").expect("DATABASE_URL must be specified");
@@ -88,4 +92,5 @@ mod schema;
 mod serde;
 #[cfg(test)]
 mod test_helpers;
+mod trace_id;
 mod util;

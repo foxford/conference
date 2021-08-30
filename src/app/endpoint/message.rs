@@ -15,6 +15,7 @@ use svc_agent::{
     },
     Addressable, AgentId, Subscription,
 };
+use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -43,6 +44,7 @@ impl RequestHandler for UnicastHandler {
     type Payload = UnicastRequest;
     const ERROR_TITLE: &'static str = "Failed to send unicast message";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -53,7 +55,7 @@ impl RequestHandler for UnicastHandler {
             let room_id = payload.room_id;
             let reqp_agent_id = reqp.as_agent_id().clone();
             let payload_agent_id = payload.agent_id.clone();
-            let room = task::spawn_blocking(move || {
+            task::spawn_blocking(move || {
                 let room =
                     helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
 
@@ -62,7 +64,6 @@ impl RequestHandler for UnicastHandler {
                 Ok::<_, AppError>(room)
             })
             .await?;
-            helpers::add_room_logger_tags(context, &room);
         }
 
         let response_topic =
@@ -117,6 +118,7 @@ impl RequestHandler for BroadcastHandler {
     type Payload = BroadcastRequest;
     const ERROR_TITLE: &'static str = "Failed to send broadcast message";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -135,7 +137,6 @@ impl RequestHandler for BroadcastHandler {
             }
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
 
         // Respond and broadcast to the room topic.
         let response = helpers::build_response(
@@ -172,6 +173,7 @@ impl ResponseHandler for UnicastResponseHandler {
     type Payload = JsonValue;
     type CorrelationData = CorrelationDataPayload;
 
+    #[instrument(skip(context, payload, respp, corr_data))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,

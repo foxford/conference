@@ -3,7 +3,6 @@ use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use slog::o;
 use std::result::Result as StdResult;
 use svc_agent::mqtt::{
     IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
@@ -14,6 +13,7 @@ use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
     db,
 };
+use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -37,21 +37,18 @@ impl RequestHandler for ListHandler {
     type Payload = ListRequest;
     const ERROR_TITLE: &'static str = "Failed to list rtc streams";
 
+    #[instrument(skip(context, payload, reqp), fields(rtc_id = ?payload.rtc_id, room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        if let Some(rtc_id) = payload.rtc_id {
-            context.add_logger_tags(o!("rtc_id" => rtc_id.to_string()));
-        }
         let conn = context.get_conn().await?;
         let room = task::spawn_blocking({
             let room_id = payload.room_id;
             move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
 
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::None {
             let err = anyhow!(

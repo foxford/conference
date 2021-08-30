@@ -6,7 +6,6 @@ use diesel::{
     pg::PgConnection,
     r2d2::{ConnectionManager, PooledConnection},
 };
-use slog::{o, Logger, OwnedKV, SendSyncRefUnwindSafeKV};
 use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 
@@ -47,11 +46,6 @@ pub trait GlobalContext: Sync {
 
 pub trait MessageContext: Send {
     fn start_timestamp(&self) -> DateTime<Utc>;
-    fn logger(&self) -> &Logger;
-
-    fn add_logger_tags<T>(&mut self, tags: OwnedKV<T>)
-    where
-        T: SendSyncRefUnwindSafeKV + Sized + 'static;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -138,7 +132,6 @@ impl GlobalContext for AppContext {
 pub struct AppMessageContext<'a, C: GlobalContext> {
     global_context: &'a C,
     start_timestamp: DateTime<Utc>,
-    logger: Logger,
 }
 
 impl<'a, C: GlobalContext> AppMessageContext<'a, C> {
@@ -146,7 +139,6 @@ impl<'a, C: GlobalContext> AppMessageContext<'a, C> {
         Self {
             global_context,
             start_timestamp,
-            logger: crate::LOG.new(o!()),
         }
     }
 }
@@ -188,17 +180,6 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 impl<'a, C: GlobalContext> MessageContext for AppMessageContext<'a, C> {
     fn start_timestamp(&self) -> DateTime<Utc> {
         self.start_timestamp
-    }
-
-    fn logger(&self) -> &Logger {
-        &self.logger
-    }
-
-    fn add_logger_tags<T>(&mut self, tags: OwnedKV<T>)
-    where
-        T: SendSyncRefUnwindSafeKV + Sized + 'static,
-    {
-        self.logger = self.logger.new(tags);
     }
 }
 
