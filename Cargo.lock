@@ -567,7 +567,7 @@ dependencies = [
 
 [[package]]
 name = "conference"
-version = "0.6.23"
+version = "0.6.24"
 dependencies = [
  "anyhow",
  "async-std",
