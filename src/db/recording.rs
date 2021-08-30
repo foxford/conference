@@ -137,8 +137,6 @@ impl InsertQuery {
 pub struct UpdateQuery {
     rtc_id: db::rtc::Id,
     status: Option<Status>,
-    started_at: Option<DateTime<Utc>>,
-    segments: Option<Vec<Segment>>,
     mjr_dumps_uris: Option<Vec<String>>,
 }
 
@@ -147,8 +145,6 @@ impl UpdateQuery {
         Self {
             rtc_id,
             status: None,
-            started_at: None,
-            segments: None,
             mjr_dumps_uris: None,
         }
     }
@@ -160,23 +156,9 @@ impl UpdateQuery {
         }
     }
 
-    pub fn mjr_dumps_uris(self, mjr_dumps_uris: Option<Vec<String>>) -> Self {
+    pub fn mjr_dumps_uris(self, mjr_dumps_uris: Vec<String>) -> Self {
         Self {
-            mjr_dumps_uris,
-            ..self
-        }
-    }
-
-    pub fn started_at(self, started_at: DateTime<Utc>) -> Self {
-        Self {
-            started_at: Some(started_at),
-            ..self
-        }
-    }
-
-    pub fn segments(self, segments: Vec<Segment>) -> Self {
-        Self {
-            segments: Some(segments),
+            mjr_dumps_uris: Some(mjr_dumps_uris),
             ..self
         }
     }
