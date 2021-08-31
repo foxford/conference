@@ -587,7 +587,7 @@ dependencies = [
  "futures-util",
  "http 0.1.21",
  "humantime-serde",
- "isahc 1.4.1",
+ "isahc 1.1.0",
  "once_cell",
  "openssl",
  "prometheus",
@@ -1040,6 +1040,18 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "spinning_top",
+]
+
+[[package]]
+name = "flume"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24c3fd473b3a903a62609e413ed7538f99e10b665ecb502b5e481a95283f8ab4"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "pin-project 1.0.8",
+ "spin 0.9.2",
 ]
 
 [[package]]
@@ -1617,7 +1629,7 @@ dependencies = [
  "crossbeam-utils 0.8.5",
  "curl",
  "curl-sys",
- "flume",
+ "flume 0.9.2",
  "futures-lite",
  "http 0.2.4",
  "log",
@@ -1632,22 +1644,20 @@ dependencies = [
 
 [[package]]
 name = "isahc"
-version = "1.4.1"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b183576592898e9e007d41b7cf2bc8bb3f8b5d2733b9291e42618d50040e7ba"
+checksum = "af3d0a62435883f745c825ec06a03a38d24bf5fa65c43e2c083b6a60ce0058ae"
 dependencies = [
- "async-channel",
  "crossbeam-utils 0.8.5",
  "curl",
  "curl-sys",
  "encoding_rs",
- "event-listener",
+ "flume 0.10.9",
  "futures-lite",
  "http 0.2.4",
  "log",
  "mime",
  "once_cell",
- "polling",
  "serde 1.0.130",
  "serde_json",
  "slab",
@@ -2620,7 +2630,7 @@ dependencies = [
  "cc",
  "libc",
  "once_cell",
- "spin",
+ "spin 0.5.2",
  "untrusted",
  "web-sys",
  "winapi 0.3.9",
@@ -3121,6 +3131,15 @@ name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
+
+[[package]]
+name = "spin"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "511254be0c5bcf062b019a6c89c01a664aa359ded62f78aa72c6fc137c0590e5"
+dependencies = [
+ "lock_api 0.4.5",
+]
 
 [[package]]
 name = "spinning_top"
