@@ -96,6 +96,7 @@ table! {
         classroom_id -> Nullable<Uuid>,
         host -> Nullable<Agent_id>,
         timeouted -> Bool,
+        closed_by -> Nullable<Agent_id>,
     }
 }
 

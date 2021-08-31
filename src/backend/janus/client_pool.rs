@@ -2,7 +2,6 @@ use super::client::{IncomingEvent, JanusClient, PollResult, SessionId};
 use crate::db::janus_backend;
 use anyhow::anyhow;
 use crossbeam_channel::Sender;
-use slog::{error, warn};
 use std::{
     collections::{hash_map::Entry, HashMap},
     sync::{
@@ -11,6 +10,7 @@ use std::{
     },
     time::Duration,
 };
+use tracing::{error, warn};
 
 #[derive(Debug, Clone)]
 pub struct Clients {
@@ -132,10 +132,7 @@ async fn start_polling(
         let poll_result = janus_client.poll(session_id).await;
         match poll_result {
             Ok(PollResult::SessionNotFound) => {
-                warn!(
-                    crate::LOG,
-                    "Session {} not found on backend {:?}", session_id, janus_backend
-                );
+                warn!(?janus_backend, "Session not found");
                 break;
             }
             Ok(PollResult::Events(events)) => {
@@ -152,19 +149,13 @@ async fn start_polling(
                             sink.send(event).expect("Receiver must exist");
                         }
                         Err(err) => {
-                            warn!(crate::LOG, "Got unknown event: {:?}", err);
+                            warn!(?err, ?janus_backend, "Got unknown event");
                         }
                     }
                 }
             }
             Err(err) => {
-                error!(
-                    crate::LOG,
-                    "Polling error for session {} on backend {:?}: {:?}",
-                    session_id,
-                    janus_backend,
-                    err
-                );
+                error!(?err, ?janus_backend, "Polling error");
                 async_std::task::sleep(Duration::from_millis(500)).await;
                 fail_retries_count -= 1;
             }

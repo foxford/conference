@@ -24,7 +24,6 @@ use message_handler::MessageHandler;
 use prometheus::{Encoder, Registry, TextEncoder};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
-use slog::{error, info, warn};
 use svc_agent::{
     mqtt::{
         Agent, AgentBuilder, AgentNotification, ConnectionMode, OutgoingRequest,
@@ -34,6 +33,7 @@ use svc_agent::{
 };
 use svc_authn::token::jws_compact;
 use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
+use tracing::{error, info, warn};
 
 pub const API_VERSION: &str = "v1";
 
@@ -47,11 +47,10 @@ pub async fn run(
     // Config
     let is_stopped = Arc::new(AtomicBool::new(false));
     let config = config::load().expect("Failed to load config");
-    info!(crate::LOG, "App config: {:?}", config);
 
     // Agent
     let agent_id = AgentId::new(&config.agent_label, config.id.clone());
-    info!(crate::LOG, "Agent id: {}", &agent_id);
+    info!(config = ?config, agent_id = ?agent_id, "App started");
 
     let token = jws_compact::TokenBuilder::new()
         .issuer(&agent_id.as_account_id().audience().to_string())
@@ -124,7 +123,7 @@ pub async fn run(
                     .stop_polling();
                 while let Ok(msg) = ev_rx.try_recv() {
                     let message_handler = message_handler.clone();
-                    async_std::task::spawn(async move {
+                    task::spawn(async move {
                         message_handler.handle_events(msg).await;
                     });
                 }
@@ -138,7 +137,7 @@ pub async fn run(
                 recv(ev_rx) -> msg => {
                     let msg = msg.expect("Events sender must exist");
                     let message_handler = message_handler.clone();
-                    async_std::task::spawn(async move {
+                    task::spawn(async move {
                         message_handler.handle_events(msg).await;
                     });
                 },
@@ -151,9 +150,8 @@ pub async fn run(
     is_stopped.store(true, Ordering::SeqCst);
     task::sleep(Duration::from_secs(2)).await;
     info!(
-        crate::LOG,
-        "Running requests left: {}",
-        metrics.running_requests_total.get(),
+        requests_left = metrics.running_requests_total.get(),
+        "Running requests left",
     );
     Ok(())
 }
@@ -165,10 +163,10 @@ fn handle_message(message: AgentNotification, message_handler: Arc<MessageHandle
         match message {
             AgentNotification::Message(message, metadata) => {
                 metrics.total_requests.inc();
-                message_handler.handle(&message, &metadata.topic).await;
+                message_handler.handle(message, &metadata.topic).await;
             }
             AgentNotification::Reconnection => {
-                error!(crate::LOG, "Reconnected to broker");
+                error!("Reconnected to broker");
                 metrics.mqtt_reconnection.inc();
                 resubscribe(
                     &mut message_handler.agent().to_owned(),
@@ -193,7 +191,7 @@ fn handle_message(message: AgentNotification, message_handler: Arc<MessageHandle
             AgentNotification::PingResp => (),
             AgentNotification::Disconnect => {
                 metrics.mqtt_disconnect.inc();
-                error!(crate::LOG, "Disconnected from broker")
+                error!("Disconnected from broker")
             }
         }
         drop(metric_handle)
@@ -263,10 +261,10 @@ fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()>
 fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
     if let Err(err) = subscribe(agent, agent_id, config) {
         let err = err.context("Failed to resubscribe after reconnection");
-        error!(crate::LOG, "{:?}", err);
+        error!(?err, "Resubscription error");
 
         let app_error = AppError::new(AppErrorKind::ResubscriptionFailed, err);
-        app_error.notify_sentry(&crate::LOG);
+        app_error.notify_sentry();
     }
 }
 
@@ -288,7 +286,7 @@ async fn start_metrics_collector(
                     Ok(response)
                 }
                 Err(err) => {
-                    warn!(crate::LOG, "Metrics not gathered: {:?}", err);
+                    warn!(?err, "Metrics not gathered");
                     Ok(tide::Response::new(500))
                 }
             }

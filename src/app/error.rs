@@ -1,9 +1,11 @@
 use std::{error::Error as StdError, fmt};
 
 use enum_iterator::IntoEnumIterator;
-use slog::{warn, Logger};
 use svc_agent::mqtt::ResponseStatus;
 use svc_error::{extension::sentry, Error as SvcError};
+use tracing::warn;
+use tracing_error::SpanTrace;
+
 ////////////////////////////////////////////////////////////////////////////////
 
 struct ErrorKindProperties {
@@ -37,6 +39,7 @@ pub enum ErrorKind {
     InvalidPayload,
     MessageBuildingFailed,
     MessageHandlingFailed,
+    MessageReceivingFailed,
     MessageParsingFailed,
     NoAvailableBackends,
     NotImplemented,
@@ -266,6 +269,12 @@ impl From<ErrorKind> for ErrorKindProperties {
                 title: "RTC not found",
                 is_notify_sentry: false,
             },
+            ErrorKind::MessageReceivingFailed => ErrorKindProperties {
+                status: ResponseStatus::INTERNAL_SERVER_ERROR,
+                kind: "message_receiving_failed",
+                title: "Message receiving failed",
+                is_notify_sentry: true,
+            },
         }
     }
 }
@@ -274,17 +283,14 @@ impl From<ErrorKind> for ErrorKindProperties {
 
 pub struct Error {
     kind: ErrorKind,
-    source: Box<dyn AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static>,
+    source: anyhow::Error,
 }
 
 impl Error {
-    pub fn new<E>(kind: ErrorKind, source: E) -> Self
-    where
-        E: AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static,
-    {
+    pub fn new(kind: ErrorKind, source: impl Into<anyhow::Error>) -> Self {
         Self {
             kind,
-            source: Box::new(source),
+            source: source.into(),
         }
     }
 
@@ -304,27 +310,36 @@ impl Error {
         self.kind.title()
     }
 
-    pub fn source(&self) -> &(dyn StdError + Send + Sync + 'static) {
-        self.source.as_ref().as_ref()
+    pub fn source(&self) -> &anyhow::Error {
+        &self.source
     }
 
     pub fn to_svc_error(&self) -> SvcError {
         let properties: ErrorKindProperties = self.kind.into();
-
         SvcError::builder()
             .status(properties.status)
             .kind(properties.kind, properties.title)
-            .detail(&self.source.as_ref().as_ref().to_string())
+            .detail(&format!("{:?}", self.source))
             .build()
     }
 
-    pub fn notify_sentry(&self, logger: &Logger) {
+    pub fn notify_sentry(&self) {
         if !self.kind.is_notify_sentry() {
             return;
         }
+        let properties: ErrorKindProperties = self.kind.into();
+        let svc_err = SvcError::builder()
+            .status(properties.status)
+            .kind(properties.kind, properties.title)
+            .detail(&format!(
+                "Error: {:?}, Trace: {:?}",
+                self.source,
+                SpanTrace::capture()
+            ))
+            .build();
 
-        sentry::send(self.to_svc_error()).unwrap_or_else(|err| {
-            warn!(logger, "Error sending error to Sentry: {}", err);
+        sentry::send(svc_err).unwrap_or_else(|err| {
+            warn!(?err, "Error sending error to Sentry");
         });
     }
 }
@@ -333,20 +348,20 @@ impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Error")
             .field("kind", &self.kind)
-            .field("source", &self.source.as_ref().as_ref())
+            .field("source", &self.source)
             .finish()
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.kind, self.source.as_ref().as_ref())
+        write!(f, "{}: {}", self.kind, self.source)
     }
 }
 
 impl StdError for Error {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        Some(self.source.as_ref().as_ref())
+        Some(self.source.as_ref())
     }
 }
 
@@ -359,7 +374,7 @@ impl From<svc_authz::Error> for Error {
 
         Self {
             kind,
-            source: Box::new(anyhow::Error::from(source)),
+            source: anyhow::Error::from(source),
         }
     }
 }
@@ -368,7 +383,7 @@ impl From<diesel::result::Error> for Error {
     fn from(source: diesel::result::Error) -> Self {
         Self {
             kind: ErrorKind::DbQueryFailed,
-            source: Box::new(anyhow::Error::from(source)),
+            source: anyhow::Error::from(source),
         }
     }
 }
@@ -379,10 +394,8 @@ pub trait ErrorExt<T> {
     fn error(self, kind: ErrorKind) -> Result<T, Error>;
 }
 
-impl<T, E: AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static> ErrorExt<T>
-    for Result<T, E>
-{
+impl<T, E: Into<anyhow::Error>> ErrorExt<T> for Result<T, E> {
     fn error(self, kind: ErrorKind) -> Result<T, Error> {
-        self.map_err(|source| Error::new(kind, source))
+        self.map_err(|source| Error::new(kind, source.into()))
     }
 }

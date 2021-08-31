@@ -5,21 +5,22 @@ use chrono::Utc;
 use diesel::PgConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use slog::o;
 use std::result::Result as StdResult;
 use svc_agent::{
     mqtt::{
         IncomingEventProperties, IncomingRequestProperties, IncomingResponseProperties,
         IntoPublishableMessage, OutgoingEvent, ResponseStatus, ShortTermTimingProperties,
     },
-    Addressable, AgentId, Authenticable,
+    Addressable, AgentId,
 };
+use tracing::Span;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
     backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
     db::{self, room::FindQueryable},
 };
+use tracing_attributes::instrument;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -64,6 +65,7 @@ impl ResponseHandler for CreateResponseHandler {
     type Payload = CreateDeleteResponsePayload;
     type CorrelationData = CorrelationDataPayload;
 
+    #[instrument(skip(context, _payload, respp, corr_data), fields(room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         _payload: Self::Payload,
@@ -71,12 +73,6 @@ impl ResponseHandler for CreateResponseHandler {
         corr_data: &Self::CorrelationData,
     ) -> Result {
         ensure_broker(context, respp)?;
-
-        context.add_logger_tags(o!(
-            "agent_label" => respp.as_agent_id().label().to_owned(),
-            "account_label" => respp.as_account_id().label().to_owned(),
-            "audience" => respp.as_account_id().audience().to_owned(),
-        ));
 
         // Find room.
         let room_id = try_room_id(&corr_data.object)?;
@@ -93,7 +89,7 @@ impl ResponseHandler for CreateResponseHandler {
             Ok::<_, AppError>(room)
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
+        Span::current().record("room_id", &room.id().to_string().as_str());
 
         // Send a response to the original `room.enter` request and a room-wide notification.
         let response = helpers::build_response(
@@ -130,6 +126,7 @@ impl ResponseHandler for DeleteResponseHandler {
     type Payload = CreateDeleteResponsePayload;
     type CorrelationData = CorrelationDataPayload;
 
+    #[instrument(skip(context, _payload, respp, corr_data))]
     async fn handle<C: Context>(
         context: &mut C,
         _payload: Self::Payload,
@@ -241,14 +238,12 @@ fn try_room_id(object: &[String]) -> StdResult<db::room::Id, AppError> {
     .error(AppErrorKind::InvalidSubscriptionObject)
 }
 
+#[instrument(skip(context))]
 async fn leave_room<C: Context>(
     context: &mut C,
     agent_id: &AgentId,
     room_id: db::room::Id,
 ) -> StdResult<bool, AppError> {
-    // Delete agent from the DB.
-    context.add_logger_tags(o!("room_id" => room_id.to_string()));
-
     let conn = context.get_conn().await?;
     let backends = task::spawn_blocking({
         let agent_id = agent_id.clone();

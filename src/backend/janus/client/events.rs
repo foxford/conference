@@ -6,7 +6,7 @@ use super::{create_handle::OpaqueId, transactions::Transaction, HandleId, Sessio
 // A response on a request sent to a plugin handle.
 #[derive(Debug, Deserialize)]
 pub struct EventResponse {
-    #[serde(with = "super::serialize_as_base64")]
+    #[serde(with = "super::serialize_as_str")]
     pub transaction: Transaction,
     pub session_id: SessionId,
     #[serde(with = "super::serialize_as_base64")]
@@ -65,7 +65,8 @@ pub struct TimeoutEvent {
 pub struct SlowLinkEvent {
     pub session_id: SessionId,
     pub sender: HandleId,
-    pub opaque_id: String,
+    #[serde(with = "super::serialize_as_base64")]
+    pub opaque_id: OpaqueId,
     pub uplink: bool,
 }
 

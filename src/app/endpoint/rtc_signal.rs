@@ -1,19 +1,3 @@
-use anyhow::{anyhow, Context as AnyhowContext};
-use async_std::{stream, task};
-use async_trait::async_trait;
-use chrono::Duration;
-use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
-use slog::o;
-use std::result::Result as StdResult;
-use svc_agent::{
-    mqtt::{
-        IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
-        ShortTermTimingProperties,
-    },
-    Addressable,
-};
-
 use crate::{
     app::{
         context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId,
@@ -23,6 +7,7 @@ use crate::{
         client::{
             create_stream::{
                 CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction,
+                ReaderConfig, WriterConfig,
             },
             read_stream::{ReadStreamRequest, ReadStreamRequestBody, ReadStreamTransaction},
             trickle::TrickleRequest,
@@ -32,6 +17,22 @@ use crate::{
     },
     db,
 };
+use anyhow::{anyhow, Context as AnyhowContext};
+use async_std::{stream, task};
+use async_trait::async_trait;
+use chrono::Duration;
+use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
+use std::result::Result as StdResult;
+use svc_agent::{
+    mqtt::{
+        IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
+        ShortTermTimingProperties,
+    },
+    Addressable,
+};
+use tracing::Span;
+use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -65,22 +66,19 @@ impl RequestHandler for CreateHandler {
     type Payload = CreateRequest;
     const ERROR_TITLE: &'static str = "Failed to create rtc";
 
+    #[instrument(skip(context, payload, reqp), fields(
+        rtc_id = %payload.handle_id.rtc_id(),
+        rtc_stream_id = %payload.handle_id.rtc_stream_id(),
+        janus_session_id = %payload.handle_id.janus_session_id(),
+        janus_handle_id = %payload.handle_id.janus_handle_id(),
+        backend_id = %payload.handle_id.backend_id().to_string()),
+        rtc_stream_label = ?payload.label
+    )]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!(
-            "rtc_id" => payload.handle_id.rtc_id().to_string(),
-            "rtc_stream_id" => payload.handle_id.rtc_stream_id().to_string(),
-            "janus_session_id" => payload.handle_id.janus_session_id().to_string(),
-            "janus_handle_id" => payload.handle_id.janus_handle_id().to_string(),
-            "backend_id" => payload.handle_id.backend_id().to_string(),
-        ));
-        if let Some(ref label) = payload.label {
-            context.add_logger_tags(o!("rtc_stream_label" => label.to_owned()));
-        }
-
         // Validate RTC and room presence.
         let conn = context.get_conn().await?;
         let (room, rtc, backend) = task::spawn_blocking({
@@ -137,18 +135,19 @@ impl RequestHandler for CreateHandler {
 
             Ok::<_, AppError>((room, rtc, janus_backend))
         }}).await?;
-        helpers::add_room_logger_tags(context, &room);
 
         match payload.jsep {
             Jsep::OfferOrAnswer { kind, ref sdp } => {
                 match kind {
                     JsepType::Offer => {
+                        let current_span = Span::current();
+                        current_span.record("sdp_type", &"offer");
                         let is_recvonly = is_sdp_recvonly(sdp)
                             .context("Invalid JSEP format")
                             .error(AppErrorKind::InvalidJsepFormat)?;
 
                         if is_recvonly {
-                            context.add_logger_tags(o!("sdp_type" => "offer", "intent" => "read"));
+                            current_span.record("intent", &"read");
 
                             // Authorization
                             let _authz_time =
@@ -176,8 +175,7 @@ impl RequestHandler for CreateHandler {
                                 .error(AppErrorKind::BackendRequestFailed)?;
                             Ok(Box::new(stream::empty()))
                         } else {
-                            context
-                                .add_logger_tags(o!("sdp_type" => "offer", "intent" => "update"));
+                            current_span.record("intent", &"update");
 
                             if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned
                                 && reqp.as_agent_id() != rtc.created_by()
@@ -215,12 +213,37 @@ impl RequestHandler for CreateHandler {
                                 }
                             })
                             .await?;
+                            let (writer_config, reader_config) = task::spawn_blocking({
+                                let rtc_id = payload.handle_id.rtc_id();
+                                let conn = context.get_conn().await?;
+                                move || {
+                                    Ok::<_, diesel::result::Error>((
+                                        db::rtc_writer_config::read_config(rtc_id, &conn)?,
+                                        db::rtc_reader_config::read_config(rtc_id, &conn)?,
+                                    ))
+                                }
+                            })
+                            .await?;
 
                             let agent_id = reqp.as_agent_id().to_owned();
                             let request = CreateStreamRequest {
                                 body: CreateStreamRequestBody::new(
                                     payload.handle_id.rtc_id(),
                                     agent_id,
+                                    writer_config.map(|w| WriterConfig {
+                                        send_video: w.send_video(),
+                                        send_audio: w.send_audio(),
+                                        video_remb: w.video_remb(),
+                                    }),
+                                    reader_config.map(|r| {
+                                        r.into_iter()
+                                            .map(|r| ReaderConfig {
+                                                reader_id: r.reader_id().to_owned(),
+                                                receive_audio: r.receive_audio(),
+                                                receive_video: r.receive_video(),
+                                            })
+                                            .collect()
+                                    }),
                                 ),
                                 handle_id: payload.handle_id.janus_handle_id(),
                                 session_id: payload.handle_id.janus_session_id(),
@@ -245,7 +268,9 @@ impl RequestHandler for CreateHandler {
                 }
             }
             Jsep::IceCandidate(_) => {
-                context.add_logger_tags(o!("sdp_type" => "ice_candidate", "intent" => "read"));
+                let current_span = Span::current();
+                current_span.record("sdp_type", &"ice_candidate");
+                current_span.record("intent", &"read");
 
                 let _authz_time = authorize(context, &payload, reqp, "read", &room).await?;
 
@@ -344,7 +369,9 @@ mod test {
         use crate::{
             app::handle_id::HandleId,
             backend::janus::client::{
-                events::EventResponse, transactions::Transaction, IncomingEvent, SessionId,
+                events::EventResponse,
+                transactions::{Transaction, TransactionKind},
+                IncomingEvent, SessionId,
             },
             db::rtc::SharingPolicy as RtcSharingPolicy,
             test_helpers::{prelude::*, test_deps::LocalDeps},
@@ -464,7 +491,11 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             context.janus_clients().remove_client(&backend);
             match rx.recv().unwrap() {
                 IncomingEvent::Event(EventResponse {
-                    transaction: Transaction::CreateStream(_tn),
+                    transaction:
+                        Transaction {
+                            kind: Some(TransactionKind::CreateStream(_tn)),
+                            ..
+                        },
                     jsep: Some(_jsep),
                     session_id: s_id,
                     plugindata: _,

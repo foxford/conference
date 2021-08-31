@@ -1,10 +1,19 @@
-use anyhow::{anyhow, Context as AnyhowContext};
+use crate::{
+    app::{
+        context::{AppMessageContext, Context, GlobalContext, MessageContext},
+        endpoint,
+        error::{Error as AppError, ErrorKind as AppErrorKind},
+        API_VERSION,
+    },
+    backend::{janus, janus::handle_event},
+};
+use anyhow::anyhow;
+use anyhow::Context as AnyhowContext;
 use async_std::{
     prelude::*,
     stream::{self, Stream},
 };
 use chrono::{DateTime, Utc};
-use slog::{error, o, warn};
 use std::{future::Future, pin::Pin};
 use svc_agent::{
     mqtt::{
@@ -15,16 +24,9 @@ use svc_agent::{
     Addressable, Authenticable,
 };
 use svc_error::Error as SvcError;
-
-use crate::{
-    app::{
-        context::{AppMessageContext, Context, GlobalContext, MessageContext},
-        endpoint,
-        error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
-        API_VERSION,
-    },
-    backend::{janus, janus::handle_event},
-};
+use tracing::{error, warn};
+use tracing_attributes::instrument;
+use uuid::Uuid;
 
 pub type MessageStream =
     Box<dyn Stream<Item = Box<dyn IntoPublishableMessage + Send>> + Send + Unpin>;
@@ -50,48 +52,30 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         &self.global_context
     }
 
-    pub async fn handle(&self, message: &Result<IncomingMessage<String>, String>, topic: &str) {
+    #[instrument(name = "trace_id", skip(self, message, topic), fields(request_id = %Uuid::new_v4()))]
+    pub async fn handle(&self, message: Result<IncomingMessage<String>, String>, topic: &str) {
         let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
 
         match message {
             Ok(ref msg) => {
-                let handle_result = self.handle_message(&mut msg_context, msg, topic).await;
-                if let Err(err) = handle_result {
-                    Self::report_error(&mut msg_context, message, &err.to_string()).await;
-                }
+                self.handle_message(&mut msg_context, msg, topic).await;
             }
-            Err(e) => {
-                Self::report_error(&mut msg_context, message, e).await;
+            Err(err_msg) => {
+                error!(%err_msg, "Error receiving a message");
+                let sentry_error =
+                    AppError::new(AppErrorKind::MessageReceivingFailed, anyhow!(err_msg));
+                sentry_error.notify_sentry();
             }
         }
     }
 
+    #[instrument(name = "trace_id", skip(self, message), fields(request_id = message.trace_id().map_or("", |x| x.as_str())))]
     pub async fn handle_events(&self, message: janus::client::IncomingEvent) {
         let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
 
         let messages = handle_event(&mut msg_context, message).await;
 
-        if let Err(err) = self.publish_outgoing_messages(messages).await {
-            warn!(msg_context.logger(), "Incoming event error: {:?}", err);
-        }
-    }
-
-    async fn report_error(
-        msg_context: &mut AppMessageContext<'_, C>,
-        message: &Result<IncomingMessage<String>, String>,
-        err: &str,
-    ) {
-        error!(
-            msg_context.logger(),
-            "Error processing a message: {:?}: {}", message, err
-        );
-
-        let app_error = AppError::new(
-            AppErrorKind::MessageHandlingFailed,
-            anyhow!(err.to_string()),
-        );
-
-        app_error.notify_sentry(msg_context.logger());
+        self.publish_outgoing_messages(messages).await;
     }
 
     async fn handle_message(
@@ -99,7 +83,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         msg_context: &mut AppMessageContext<'_, C>,
         message: &IncomingMessage<String>,
         topic: &str,
-    ) -> Result<(), AppError> {
+    ) {
         match message {
             IncomingMessage::Request(req) => self.handle_request(msg_context, req, topic).await,
             IncomingMessage::Response(resp) => self.handle_response(msg_context, resp, topic).await,
@@ -107,21 +91,17 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         }
     }
 
+    #[instrument(skip(self, msg_context, request), fields(
+        agent_id = %request.properties().as_agent_id(),
+        account_id = %request.properties().as_account_id(),
+        method = request.properties().method()
+    ))]
     async fn handle_request(
         &self,
         msg_context: &mut AppMessageContext<'_, C>,
         request: &IncomingRequest<String>,
         topic: &str,
-    ) -> Result<(), AppError> {
-        let agent_id = request.properties().as_agent_id();
-
-        msg_context.add_logger_tags(o!(
-            "agent_label" => agent_id.label().to_owned(),
-            "account_id" => agent_id.as_account_id().label().to_owned(),
-            "audience" => agent_id.as_account_id().audience().to_owned(),
-            "method" => request.properties().method().to_owned()
-        ));
-
+    ) {
         let outgoing_message_stream = endpoint::route_request(msg_context, request, topic)
             .await
             .unwrap_or_else(|| {
@@ -139,20 +119,16 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
             .await
     }
 
+    #[instrument(skip(self, msg_context, response), fields(
+        agent_id = %response.properties().as_agent_id(),
+        account_id = %response.properties().as_account_id(),
+    ))]
     async fn handle_response(
         &self,
         msg_context: &mut AppMessageContext<'_, C>,
         response: &IncomingResponse<String>,
         topic: &str,
-    ) -> Result<(), AppError> {
-        let agent_id = response.properties().as_agent_id();
-
-        msg_context.add_logger_tags(o!(
-            "agent_label" => agent_id.label().to_owned(),
-            "account_id" => agent_id.as_account_id().label().to_owned(),
-            "audience" => agent_id.as_account_id().audience().to_owned(),
-        ));
-
+    ) {
         let raw_corr_data = response.properties().correlation_data();
 
         let outgoing_message_stream =
@@ -162,28 +138,21 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
             .await
     }
 
+    #[instrument(skip(self, msg_context, event), fields(
+        agent_id = %event.properties().as_agent_id(),
+        account_id = %event.properties().as_account_id(),
+        label = ?event.properties().label()
+    ))]
     async fn handle_event(
         &self,
         msg_context: &mut AppMessageContext<'_, C>,
         event: &IncomingEvent<String>,
         topic: &str,
-    ) -> Result<(), AppError> {
-        let agent_id = event.properties().as_agent_id();
-
-        msg_context.add_logger_tags(o!(
-            "agent_label" => agent_id.label().to_owned(),
-            "account_id" => agent_id.as_account_id().label().to_owned(),
-            "audience" => agent_id.as_account_id().audience().to_owned(),
-        ));
-
-        if let Some(label) = event.properties().label() {
-            msg_context.add_logger_tags(o!("label" => label.to_owned()));
-        }
-
+    ) {
         let outgoing_message_stream = endpoint::route_event(msg_context, event, topic)
             .await
             .unwrap_or_else(|| {
-                warn!(msg_context.logger(), "Unexpected event label");
+                warn!("Unexpected event label");
                 Box::new(stream::empty())
             });
 
@@ -191,17 +160,12 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
             .await
     }
 
-    async fn publish_outgoing_messages(
-        &self,
-        mut message_stream: MessageStream,
-    ) -> Result<(), AppError> {
+    async fn publish_outgoing_messages(&self, mut message_stream: MessageStream) {
         let mut agent = self.agent.clone();
 
         while let Some(message) = message_stream.next().await {
-            publish_message(&mut agent, message)?;
+            publish_message(&mut agent, message);
         }
-
-        Ok(())
     }
 }
 
@@ -226,14 +190,11 @@ fn error_response(
     Box::new(stream::once(boxed_resp))
 }
 
-pub fn publish_message(
-    agent: &mut Agent,
-    message: Box<dyn IntoPublishableMessage>,
-) -> Result<(), AppError> {
-    agent
-        .publish_publishable(message)
-        .map_err(|err| anyhow!("Failed to publish message: {}", err))
-        .error(AppErrorKind::PublishFailed)
+pub fn publish_message(agent: &mut Agent, message: Box<dyn IntoPublishableMessage>) {
+    if let Err(err) = agent.publish_publishable(message) {
+        error!(?err, "Failed to publish message");
+        AppError::new(AppErrorKind::PublishFailed, err).notify_sentry();
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -277,26 +238,14 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
                 Ok(payload) => {
                     let app_result = H::handle(context, payload, reqp).await;
                     context.metrics().observe_app_result(&app_result);
-                    app_result.unwrap_or_else(|app_error| {
-                        context.add_logger_tags(o!(
-                            "status" => app_error.status().as_u16(),
-                            "kind" => app_error.kind().to_owned(),
-                        ));
-
-                        error!(
-                            context.logger(),
-                            "Failed to handle request: {:?}",
-                            app_error.source(),
-                        );
-
-                        app_error.notify_sentry(context.logger());
-
-                        // Handler returned an error.
+                    app_result.unwrap_or_else(|err| {
+                        error!(?err, "Failed to handle request");
+                        err.notify_sentry();
                         error_response(
-                            app_error.status(),
-                            app_error.kind(),
-                            app_error.title(),
-                            &app_error.source().to_string(),
+                            err.status(),
+                            err.kind(),
+                            err.title(),
+                            &err.source().to_string(),
                             reqp,
                             context.start_timestamp(),
                         )
@@ -347,29 +296,17 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
 
             match payload {
                 // Call handler.
-                Ok(payload) => {
-                    H::handle(context, payload, respp, corr_data)
-                        .await
-                        .unwrap_or_else(|app_error| {
-                            // Handler returned an error.
-                            context.add_logger_tags(o!(
-                                "status" => app_error.status().as_u16(),
-                                "kind" => app_error.kind().to_owned(),
-                            ));
+                Ok(payload) => H::handle(context, payload, respp, corr_data)
+                    .await
+                    .unwrap_or_else(|err| {
+                        error!(?err, "Failed to handle response");
 
-                            error!(
-                                context.logger(),
-                                "Failed to handle response: {:?}",
-                                app_error.source(),
-                            );
-
-                            app_error.notify_sentry(context.logger());
-                            Box::new(stream::empty())
-                        })
-                }
+                        err.notify_sentry();
+                        Box::new(stream::empty())
+                    }),
                 Err(err) => {
                     // Bad envelope or payload format.
-                    error!(context.logger(), "Failed to parse response: {:?}", err);
+                    error!(?err, "Failed to parse response");
                     Box::new(stream::empty())
                 }
             }
@@ -405,29 +342,16 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
             // Parse event envelope with the payload from the handler.
             match payload {
                 // Call handler.
-                Ok(payload) => {
-                    H::handle(context, payload, evp)
-                        .await
-                        .unwrap_or_else(|app_error| {
-                            // Handler returned an error.
-                            context.add_logger_tags(o!(
-                                "status" => app_error.status().as_u16(),
-                                "kind" => app_error.kind().to_owned(),
-                            ));
+                Ok(payload) => H::handle(context, payload, evp)
+                    .await
+                    .unwrap_or_else(|err| {
+                        error!(?err, "Failed to handle event");
 
-                            error!(
-                                context.logger(),
-                                "Failed to handle event: {:?}",
-                                app_error.source(),
-                            );
-
-                            app_error.notify_sentry(context.logger());
-                            Box::new(stream::empty())
-                        })
-                }
+                        err.notify_sentry();
+                        Box::new(stream::empty())
+                    }),
                 Err(err) => {
-                    // Bad envelope or payload format.
-                    error!(context.logger(), "Failed to parse event: {:?}", err);
+                    error!(?err, "Failed to parse event");
                     Box::new(stream::empty())
                 }
             }

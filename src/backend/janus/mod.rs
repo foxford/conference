@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Context as AnyhowContext, Result};
 use async_std::{stream, task};
-use chrono::{DateTime, NaiveDateTime, Utc};
-use slog::{error, o};
+use chrono::Utc;
 use std::ops::Bound;
 use svc_agent::{
     mqtt::{
@@ -12,6 +11,7 @@ use svc_agent::{
     Addressable, AgentId,
 };
 use svc_error::Error as SvcError;
+use tracing::{error, field::Empty, Span};
 
 use crate::{
     app::{
@@ -30,10 +30,11 @@ use crate::{
     db::{self, agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc},
     diesel::Connection,
 };
+use tracing_attributes::instrument;
 
 use serde::{Deserialize, Serialize};
 
-use self::client::{create_handle::OpaqueId, transactions::Transaction, IncomingEvent};
+use self::client::{create_handle::OpaqueId, transactions::TransactionKind, IncomingEvent};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -44,22 +45,12 @@ const ALREADY_RUNNING_STATE: &str = "already_running";
 fn handle_response_error<C: Context>(
     context: &mut C,
     reqp: &IncomingRequestProperties,
-    app_error: AppError,
+    err: AppError,
 ) -> MessageStream {
-    context.add_logger_tags(o!(
-        "status" => app_error.status().as_u16(),
-        "kind" => app_error.kind().to_owned(),
-    ));
+    error!(?err, "Failed to handle a response from janus",);
+    let svc_error: SvcError = err.to_svc_error();
+    err.notify_sentry();
 
-    error!(
-        context.logger(),
-        "Failed to handle a response from janus: {:?}",
-        app_error.source(),
-    );
-
-    app_error.notify_sentry(context.logger());
-
-    let svc_error: SvcError = app_error.to_svc_error();
     let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
     let respp = reqp.to_response(svc_error.status_code(), timing);
     let resp = OutgoingResponse::unicast(svc_error, respp, reqp, API_VERSION);
@@ -67,16 +58,17 @@ fn handle_response_error<C: Context>(
     Box::new(stream::once(boxed_resp))
 }
 
+#[instrument(skip(context, event), fields(
+    rtc_id = Empty,
+    event_kind = ?event.event_kind(),
+    opaque_id = ?event.opaque_id(),
+))]
 pub async fn handle_event<C: Context>(context: &mut C, event: IncomingEvent) -> MessageStream {
     handle_event_impl(context, event)
         .await
-        .unwrap_or_else(|app_error| {
-            error!(
-                context.logger(),
-                "Failed to handle an event from janus: {:?}", app_error
-            );
-
-            app_error.notify_sentry(context.logger());
+        .unwrap_or_else(|err| {
+            error!(?err, "Failed to handle an event from janus");
+            err.notify_sentry();
             Box::new(stream::empty())
         })
 }
@@ -85,11 +77,8 @@ async fn handle_event_impl<C: Context>(
     context: &mut C,
     payload: IncomingEvent,
 ) -> Result<MessageStream, AppError> {
-    context.add_logger_tags(o!("janus_event" => payload.event_kind()));
     match payload {
         IncomingEvent::WebRtcUp(inev) => {
-            context.add_logger_tags(o!("rtc_stream_id" => inev.opaque_id.stream_id.to_string()));
-
             // If the event relates to a publisher's handle,
             // we will find the corresponding stream and send event w/ updated stream object
             // to the room's topic.
@@ -123,10 +112,9 @@ async fn handle_event_impl<C: Context>(
             Ok(Box::new(stream::empty()))
         }
         IncomingEvent::Event(resp) => {
-            match resp.transaction {
-                Transaction::AgentLeave => Ok(Box::new(stream::empty())),
-                Transaction::CreateStream(tn) => {
-                    context.add_logger_tags(o!("method" => tn.reqp.method().to_string()));
+            match resp.transaction.kind {
+                Some(TransactionKind::AgentLeave) => Ok(Box::new(stream::empty())),
+                Some(TransactionKind::CreateStream(tn)) => {
                     let jsep = resp.jsep;
                     resp.plugindata
                         .data
@@ -137,12 +125,10 @@ async fn handle_event_impl<C: Context>(
                         .ok_or_else(|| anyhow!("Missing 'status' in the response"))
                         .error(AppErrorKind::MessageParsingFailed)
                         .and_then(|status| {
-                            context.add_logger_tags(o!("status" => status.as_u64()));
-
                             if status == "200" {
                                 Ok(())
                             } else {
-                                Err(anyhow!("Received error status"))
+                                Err(anyhow!("Received {} status", status))
                                     .error(AppErrorKind::BackendRequestFailed)
                             }
                         })
@@ -173,8 +159,7 @@ async fn handle_event_impl<C: Context>(
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
                 }
-                Transaction::ReadStream(tn) => {
-                    context.add_logger_tags(o!("method" => tn.reqp.method().to_string()));
+                Some(TransactionKind::ReadStream(tn)) => {
                     let jsep = resp.jsep;
                     resp.plugindata
                         .data
@@ -186,12 +171,10 @@ async fn handle_event_impl<C: Context>(
                         .error(AppErrorKind::MessageParsingFailed)
                         // We fail if the status isn't equal to 200
                         .and_then(|status| {
-                            context.add_logger_tags(o!("status" => status.as_u64()));
-
                             if status == "200" {
                                 Ok(())
                             } else {
-                                Err(anyhow!("Received error status"))
+                                Err(anyhow!("Received {} status", status))
                                     .error(AppErrorKind::BackendRequestFailed)
                             }
                         })
@@ -222,14 +205,13 @@ async fn handle_event_impl<C: Context>(
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
                 }
-                Transaction::UpdateReaderConfig => Ok(Box::new(stream::empty())),
-                Transaction::UpdateWriterConfig => Ok(Box::new(stream::empty())),
-                Transaction::ServicePing => Ok(Box::new(stream::empty())),
+                Some(TransactionKind::UpdateReaderConfig) => Ok(Box::new(stream::empty())),
+                Some(TransactionKind::UpdateWriterConfig) => Ok(Box::new(stream::empty())),
+                Some(TransactionKind::ServicePing) => Ok(Box::new(stream::empty())),
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
-                Transaction::UploadStream(ref tn) => {
-                    context.add_logger_tags(o!(
-                        "rtc_id" => tn.rtc_id.to_string(),
-                    ));
+                Some(TransactionKind::UploadStream(ref tn)) => {
+                    Span::current().record("rtc_id", &tn.rtc_id.to_string().as_str());
+
                     // TODO: improve error handling
                     let plugin_data = resp
                         .plugindata
@@ -242,9 +224,6 @@ async fn handle_event_impl<C: Context>(
                             .get("status")
                             .ok_or_else(|| anyhow!("Missing 'status' in the response"))
                             .error(AppErrorKind::MessageParsingFailed)?;
-                        // We fail if the status isn't equal to 200
-                        context.add_logger_tags(o!("status" => status.as_u64()));
-
                         match status {
                             val if val == "200" => Ok(()),
                             val if val == "404" => {
@@ -260,7 +239,7 @@ async fn handle_event_impl<C: Context>(
                                 Err(anyhow!("Janus is missing recording"))
                                     .error(AppErrorKind::BackendRecordingMissing)
                             }
-                            _ => Err(anyhow!("Received error status"))
+                            _ => Err(anyhow!("Received {} status", status))
                                 .error(AppErrorKind::BackendRequestFailed),
                         }?;
                         let rtc_id = plugin_data
@@ -281,49 +260,17 @@ async fn handle_event_impl<C: Context>(
                             return Ok(Box::new(stream::empty()) as MessageStream);
                         }
 
-                        let started_at = plugin_data
-                            .get("started_at")
-                            .ok_or_else(|| anyhow!("Missing 'started_at' in response"))
-                            .error(AppErrorKind::MessageParsingFailed)
-                            .and_then(|val| {
-                                let unix_ts = serde_json::from_value::<u64>(val.clone())
-                                    .map_err(|err| {
-                                        anyhow!("Invalid value for 'started_at': {}", err)
-                                    })
-                                    .error(AppErrorKind::MessageParsingFailed)?;
-
-                                let naive_datetime = NaiveDateTime::from_timestamp(
-                                    unix_ts as i64 / 1000,
-                                    ((unix_ts % 1000) * 1_000_000) as u32,
-                                );
-
-                                Ok(DateTime::<Utc>::from_utc(naive_datetime, Utc))
-                            })?;
-
-                        let segments = plugin_data
-                            .get("time")
-                            .ok_or_else(|| anyhow!("Missing time"))
-                            .error(AppErrorKind::MessageParsingFailed)
-                            .and_then(|segments| {
-                                Ok(serde_json::from_value::<Vec<(i64, i64)>>(segments.clone())
-                                    .map_err(|err| anyhow!("Invalid value for 'time': {}", err))
-                                    .error(AppErrorKind::MessageParsingFailed)?
-                                    .into_iter()
-                                    .map(|(start, end)| {
-                                        (Bound::Included(start), Bound::Excluded(end))
-                                    })
-                                    .collect())
-                            })?;
                         let mjr_dumps_uris = plugin_data
                             .get("mjr_dumps_uris")
-                            .map(|dumps| {
+                            .ok_or_else(|| anyhow!("Missing 'mjr_dumps_uris' in response"))
+                            .error(AppErrorKind::MessageParsingFailed)
+                            .and_then(|dumps| {
                                 serde_json::from_value::<Vec<String>>(dumps.clone())
                                     .map_err(|err| {
                                         anyhow!("Invalid value for 'dumps_uris': {}", err)
                                     })
                                     .error(AppErrorKind::MessageParsingFailed)
-                            })
-                            .transpose()?;
+                            })?;
 
                         let (room, rtcs_with_recs): (
                             room::Object,
@@ -333,8 +280,6 @@ async fn handle_event_impl<C: Context>(
                             task::spawn_blocking(move || {
                                 recording::UpdateQuery::new(rtc_id)
                                     .status(recording::Status::Ready)
-                                    .started_at(started_at)
-                                    .segments(segments)
                                     .mjr_dumps_uris(mjr_dumps_uris)
                                     .execute(&conn)?;
 
@@ -358,8 +303,6 @@ async fn handle_event_impl<C: Context>(
                             })
                             .await?
                         };
-                        endpoint::helpers::add_room_logger_tags(context, &room);
-
                         // Ensure that all rtcs have a ready recording.
                         let rtcs_total = rtcs_with_recs.len();
 
@@ -395,7 +338,7 @@ async fn handle_event_impl<C: Context>(
                         .observe_timestamp(tn.start_timestamp);
                     response
                 }
-                Transaction::AgentSpeaking => {
+                Some(TransactionKind::AgentSpeaking) => {
                     let data = resp
                         .plugindata
                         .data
@@ -417,6 +360,7 @@ async fn handle_event_impl<C: Context>(
                         Box::new(event) as Box<dyn IntoPublishableMessage + Send>
                     )) as MessageStream)
                 }
+                None => Ok(Box::new(stream::empty()) as MessageStream),
             }
         }
     }
@@ -432,8 +376,6 @@ async fn handle_hangup_detach<C: Context>(
     context: &mut C,
     opaque_id: OpaqueId,
 ) -> Result<MessageStream, AppError> {
-    context.add_logger_tags(o!("rtc_stream_id" => opaque_id.stream_id.to_string()));
-
     // If the event relates to the publisher's handle,
     // we will find the corresponding stream and send an event w/ updated stream object
     // to the room's topic.
@@ -464,19 +406,17 @@ async fn handle_hangup_detach<C: Context>(
     .await
 }
 
+#[instrument(skip(context), fields(event = event.payload().as_str()))]
 pub async fn handle_status_event<C: Context>(
     context: &mut C,
     event: &MQTTIncomingEvent<String>,
 ) -> MessageStream {
     handle_status_event_impl(context, event)
         .await
-        .unwrap_or_else(|app_error| {
-            error!(
-                context.logger(),
-                "Failed to handle a status event from janus: {:?}", app_error
-            );
+        .unwrap_or_else(|err| {
+            error!(?err, "Failed to handle a status event from janus");
 
-            app_error.notify_sentry(context.logger());
+            err.notify_sentry();
             Box::new(stream::empty())
         })
 }
@@ -496,8 +436,6 @@ async fn handle_status_event_impl<C: Context>(
     event: &MQTTIncomingEvent<String>,
 ) -> Result<MessageStream, AppError> {
     let evp = event.properties();
-    context.add_logger_tags(o!("label" => evp.label().unwrap_or("").to_string()));
-
     let payload = MQTTIncomingEvent::convert_payload::<StatusEvent>(event)
         .map_err(|err| anyhow!("Failed to parse event: {}", err))
         .error(AppErrorKind::MessageParsingFailed)?;

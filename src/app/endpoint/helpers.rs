@@ -2,7 +2,6 @@ use std::ops::Bound;
 
 use crate::{
     app::{
-        context::Context,
         error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
         API_VERSION,
     },
@@ -13,7 +12,6 @@ use anyhow::anyhow;
 use chrono::{DateTime, Duration, Utc};
 use diesel::pg::PgConnection;
 use serde::Serialize;
-use slog::o;
 use svc_agent::{
     mqtt::{
         IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
@@ -167,13 +165,5 @@ pub fn check_room_presence(
         Err(anyhow!("Agent is not online in the room")).error(AppErrorKind::AgentNotEnteredTheRoom)
     } else {
         Ok(())
-    }
-}
-
-pub fn add_room_logger_tags<C: Context>(context: &mut C, room: &db::room::Object) {
-    context.add_logger_tags(o!("room_id" => room.id().to_string()));
-
-    if let Some(scope) = room.tags().get("scope") {
-        context.add_logger_tags(o!("scope" => scope.to_string()));
     }
 }

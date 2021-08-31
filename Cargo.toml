@@ -2,7 +2,7 @@
 authors = ["Andrei Nesterov <ae.nesterov@gmail.com>"]
 edition = "2018"
 name = "conference"
-version = "0.6.22"
+version = "0.6.24"
 
 [dependencies]
 anyhow = "1"
@@ -16,7 +16,7 @@ derive_more = "0.99"
 diesel = {version = "1.4", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"]}
 diesel-derive-enum = {version = "1", features = ["postgres"]}
 diesel-derive-newtype = "0.1"
-enum-iterator = "0.6"
+enum-iterator = "0.7"
 futures = "0.3"
 futures-channel = "0.3"
 futures-util = "0.3"
@@ -28,16 +28,17 @@ openssl = "*"
 prometheus = "0.12"
 prometheus-static-metric = "0.5"
 rand = "0.7"
-sentry = "=0.18"
+sentry = "0.23"
 serde = {version = "1", features = ["derive"]}
 serde_json = "1"
 signal-hook = "0.3.6"
 signal-hook-async-std = "0.2.1"
-slog = "2"
-slog-async = "2"
-slog-envlogger = "2"
-slog-json = "2"
-slog-serde = "1.0.0-alpha9"
+tracing-attributes  = "0.1"
+tracing-error = {version = "0.1" }
+tracing-appender = "0.1"
+tracing = "0.1"
+tracing-subscriber = "0.2"
+tracing-futures = "0.2"
 svc-agent = {version = "0.17", features = ["diesel"]}
 svc-authn = {version = "0.6", features = ["jose", "diesel"]}
 svc-authz = "=0.10.4"

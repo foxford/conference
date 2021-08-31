@@ -24,6 +24,7 @@ use crate::{
     db,
     db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
 };
+use tracing_attributes::instrument;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -63,6 +64,7 @@ impl RequestHandler for CreateHandler {
     type Payload = CreateRequest;
     const ERROR_TITLE: &'static str = "Failed to create room";
 
+    #[instrument(skip(context, payload, reqp))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -105,8 +107,6 @@ impl RequestHandler for CreateHandler {
         })
         .await?;
 
-        helpers::add_room_logger_tags(context, &room);
-
         // Respond and broadcast to the audience topic.
         let response = helpers::build_response(
             // TODO: Change to `ResponseStatus::CREATED` (breaking).
@@ -143,6 +143,7 @@ impl RequestHandler for ReadHandler {
     type Payload = ReadRequest;
     const ERROR_TITLE: &'static str = "Failed to read room";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -199,6 +200,7 @@ impl RequestHandler for UpdateHandler {
     type Payload = UpdateRequest;
     const ERROR_TITLE: &'static str = "Failed to create room";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -217,7 +219,6 @@ impl RequestHandler for UpdateHandler {
             move || helpers::find_room_by_id(id, time_requirement, &conn)
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
@@ -302,6 +303,13 @@ impl RequestHandler for UpdateHandler {
         // Publish room closed notification.
         if let (_, Bound::Excluded(closed_at)) = room.time() {
             if room_was_open && *closed_at <= Utc::now() {
+                let room = async_std::task::spawn_blocking({
+                    let room_id = room.id();
+                    let agent = reqp.as_agent_id().to_owned();
+                    let conn = context.get_conn().await?;
+                    move || db::room::set_closed_by(room_id, &agent, &conn)
+                })
+                .await?;
                 responses.push(helpers::build_notification(
                     "room.close",
                     &format!("rooms/{}/events", room.id()),
@@ -313,7 +321,7 @@ impl RequestHandler for UpdateHandler {
                 responses.push(helpers::build_notification(
                     "room.close",
                     &format!("audiences/{}/events", room.audience()),
-                    room.clone(),
+                    room,
                     reqp.tracking(),
                     context.start_timestamp(),
                 ));
@@ -339,6 +347,7 @@ impl RequestHandler for EnterHandler {
     type Payload = EnterRequest;
     const ERROR_TITLE: &'static str = "Failed to enter room";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -349,7 +358,6 @@ impl RequestHandler for EnterHandler {
             helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::NotClosed, &conn)
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();
@@ -419,6 +427,7 @@ impl RequestHandler for LeaveHandler {
     type Payload = LeaveRequest;
     const ERROR_TITLE: &'static str = "Failed to leave room";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -441,7 +450,6 @@ impl RequestHandler for LeaveHandler {
             }
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
 
         if presence.is_empty() {
             return Err(anyhow!("Agent is not online in the room"))

@@ -1,19 +1,3 @@
-use anyhow::anyhow;
-use async_std::{stream, task};
-use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use slog::error;
-use std::{ops::Bound, result::Result as StdResult};
-use svc_agent::{
-    mqtt::{
-        IncomingEventProperties, IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties,
-        OutgoingMessage, ShortTermTimingProperties,
-    },
-    AgentId,
-};
-use svc_authn::Authenticable;
-
 use crate::{
     app::{context::Context, endpoint::prelude::*, error::Error as AppError},
     backend::janus::client::upload_stream::{
@@ -27,6 +11,22 @@ use crate::{
         rtc::SharingPolicy,
     },
 };
+use anyhow::anyhow;
+use async_std::{stream, task};
+use async_trait::async_trait;
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use std::{ops::Bound, result::Result as StdResult};
+use svc_agent::{
+    mqtt::{
+        IncomingEventProperties, IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties,
+        OutgoingMessage, ShortTermTimingProperties,
+    },
+    AgentId,
+};
+use svc_authn::Authenticable;
+use tracing::error;
+use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -40,16 +40,6 @@ pub struct RoomUploadEventData {
 struct RtcUploadEventData {
     id: db::rtc::Id,
     status: RecordingStatus,
-    #[serde(
-        serialize_with = "crate::serde::milliseconds_bound_tuples_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    segments: Option<Vec<(Bound<i64>, Bound<i64>)>>,
-    #[serde(
-        serialize_with = "crate::serde::ts_milliseconds_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    started_at: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     uri: Option<String>,
     created_by: AgentId,
@@ -75,6 +65,7 @@ impl RequestHandler for VacuumHandler {
     type Payload = VacuumRequest;
     const ERROR_TITLE: &'static str = "Failed to vacuum system";
 
+    #[instrument(skip(context, _payload))]
     async fn handle<C: Context>(
         context: &mut C,
         _payload: Self::Payload,
@@ -112,7 +103,6 @@ impl RequestHandler for VacuumHandler {
                     recording.rtc_id(),
                     &config.backend,
                     &config.bucket,
-                    &record_name(&recording, &room),
                 ),
                 handle_id: backend.handle_id(),
                 session_id: backend.session_id(),
@@ -155,13 +145,13 @@ pub struct OrphanedRoomCloseHandler;
 impl EventHandler for OrphanedRoomCloseHandler {
     type Payload = OrphanedRoomCloseEvent;
 
+    #[instrument(skip(context, _payload))]
     async fn handle<C: Context>(
         context: &mut C,
         _payload: Self::Payload,
         evp: &IncomingEventProperties,
     ) -> Result {
         let audience = context.agent_id().as_account_id().audience();
-        let logger = context.logger();
         // Authorization: only trusted subjects are allowed to perform operations with the system
         context
             .authz()
@@ -213,13 +203,13 @@ impl EventHandler for OrphanedRoomCloseHandler {
                     ));
                 }
                 Err(err) => {
-                    error!(logger, "Closing room failed: {:?}", err);
+                    error!(?err, "Closing room failed");
                 }
             }
         }
         let connection = context.get_conn().await?;
         if let Err(err) = db::orphaned_room::remove_rooms(&closed_rooms, &connection) {
-            error!(logger, "Error removing rooms fron orphan table: {:?}", err);
+            error!(?err, "Error removing rooms fron orphan table");
         }
 
         Ok(Box::new(stream::from_iter(notifications)))
@@ -260,8 +250,6 @@ where
             id: recording.rtc_id(),
             status: recording.status().to_owned(),
             uri,
-            segments: recording.segments().to_owned(),
-            started_at: recording.started_at().to_owned(),
             created_by: rtc.created_by().to_owned(),
             mjr_dumps_uris: recording.mjr_dumps_uris().cloned(),
         };
@@ -397,7 +385,9 @@ mod test {
 
         use crate::{
             backend::janus::client::{
-                events::EventResponse, transactions::Transaction, IncomingEvent,
+                events::EventResponse,
+                transactions::{Transaction, TransactionKind},
+                IncomingEvent,
             },
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
@@ -471,10 +461,14 @@ mod test {
                 .map(|resp| match resp {
                     IncomingEvent::Event(EventResponse {
                         transaction:
-                            Transaction::UploadStream(UploadStreamTransaction {
-                                rtc_id,
-                                start_timestamp: _start_timestamp,
-                            }),
+                            Transaction {
+                                kind:
+                                    Some(TransactionKind::UploadStream(UploadStreamTransaction {
+                                        rtc_id,
+                                        start_timestamp: _start_timestamp,
+                                    })),
+                                ..
+                            },
                         ..
                     }) => *rtc_id,
                     _ => panic!("Got wrong event"),

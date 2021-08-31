@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use prometheus::{IntGauge, IntGaugeVec, Opts, Registry};
-use slog::error;
+use tracing::error;
 
 use crate::db::{agent_connection, ConnectionPool};
 
@@ -51,7 +51,7 @@ impl Metrics {
     ) {
         loop {
             if let Err(err) = self.collect(&connection_pool, &clients) {
-                error!(crate::LOG, "Janus' metrics collecting errored: {:?}", err);
+                error!(?err, "Janus' metrics collecting errored");
             }
             std::thread::sleep(collect_interval);
         }

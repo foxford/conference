@@ -3,7 +3,6 @@ use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
-use slog::{o, warn};
 use std::{fmt, ops::Bound};
 use svc_agent::{
     mqtt::{
@@ -12,6 +11,7 @@ use svc_agent::{
     },
     Addressable,
 };
+use tracing::{warn, Span};
 
 use crate::{
     app::{
@@ -25,6 +25,7 @@ use crate::{
     db::{self, agent, agent_connection, rtc::SharingPolicy as RtcSharingPolicy},
     diesel::{Connection, Identifiable},
 };
+use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -55,6 +56,7 @@ impl RequestHandler for CreateHandler {
     type Payload = CreateRequest;
     const ERROR_TITLE: &'static str = "Failed to create rtc";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id, rtc_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -65,7 +67,6 @@ impl RequestHandler for CreateHandler {
             helpers::find_room_by_id(payload.room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
 
         // Authorize room creation.
         let room_id = room.id().to_string();
@@ -102,8 +103,7 @@ impl RequestHandler for CreateHandler {
             }
         })
         .await?;
-
-        context.add_logger_tags(o!("rtc_id" => rtc.id().to_string()));
+        Span::current().record("rtc_id", &rtc.id().to_string().as_str());
 
         // Respond and broadcast to the room topic.
         let response = helpers::build_response(
@@ -145,6 +145,7 @@ impl RequestHandler for ReadHandler {
     type Payload = ReadRequest;
     const ERROR_TITLE: &'static str = "Failed to read rtc";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -158,7 +159,6 @@ impl RequestHandler for ReadHandler {
             }
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
 
         // Authorize rtc reading.
         let rtc_id = payload.id.to_string();
@@ -215,6 +215,7 @@ impl RequestHandler for ListHandler {
     type Payload = ListRequest;
     const ERROR_TITLE: &'static str = "Failed to list rtcs";
 
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -228,7 +229,6 @@ impl RequestHandler for ListHandler {
             }
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
 
         // Authorize rtc listing.
         let room_id = room.id().to_string();
@@ -308,22 +308,21 @@ impl RequestHandler for ConnectHandler {
     type Payload = ConnectRequest;
     const ERROR_TITLE: &'static str = "Failed to connect to rtc";
 
+    #[instrument(skip(context, payload, reqp), fields(
+        rtc_id = %payload.id,
+        intent = %payload.intent,
+    ))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        context.add_logger_tags(o!(
-            "rtc_id" => payload.id.to_string(),
-            "intent" => payload.intent.to_string(),
-        ));
         let conn = context.get_conn().await?;
         let payload_id = payload.id;
         let room = task::spawn_blocking(move || {
             helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
-        helpers::add_room_logger_tags(context, &room);
 
         // Authorize connecting to the rtc.
         match room.rtc_sharing_policy() {
@@ -374,9 +373,10 @@ impl RequestHandler for ConnectHandler {
         // Choose backend to connect.
         let group = context.config().janus_group.clone();
         let conn = context.get_conn().await?;
-        let logger = context.logger().clone();
         let room_id = room.id();
+        let backend_span = tracing::info_span!("finding_backend");
         let backend = task::spawn_blocking(move || {
+            let _span_handle = backend_span.enter();
             // There are 3 cases:
             // 1. Connecting as writer for the first time. There's no `backend_id` in that case.
             //    Select the most loaded backend that is capable to host the room's reservation.
@@ -400,7 +400,7 @@ impl RequestHandler for ConnectHandler {
                             use sentry::protocol::{value::Value, Event, Level};
                             let backend_id = backend.id().to_string();
 
-                            warn!(logger, "No capable backends to host the reserve; falling back to the least loaded backend: room_id = {}, rtc_id = {}, backend_id = {}", room_id, rtc_id, backend_id);
+                            warn!(%backend_id, "No capable backends to host the reserve; falling back to the least loaded backend");
 
                             let mut extra = std::collections::BTreeMap::new();
                             extra.insert(String::from("room_id"), Value::from(room_id.to_string()));
@@ -458,7 +458,6 @@ impl RequestHandler for ConnectHandler {
             Ok::<_, AppError>(backend)
         }).await?;
 
-        context.add_logger_tags(o!("backend_id" => backend.id().to_string()));
         let rtc_stream_id = db::janus_rtc_stream::Id::random();
 
         let handle = context
@@ -478,9 +477,6 @@ impl RequestHandler for ConnectHandler {
 
         let agent_id = reqp.as_agent_id().clone();
         let conn = context.get_conn().await?;
-        context.add_logger_tags(o!(
-            "agent_id" => agent_id.to_string(),
-        ));
         let handle_id = handle.id;
         task::spawn_blocking(move || {
             conn.transaction::<_, AppError, _>(|| {
