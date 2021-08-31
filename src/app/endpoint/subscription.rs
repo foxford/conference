@@ -81,7 +81,9 @@ impl ResponseHandler for CreateResponseHandler {
         let room = task::spawn_blocking(move || {
             let room =
                 helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)?;
-            db::orphaned_room::remove_room(room_id, &conn)?;
+            if room.host() == Some(&subject) {
+                db::orphaned_room::remove_room(room_id, &conn)?;
+            }
             // Update agent state to `ready`.
             db::agent::UpdateQuery::new(&subject, room_id)
                 .status(db::agent::Status::Ready)
