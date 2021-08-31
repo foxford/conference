@@ -10,7 +10,7 @@ use std::{
     },
     time::Duration,
 };
-use tracing::{error, instrument, warn};
+use tracing::{error, warn};
 
 #[derive(Debug, Clone)]
 pub struct Clients {
@@ -117,7 +117,6 @@ impl<'a> Drop for PollerGuard<'a> {
     }
 }
 
-#[instrument(skip(sink))]
 async fn start_polling(
     janus_client: JanusClient,
     session_id: SessionId,
@@ -133,7 +132,7 @@ async fn start_polling(
         let poll_result = janus_client.poll(session_id).await;
         match poll_result {
             Ok(PollResult::SessionNotFound) => {
-                warn!("Session not found");
+                warn!(?janus_backend, "Session not found");
                 break;
             }
             Ok(PollResult::Events(events)) => {
@@ -150,13 +149,13 @@ async fn start_polling(
                             sink.send(event).expect("Receiver must exist");
                         }
                         Err(err) => {
-                            warn!(?err, "Got unknown event");
+                            warn!(?err, ?janus_backend, "Got unknown event");
                         }
                     }
                 }
             }
             Err(err) => {
-                error!(?err, "Polling error");
+                error!(?err, ?janus_backend, "Polling error");
                 async_std::task::sleep(Duration::from_millis(500)).await;
                 fail_retries_count -= 1;
             }
