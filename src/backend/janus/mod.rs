@@ -406,6 +406,7 @@ async fn handle_hangup_detach<C: Context>(
     .await
 }
 
+#[instrument(skip(context), fields(event = event.payload().as_str()))]
 pub async fn handle_status_event<C: Context>(
     context: &mut C,
     event: &MQTTIncomingEvent<String>,
