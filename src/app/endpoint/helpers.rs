@@ -54,6 +54,7 @@ pub fn build_notification(
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug)]
 pub enum RoomTimeRequirement {
     Any,
     NotClosed,
