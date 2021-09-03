@@ -40,6 +40,7 @@ make_static_metric! {
             message_callback,
             message_unicast_request,
             message_unicast_response,
+            room_close,
             room_create,
             room_enter,
             room_leave,
