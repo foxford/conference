@@ -385,10 +385,17 @@ impl<'a> UpdateQuery<'a> {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 pub fn set_closed_by(room_id: Id, agent: &AgentId, conn: &PgConnection) -> Result<Object, Error> {
+    use diesel::dsl::sql;
     use diesel::prelude::*;
+
     diesel::update(room::table.filter(room::id.eq(room_id)))
-        .set(room::closed_by.eq(agent))
+        .set((
+            room::closed_by.eq(agent),
+            room::time.eq(sql("TSTZRANGE(LOWER(time), NOW())")),
+        ))
         .get_result(conn)
 }
 

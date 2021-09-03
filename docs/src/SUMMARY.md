@@ -7,6 +7,7 @@
         - [Create](api/room/create.md)
         - [Read](api/room/read.md)
         - [Update](api/room/update.md)
+        - [Close](api/room/close.md)
         - [Enter](api/room/enter.md)
         - [Leave](api/room/leave.md)
     - [Message](api/message.md)
