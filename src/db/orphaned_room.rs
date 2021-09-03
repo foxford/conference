@@ -33,7 +33,7 @@ pub fn upsert_room(
     Ok(())
 }
 
-pub fn get_timeouted(
+pub fn get_timed_out(
     load_till: DateTime<Utc>,
     connection: &PgConnection,
 ) -> Result<Vec<(Object, Option<super::room::Object>)>, Error> {

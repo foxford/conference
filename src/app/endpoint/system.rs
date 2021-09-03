@@ -162,21 +162,21 @@ impl EventHandler for OrphanedRoomCloseHandler {
             - chrono::Duration::from_std(context.config().orphaned_room_timeout)
                 .expect("Orphaned room timeout misconfigured");
         let connection = context.get_conn().await?;
-        let timeouted = async_std::task::spawn_blocking(move || {
-            db::orphaned_room::get_timeouted(load_till, &connection)
+        let timed_out = async_std::task::spawn_blocking(move || {
+            db::orphaned_room::get_timed_out(load_till, &connection)
         })
         .await?;
 
         let mut close_tasks = vec![];
         let mut closed_rooms = vec![];
-        for (orphan, room) in timeouted {
+        for (orphan, room) in timed_out {
             match room {
                 Some(room) if !room.is_closed() => {
                     let connection = context.get_conn().await?;
                     let close_task = async_std::task::spawn_blocking(move || {
                         let room = db::room::UpdateQuery::new(room.id())
                             .time(Some((room.time().0, Bound::Excluded(Utc::now()))))
-                            .timeouted()
+                            .timed_out()
                             .execute(&connection)?;
                         Ok::<_, diesel::result::Error>(room)
                     });
@@ -368,9 +368,9 @@ mod test {
             let rooms: Vec<db::room::Object> =
                 messages.into_iter().map(|ev| ev.payload()).collect();
             assert_eq!(rooms.len(), 1);
-            assert!(rooms[0].timeouted());
+            assert!(rooms[0].timed_out());
             assert_eq!(rooms[0].id(), opened_room.id());
-            let orphaned = db::orphaned_room::get_timeouted(
+            let orphaned = db::orphaned_room::get_timed_out(
                 Utc::now() + chrono::Duration::seconds(20),
                 &connection,
             )?;

@@ -37,7 +37,7 @@ type AllColumns = (
     room::rtc_sharing_policy,
     room::classroom_id,
     room::host,
-    room::timeouted,
+    room::timed_out,
     room::closed_by,
 );
 
@@ -53,7 +53,7 @@ const ALL_COLUMNS: AllColumns = (
     room::rtc_sharing_policy,
     room::classroom_id,
     room::host,
-    room::timeouted,
+    room::timed_out,
     room::closed_by,
 );
 
@@ -128,7 +128,7 @@ pub struct Object {
     rtc_sharing_policy: RtcSharingPolicy,
     classroom_id: Option<Uuid>,
     host: Option<AgentId>,
-    timeouted: bool,
+    timed_out: bool,
     closed_by: Option<AgentId>,
 }
 
@@ -177,8 +177,8 @@ impl Object {
         self.host.as_ref()
     }
 
-    pub fn timeouted(&self) -> bool {
-        self.timeouted
+    pub fn timed_out(&self) -> bool {
+        self.timed_out
     }
 }
 
@@ -356,7 +356,7 @@ pub struct UpdateQuery<'a> {
     backend_id: Option<&'a AgentId>,
     classroom_id: Option<Uuid>,
     host: Option<&'a AgentId>,
-    timeouted: Option<bool>,
+    timed_out: Option<bool>,
 }
 
 impl<'a> UpdateQuery<'a> {
@@ -369,7 +369,7 @@ impl<'a> UpdateQuery<'a> {
             tags: Default::default(),
             classroom_id: Default::default(),
             host: Default::default(),
-            timeouted: Default::default(),
+            timed_out: Default::default(),
         }
     }
 
@@ -377,9 +377,9 @@ impl<'a> UpdateQuery<'a> {
         Self { time, ..self }
     }
 
-    pub fn timeouted(self) -> Self {
+    pub fn timed_out(self) -> Self {
         Self {
-            timeouted: Some(true),
+            timed_out: Some(true),
             ..self
         }
     }
