@@ -374,7 +374,7 @@ mod test {
 
             let rooms: Vec<db::room::Object> =
                 messages.into_iter().map(|ev| ev.payload()).collect();
-            assert_eq!(rooms.len(), 1);
+            assert_eq!(rooms.len(), 2);
             assert!(rooms[0].timed_out());
             assert_eq!(rooms[0].id(), opened_room.id());
             let orphaned = db::orphaned_room::get_timed_out(
