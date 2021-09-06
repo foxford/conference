@@ -24,6 +24,7 @@ use crate::{
     db,
     db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
 };
+use tracing::warn;
 use tracing_attributes::instrument;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -198,7 +199,7 @@ pub struct UpdateHandler;
 #[async_trait]
 impl RequestHandler for UpdateHandler {
     type Payload = UpdateRequest;
-    const ERROR_TITLE: &'static str = "Failed to create room";
+    const ERROR_TITLE: &'static str = "Failed to update room";
 
     #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
     async fn handle<C: Context>(
@@ -212,6 +213,8 @@ impl RequestHandler for UpdateHandler {
         } else {
             helpers::RoomTimeRequirement::Any
         };
+        warn!(?time_requirement, "Room update");
+
         let conn = context.get_conn().await?;
 
         let room = task::spawn_blocking({
@@ -219,6 +222,8 @@ impl RequestHandler for UpdateHandler {
             move || helpers::find_room_by_id(id, time_requirement, &conn)
         })
         .await?;
+
+        warn!(id = ?room.id(), "Room update, room found");
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
@@ -231,6 +236,7 @@ impl RequestHandler for UpdateHandler {
         context.metrics().observe_auth(authz_time);
 
         let room_was_open = !room.is_closed();
+        warn!(room_was_open, "Room update, room_was_open");
 
         // Update room.
         let conn = context.get_conn().await?;
@@ -272,6 +278,8 @@ impl RequestHandler for UpdateHandler {
                 }
             };
 
+            warn!(old_time = ?room.time(), new_time = ?time, "Room update, time update");
+
             Ok::<_, AppError>(db::room::UpdateQuery::new(room.id())
                 .time(time)
                 .reserve(payload.reserve)
@@ -280,6 +288,10 @@ impl RequestHandler for UpdateHandler {
                 .host(payload.host.as_ref())
                 .execute(&conn)?)
         }).await?;
+
+        warn!(
+            new_time = ?room.time(), "Room update, room updated"
+        );
 
         // Respond and broadcast to the audience topic.
         let response = helpers::build_response(
@@ -302,7 +314,11 @@ impl RequestHandler for UpdateHandler {
 
         // Publish room closed notification.
         if let (_, Bound::Excluded(closed_at)) = room.time() {
+            warn!("Room update, room closed at is present");
+
             if room_was_open && *closed_at <= Utc::now() {
+                warn!("Room update, room closed at is in the past");
+
                 let room = async_std::task::spawn_blocking({
                     let room_id = room.id();
                     let agent = reqp.as_agent_id().to_owned();
@@ -310,6 +326,9 @@ impl RequestHandler for UpdateHandler {
                     move || db::room::set_closed_by(room_id, &agent, &conn)
                 })
                 .await?;
+
+                warn!(closed_by = ?reqp.as_agent_id(), "Room update, room closed_by is set");
+
                 responses.push(helpers::build_notification(
                     "room.close",
                     &format!("rooms/{}/events", room.id()),
@@ -327,10 +346,110 @@ impl RequestHandler for UpdateHandler {
                 ));
             }
         }
+
+        warn!("Room update, done, responses len = {:?}", responses.len());
+
         context
             .metrics()
             .request_duration
             .room_update
+            .observe_timestamp(context.start_timestamp());
+
+        Ok(Box::new(stream::from_iter(responses)))
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize)]
+pub struct CloseRequest {
+    id: db::room::Id,
+}
+pub struct CloseHandler;
+
+#[async_trait]
+impl RequestHandler for CloseHandler {
+    type Payload = CloseRequest;
+    const ERROR_TITLE: &'static str = "Failed to close room";
+
+    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
+    async fn handle<C: Context>(
+        context: &mut C,
+        payload: Self::Payload,
+        reqp: &IncomingRequestProperties,
+    ) -> Result {
+        let conn = context.get_conn().await?;
+
+        let room = task::spawn_blocking({
+            let id = payload.id;
+            move || {
+                helpers::find_room_by_id(
+                    id,
+                    helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
+                    &conn,
+                )
+            }
+        })
+        .await?;
+
+        // Authorize room updating on the tenant.
+        let room_id = room.id().to_string();
+        let object = vec!["rooms", &room_id];
+
+        let authz_time = context
+            .authz()
+            .authorize(room.audience(), reqp, object, "update")
+            .await?;
+        context.metrics().observe_auth(authz_time);
+
+        // Update room.
+        let room = async_std::task::spawn_blocking({
+            let room_id = room.id();
+            let agent = reqp.as_agent_id().to_owned();
+            let conn = context.get_conn().await?;
+            move || db::room::set_closed_by(room_id, &agent, &conn)
+        })
+        .await?;
+
+        // Respond and broadcast to the audience topic.
+        let response = helpers::build_response(
+            ResponseStatus::OK,
+            room.clone(),
+            reqp,
+            context.start_timestamp(),
+            Some(authz_time),
+        );
+
+        let notification = helpers::build_notification(
+            "room.update",
+            &format!("audiences/{}/events", room.audience()),
+            room.clone(),
+            reqp,
+            context.start_timestamp(),
+        );
+
+        let mut responses = vec![response, notification];
+
+        responses.push(helpers::build_notification(
+            "room.close",
+            &format!("rooms/{}/events", room.id()),
+            room.clone(),
+            reqp,
+            context.start_timestamp(),
+        ));
+
+        responses.push(helpers::build_notification(
+            "room.close",
+            &format!("audiences/{}/events", room.audience()),
+            room,
+            reqp,
+            context.start_timestamp(),
+        ));
+
+        context
+            .metrics()
+            .request_duration
+            .room_close
             .observe_timestamp(context.start_timestamp());
 
         Ok(Box::new(stream::from_iter(responses)))
@@ -1010,6 +1129,172 @@ mod test {
             let err = handle_request::<UpdateHandler>(&mut context, &agent, payload)
                 .await
                 .expect_err("Unexpected success on room update");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_closed");
+        }
+    }
+
+    mod close {
+        use std::ops::Bound;
+
+        use chrono::{Duration, Utc};
+
+        use crate::{
+            db::room::Object as Room,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
+
+        use super::super::*;
+
+        #[async_std::test]
+        async fn close_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                // Create room.
+                factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((Bound::Unbounded, Bound::Unbounded))
+                    .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
+                    .insert(&conn)
+            };
+
+            // Allow agent to update the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = room.id().to_string();
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+
+            // Make room.update request.
+            let mut context = TestContext::new(db, authz);
+
+            let payload = CloseRequest { id: room.id() };
+
+            let messages = handle_request::<CloseHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room close failed");
+
+            // Assert response.
+            let (resp_room, respp, _) = find_response::<Room>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::OK);
+            assert_eq!(resp_room.id(), room.id());
+            let end = match resp_room.time().1 {
+                Bound::Excluded(t) => t,
+                _ => unreachable!("Wrong end in room close"),
+            };
+            assert!(end < Utc::now());
+            assert_eq!(
+                resp_room.rtc_sharing_policy(),
+                db::rtc::SharingPolicy::Shared
+            );
+        }
+
+        #[async_std::test]
+        async fn close_bounded_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                // Create room.
+                factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((
+                        Bound::Included(Utc::now() - Duration::hours(10)),
+                        Bound::Excluded(Utc::now() + Duration::hours(10)),
+                    ))
+                    .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
+                    .insert(&conn)
+            };
+
+            // Allow agent to update the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = room.id().to_string();
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+
+            // Make room.update request.
+            let mut context = TestContext::new(db, authz);
+
+            let payload = CloseRequest { id: room.id() };
+
+            let messages = handle_request::<CloseHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room close failed");
+
+            // Assert response.
+            let (resp_room, respp, _) = find_response::<Room>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::OK);
+            assert_eq!(resp_room.id(), room.id());
+            let end = match resp_room.time().1 {
+                Bound::Excluded(t) => t,
+                _ => unreachable!("Wrong end in room close"),
+            };
+            assert!(end < Utc::now());
+            assert_eq!(
+                resp_room.rtc_sharing_policy(),
+                db::rtc::SharingPolicy::Shared
+            );
+        }
+
+        #[async_std::test]
+        async fn close_room_missing() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let payload = CloseRequest {
+                id: db::room::Id::random(),
+            };
+
+            let err = handle_request::<CloseHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room close");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "room_not_found");
+        }
+
+        #[async_std::test]
+        async fn close_room_closed() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                // Create closed room.
+                shared_helpers::insert_closed_room(&conn)
+            };
+
+            let mut context = TestContext::new(db, TestAuthz::new());
+
+            let payload = CloseRequest { id: room.id() };
+
+            let err = handle_request::<CloseHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Unexpected success on room close");
 
             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
             assert_eq!(err.kind(), "room_closed");

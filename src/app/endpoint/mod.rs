@@ -59,6 +59,7 @@ request_routes!(
     "agent_writer_config.update" => agent_writer_config::UpdateHandler,
     "message.broadcast" => message::BroadcastHandler,
     "message.unicast" => message::UnicastHandler,
+    "room.close" => room::CloseHandler,
     "room.create" => room::CreateHandler,
     "room.enter" => room::EnterHandler,
     "room.leave" => room::LeaveHandler,
