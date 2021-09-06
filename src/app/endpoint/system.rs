@@ -197,6 +197,13 @@ impl EventHandler for OrphanedRoomCloseHandler {
                     notifications.push(helpers::build_notification(
                         "room.close",
                         &format!("rooms/{}/events", room.id()),
+                        room.clone(),
+                        evp.tracking(),
+                        context.start_timestamp(),
+                    ));
+                    notifications.push(helpers::build_notification(
+                        "room.close",
+                        &format!("audiences/{}/events", room.audience()),
                         room,
                         evp.tracking(),
                         context.start_timestamp(),
