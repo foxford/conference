@@ -424,7 +424,7 @@ impl RequestHandler for CloseHandler {
             "room.update",
             &format!("audiences/{}/events", room.audience()),
             room.clone(),
-            reqp,
+            reqp.tracking(),
             context.start_timestamp(),
         );
 
@@ -434,7 +434,7 @@ impl RequestHandler for CloseHandler {
             "room.close",
             &format!("rooms/{}/events", room.id()),
             room.clone(),
-            reqp,
+            reqp.tracking(),
             context.start_timestamp(),
         ));
 
@@ -442,7 +442,7 @@ impl RequestHandler for CloseHandler {
             "room.close",
             &format!("audiences/{}/events", room.audience()),
             room,
-            reqp,
+            reqp.tracking(),
             context.start_timestamp(),
         ));
 
