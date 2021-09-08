@@ -118,7 +118,7 @@ impl RequestHandler for CreateHandler {
             "rtc.create",
             &format!("rooms/{}/events", room_id),
             rtc,
-            reqp,
+            reqp.tracking(),
             context.start_timestamp(),
         );
         context

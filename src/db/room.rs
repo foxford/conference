@@ -36,6 +36,8 @@ type AllColumns = (
     room::backend_id,
     room::rtc_sharing_policy,
     room::classroom_id,
+    room::host,
+    room::timed_out,
     room::closed_by,
 );
 
@@ -50,6 +52,8 @@ const ALL_COLUMNS: AllColumns = (
     room::backend_id,
     room::rtc_sharing_policy,
     room::classroom_id,
+    room::host,
+    room::timed_out,
     room::closed_by,
 );
 
@@ -123,6 +127,8 @@ pub struct Object {
     backend_id: Option<AgentId>,
     rtc_sharing_policy: RtcSharingPolicy,
     classroom_id: Option<Uuid>,
+    host: Option<AgentId>,
+    timed_out: bool,
     closed_by: Option<AgentId>,
 }
 
@@ -165,6 +171,14 @@ impl Object {
 
     pub fn classroom_id(&self) -> Option<Uuid> {
         self.classroom_id
+    }
+
+    pub fn host(&self) -> Option<&AgentId> {
+        self.host.as_ref()
+    }
+
+    pub fn timed_out(&self) -> bool {
+        self.timed_out
     }
 }
 
@@ -341,6 +355,8 @@ pub struct UpdateQuery<'a> {
     tags: Option<JsonValue>,
     backend_id: Option<&'a AgentId>,
     classroom_id: Option<Uuid>,
+    host: Option<&'a AgentId>,
+    timed_out: Option<bool>,
 }
 
 impl<'a> UpdateQuery<'a> {
@@ -352,11 +368,20 @@ impl<'a> UpdateQuery<'a> {
             reserve: Default::default(),
             tags: Default::default(),
             classroom_id: Default::default(),
+            host: Default::default(),
+            timed_out: Default::default(),
         }
     }
 
     pub fn time(self, time: Option<Time>) -> Self {
         Self { time, ..self }
+    }
+
+    pub fn timed_out(self) -> Self {
+        Self {
+            timed_out: Some(true),
+            ..self
+        }
     }
 
     pub fn reserve(self, reserve: Option<Option<i32>>) -> Self {
@@ -376,6 +401,10 @@ impl<'a> UpdateQuery<'a> {
             classroom_id,
             ..self
         }
+    }
+
+    pub fn host(self, host: Option<&'a AgentId>) -> Self {
+        Self { host, ..self }
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {

@@ -60,6 +60,16 @@ table! {
     use diesel::sql_types::*;
     use crate::db::sql::*;
 
+    orphaned_room (id) {
+        id -> Uuid,
+        host_left_at -> Timestamptz,
+    }
+}
+
+table! {
+    use diesel::sql_types::*;
+    use crate::db::sql::*;
+
     recording (rtc_id) {
         rtc_id -> Uuid,
         started_at -> Nullable<Timestamptz>,
@@ -84,6 +94,8 @@ table! {
         backend_id -> Nullable<Agent_id>,
         rtc_sharing_policy -> Rtc_sharing_policy,
         classroom_id -> Nullable<Uuid>,
+        host -> Nullable<Agent_id>,
+        timed_out -> Bool,
         closed_by -> Nullable<Agent_id>,
     }
 }
@@ -143,6 +155,7 @@ joinable!(agent_connection -> agent (agent_id));
 joinable!(agent_connection -> rtc (rtc_id));
 joinable!(janus_rtc_stream -> janus_backend (backend_id));
 joinable!(janus_rtc_stream -> rtc (rtc_id));
+joinable!(orphaned_room -> room (id));
 joinable!(recording -> rtc (rtc_id));
 joinable!(rtc -> room (room_id));
 joinable!(rtc_reader_config -> rtc (rtc_id));
@@ -154,6 +167,7 @@ allow_tables_to_appear_in_same_query!(
     agent_connection,
     janus_backend,
     janus_rtc_stream,
+    orphaned_room,
     recording,
     room,
     rtc,

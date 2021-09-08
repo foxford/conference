@@ -1,6 +1,8 @@
 use anyhow::anyhow;
 use async_std::{stream, task};
 use async_trait::async_trait;
+use chrono::Utc;
+use diesel::PgConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::result::Result as StdResult;
@@ -16,7 +18,7 @@ use tracing::Span;
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
     backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
-    db,
+    db::{self, room::FindQueryable},
 };
 use tracing_attributes::instrument;
 
@@ -79,7 +81,9 @@ impl ResponseHandler for CreateResponseHandler {
         let room = task::spawn_blocking(move || {
             let room =
                 helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)?;
-
+            if room.host() == Some(&subject) {
+                db::orphaned_room::remove_room(room_id, &conn)?;
+            }
             // Update agent state to `ready`.
             db::agent::UpdateQuery::new(&subject, room_id)
                 .status(db::agent::Status::Ready)
@@ -102,7 +106,7 @@ impl ResponseHandler for CreateResponseHandler {
             "room.enter",
             &format!("rooms/{}/events", room_id),
             RoomEnterLeaveEvent::new(room_id, corr_data.subject.to_owned()),
-            &corr_data.reqp,
+            corr_data.reqp.tracking(),
             context.start_timestamp(),
         );
         context
@@ -147,7 +151,7 @@ impl ResponseHandler for DeleteResponseHandler {
                 "room.leave",
                 &format!("rooms/{}/events", room_id),
                 RoomEnterLeaveEvent::new(room_id, corr_data.subject.to_owned()),
-                &corr_data.reqp,
+                corr_data.reqp.tracking(),
                 context.start_timestamp(),
             );
             context
@@ -256,6 +260,8 @@ async fn leave_room<C: Context>(
                 return Ok::<_, AppError>(None);
             }
 
+            make_orphaned_if_host_left(room_id, &agent_id, &conn)?;
+
             // `agent.leave` requests to Janus instances that host active streams in this room.
             let streams = db::janus_rtc_stream::ListQuery::new()
                 .room_id(room_id)
@@ -317,6 +323,18 @@ async fn leave_room<C: Context>(
         }
         None => Ok(false),
     }
+}
+
+fn make_orphaned_if_host_left(
+    room_id: db::room::Id,
+    agent_left: &AgentId,
+    connection: &PgConnection,
+) -> StdResult<(), diesel::result::Error> {
+    let room = db::room::FindQuery::new(room_id).execute(connection)?;
+    if room.as_ref().and_then(|x| x.host()) == Some(agent_left) {
+        db::orphaned_room::upsert_room(room_id, Utc::now(), connection)?;
+    }
+    Ok(())
 }
 
 ///////////////////////////////////////////////////////////////////////////////

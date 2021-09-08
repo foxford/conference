@@ -151,7 +151,7 @@ impl RequestHandler for BroadcastHandler {
             "message.broadcast",
             &format!("rooms/{}/events", room.id()),
             payload.data,
-            reqp,
+            reqp.tracking(),
             context.start_timestamp(),
         );
         context

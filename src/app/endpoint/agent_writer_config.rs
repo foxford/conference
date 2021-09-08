@@ -287,7 +287,7 @@ impl RequestHandler for UpdateHandler {
             "agent_writer_config.update",
             &format!("rooms/{}/events", room.id()),
             state,
-            reqp,
+            reqp.tracking(),
             context.start_timestamp(),
         );
 

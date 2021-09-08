@@ -32,6 +32,7 @@ pub mod agent;
 pub mod agent_connection;
 pub mod janus_backend;
 pub mod janus_rtc_stream;
+pub mod orphaned_room;
 pub mod recording;
 pub mod room;
 pub mod rtc;
