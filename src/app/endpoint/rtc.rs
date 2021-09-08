@@ -393,6 +393,12 @@ impl RequestHandler for ConnectHandler {
                     .execute(&conn)?
                     .ok_or_else(|| anyhow!("No backend found for stream"))
                     .error(AppErrorKind::BackendNotFound)?,
+                None if group.as_deref() == Some("minigroup") => {
+                    db::janus_backend::least_loaded(room.id(), group.as_deref(), &conn).transpose()
+                    .or_else(|| db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn).transpose())
+                    .ok_or_else(|| anyhow!("No available backends"))
+                    .error(AppErrorKind::NoAvailableBackends)??
+                }
                 None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn)? {
                     Some(backend) => backend,
                     None => db::janus_backend::least_loaded(room.id(), group.as_deref(), &conn)?
