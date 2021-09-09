@@ -94,3 +94,4 @@ mod serde;
 mod test_helpers;
 mod trace_id;
 mod util;
+mod cache;
