@@ -377,15 +377,17 @@ impl RequestHandler for ConnectHandler {
         let backend_span = tracing::info_span!("finding_backend");
         let backend = task::spawn_blocking(move || {
             let _span_handle = backend_span.enter();
-            // There are 3 cases:
-            // 1. Connecting as writer for the first time. There's no `backend_id` in that case.
+            // There are 4 cases:
+            // 1. Connecting as a writer for a webinar for the first time. There's no `backend_id` in that case.
             //    Select the most loaded backend that is capable to host the room's reservation.
             //    If there's no capable backend then select the least loaded and send a warning
             //    to Sentry. If there are no backends at all then return `no available backends`
-            //    error and also send it to Sentry.
-            // 2. Connecting as reader with existing `backend_id`. Choose it because Janus doesn't
+            // 2. Connecting as a writer for a minigroup for the first time. There's no `backend_id` in that case.
+            //    Select the least loaded backend and fallback on most loaded. Minigroups have a fixed size, 
+            //    that is why least loaded should work fine.
+            // 3. Connecting as reader with existing `backend_id`. Choose it because Janus doesn't
             //    support clustering and it must be the same server that the writer is connected to.
-            // 3. Reconnecting as writer with existing `backend_id`. Select it to avoid partitioning
+            // 4. Reconnecting as writer with existing `backend_id`. Select it to avoid partitioning
             //    of the record across multiple servers.
             let backend = match room.backend_id() {
                 Some(backend_id) => db::janus_backend::FindQuery::new()
@@ -393,6 +395,12 @@ impl RequestHandler for ConnectHandler {
                     .execute(&conn)?
                     .ok_or_else(|| anyhow!("No backend found for stream"))
                     .error(AppErrorKind::BackendNotFound)?,
+                None if group.as_deref() == Some("minigroup") => {
+                    db::janus_backend::least_loaded(room.id(), group.as_deref(), &conn).transpose()
+                    .or_else(|| db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn).transpose())
+                    .ok_or_else(|| anyhow!("No available backends"))
+                    .error(AppErrorKind::NoAvailableBackends)??
+                }
                 None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn)? {
                     Some(backend) => backend,
                     None => db::janus_backend::least_loaded(room.id(), group.as_deref(), &conn)?
