@@ -243,15 +243,15 @@ mod tests {
     #[async_std::test]
     async fn should_cache_computing_futures() {
         let cache = Cache::new(Duration::seconds(1), 5);
-        let f2_runned = Arc::new(Mutex::new(false));
+        let f2_ran = Arc::new(Mutex::new(false));
         let f1 = async {
             async_std::task::sleep(std::time::Duration::from_millis(50)).await;
             Ok(1)
         };
         let f2 = {
-            let f2_runned = f2_runned.clone();
+            let f2_ran = f2_ran.clone();
             async move {
-                *f2_runned.lock().unwrap() = true;
+                *f2_ran.lock().unwrap() = true;
                 Ok(2)
             }
         };
@@ -263,7 +263,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(!*f2_runned.lock().unwrap());
+        assert!(!*f2_ran.lock().unwrap());
         assert_eq!(res1, 1);
         assert_eq!(res2, 1);
         assert_eq!(cache.statistics().hits(), 1);
@@ -273,15 +273,15 @@ mod tests {
     #[async_std::test]
     async fn should_not_cache_failed_futures() {
         let cache = Cache::new(Duration::seconds(1), 5);
-        let f2_runned = Arc::new(Mutex::new(false));
+        let f2_ran = Arc::new(Mutex::new(false));
         let f1 = async {
             async_std::task::sleep(std::time::Duration::from_millis(50)).await;
             Err(anyhow!("Err"))
         };
         let f2 = {
-            let f2_runned = f2_runned.clone();
+            let f2_ran = f2_ran.clone();
             async move {
-                *f2_runned.lock().unwrap() = true;
+                *f2_ran.lock().unwrap() = true;
                 Ok(2)
             }
         };
@@ -296,7 +296,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(!*f2_runned.lock().unwrap());
+        assert!(!*f2_ran.lock().unwrap());
         assert!(res1.is_err());
         assert!(res2.is_err());
         assert_eq!(res3, 5);
@@ -307,15 +307,15 @@ mod tests {
     #[async_std::test]
     async fn should_recompute_when_ttl_expired() {
         let cache = Cache::new(Duration::milliseconds(10), 5);
-        let f2_runned = Arc::new(Mutex::new(false));
+        let f2_ran = Arc::new(Mutex::new(false));
         let f1 = async {
             async_std::task::sleep(std::time::Duration::from_millis(50)).await;
             Ok(1)
         };
         let f2 = {
-            let f2_runned = f2_runned.clone();
+            let f2_ran = f2_ran.clone();
             async move {
-                *f2_runned.lock().unwrap() = true;
+                *f2_ran.lock().unwrap() = true;
                 Ok(2)
             }
         };
@@ -326,7 +326,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(*f2_runned.lock().unwrap());
+        assert!(*f2_ran.lock().unwrap());
         assert_eq!(res1, 1);
         assert_eq!(res2, 2);
         assert_eq!(cache.statistics().hits(), 0);
