@@ -557,16 +557,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "combine"
-version = "4.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a909e4d93292cd8e9c42e189f61681eff9d67b6541f96b8a1a737f23737bd001"
-dependencies = [
- "bytes 1.1.0",
- "memchr",
-]
-
-[[package]]
 name = "concurrent-queue"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -602,10 +592,7 @@ dependencies = [
  "openssl",
  "prometheus",
  "prometheus-static-metric",
- "r2d2",
- "r2d2_redis 0.14.0",
  "rand 0.7.3",
- "redis 0.21.2",
  "sentry",
  "serde 1.0.130",
  "serde_json",
@@ -2406,17 +2393,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d8ff6a258769033b4e3c1e895f9f8b0aa47b6f49403e54591745e8a943e1a67"
 dependencies = [
  "r2d2",
- "redis 0.13.0",
-]
-
-[[package]]
-name = "r2d2_redis"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "182473b876b0b93e353682ec58e207dd1cb4a62278bbe0045fe52b86b74363bb"
-dependencies = [
- "r2d2",
- "redis 0.20.2",
+ "redis",
 ]
 
 [[package]]
@@ -2544,7 +2521,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9bb1079bc5692c03e1479bb7086ac870ac2aaf7115b5e72d314c01368f1a747e"
 dependencies = [
  "bytes 0.4.12",
- "combine 3.8.1",
+ "combine",
  "dtoa",
  "futures 0.1.31",
  "itoa",
@@ -2556,36 +2533,6 @@ dependencies = [
  "tokio-sync",
  "tokio-tcp",
  "tokio-uds",
- "url",
-]
-
-[[package]]
-name = "redis"
-version = "0.20.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4f0ceb2ec0dd769483ecd283f6615aa83dcd0be556d5294c6e659caefe7cc54"
-dependencies = [
- "async-trait",
- "combine 4.6.1",
- "dtoa",
- "itoa",
- "percent-encoding",
- "sha1",
- "url",
-]
-
-[[package]]
-name = "redis"
-version = "0.21.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "202c5bf92cad3d57605c366e644a7fbf305a83f19754fc66678c6265dcc9b8b4"
-dependencies = [
- "async-trait",
- "combine 4.6.1",
- "dtoa",
- "itoa",
- "percent-encoding",
- "r2d2",
  "url",
 ]
 
@@ -3359,7 +3306,7 @@ dependencies = [
  "http-types",
  "jsonwebtoken",
  "log",
- "r2d2_redis 0.12.0",
+ "r2d2_redis",
  "serde 1.0.130",
  "serde_derive",
  "serde_json",
