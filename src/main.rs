@@ -85,6 +85,7 @@ async fn main() -> Result<()> {
 
 mod app;
 mod backend;
+mod cache;
 mod config;
 mod db;
 #[allow(unused_imports)]
@@ -94,4 +95,3 @@ mod serde;
 mod test_helpers;
 mod trace_id;
 mod util;
-mod cache;
