@@ -455,7 +455,7 @@ impl RequestHandler for ConnectHandler {
 
             // Check that the backend's capacity is not exceeded for readers.
             if payload.intent == ConnectIntent::Read
-                && db::janus_backend::free_capacity(backend.id(), payload.id, &conn)? == 0
+                && db::janus_backend::free_capacity(payload.id, &conn)? == 0
             {
                 return Err(anyhow!(
                     "Active agents number on the backend exceeded its capacity"
