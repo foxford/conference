@@ -1,4 +1,4 @@
-use std::{any::TypeId, collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
 use enum_iterator::IntoEnumIterator;
@@ -8,9 +8,9 @@ use prometheus::{
 };
 use prometheus_static_metric::make_static_metric;
 
-use crate::{config::CacheKind, db};
+use crate::db;
 
-use super::{context::Context, endpoint, error::ErrorKind};
+use super::{context::GlobalContext, endpoint, error::ErrorKind};
 
 pub trait HistogramExt {
     fn observe_timestamp(&self, start: DateTime<Utc>);
@@ -76,6 +76,7 @@ make_static_metric! {
             hit,
             miss,
             replace,
+            len,
         },
     }
 }
@@ -147,19 +148,25 @@ impl Metrics {
         }
     }
 
-    pub fn observe_caches(&self, ctx: &impl Context) {
+    pub fn observe_caches(&self, ctx: &impl GlobalContext) {
         macro_rules! observe_cache {
             ($ctx:ident, $c:expr, $k:ty, $v:ty) => {
                 if let Some(cache) = $ctx.cache::<$k, $v>() {
                     $c.hit.set(cache.statistics().hits() as i64);
                     $c.miss.set(cache.statistics().misses() as i64);
                     $c.replace.set(cache.statistics().replaces() as i64);
+                    $c.len.set(cache.statistics().len() as i64);
                 }
             };
         }
         observe_cache!(ctx, self.caches.room_by_id, db::room::Id, db::room::Object);
-        observe_cache!(ctx, self.caches.room_by_id, db::rtc::Id, db::room::Object);
-        observe_cache!(ctx, self.caches.room_by_id, db::rtc::Id, db::rtc::Object);
+        observe_cache!(
+            ctx,
+            self.caches.room_by_rtc_id,
+            db::rtc::Id,
+            db::room::Object
+        );
+        observe_cache!(ctx, self.caches.rtc_by_id, db::rtc::Id, db::rtc::Object);
     }
 
     pub fn observe_app_result(&self, result: &endpoint::Result) {

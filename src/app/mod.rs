@@ -88,10 +88,6 @@ pub async fn run(
         let clients = clients.clone();
         move || janus_metrics.start_collector(db, clients, collect_interval)
     });
-    task::spawn(start_metrics_collector(
-        metrics_registry,
-        config.metrics.http.bind_address,
-    ));
 
     // Subscribe to topics
     let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
@@ -105,6 +101,11 @@ pub async fn run(
         clients.clone(),
         metrics.clone(),
     );
+    task::spawn(start_metrics_collector(
+        metrics_registry,
+        config.metrics.http.bind_address,
+        context.clone(),
+    ));
 
     let context = match redis_pool {
         Some(pool) => context.add_redis_pool(pool),
@@ -271,10 +272,13 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
 async fn start_metrics_collector(
     registry: Registry,
     bind_addr: SocketAddr,
+    context: AppContext,
 ) -> async_std::io::Result<()> {
     let mut app = tide::with_state(registry);
-    app.at("/metrics")
-        .get(|req: tide::Request<Registry>| async move {
+    app.at("/metrics").get(move |req: tide::Request<Registry>| {
+        let context = context.clone();
+        async move {
+            context.metrics().observe_caches(&context);
             let registry = req.state();
             let mut buffer = vec![];
             let encoder = TextEncoder::new();
@@ -290,7 +294,8 @@ async fn start_metrics_collector(
                     Ok(tide::Response::new(500))
                 }
             }
-        });
+        }
+    });
     app.listen(bind_addr).await
 }
 
