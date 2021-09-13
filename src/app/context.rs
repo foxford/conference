@@ -58,7 +58,7 @@ pub trait MessageContext: Send {
 #[derive(Clone)]
 pub struct AppContext {
     config: Arc<Config>,
-    authz: Authz,
+    authz: Arc<Authz>,
     db: Db,
     agent_id: AgentId,
     janus_topics: JanusTopics,
@@ -91,7 +91,7 @@ impl AppContext {
             .collect();
         Self {
             config: Arc::new(config),
-            authz,
+            authz: Arc::new(authz),
             db,
             agent_id,
             janus_topics,
