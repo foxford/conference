@@ -8,7 +8,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
-use svc_agent::AgentId;
+use svc_agent::{sql::Agent_id, AgentId};
 
 pub type AllColumns = (
     janus_backend::id,
@@ -401,7 +401,7 @@ const FREE_CAPACITY_SQL: &str = r#"
         active_room AS (
             SELECT *
             FROM room
-            WHERE backend_id IS NOT NULL
+            WHERE backend_id = $1
             AND   LOWER(time) <= NOW()
             AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
         ),
@@ -453,7 +453,7 @@ const FREE_CAPACITY_SQL: &str = r#"
     ON jb.id = ar.backend_id
     LEFT JOIN janus_backend_load AS jbl
     ON jbl.backend_id = jb.id
-    WHERE rtc.id = $1
+    WHERE rtc.id = $2
 "#;
 
 #[derive(QueryableByName)]
@@ -462,10 +462,15 @@ struct FreeCapacityQueryRow {
     free_capacity: i32,
 }
 
-pub fn free_capacity(rtc_id: db::rtc::Id, conn: &PgConnection) -> Result<i32, Error> {
+pub fn free_capacity(
+    backend_id: &AgentId,
+    rtc_id: db::rtc::Id,
+    conn: &PgConnection,
+) -> Result<i32, Error> {
     use diesel::{prelude::*, sql_types::Uuid};
 
     diesel::sql_query(FREE_CAPACITY_SQL)
+        .bind::<Agent_id, _>(backend_id)
         .bind::<Uuid, _>(rtc_id)
         .get_result::<FreeCapacityQueryRow>(conn)
         .map(|row| row.free_capacity)
