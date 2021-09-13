@@ -38,6 +38,7 @@ pub struct CacheConfig {
 
 #[derive(Deserialize, Debug, Clone, Copy, Hash, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)]
 pub enum CacheKind {
     RoomById,
     RoomByRtcId,

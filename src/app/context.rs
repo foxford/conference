@@ -40,7 +40,7 @@ pub trait GlobalContext: Sync {
     fn get_conn(
         &self,
     ) -> JoinHandle<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
-        let db = self.db().clone();
+        let db = self.db();
         async_std::task::spawn_blocking(move || {
             db.get()
                 .map_err(|err| anyhow::Error::from(err).context("Failed to acquire DB connection"))
@@ -82,11 +82,9 @@ impl AppContext {
             .cache_configs
             .iter()
             .map(|(kind, conf)| match kind {
-                CacheKind::RoomById => Self::create_cache::<db::room::Id, db::room::Object>(&conf),
-                CacheKind::RoomByRtcId => {
-                    Self::create_cache::<db::rtc::Id, db::room::Object>(&conf)
-                }
-                CacheKind::RtcById => Self::create_cache::<db::rtc::Id, db::rtc::Object>(&conf),
+                CacheKind::RoomById => Self::create_cache::<db::room::Id, db::room::Object>(conf),
+                CacheKind::RoomByRtcId => Self::create_cache::<db::rtc::Id, db::room::Object>(conf),
+                CacheKind::RtcById => Self::create_cache::<db::rtc::Id, db::rtc::Object>(conf),
             })
             .collect();
         Self {

@@ -213,8 +213,8 @@ pub async fn find_by_id(
 ) -> anyhow::Result<Option<Object>> {
     let find = async move {
         async_std::task::spawn_blocking(move || {
-            let mut connection = db.get()?;
-            Ok::<_, anyhow::Error>(FindQuery::new(id).execute(&mut connection)?)
+            let connection = db.get()?;
+            Ok::<_, anyhow::Error>(FindQuery::new(id).execute(&connection)?)
         })
         .await
     };
@@ -253,8 +253,8 @@ pub async fn find_by_rtc_id(
 ) -> anyhow::Result<Option<Object>> {
     let find = async move {
         async_std::task::spawn_blocking(move || {
-            let mut connection = db.get()?;
-            Ok::<_, anyhow::Error>(FindByRtcIdQuery::new(id).execute(&mut connection)?)
+            let connection = db.get()?;
+            Ok::<_, anyhow::Error>(FindByRtcIdQuery::new(id).execute(&connection)?)
         })
         .await
     };

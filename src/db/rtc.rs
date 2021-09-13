@@ -112,8 +112,8 @@ pub async fn find_by_id(
 ) -> anyhow::Result<Option<Object>> {
     let find = async move {
         async_std::task::spawn_blocking(move || {
-            let mut connection = pool.get()?;
-            Ok::<_, anyhow::Error>(FindQuery::new().id(id).execute(&mut connection)?)
+            let connection = pool.get()?;
+            Ok::<_, anyhow::Error>(FindQuery::new().id(id).execute(&connection)?)
         })
         .await
     };
