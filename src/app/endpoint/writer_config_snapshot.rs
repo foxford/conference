@@ -30,8 +30,6 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let conn = context.get_conn().await?;
-
         let account_id = reqp.as_account_id().to_owned();
         let service_audience = context.agent_id().as_account_id().to_owned();
         let room = helpers::find_room_by_id(
@@ -42,6 +40,7 @@ impl RequestHandler for ReadHandler {
         )
         .await?;
 
+        let conn = context.get_conn().await?;
         let snapshots = task::spawn_blocking(move || {
             if account_id.label() != "dispatcher"
                 || account_id.audience() != service_audience.audience()

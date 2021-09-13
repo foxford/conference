@@ -76,7 +76,6 @@ impl ResponseHandler for CreateResponseHandler {
 
         // Find room.
         let room_id = try_room_id(&corr_data.object)?;
-        let conn = context.get_conn().await?;
         let subject = corr_data.subject.clone();
         let room = helpers::find_room_by_id(
             room_id,
@@ -85,6 +84,7 @@ impl ResponseHandler for CreateResponseHandler {
             context.cache(),
         )
         .await?;
+        let conn = context.get_conn().await?;
         let room = task::spawn_blocking(move || {
             if room.host() == Some(&subject) {
                 db::orphaned_room::remove_room(room_id, &conn)?;
