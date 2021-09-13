@@ -50,15 +50,18 @@ impl RequestHandler for UnicastHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        let room = helpers::find_room_by_id(
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            context.db(),
+            context.cache(),
+        )
+        .await?;
         {
             let conn = context.get_conn().await?;
-            let room_id = payload.room_id;
             let reqp_agent_id = reqp.as_agent_id().clone();
             let payload_agent_id = payload.agent_id.clone();
             task::spawn_blocking(move || {
-                let room =
-                    helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
-
                 helpers::check_room_presence(&room, &reqp_agent_id, &conn)?;
                 helpers::check_room_presence(&room, &payload_agent_id, &conn)?;
                 Ok::<_, AppError>(room)
@@ -124,14 +127,17 @@ impl RequestHandler for BroadcastHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        let room = helpers::find_room_by_id(
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            context.db(),
+            context.cache(),
+        )
+        .await?;
         let conn = context.get_conn().await?;
         let room = task::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
-            let room_id = payload.room_id;
             move || {
-                let room =
-                    helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
-
                 helpers::check_room_presence(&room, &agent_id, &conn)?;
                 Ok::<_, AppError>(room)
             }

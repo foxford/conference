@@ -13,23 +13,25 @@ use futures::{
     Future, FutureExt, TryFutureExt,
 };
 
-#[derive(Clone)]
-pub struct Cache<K, V>
-where
-    K: std::hash::Hash + Eq + PartialEq + Clone,
-    V: Clone,
-{
+pub struct Cache<K, V> {
     cache: Arc<RwLock<HashMap<K, CacheItem<V>>>>,
     statistics: Arc<Statistics>,
     ttl: Duration,
     max_capacity: usize,
 }
 
-impl<K, V> Cache<K, V>
-where
-    K: std::hash::Hash + Eq + PartialEq + Clone,
-    V: Clone,
-{
+impl<K, V> Clone for Cache<K, V> {
+    fn clone(&self) -> Self {
+        Self {
+            cache: self.cache.clone(),
+            statistics: self.statistics.clone(),
+            ttl: self.ttl,
+            max_capacity: self.max_capacity,
+        }
+    }
+}
+
+impl<K, V> Cache<K, V> {
     pub fn new(ttl: Duration, max_capacity: usize) -> Self {
         Self {
             cache: Arc::new(RwLock::new(HashMap::new())),
@@ -38,7 +40,13 @@ where
             statistics: Arc::new(Statistics::new()),
         }
     }
+}
 
+impl<K, V> Cache<K, V>
+where
+    K: std::hash::Hash + Eq + PartialEq + Clone,
+    V: Clone,
+{
     pub async fn get_or_insert<F>(
         &self,
         key: K,
@@ -86,24 +94,21 @@ where
             if cache.len() >= self.max_capacity {
                 *cache = HashMap::new()
             }
-            match cache.entry(key) {
+            let key_or_cache = match cache.entry(key) {
                 Entry::Occupied(mut o) => {
                     let existing = o.get();
                     if !existing.is_expired(now) {
                         self.statistics.inc_hit();
-                        let val = existing.item.clone();
-                        self.statistics.set_len(cache.len());
-                        drop(cache);
-                        return val.await;
+                        KeyOrCacheItem::Cache(existing.clone())
+                    } else {
+                        self.statistics.inc_replace();
+                        let key = o.key().clone();
+                        o.insert(CacheItem {
+                            item: get_value.clone(),
+                            expires_at: now + self.ttl,
+                        });
+                        KeyOrCacheItem::Key(key)
                     }
-                    self.statistics.inc_replace();
-                    let key = o.key().clone();
-                    o.insert(CacheItem {
-                        item: get_value.clone(),
-                        expires_at: now + self.ttl,
-                    });
-                    self.statistics.set_len(cache.len());
-                    key
                 }
                 Entry::Vacant(v) => {
                     self.statistics.inc_miss();
@@ -112,24 +117,35 @@ where
                         item: get_value.clone(),
                         expires_at: now + self.ttl,
                     });
-                    self.statistics.set_len(cache.len());
-                    key
+                    KeyOrCacheItem::Key(key)
+                }
+            };
+            self.statistics.set_len(cache.len());
+            key_or_cache
+        };
+        match key {
+            KeyOrCacheItem::Key(key) => {
+                let remove_guard = RemoveGuard {
+                    map: &*self.cache,
+                    key: &key,
+                };
+                match get_value.await {
+                    Ok(Some(result)) => {
+                        std::mem::forget(remove_guard);
+                        Ok(Some(result))
+                    }
+                    Ok(None) => Ok(None),
+                    Err(err) => Err(err),
                 }
             }
-        };
-        let remove_guard = RemoveGuard {
-            map: &*self.cache,
-            key: &key,
-        };
-        match get_value.await {
-            Ok(Some(result)) => {
-                std::mem::forget(remove_guard);
-                Ok(Some(result))
-            }
-            Ok(None) => Ok(None),
-            Err(err) => Err(err),
+            KeyOrCacheItem::Cache(c) => c.item.await,
         }
     }
+}
+
+enum KeyOrCacheItem<K, V> {
+    Key(K),
+    Cache(CacheItem<V>),
 }
 
 pub struct Statistics {

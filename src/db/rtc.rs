@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::db;
+use crate::{cache::Cache, db};
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
 use diesel_derive_enum::DbEnum;
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-use super::{recording::Object as Recording, room::Object as Room};
+use super::{recording::Object as Recording, room::Object as Room, ConnectionPool};
 use crate::schema::{recording, rtc};
 use derive_more::{Display, FromStr};
 use diesel_derive_newtype::DieselNewType;
@@ -79,21 +79,21 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub struct FindQuery {
+struct FindQuery {
     id: Option<Id>,
 }
 
 impl FindQuery {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self { id: None }
     }
 
-    pub fn id(mut self, id: Id) -> Self {
+    fn id(mut self, id: Id) -> Self {
         self.id = Some(id);
         self
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+    fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
         match self.id {
@@ -102,6 +102,25 @@ impl FindQuery {
                 "id is required parameters of the query".into(),
             )),
         }
+    }
+}
+
+pub async fn find_by_id(
+    id: Id,
+    pool: ConnectionPool,
+    cache: Option<&Cache<Id, Object>>,
+) -> anyhow::Result<Option<Object>> {
+    let find = async move {
+        async_std::task::spawn_blocking(move || {
+            let mut connection = pool.get()?;
+            Ok::<_, anyhow::Error>(FindQuery::new().id(id).execute(&mut connection)?)
+        })
+        .await
+    };
+    if let Some(cache) = cache {
+        cache.get_or_insert(id, find, Utc::now()).await
+    } else {
+        find.await
     }
 }
 

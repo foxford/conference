@@ -26,6 +26,22 @@ pub struct Config {
     pub janus_group: Option<String>,
     #[serde(with = "humantime_serde")]
     pub orphaned_room_timeout: Duration,
+    pub cache_configs: HashMap<CacheKind, CacheConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CacheConfig {
+    pub capacity: usize,
+    #[serde(with = "humantime_serde")]
+    pub ttl: Duration,
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CacheKind {
+    RoomById,
+    RoomByRtcId,
+    RtcById,
 }
 
 #[derive(Clone, Debug, Deserialize)]

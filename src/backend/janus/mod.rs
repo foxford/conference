@@ -16,7 +16,7 @@ use tracing::{error, field::Empty, Span};
 use crate::{
     app::{
         context::Context,
-        endpoint,
+        endpoint::{self, helpers::RoomTimeRequirement},
         error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
         message_handler::MessageStream,
         metrics::HistogramExt,
@@ -82,17 +82,18 @@ async fn handle_event_impl<C: Context>(
             // If the event relates to a publisher's handle,
             // we will find the corresponding stream and send event w/ updated stream object
             // to the room's topic.
-            let conn = context.get_conn().await?;
             let start_timestamp = context.start_timestamp();
+            let room = endpoint::helpers::find_room_by_id(
+                inev.opaque_id.room_id,
+                endpoint::helpers::RoomTimeRequirement::Open,
+                context.db(),
+                context.cache(),
+            )
+            .await?;
+            let conn = context.get_conn().await?;
             task::spawn_blocking(move || {
                 if let Some(rtc_stream) = janus_rtc_stream::start(inev.opaque_id.stream_id, &conn)?
                 {
-                    let room = endpoint::helpers::find_room_by_rtc_id(
-                        rtc_stream.rtc_id(),
-                        endpoint::helpers::RoomTimeRequirement::Open,
-                        &conn,
-                    )?;
-
                     let event =
                         endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp)?;
 
@@ -276,24 +277,24 @@ async fn handle_event_impl<C: Context>(
                             room::Object,
                             Vec<(rtc::Object, Option<recording::Object>)>,
                         ) = {
+                            let rtc = db::rtc::find_by_id(rtc_id, context.db(), context.cache())
+                                .await
+                                .error(AppErrorKind::DbQueryFailed)?
+                                .ok_or_else(|| anyhow!("RTC not found"))
+                                .error(AppErrorKind::RtcNotFound)?;
+                            let room = endpoint::helpers::find_room_by_id(
+                                rtc.room_id(),
+                                RoomTimeRequirement::Any,
+                                context.db(),
+                                context.cache(),
+                            )
+                            .await?;
                             let conn = context.get_conn().await?;
                             task::spawn_blocking(move || {
                                 recording::UpdateQuery::new(rtc_id)
                                     .status(recording::Status::Ready)
                                     .mjr_dumps_uris(mjr_dumps_uris)
                                     .execute(&conn)?;
-
-                                let rtc = rtc::FindQuery::new()
-                                    .id(rtc_id)
-                                    .execute(&conn)?
-                                    .ok_or_else(|| anyhow!("RTC not found"))
-                                    .error(AppErrorKind::RtcNotFound)?;
-
-                                let room = endpoint::helpers::find_room_by_rtc_id(
-                                    rtc.id(),
-                                    endpoint::helpers::RoomTimeRequirement::Any,
-                                    &conn,
-                                )?;
 
                                 let rtcs_with_recs =
                                     rtc::ListWithReadyRecordingQuery::new(room.id())

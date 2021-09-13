@@ -18,7 +18,7 @@ use tracing::Span;
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
     backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
-    db::{self, room::FindQueryable},
+    db::{self},
 };
 use tracing_attributes::instrument;
 
@@ -78,9 +78,14 @@ impl ResponseHandler for CreateResponseHandler {
         let room_id = try_room_id(&corr_data.object)?;
         let conn = context.get_conn().await?;
         let subject = corr_data.subject.clone();
+        let room = helpers::find_room_by_id(
+            room_id,
+            helpers::RoomTimeRequirement::NotClosed,
+            context.db(),
+            context.cache(),
+        )
+        .await?;
         let room = task::spawn_blocking(move || {
-            let room =
-                helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)?;
             if room.host() == Some(&subject) {
                 db::orphaned_room::remove_room(room_id, &conn)?;
             }
@@ -246,6 +251,13 @@ async fn leave_room<C: Context>(
     agent_id: &AgentId,
     room_id: db::room::Id,
 ) -> StdResult<bool, AppError> {
+    let room = helpers::find_room_by_id(
+        room_id,
+        helpers::RoomTimeRequirement::Any,
+        context.db(),
+        context.cache(),
+    )
+    .await?;
     let conn = context.get_conn().await?;
     let backends = task::spawn_blocking({
         let agent_id = agent_id.clone();
@@ -260,7 +272,7 @@ async fn leave_room<C: Context>(
                 return Ok::<_, AppError>(None);
             }
 
-            make_orphaned_if_host_left(room_id, &agent_id, &conn)?;
+            make_orphaned_if_host_left(&room, &agent_id, &conn)?;
 
             // `agent.leave` requests to Janus instances that host active streams in this room.
             let streams = db::janus_rtc_stream::ListQuery::new()
@@ -326,13 +338,12 @@ async fn leave_room<C: Context>(
 }
 
 fn make_orphaned_if_host_left(
-    room_id: db::room::Id,
+    room: &db::room::Object,
     agent_left: &AgentId,
     connection: &PgConnection,
 ) -> StdResult<(), diesel::result::Error> {
-    let room = db::room::FindQuery::new(room_id).execute(connection)?;
-    if room.as_ref().and_then(|x| x.host()) == Some(agent_left) {
-        db::orphaned_room::upsert_room(room_id, Utc::now(), connection)?;
+    if room.host() == Some(agent_left) {
+        db::orphaned_room::upsert_room(room.id(), Utc::now(), connection)?;
     }
     Ok(())
 }

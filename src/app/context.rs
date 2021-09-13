@@ -1,4 +1,8 @@
-use std::sync::Arc;
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+    sync::Arc,
+};
 
 use async_std::task::JoinHandle;
 use chrono::{DateTime, Utc};
@@ -12,8 +16,9 @@ use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz
 use crate::{
     app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
     backend::janus::client_pool::Clients,
-    config::Config,
-    db::ConnectionPool as Db,
+    cache::Cache,
+    config::{CacheConfig, CacheKind, Config},
+    db::{self, ConnectionPool as Db},
 };
 
 use super::metrics::Metrics;
@@ -25,13 +30,13 @@ pub trait Context: GlobalContext + MessageContext {}
 pub trait GlobalContext: Sync {
     fn authz(&self) -> &Authz;
     fn config(&self) -> &Config;
-    fn db(&self) -> &Db;
+    fn db(&self) -> Db;
     fn agent_id(&self) -> &AgentId;
     fn janus_clients(&self) -> Clients;
     fn janus_topics(&self) -> &JanusTopics;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
     fn metrics(&self) -> Arc<Metrics>;
-
+    fn cache<K: 'static, V: 'static>(&self) -> Option<&Cache<K, V>>;
     fn get_conn(
         &self,
     ) -> JoinHandle<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
@@ -60,6 +65,7 @@ pub struct AppContext {
     redis_pool: Option<RedisConnectionPool>,
     clients: Clients,
     metrics: Arc<Metrics>,
+    caches: Arc<HashMap<(TypeId, TypeId), Box<dyn Any + Send + Sync + 'static>>>,
 }
 
 impl AppContext {
@@ -72,7 +78,17 @@ impl AppContext {
         metrics: Arc<Metrics>,
     ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
-
+        let caches = config
+            .cache_configs
+            .iter()
+            .map(|(kind, conf)| match kind {
+                CacheKind::RoomById => Self::create_cache::<db::room::Id, db::room::Object>(&conf),
+                CacheKind::RoomByRtcId => {
+                    Self::create_cache::<db::rtc::Id, db::room::Object>(&conf)
+                }
+                CacheKind::RtcById => Self::create_cache::<db::rtc::Id, db::rtc::Object>(&conf),
+            })
+            .collect();
         Self {
             config: Arc::new(config),
             authz,
@@ -82,7 +98,22 @@ impl AppContext {
             redis_pool: None,
             clients,
             metrics,
+            caches: Arc::new(caches),
         }
+    }
+
+    fn create_cache<K, V>(
+        conf: &CacheConfig,
+    ) -> ((TypeId, TypeId), Box<dyn Any + Send + Sync + 'static>)
+    where
+        K: Send + Sync + 'static,
+        V: Send + Sync + 'static,
+    {
+        let cache = Cache::<K, V>::new(
+            chrono::Duration::from_std(conf.ttl).expect("Bad cache ttl"),
+            conf.capacity,
+        );
+        ((TypeId::of::<K>(), TypeId::of::<V>()), Box::new(cache))
     }
 
     pub fn add_redis_pool(self, pool: RedisConnectionPool) -> Self {
@@ -102,8 +133,8 @@ impl GlobalContext for AppContext {
         &self.config
     }
 
-    fn db(&self) -> &Db {
-        &self.db
+    fn db(&self) -> Db {
+        self.db.clone()
     }
 
     fn agent_id(&self) -> &AgentId {
@@ -124,6 +155,12 @@ impl GlobalContext for AppContext {
 
     fn metrics(&self) -> Arc<Metrics> {
         self.metrics.clone()
+    }
+
+    fn cache<K: 'static, V: 'static>(&self) -> Option<&Cache<K, V>> {
+        self.caches
+            .get(&(TypeId::of::<K>(), TypeId::of::<V>()))
+            .and_then(|cache| cache.downcast_ref::<Cache<K, V>>())
     }
 }
 
@@ -152,7 +189,7 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.config()
     }
 
-    fn db(&self) -> &Db {
+    fn db(&self) -> Db {
         self.global_context.db()
     }
 
@@ -174,6 +211,10 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 
     fn metrics(&self) -> Arc<Metrics> {
         self.global_context.metrics()
+    }
+
+    fn cache<K: 'static, V: 'static>(&self) -> Option<&Cache<K, V>> {
+        self.global_context.cache::<K, V>()
     }
 }
 

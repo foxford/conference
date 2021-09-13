@@ -53,6 +53,7 @@ svc-error = {version = "0.1", features = [
 tide = "0.16"
 uuid = {version = "0.6", features = ["v4", "serde"]}
 webrtc-sdp = "0.3"
+parking_lot = "0.11"
 
 [dev-dependencies]
 diesel_migrations = "1"

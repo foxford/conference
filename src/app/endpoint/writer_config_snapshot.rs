@@ -34,14 +34,15 @@ impl RequestHandler for ReadHandler {
 
         let account_id = reqp.as_account_id().to_owned();
         let service_audience = context.agent_id().as_account_id().to_owned();
+        let room = helpers::find_room_by_id(
+            payload.room_id,
+            helpers::RoomTimeRequirement::Any,
+            context.db(),
+            context.cache(),
+        )
+        .await?;
 
         let snapshots = task::spawn_blocking(move || {
-            let room = helpers::find_room_by_id(
-                payload.room_id,
-                helpers::RoomTimeRequirement::Any,
-                &conn,
-            )?;
-
             if account_id.label() != "dispatcher"
                 || account_id.audience() != service_audience.audience()
             {

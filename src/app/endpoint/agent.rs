@@ -33,11 +33,12 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
-            let room_id = payload.room_id;
-            move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
-        })
+        let room = helpers::find_room_by_id(
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            context.db(),
+            context.cache(),
+        )
         .await?;
 
         // Authorize agents listing in the room.

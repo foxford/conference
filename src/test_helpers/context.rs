@@ -123,8 +123,8 @@ impl GlobalContext for TestContext {
         &self.config
     }
 
-    fn db(&self) -> &Db {
-        self.db.connection_pool()
+    fn db(&self) -> Db {
+        self.db.connection_pool().clone()
     }
 
     fn agent_id(&self) -> &AgentId {
@@ -149,6 +149,10 @@ impl GlobalContext for TestContext {
     fn metrics(&self) -> Arc<Metrics> {
         let registry = Registry::new();
         Arc::new(Metrics::new(&registry).unwrap())
+    }
+
+    fn cache<K: 'static, V: 'static>(&self) -> Option<&crate::cache::Cache<K, V>> {
+        None
     }
 }
 

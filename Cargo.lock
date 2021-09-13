@@ -590,6 +590,7 @@ dependencies = [
  "isahc 1.1.0",
  "once_cell",
  "openssl",
+ "parking_lot 0.11.2",
  "prometheus",
  "prometheus-static-metric",
  "rand 0.7.3",

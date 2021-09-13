@@ -80,24 +80,23 @@ impl RequestHandler for CreateHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         // Validate RTC and room presence.
+        let rtc = db::rtc::find_by_id(payload.handle_id.rtc_id(), context.db(), context.cache())
+            .await
+            .error(AppErrorKind::DbQueryFailed)?
+            .ok_or_else(|| anyhow!("RTC not found"))
+            .error(AppErrorKind::RtcNotFound)?;
+        let room = helpers::find_room_by_id(
+            rtc.room_id(),
+            helpers::RoomTimeRequirement::Open,
+            context.db(),
+            context.cache(),
+        )
+        .await?;
         let conn = context.get_conn().await?;
         let (room, rtc, backend) = task::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let handle_id = payload.handle_id.clone();
             move ||{
-
-            let rtc = db::rtc::FindQuery::new()
-                .id(handle_id.rtc_id())
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("RTC not found"))
-                .error(AppErrorKind::RtcNotFound)?;
-
-            let room = helpers::find_room_by_id(
-                rtc.room_id(),
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?;
-
             helpers::check_room_presence(&room, &agent_id, &conn)?;
 
             // Validate backend and janus session id.

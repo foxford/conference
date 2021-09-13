@@ -62,10 +62,12 @@ impl RequestHandler for CreateHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let conn = context.get_conn().await?;
-        let room = task::spawn_blocking(move || {
-            helpers::find_room_by_id(payload.room_id, helpers::RoomTimeRequirement::Open, &conn)
-        })
+        let room = helpers::find_room_by_id(
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            context.db(),
+            context.cache(),
+        )
         .await?;
 
         // Authorize room creation.
@@ -151,13 +153,12 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
-            let payload_id = payload.id;
-            move || {
-                helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
-            }
-        })
+        let room = helpers::find_room_by_rtc_id(
+            payload.id,
+            helpers::RoomTimeRequirement::Open,
+            context.db(),
+            context.cache(),
+        )
         .await?;
 
         // Authorize rtc reading.
@@ -172,15 +173,11 @@ impl RequestHandler for ReadHandler {
         context.metrics().observe_auth(authz_time);
 
         // Return rtc.
-        let conn = context.get_conn().await?;
-        let rtc = task::spawn_blocking(move || {
-            db::rtc::FindQuery::new()
-                .id(payload.id)
-                .execute(&conn)?
-                .ok_or_else(|| anyhow!("RTC not found"))
-                .error(AppErrorKind::RtcNotFound)
-        })
-        .await?;
+        let rtc = db::rtc::find_by_id(payload.id, context.db(), context.cache())
+            .await
+            .error(AppErrorKind::DbQueryFailed)?
+            .ok_or_else(|| anyhow!("RTC not found"))
+            .error(AppErrorKind::RtcNotFound)?;
         context
             .metrics()
             .request_duration
@@ -221,13 +218,12 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
-            let payload_room_id = payload.room_id;
-            move || {
-                helpers::find_room_by_id(payload_room_id, helpers::RoomTimeRequirement::Open, &conn)
-            }
-        })
+        let room = helpers::find_room_by_id(
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            context.db(),
+            context.cache(),
+        )
         .await?;
 
         // Authorize rtc listing.
@@ -317,11 +313,13 @@ impl RequestHandler for ConnectHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let conn = context.get_conn().await?;
         let payload_id = payload.id;
-        let room = task::spawn_blocking(move || {
-            helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
-        })
+        let room = helpers::find_room_by_rtc_id(
+            payload.id,
+            helpers::RoomTimeRequirement::Open,
+            context.db(),
+            context.cache(),
+        )
         .await?;
 
         // Authorize connecting to the rtc.
@@ -337,16 +335,11 @@ impl RequestHandler for ConnectHandler {
             RtcSharingPolicy::Owned => {
                 if payload.intent == ConnectIntent::Write {
                     // Check that the RTC is owned by the same agent.
-                    let conn = context.get_conn().await?;
-
-                    let rtc = task::spawn_blocking(move || {
-                        db::rtc::FindQuery::new()
-                            .id(payload_id)
-                            .execute(&conn)?
-                            .ok_or_else(|| anyhow!("RTC not found"))
-                            .error(AppErrorKind::RtcNotFound)
-                    })
-                    .await?;
+                    let rtc = db::rtc::find_by_id(payload.id, context.db(), context.cache())
+                        .await
+                        .error(AppErrorKind::DbQueryFailed)?
+                        .ok_or_else(|| anyhow!("RTC not found"))
+                        .error(AppErrorKind::RtcNotFound)?;
 
                     if rtc.created_by() != reqp.as_agent_id() {
                         return Err(anyhow!("RTC doesn't belong to the agent"))
@@ -535,10 +528,7 @@ impl RequestHandler for ConnectHandler {
 mod test {
     mod create {
         use crate::{
-            db::{
-                room::FindQueryable,
-                rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy},
-            },
+            db::rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy},
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
         use chrono::{SubsecRound, Utc};
@@ -628,10 +618,8 @@ mod test {
             assert_eq!(rtc.room_id(), room.id());
 
             // Assert room closure is not unbounded
-            let conn = context.db().get().expect("Failed to get conn");
-
-            let room = db::room::FindQuery::new(room.id())
-                .execute(&conn)
+            let room = db::room::find_by_id(room.id(), context.db(), context.cache())
+                .await
                 .expect("Db query failed")
                 .expect("Room must exist");
 

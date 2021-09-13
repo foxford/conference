@@ -95,17 +95,18 @@ impl RequestHandler for UpdateHandler {
             return Err(anyhow!("Too many items in `configs` list"))
                 .error(AppErrorKind::InvalidPayload)?;
         }
+        let room = helpers::find_room_by_id(
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            context.db(),
+            context.cache(),
+        )
+        .await?;
 
         let conn = context.get_conn().await?;
         let (room, rtc_reader_configs_with_rtcs, maybe_backend) = task::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             move || {
-                let room = helpers::find_room_by_id(
-                    payload.room_id,
-                    helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
-
                 if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
                     return Err(anyhow!(
                     "Agent reader config is available only for rooms with owned RTC sharing policy"
@@ -238,17 +239,19 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        let room = helpers::find_room_by_id(
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            context.db(),
+            context.cache(),
+        )
+        .await?;
+
         let conn = context.get_conn().await?;
 
         let (room, rtc_reader_configs_with_rtcs) = task::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             move || {
-                let room = helpers::find_room_by_id(
-                    payload.room_id,
-                    helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
-
                 if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
                     return Err(anyhow!(
                     "Agent reader config is available only for rooms with owned RTC sharing policy"

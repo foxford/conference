@@ -24,7 +24,6 @@ use crate::{
     db,
     db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
 };
-use tracing::warn;
 use tracing_attributes::instrument;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -150,10 +149,12 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let conn = context.get_conn().await?;
-        let room = task::spawn_blocking(move || {
-            helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)
-        })
+        let room = helpers::find_room_by_id(
+            payload.id,
+            helpers::RoomTimeRequirement::Any,
+            context.db(),
+            context.cache(),
+        )
         .await?;
 
         // Authorize room reading on the tenant.
@@ -213,17 +214,10 @@ impl RequestHandler for UpdateHandler {
         } else {
             helpers::RoomTimeRequirement::Any
         };
-        warn!(?time_requirement, "Room update");
 
-        let conn = context.get_conn().await?;
-
-        let room = task::spawn_blocking({
-            let id = payload.id;
-            move || helpers::find_room_by_id(id, time_requirement, &conn)
-        })
-        .await?;
-
-        warn!(id = ?room.id(), "Room update, room found");
+        let room =
+            helpers::find_room_by_id(payload.id, time_requirement, context.db(), context.cache())
+                .await?;
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
@@ -236,7 +230,6 @@ impl RequestHandler for UpdateHandler {
         context.metrics().observe_auth(authz_time);
 
         let room_was_open = !room.is_closed();
-        warn!(room_was_open, "Room update, room_was_open");
 
         // Update room.
         let conn = context.get_conn().await?;
@@ -278,8 +271,6 @@ impl RequestHandler for UpdateHandler {
                 }
             };
 
-            warn!(old_time = ?room.time(), new_time = ?time, "Room update, time update");
-
             Ok::<_, AppError>(db::room::UpdateQuery::new(room.id())
                 .time(time)
                 .reserve(payload.reserve)
@@ -288,10 +279,6 @@ impl RequestHandler for UpdateHandler {
                 .host(payload.host.as_ref())
                 .execute(&conn)?)
         }).await?;
-
-        warn!(
-            new_time = ?room.time(), "Room update, room updated"
-        );
 
         // Respond and broadcast to the audience topic.
         let response = helpers::build_response(
@@ -314,11 +301,7 @@ impl RequestHandler for UpdateHandler {
 
         // Publish room closed notification.
         if let (_, Bound::Excluded(closed_at)) = room.time() {
-            warn!("Room update, room closed at is present");
-
             if room_was_open && *closed_at <= Utc::now() {
-                warn!("Room update, room closed at is in the past");
-
                 let room = async_std::task::spawn_blocking({
                     let room_id = room.id();
                     let agent = reqp.as_agent_id().to_owned();
@@ -326,8 +309,6 @@ impl RequestHandler for UpdateHandler {
                     move || db::room::set_closed_by(room_id, &agent, &conn)
                 })
                 .await?;
-
-                warn!(closed_by = ?reqp.as_agent_id(), "Room update, room closed_by is set");
 
                 responses.push(helpers::build_notification(
                     "room.close",
@@ -346,8 +327,6 @@ impl RequestHandler for UpdateHandler {
                 ));
             }
         }
-
-        warn!("Room update, done, responses len = {:?}", responses.len());
 
         context
             .metrics()
@@ -378,18 +357,12 @@ impl RequestHandler for CloseHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let conn = context.get_conn().await?;
-
-        let room = task::spawn_blocking({
-            let id = payload.id;
-            move || {
-                helpers::find_room_by_id(
-                    id,
-                    helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
-                    &conn,
-                )
-            }
-        })
+        let room = helpers::find_room_by_id(
+            payload.id,
+            helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
+            context.db(),
+            context.cache(),
+        )
         .await?;
 
         // Authorize room updating on the tenant.
@@ -472,10 +445,12 @@ impl RequestHandler for EnterHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
-        let conn = context.get_conn().await?;
-        let room = task::spawn_blocking(move || {
-            helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::NotClosed, &conn)
-        })
+        let room = helpers::find_room_by_id(
+            payload.id,
+            helpers::RoomTimeRequirement::NotClosed,
+            context.db(),
+            context.cache(),
+        )
         .await?;
 
         // Authorize subscribing to the room's events.
@@ -552,13 +527,17 @@ impl RequestHandler for LeaveHandler {
         payload: Self::Payload,
         reqp: &IncomingRequestProperties,
     ) -> Result {
+        let room = helpers::find_room_by_id(
+            payload.id,
+            helpers::RoomTimeRequirement::NotClosed,
+            context.db(),
+            context.cache(),
+        )
+        .await?;
         let conn = context.get_conn().await?;
         let (room, presence) = task::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             move || {
-                let room =
-                    helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)?;
-
                 // Check room presence.
                 let presence = db::agent::ListQuery::new()
                     .room_id(room.id())

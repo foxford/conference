@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     backend::janus::JANUS_API_VERSION,
+    cache::Cache,
     db::{
         self,
         janus_backend::Object as JanusBackend,
@@ -20,6 +21,8 @@ use crate::{
 };
 use derive_more::{Display, FromStr};
 use diesel_derive_newtype::DieselNewType;
+
+use super::ConnectionPool;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -184,22 +187,15 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub trait FindQueryable {
-    fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error>;
-}
-
 #[derive(Debug)]
-pub struct FindQuery {
+struct FindQuery {
     id: Id,
 }
 
 impl FindQuery {
-    pub fn new(id: Id) -> Self {
+    fn new(id: Id) -> Self {
         Self { id }
     }
-}
-
-impl FindQueryable for FindQuery {
     fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
@@ -210,18 +206,34 @@ impl FindQueryable for FindQuery {
     }
 }
 
+pub async fn find_by_id(
+    id: Id,
+    db: ConnectionPool,
+    cache: Option<&Cache<Id, Object>>,
+) -> anyhow::Result<Option<Object>> {
+    let find = async move {
+        async_std::task::spawn_blocking(move || {
+            let mut connection = db.get()?;
+            Ok::<_, anyhow::Error>(FindQuery::new(id).execute(&mut connection)?)
+        })
+        .await
+    };
+    if let Some(cache) = cache {
+        cache.get_or_insert(id, find, Utc::now()).await
+    } else {
+        find.await
+    }
+}
+
 #[derive(Debug)]
-pub struct FindByRtcIdQuery {
+struct FindByRtcIdQuery {
     rtc_id: db::rtc::Id,
 }
 
 impl FindByRtcIdQuery {
-    pub fn new(rtc_id: db::rtc::Id) -> Self {
+    fn new(rtc_id: db::rtc::Id) -> Self {
         Self { rtc_id }
     }
-}
-
-impl FindQueryable for FindByRtcIdQuery {
     fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
@@ -231,6 +243,25 @@ impl FindQueryable for FindByRtcIdQuery {
             .select(ALL_COLUMNS)
             .get_result(conn)
             .optional()
+    }
+}
+
+pub async fn find_by_rtc_id(
+    id: db::rtc::Id,
+    db: ConnectionPool,
+    cache: Option<&Cache<db::rtc::Id, Object>>,
+) -> anyhow::Result<Option<Object>> {
+    let find = async move {
+        async_std::task::spawn_blocking(move || {
+            let mut connection = db.get()?;
+            Ok::<_, anyhow::Error>(FindByRtcIdQuery::new(id).execute(&mut connection)?)
+        })
+        .await
+    };
+    if let Some(cache) = cache {
+        cache.get_or_insert(id, find, Utc::now()).await
+    } else {
+        find.await
     }
 }
 

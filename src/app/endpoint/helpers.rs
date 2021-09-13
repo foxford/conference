@@ -5,8 +5,9 @@ use crate::{
         error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
         API_VERSION,
     },
-    db,
+    cache::Cache,
     db::room::Object as Room,
+    db::{self, ConnectionPool},
 };
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, Utc};
@@ -62,37 +63,38 @@ pub enum RoomTimeRequirement {
     Open,
 }
 
-pub fn find_room_by_id(
+pub async fn find_room_by_id(
     id: db::room::Id,
     opening_requirement: RoomTimeRequirement,
-    conn: &PgConnection,
+    pool: ConnectionPool,
+    cache: Option<&Cache<db::room::Id, db::room::Object>>,
 ) -> Result<db::room::Object, AppError> {
-    let query = db::room::FindQuery::new(id);
-    find_room(query, opening_requirement, conn)
-}
-
-pub fn find_room_by_rtc_id(
-    rtc_id: db::rtc::Id,
-    opening_requirement: RoomTimeRequirement,
-    conn: &PgConnection,
-) -> Result<db::room::Object, AppError> {
-    let query = db::room::FindByRtcIdQuery::new(rtc_id);
-    find_room(query, opening_requirement, conn)
-}
-
-fn find_room<Q>(
-    query: Q,
-    opening_requirement: RoomTimeRequirement,
-    conn: &PgConnection,
-) -> Result<Room, AppError>
-where
-    Q: db::room::FindQueryable,
-{
-    let room = query
-        .execute(conn)?
+    let room = db::room::find_by_id(id, pool, cache)
+        .await
+        .error(AppErrorKind::DbQueryFailed)?
         .ok_or_else(|| anyhow!("Room not found"))
         .error(AppErrorKind::RoomNotFound)?;
+    check_room(room, opening_requirement)
+}
 
+pub async fn find_room_by_rtc_id(
+    rtc_id: db::rtc::Id,
+    opening_requirement: RoomTimeRequirement,
+    pool: ConnectionPool,
+    cache: Option<&Cache<db::rtc::Id, db::room::Object>>,
+) -> Result<db::room::Object, AppError> {
+    let room = db::room::find_by_rtc_id(rtc_id, pool, cache)
+        .await
+        .error(AppErrorKind::DbQueryFailed)?
+        .ok_or_else(|| anyhow!("Room not found"))
+        .error(AppErrorKind::RoomNotFound)?;
+    check_room(room, opening_requirement)
+}
+
+fn check_room(
+    room: db::room::Object,
+    opening_requirement: RoomTimeRequirement,
+) -> Result<Room, AppError> {
     match opening_requirement {
         // Room time doesn't matter.
         RoomTimeRequirement::Any => Ok(room),
