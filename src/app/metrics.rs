@@ -1,13 +1,16 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{any::TypeId, collections::HashMap, sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
 use enum_iterator::IntoEnumIterator;
 use prometheus::{
-    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
+    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
+    Registry,
 };
 use prometheus_static_metric::make_static_metric;
 
-use super::{endpoint, error::ErrorKind};
+use crate::{config::CacheKind, db};
+
+use super::{context::Context, endpoint, error::ErrorKind};
 
 pub trait HistogramExt {
     fn observe_timestamp(&self, start: DateTime<Utc>);
@@ -62,6 +65,21 @@ make_static_metric! {
     }
 }
 
+make_static_metric! {
+    struct Caches: IntGauge {
+        "cache" => {
+            room_by_id,
+            room_by_rtc_id,
+            rtc_by_id,
+        },
+        "kind" => {
+            hit,
+            miss,
+            replace,
+        },
+    }
+}
+
 pub struct Metrics {
     pub request_duration: RequestDuration,
     pub app_result_ok: IntCounter,
@@ -72,6 +90,7 @@ pub struct Metrics {
     pub total_requests: IntCounter,
     pub authorization_time: Histogram,
     pub running_requests_total: IntGauge,
+    pub caches: Caches,
 }
 
 impl Metrics {
@@ -82,6 +101,7 @@ impl Metrics {
         )?;
         let request_stats =
             IntCounterVec::new(Opts::new("request_stats", "Request stats"), &["status"])?;
+        let caches = IntGaugeVec::new(Opts::new("caches", "Request stats"), &["cache", "kind"])?;
         let total_requests = IntCounter::new("incoming_requests_total", "Total requests")?;
         let authorization_time =
             Histogram::with_opts(HistogramOpts::new("auth_time", "Authorization time"))?;
@@ -97,6 +117,7 @@ impl Metrics {
         registry.register(Box::new(total_requests.clone()))?;
         registry.register(Box::new(authorization_time.clone()))?;
         registry.register(Box::new(running_requests_total.clone()))?;
+        registry.register(Box::new(caches.clone()))?;
         Ok(Self {
             request_duration: RequestDuration::from(&request_duration),
             total_requests,
@@ -115,6 +136,7 @@ impl Metrics {
                 .get_metric_with_label_values(&["connection_error"])?,
             mqtt_disconnect: mqtt_errors.get_metric_with_label_values(&["disconnect"])?,
             mqtt_reconnection: mqtt_errors.get_metric_with_label_values(&["reconnect"])?,
+            caches: Caches::from(&caches),
         })
     }
 
@@ -123,6 +145,21 @@ impl Metrics {
             self.authorization_time
                 .observe(duration_to_seconds(elapsed))
         }
+    }
+
+    pub fn observe_caches(&self, ctx: &impl Context) {
+        macro_rules! observe_cache {
+            ($ctx:ident, $c:expr, $k:ty, $v:ty) => {
+                if let Some(cache) = $ctx.cache::<$k, $v>() {
+                    $c.hit.set(cache.statistics().hits() as i64);
+                    $c.miss.set(cache.statistics().misses() as i64);
+                    $c.replace.set(cache.statistics().replaces() as i64);
+                }
+            };
+        }
+        observe_cache!(ctx, self.caches.room_by_id, db::room::Id, db::room::Object);
+        observe_cache!(ctx, self.caches.room_by_id, db::rtc::Id, db::room::Object);
+        observe_cache!(ctx, self.caches.room_by_id, db::rtc::Id, db::rtc::Object);
     }
 
     pub fn observe_app_result(&self, result: &endpoint::Result) {
