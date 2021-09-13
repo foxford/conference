@@ -1,26 +1,32 @@
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, RwLock,
-    },
-};
-
-use chrono::{DateTime, Duration, Utc};
 use derive_more::Display;
 use futures::{
     future::{BoxFuture, Shared},
     Future, FutureExt, TryFutureExt,
 };
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, RwLock,
+};
+use std::{hash::Hash, time::Duration};
 
-pub struct Cache<K, V> {
-    cache: Arc<RwLock<HashMap<K, CacheItem<V>>>>,
+use self::store::TtlCache;
+
+mod store;
+
+pub struct AsyncTtlCache<K, V>
+where
+    K: Hash + Eq,
+{
+    cache: Arc<RwLock<TtlCache<K, CacheItem<V>>>>,
     statistics: Arc<Statistics>,
     ttl: Duration,
     max_capacity: usize,
 }
 
-impl<K, V> Clone for Cache<K, V> {
+impl<K, V> Clone for AsyncTtlCache<K, V>
+where
+    K: Hash + Eq,
+{
     fn clone(&self) -> Self {
         Self {
             cache: self.cache.clone(),
@@ -31,10 +37,13 @@ impl<K, V> Clone for Cache<K, V> {
     }
 }
 
-impl<K, V> Cache<K, V> {
+impl<K, V> AsyncTtlCache<K, V>
+where
+    K: Hash + Eq,
+{
     pub fn new(ttl: Duration, max_capacity: usize) -> Self {
         Self {
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            cache: Arc::new(RwLock::new(TtlCache::new())),
             ttl,
             max_capacity,
             statistics: Arc::new(Statistics::new()),
@@ -42,88 +51,61 @@ impl<K, V> Cache<K, V> {
     }
 }
 
-impl<K, V> Cache<K, V>
+impl<K, V> AsyncTtlCache<K, V>
 where
-    K: std::hash::Hash + Eq + PartialEq + Clone,
+    K: Hash + Eq + Clone,
     V: Clone,
 {
-    pub async fn get_or_insert<F>(
-        &self,
-        key: K,
-        val_fut: F,
-        now: DateTime<Utc>,
-    ) -> anyhow::Result<Option<V>>
+    pub async fn get_or_insert<F>(&self, key: K, val_fut: F) -> anyhow::Result<Option<V>>
     where
         F: Future<Output = anyhow::Result<Option<V>>> + Send + 'static,
     {
-        if let Some(x) = self.get(&key, now) {
-            return Ok(x.item.await?);
+        if let Some(x) = self.get(&key) {
+            self.statistics().inc_hit();
+            return Ok(x.await?);
         }
         let get_value = val_fut.map_err(CloneError::new).boxed().shared();
 
-        Ok(self.insert(key, get_value, now).await?)
+        Ok(self.insert(key, get_value).await?)
     }
 
     pub fn statistics(&self) -> &Statistics {
         &self.statistics
     }
 
-    fn get(&self, key: &K, now: DateTime<Utc>) -> Option<CacheItem<V>> {
-        let cache_item = {
-            let running_futures = self.cache.read().expect("Cache lock poisoned");
-            running_futures.get(key).cloned()
-        };
-        match cache_item {
-            Some(item) if !item.is_expired(now) => {
-                self.statistics.inc_hit();
-                Some(item)
-            }
-            Some(_) => None,
-            None => None,
-        }
+    fn get(&self, key: &K) -> Option<CacheItem<V>> {
+        let running_futures = self.cache.read().expect("Cache lock poisoned");
+        let cache_item = running_futures.get(key)?;
+        Some(cache_item.clone())
     }
 
     async fn insert(
         &self,
         key: K,
         get_value: Shared<BoxFuture<'static, Result<Option<V>, CloneError>>>,
-        now: DateTime<Utc>,
     ) -> Result<Option<V>, CloneError> {
-        let key = {
+        let key_or_cache = {
             let mut cache = self.cache.write().expect("Cache lock poisoned");
-            if cache.len() >= self.max_capacity {
-                *cache = HashMap::new()
+            if let Some(cache_item) = cache.get(&key) {
+                self.statistics.inc_hit();
+                KeyOrCacheItem::Cache(cache_item.clone())
+            } else {
+                if cache.len() >= self.max_capacity {
+                    cache.remove_oldest();
+                } else {
+                    cache.remove_expired(2);
+                }
+                let old = cache.insert(key.clone(), get_value.clone(), self.ttl);
+                if old.is_some() {
+                    self.statistics().inc_replace();
+                } else {
+                    self.statistics().inc_miss();
+                }
+                self.statistics().set_len(cache.len());
+                KeyOrCacheItem::Key(key)
             }
-            let key_or_cache = match cache.entry(key) {
-                Entry::Occupied(mut o) => {
-                    let existing = o.get();
-                    if !existing.is_expired(now) {
-                        self.statistics.inc_hit();
-                        KeyOrCacheItem::Cache(existing.clone())
-                    } else {
-                        self.statistics.inc_replace();
-                        let key = o.key().clone();
-                        o.insert(CacheItem {
-                            item: get_value.clone(),
-                            expires_at: now + self.ttl,
-                        });
-                        KeyOrCacheItem::Key(key)
-                    }
-                }
-                Entry::Vacant(v) => {
-                    self.statistics.inc_miss();
-                    let key = v.key().clone();
-                    v.insert(CacheItem {
-                        item: get_value.clone(),
-                        expires_at: now + self.ttl,
-                    });
-                    KeyOrCacheItem::Key(key)
-                }
-            };
-            self.statistics.set_len(cache.len());
-            key_or_cache
         };
-        match key {
+        match key_or_cache {
             KeyOrCacheItem::Key(key) => {
                 let remove_guard = RemoveGuard {
                     map: &*self.cache,
@@ -138,7 +120,7 @@ where
                     Err(err) => Err(err),
                 }
             }
-            KeyOrCacheItem::Cache(c) => c.item.await,
+            KeyOrCacheItem::Cache(c) => c.await,
         }
     }
 }
@@ -198,17 +180,7 @@ impl Statistics {
     }
 }
 
-#[derive(Clone)]
-struct CacheItem<V> {
-    item: Shared<BoxFuture<'static, Result<Option<V>, CloneError>>>,
-    expires_at: DateTime<Utc>,
-}
-
-impl<V> CacheItem<V> {
-    fn is_expired(&self, now: DateTime<Utc>) -> bool {
-        self.expires_at < now
-    }
-}
+type CacheItem<V> = Shared<BoxFuture<'static, Result<Option<V>, CloneError>>>;
 
 #[derive(Clone, Debug, Display)]
 struct CloneError(Arc<anyhow::Error>);
@@ -231,16 +203,16 @@ impl std::error::Error for CloneError {
 
 struct RemoveGuard<'a, K, V>
 where
-    K: std::hash::Hash + Eq + PartialEq + Clone,
+    K: std::hash::Hash + Eq + Clone,
     V: Clone,
 {
-    map: &'a RwLock<HashMap<K, CacheItem<V>>>,
+    map: &'a RwLock<TtlCache<K, CacheItem<V>>>,
     key: &'a K,
 }
 
 impl<'a, K, V> Drop for RemoveGuard<'a, K, V>
 where
-    K: std::hash::Hash + Eq + PartialEq + Clone,
+    K: std::hash::Hash + Eq + Clone,
     V: Clone,
 {
     fn drop(&mut self) {
@@ -251,15 +223,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
 
-    use super::Cache;
+    use super::AsyncTtlCache;
     use anyhow::anyhow;
-    use chrono::{Duration, Utc};
 
     #[async_std::test]
     async fn should_cache_computing_futures() {
-        let cache = Cache::new(Duration::seconds(1), 5);
+        let cache = AsyncTtlCache::new(Duration::from_secs(1), 5);
         let f2_ran = Arc::new(Mutex::new(false));
         let f1 = async {
             async_std::task::sleep(std::time::Duration::from_millis(50)).await;
@@ -273,12 +247,10 @@ mod tests {
             }
         };
 
-        let (res1, res2) = futures::future::try_join(
-            cache.get_or_insert(1, f1, Utc::now()),
-            cache.get_or_insert(1, f2, Utc::now()),
-        )
-        .await
-        .unwrap();
+        let (res1, res2) =
+            futures::future::try_join(cache.get_or_insert(1, f1), cache.get_or_insert(1, f2))
+                .await
+                .unwrap();
 
         assert!(!*f2_ran.lock().unwrap());
         assert_eq!(res1, Some(1));
@@ -289,7 +261,7 @@ mod tests {
 
     #[async_std::test]
     async fn should_not_cache_failed_futures() {
-        let cache = Cache::new(Duration::seconds(1), 5);
+        let cache = AsyncTtlCache::new(Duration::from_secs(1), 5);
         let f2_ran = Arc::new(Mutex::new(false));
         let f1 = async {
             async_std::task::sleep(std::time::Duration::from_millis(50)).await;
@@ -303,15 +275,9 @@ mod tests {
             }
         };
 
-        let (res1, res2) = futures::future::join(
-            cache.get_or_insert(1, f1, Utc::now()),
-            cache.get_or_insert(1, f2, Utc::now()),
-        )
-        .await;
-        let res3 = cache
-            .get_or_insert(1, async { Ok(Some(5)) }, Utc::now())
-            .await
-            .unwrap();
+        let (res1, res2) =
+            futures::future::join(cache.get_or_insert(1, f1), cache.get_or_insert(1, f2)).await;
+        let res3 = cache.get_or_insert(1, async { Ok(Some(5)) }).await.unwrap();
 
         assert!(!*f2_ran.lock().unwrap());
         assert!(res1.is_err());
@@ -323,7 +289,7 @@ mod tests {
 
     #[async_std::test]
     async fn should_not_cache_nones() {
-        let cache = Cache::new(Duration::seconds(1), 5);
+        let cache = AsyncTtlCache::new(Duration::from_secs(1), 5);
         let f2_ran = Arc::new(Mutex::new(false));
         let f1 = async {
             async_std::task::sleep(std::time::Duration::from_millis(50)).await;
@@ -337,16 +303,11 @@ mod tests {
             }
         };
 
-        let (res1, res2) = futures::future::try_join(
-            cache.get_or_insert(1, f1, Utc::now()),
-            cache.get_or_insert(1, f2, Utc::now()),
-        )
-        .await
-        .unwrap();
-        let res3 = cache
-            .get_or_insert(1, async { Ok(Some(5)) }, Utc::now())
-            .await
-            .unwrap();
+        let (res1, res2) =
+            futures::future::try_join(cache.get_or_insert(1, f1), cache.get_or_insert(1, f2))
+                .await
+                .unwrap();
+        let res3 = cache.get_or_insert(1, async { Ok(Some(5)) }).await.unwrap();
 
         assert!(!*f2_ran.lock().unwrap());
         assert!(res1.is_none());
@@ -358,7 +319,7 @@ mod tests {
 
     #[async_std::test]
     async fn should_recompute_when_ttl_expired() {
-        let cache = Cache::new(Duration::milliseconds(10), 5);
+        let cache = AsyncTtlCache::new(Duration::from_millis(10), 5);
         let f2_ran = Arc::new(Mutex::new(false));
         let f1 = async {
             async_std::task::sleep(std::time::Duration::from_millis(50)).await;
@@ -372,11 +333,8 @@ mod tests {
             }
         };
 
-        let res1 = cache.get_or_insert(1, f1, Utc::now()).await.unwrap();
-        let res2 = cache
-            .get_or_insert(1, f2, Utc::now() + Duration::milliseconds(20))
-            .await
-            .unwrap();
+        let res1 = cache.get_or_insert(1, f1).await.unwrap();
+        let res2 = cache.get_or_insert(1, f2).await.unwrap();
 
         assert!(*f2_ran.lock().unwrap());
         assert_eq!(res1, Some(1));
@@ -388,25 +346,13 @@ mod tests {
 
     #[async_std::test]
     async fn should_not_exceed_capacity() {
-        let cache = Cache::new(Duration::milliseconds(10), 3);
-        cache
-            .get_or_insert(1, async { Ok(Some(1)) }, Utc::now())
-            .await
-            .unwrap();
-        cache
-            .get_or_insert(2, async { Ok(Some(1)) }, Utc::now())
-            .await
-            .unwrap();
-        cache
-            .get_or_insert(3, async { Ok(Some(1)) }, Utc::now())
-            .await
-            .unwrap();
+        let cache = AsyncTtlCache::new(Duration::from_millis(10), 3);
+        cache.get_or_insert(1, async { Ok(Some(1)) }).await.unwrap();
+        cache.get_or_insert(2, async { Ok(Some(1)) }).await.unwrap();
+        cache.get_or_insert(3, async { Ok(Some(1)) }).await.unwrap();
         assert_eq!(cache.statistics().len(), 3);
 
-        cache
-            .get_or_insert(4, async { Ok(Some(1)) }, Utc::now())
-            .await
-            .unwrap();
+        cache.get_or_insert(4, async { Ok(Some(1)) }).await.unwrap();
 
         assert_eq!(cache.statistics().len(), 1);
     }

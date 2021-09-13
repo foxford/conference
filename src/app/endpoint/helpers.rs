@@ -5,7 +5,7 @@ use crate::{
         error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
         API_VERSION,
     },
-    cache::Cache,
+    cache::AsyncTtlCache,
     db::room::Object as Room,
     db::{self, ConnectionPool},
 };
@@ -67,7 +67,7 @@ pub async fn find_room_by_id(
     id: db::room::Id,
     opening_requirement: RoomTimeRequirement,
     pool: ConnectionPool,
-    cache: Option<&Cache<db::room::Id, db::room::Object>>,
+    cache: Option<&AsyncTtlCache<db::room::Id, db::room::Object>>,
 ) -> Result<db::room::Object, AppError> {
     let room = db::room::find_by_id(id, pool, cache)
         .await
@@ -81,7 +81,7 @@ pub async fn find_room_by_rtc_id(
     rtc_id: db::rtc::Id,
     opening_requirement: RoomTimeRequirement,
     pool: ConnectionPool,
-    cache: Option<&Cache<db::rtc::Id, db::room::Object>>,
+    cache: Option<&AsyncTtlCache<db::rtc::Id, db::room::Object>>,
 ) -> Result<db::room::Object, AppError> {
     let room = db::room::find_by_rtc_id(rtc_id, pool, cache)
         .await

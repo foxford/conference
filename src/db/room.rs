@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     backend::janus::JANUS_API_VERSION,
-    cache::Cache,
+    cache::AsyncTtlCache,
     db::{
         self,
         janus_backend::Object as JanusBackend,
@@ -209,7 +209,7 @@ impl FindQuery {
 pub async fn find_by_id(
     id: Id,
     db: ConnectionPool,
-    cache: Option<&Cache<Id, Object>>,
+    cache: Option<&AsyncTtlCache<Id, Object>>,
 ) -> anyhow::Result<Option<Object>> {
     let find = async move {
         async_std::task::spawn_blocking(move || {
@@ -219,7 +219,7 @@ pub async fn find_by_id(
         .await
     };
     if let Some(cache) = cache {
-        cache.get_or_insert(id, find, Utc::now()).await
+        cache.get_or_insert(id, find).await
     } else {
         find.await
     }
@@ -249,7 +249,7 @@ impl FindByRtcIdQuery {
 pub async fn find_by_rtc_id(
     id: db::rtc::Id,
     db: ConnectionPool,
-    cache: Option<&Cache<db::rtc::Id, Object>>,
+    cache: Option<&AsyncTtlCache<db::rtc::Id, Object>>,
 ) -> anyhow::Result<Option<Object>> {
     let find = async move {
         async_std::task::spawn_blocking(move || {
@@ -259,7 +259,7 @@ pub async fn find_by_rtc_id(
         .await
     };
     if let Some(cache) = cache {
-        cache.get_or_insert(id, find, Utc::now()).await
+        cache.get_or_insert(id, find).await
     } else {
         find.await
     }

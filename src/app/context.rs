@@ -16,7 +16,7 @@ use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz
 use crate::{
     app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
     backend::janus::client_pool::Clients,
-    cache::Cache,
+    cache::AsyncTtlCache,
     config::{CacheConfig, CacheKind, Config},
     db::{self, ConnectionPool as Db},
 };
@@ -36,7 +36,7 @@ pub trait GlobalContext: Sync {
     fn janus_topics(&self) -> &JanusTopics;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
     fn metrics(&self) -> Arc<Metrics>;
-    fn cache<K: 'static, V: 'static>(&self) -> Option<&Cache<K, V>>;
+    fn cache<K: std::hash::Hash + Eq + 'static, V: 'static>(&self) -> Option<&AsyncTtlCache<K, V>>;
     fn get_conn(
         &self,
     ) -> JoinHandle<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
@@ -102,17 +102,14 @@ impl AppContext {
         }
     }
 
-    fn create_cache<K, V>(
+    fn create_cache<K: std::hash::Hash + Eq, V>(
         conf: &CacheConfig,
     ) -> ((TypeId, TypeId), Box<dyn Any + Send + Sync + 'static>)
     where
         K: Send + Sync + 'static,
         V: Send + Sync + 'static,
     {
-        let cache = Cache::<K, V>::new(
-            chrono::Duration::from_std(conf.ttl).expect("Bad cache ttl"),
-            conf.capacity,
-        );
+        let cache = AsyncTtlCache::<K, V>::new(conf.ttl, conf.capacity);
         ((TypeId::of::<K>(), TypeId::of::<V>()), Box::new(cache))
     }
 
@@ -157,10 +154,10 @@ impl GlobalContext for AppContext {
         self.metrics.clone()
     }
 
-    fn cache<K: 'static, V: 'static>(&self) -> Option<&Cache<K, V>> {
+    fn cache<K: std::hash::Hash + Eq + 'static, V: 'static>(&self) -> Option<&AsyncTtlCache<K, V>> {
         self.caches
             .get(&(TypeId::of::<K>(), TypeId::of::<V>()))
-            .and_then(|cache| cache.downcast_ref::<Cache<K, V>>())
+            .and_then(|cache| cache.downcast_ref::<AsyncTtlCache<K, V>>())
     }
 }
 
@@ -213,7 +210,7 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.metrics()
     }
 
-    fn cache<K: 'static, V: 'static>(&self) -> Option<&Cache<K, V>> {
+    fn cache<K: std::hash::Hash + Eq + 'static, V: 'static>(&self) -> Option<&AsyncTtlCache<K, V>> {
         self.global_context.cache::<K, V>()
     }
 }

@@ -151,7 +151,9 @@ impl GlobalContext for TestContext {
         Arc::new(Metrics::new(&registry).unwrap())
     }
 
-    fn cache<K: 'static, V: 'static>(&self) -> Option<&crate::cache::Cache<K, V>> {
+    fn cache<K: std::hash::Hash + Eq + 'static, V: 'static>(
+        &self,
+    ) -> Option<&crate::cache::AsyncTtlCache<K, V>> {
         None
     }
 }

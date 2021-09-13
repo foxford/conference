@@ -591,6 +591,7 @@ dependencies = [
  "once_cell",
  "openssl",
  "parking_lot 0.11.2",
+ "priority-queue",
  "prometheus",
  "prometheus-static-metric",
  "rand 0.7.3",
@@ -2293,6 +2294,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ac25eee5a0582f45a67e837e350d784e7003bd29a5f460796772061ca49ffda"
 dependencies = [
  "vcpkg",
+]
+
+[[package]]
+name = "priority-queue"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf40e51ccefb72d42720609e1d3c518de8b5800d723a09358d4a6d6245e1f8ca"
+dependencies = [
+ "autocfg",
+ "indexmap",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{cache::Cache, db};
+use crate::{cache::AsyncTtlCache, db};
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
 use diesel_derive_enum::DbEnum;
@@ -108,7 +108,7 @@ impl FindQuery {
 pub async fn find_by_id(
     id: Id,
     pool: ConnectionPool,
-    cache: Option<&Cache<Id, Object>>,
+    cache: Option<&AsyncTtlCache<Id, Object>>,
 ) -> anyhow::Result<Option<Object>> {
     let find = async move {
         async_std::task::spawn_blocking(move || {
@@ -118,7 +118,7 @@ pub async fn find_by_id(
         .await
     };
     if let Some(cache) = cache {
-        cache.get_or_insert(id, find, Utc::now()).await
+        cache.get_or_insert(id, find).await
     } else {
         find.await
     }
