@@ -2,11 +2,12 @@ use super::client::{IncomingEvent, JanusClient, PollResult, SessionId};
 use crate::db::janus_backend;
 use anyhow::anyhow;
 use crossbeam_channel::Sender;
+use parking_lot::RwLock;
 use std::{
     collections::{hash_map::Entry, HashMap},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, PoisonError, RwLock,
+        Arc,
     },
     time::Duration,
 };
@@ -29,10 +30,7 @@ impl Clients {
     }
 
     pub fn clients_count(&self) -> usize {
-        self.clients
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .len()
+        self.clients.read().len()
     }
 
     pub fn get_or_insert(&self, backend: &janus_backend::Object) -> anyhow::Result<JanusClient> {
@@ -49,12 +47,12 @@ impl Clients {
     }
 
     fn get_client(&self, backend: &janus_backend::Object) -> Option<JanusClient> {
-        let guard = self.clients.read().expect("Must not panic");
+        let guard = self.clients.read();
         Some(guard.get(backend)?.client.clone())
     }
 
     fn put_client(&self, backend: janus_backend::Object) -> anyhow::Result<JanusClient> {
-        let mut guard = self.clients.write().expect("Must not panic");
+        let mut guard = self.clients.write();
         match guard.entry(backend.clone()) {
             Entry::Occupied(o) => Ok(o.get().client.clone()),
             Entry::Vacant(v) => {
@@ -84,14 +82,14 @@ impl Clients {
     }
 
     pub fn remove_client(&self, backend: &janus_backend::Object) {
-        let mut guard = self.clients.write().expect("Must not panic");
+        let mut guard = self.clients.write();
         if let Some(handle) = guard.remove(backend) {
             handle.is_cancelled.store(true, Ordering::SeqCst)
         }
     }
 
     pub fn stop_polling(&self) {
-        let guard = self.clients.read().expect("Must not panic");
+        let guard = self.clients.read();
         for (_, handle) in guard.iter() {
             handle.is_cancelled.store(true, Ordering::SeqCst)
         }

@@ -5,11 +5,12 @@ use futures::{
 };
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc, RwLock,
+    Arc,
 };
 use std::{hash::Hash, time::Duration};
 
 use self::store::TtlCache;
+use parking_lot::RwLock;
 
 mod store;
 
@@ -74,7 +75,7 @@ where
     }
 
     fn get(&self, key: &K) -> Option<CacheItem<V>> {
-        let running_futures = self.cache.read().expect("Cache lock poisoned");
+        let running_futures = self.cache.read();
         let cache_item = running_futures.get(key)?;
         Some(cache_item.clone())
     }
@@ -85,7 +86,7 @@ where
         get_value: Shared<BoxFuture<'static, Result<Option<V>, CloneError>>>,
     ) -> Result<Option<V>, CloneError> {
         let key_or_cache = {
-            let mut cache = self.cache.write().expect("Cache lock poisoned");
+            let mut cache = self.cache.write();
             if let Some(cache_item) = cache.get(&key) {
                 self.statistics.inc_hit();
                 KeyOrCacheItem::Cache(cache_item.clone())
@@ -216,7 +217,7 @@ where
     V: Clone,
 {
     fn drop(&mut self) {
-        let mut guard = self.map.write().expect("Cache lock poisoned");
+        let mut guard = self.map.write();
         guard.remove(self.key);
     }
 }
