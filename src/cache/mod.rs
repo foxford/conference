@@ -91,16 +91,17 @@ where
                 self.statistics.inc_hit();
                 KeyOrCacheItem::Cache(cache_item.clone())
             } else {
-                if cache.len() >= self.max_capacity {
-                    cache.remove_oldest();
-                } else {
-                    cache.remove_expired(2);
-                }
                 let old = cache.insert(key.clone(), get_value.clone(), self.ttl);
                 if old.is_some() {
                     self.statistics().inc_replace();
                 } else {
                     self.statistics().inc_miss();
+                }
+
+                if cache.len() > self.max_capacity {
+                    cache.remove_oldest();
+                } else {
+                    cache.remove_expired(2);
                 }
                 self.statistics().set_len(cache.len());
                 KeyOrCacheItem::Key(key)
