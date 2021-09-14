@@ -355,6 +355,6 @@ mod tests {
 
         cache.get_or_insert(4, async { Ok(Some(1)) }).await.unwrap();
 
-        assert_eq!(cache.statistics().len(), 1);
+        assert_eq!(cache.statistics().len(), 3);
     }
 }
