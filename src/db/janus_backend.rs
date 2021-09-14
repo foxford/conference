@@ -247,18 +247,15 @@ const MOST_LOADED_SQL: &str = r#"
             FROM agent AS a
             INNER JOIN agent_connection AS ac
             ON ac.agent_id = a.id
-            LEFT JOIN rtc
-            ON rtc.id = ac.rtc_id
             LEFT JOIN rtc_writer_config AS rwc
-            ON rwc.rtc_id = rtc.id
+            ON rwc.rtc_id = ac.rtc_id
             GROUP BY a.room_id
         ),
         active_room AS (
             SELECT *
             FROM room
             WHERE backend_id IS NOT NULL
-            AND   LOWER(time) <= NOW()
-            AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
+            AND   time @> NOW()
         ),
         janus_backend_load AS (
             SELECT
@@ -318,18 +315,15 @@ const LEAST_LOADED_SQL: &str = r#"
             FROM agent AS a
             INNER JOIN agent_connection AS ac
             ON ac.agent_id = a.id
-            LEFT JOIN rtc
-            ON rtc.id = ac.rtc_id
             LEFT JOIN rtc_writer_config AS rwc
-            ON rwc.rtc_id = rtc.id
+            ON rwc.rtc_id = ac.rtc_id
             GROUP BY a.room_id
         ),
         active_room AS (
             SELECT *
             FROM room
             WHERE backend_id IS NOT NULL
-            AND   LOWER(time) <= NOW()
-            AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
+            AND   time @> NOW()
         ),
         janus_backend_load AS (
             SELECT
@@ -392,18 +386,15 @@ const FREE_CAPACITY_SQL: &str = r#"
             FROM agent AS a
             INNER JOIN agent_connection AS ac
             ON ac.agent_id = a.id
-            LEFT JOIN rtc
-            ON rtc.id = ac.rtc_id
             LEFT JOIN rtc_writer_config AS rwc
-            ON rwc.rtc_id = rtc.id
+            ON rwc.rtc_id = ac.rtc_id
             GROUP BY a.room_id
         ),
         active_room AS (
             SELECT *
             FROM room
             WHERE backend_id IS NOT NULL
-            AND   LOWER(time) <= NOW()
-            AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
+            AND   time @> NOW()
         ),
         janus_backend_load AS (
             SELECT
@@ -517,18 +508,15 @@ WITH
         FROM agent AS a
         INNER JOIN agent_connection AS ac
         ON ac.agent_id = a.id
-        LEFT JOIN rtc
-        ON rtc.id = ac.rtc_id
         LEFT JOIN rtc_writer_config AS rwc
-        ON rwc.rtc_id = rtc.id
+        ON rwc.rtc_id = ac.rtc_id
         GROUP BY a.room_id
     ),
     active_room AS (
         SELECT *
         FROM room
         WHERE backend_id IS NOT NULL
-        AND   LOWER(time) <= NOW()
-        AND   (UPPER(time) IS NULL OR UPPER(time) > NOW())
+        AND   time @> NOW()
     ),
     janus_backend_load AS (
         SELECT
