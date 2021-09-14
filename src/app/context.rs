@@ -81,6 +81,7 @@ impl AppContext {
         let caches = config
             .cache_configs
             .iter()
+            .flatten()
             .map(|(kind, conf)| match kind {
                 CacheKind::RoomById => Self::create_cache::<db::room::Id, db::room::Object>(conf),
                 CacheKind::RoomByRtcId => Self::create_cache::<db::rtc::Id, db::room::Object>(conf),

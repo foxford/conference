@@ -26,7 +26,7 @@ pub struct Config {
     pub janus_group: Option<String>,
     #[serde(with = "humantime_serde")]
     pub orphaned_room_timeout: Duration,
-    pub cache_configs: HashMap<CacheKind, CacheConfig>,
+    pub cache_configs: Option<HashMap<CacheKind, CacheConfig>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
