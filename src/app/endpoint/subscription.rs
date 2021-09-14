@@ -685,7 +685,7 @@ mod tests {
             .expect_err("Unexpected success on subscription deletion");
 
             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
-            assert_eq!(err.kind(), "agent_not_entered_the_room");
+            assert_eq!(err.kind(), "room_not_found");
         }
     }
 
