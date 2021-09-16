@@ -30,6 +30,7 @@ pub struct State {
     room_id: db::room::Id,
     configs: Vec<StateConfigItem>,
     #[serde(with = "chrono::serde::ts_nanoseconds_option")]
+    #[serde(default)]
     updated_at_ns: Option<DateTime<Utc>>,
 }
 
