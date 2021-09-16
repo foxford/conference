@@ -29,7 +29,8 @@ const MAX_STATE_CONFIGS_LEN: usize = 20;
 pub struct State {
     room_id: db::room::Id,
     configs: Vec<StateConfigItem>,
-    updated_at: Option<DateTime<Utc>>,
+    #[serde(with = "chrono::serde::ts_nanoseconds_option")]
+    updated_at_ns: Option<DateTime<Utc>>,
 }
 
 impl State {
@@ -64,7 +65,7 @@ impl State {
         Self {
             room_id,
             configs,
-            updated_at,
+            updated_at_ns: updated_at,
         }
     }
 }
@@ -445,7 +446,7 @@ mod tests {
 
             let payload = State {
                 room_id: room.id(),
-                updated_at: Some(Utc::now()),
+                updated_at_ns: Some(Utc::now()),
                 configs: vec![
                     StateConfigItem {
                         agent_id: agent2.agent_id().to_owned(),
@@ -537,7 +538,7 @@ mod tests {
             // Make one more agent_writer_config.update request.
             let payload = State {
                 room_id: room.id(),
-                updated_at: Some(Utc::now()),
+                updated_at_ns: Some(Utc::now()),
                 configs: vec![
                     StateConfigItem {
                         agent_id: agent4.agent_id().to_owned(),
@@ -662,7 +663,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
-                updated_at: Some(Utc::now()),
+                updated_at_ns: Some(Utc::now()),
                 room_id: room.id(),
                 configs: vec![],
             };
@@ -700,7 +701,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             let payload = State {
-                updated_at: Some(Utc::now()),
+                updated_at_ns: Some(Utc::now()),
                 room_id: db::room::Id::random(),
                 configs,
             };
@@ -733,7 +734,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
-                updated_at: Some(Utc::now()),
+                updated_at_ns: Some(Utc::now()),
                 room_id: room.id(),
                 configs: vec![],
             };
@@ -778,7 +779,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
-                updated_at: Some(Utc::now()),
+                updated_at_ns: Some(Utc::now()),
                 room_id: room.id(),
                 configs: vec![],
             };
@@ -820,7 +821,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
-                updated_at: Some(Utc::now()),
+                updated_at_ns: Some(Utc::now()),
                 room_id: room.id(),
                 configs: vec![],
             };
@@ -846,7 +847,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
-                updated_at: Some(Utc::now()),
+                updated_at_ns: Some(Utc::now()),
                 room_id: db::room::Id::random(),
                 configs: vec![],
             };
