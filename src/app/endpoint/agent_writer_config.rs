@@ -239,20 +239,21 @@ impl RequestHandler for UpdateHandler {
                             snapshot_q.execute(&conn)?;
                         }
                     }
+                    Ok(())
+                })?;
 
-                    // Retrieve state data.
-                    let rtc_writer_configs_with_rtcs =
-                        db::rtc_writer_config::ListWithRtcQuery::new(room_id).execute(&conn)?;
-                    // Find backend and send updates to it if present.
-                    let maybe_backend = match &backend_id {
-                        None => None,
-                        Some(backend_id) => db::janus_backend::FindQuery::new()
-                            .id(backend_id)
-                            .execute(&conn)?,
-                    };
+                // Retrieve state data.
+                let rtc_writer_configs_with_rtcs =
+                    db::rtc_writer_config::ListWithRtcQuery::new(room_id).execute(&conn)?;
+                // Find backend and send updates to it if present.
+                let maybe_backend = match &backend_id {
+                    None => None,
+                    Some(backend_id) => db::janus_backend::FindQuery::new()
+                        .id(backend_id)
+                        .execute(&conn)?,
+                };
 
-                    Ok::<_, AppError>((rtc_writer_configs_with_rtcs, maybe_backend))
-                })
+                Ok::<_, AppError>((rtc_writer_configs_with_rtcs, maybe_backend))
             }
         })
         .await?;
