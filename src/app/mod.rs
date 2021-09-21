@@ -75,7 +75,6 @@ pub async fn run(
     if let Some(sentry_config) = config.sentry.as_ref() {
         svc_error::extension::sentry::init(sentry_config);
     }
-
     //metrics
     let metrics_registry = Registry::new();
     let metrics = crate::app::metrics::Metrics::new(&metrics_registry)?;
@@ -112,7 +111,7 @@ pub async fn run(
     };
 
     // Message handler
-    let message_handler = Arc::new(MessageHandler::new(agent, context));
+    let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
     {
         let is_stopped = is_stopped.clone();
         thread::spawn(move || loop {
@@ -148,7 +147,9 @@ pub async fn run(
     let signals = signals_stream.next();
     let _ = signals.await;
     is_stopped.store(true, Ordering::SeqCst);
-    task::sleep(Duration::from_secs(2)).await;
+    unsubscribe(&mut agent, &agent_id, &config)?;
+    
+    task::sleep(Duration::from_secs(3)).await;
     info!(
         requests_left = metrics.running_requests_total.get(),
         "Running requests left",
@@ -186,7 +187,9 @@ fn handle_message(message: AgentNotification, message_handler: Arc<MessageHandle
             AgentNotification::Connack(_) => (),
             AgentNotification::Pubrel(_) => (),
             AgentNotification::Subscribe(_) => (),
-            AgentNotification::Unsubscribe(_) => (),
+            AgentNotification::Unsubscribe(_) => {
+                info!("Unsubscribed")
+            }
             AgentNotification::PingReq => (),
             AgentNotification::PingResp => (),
             AgentNotification::Disconnect => {
@@ -243,7 +246,59 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
     Ok(JanusTopics::new(&janus_status_events_topic))
 }
 
+fn unsubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> anyhow::Result<()> {
+    let group = SharedGroup::new("loadbalancer", agent_id.as_account_id().clone());
+
+    // Multicast requests
+    agent
+        .unsbuscribe(
+            &Subscription::multicast_requests(Some(API_VERSION)),
+            Some(&group),
+        )
+        .context("Error unsubscribing to multicast requests")?;
+
+    // Dynsub responses
+    agent
+        .unsbuscribe(
+            &Subscription::unicast_responses_from(&config.broker_id),
+            None,
+        )
+        .context("Error unsubscribing to dynsub responses")?;
+
+    // Janus status events
+    let subscription =
+        Subscription::broadcast_events(&config.backend.id, JANUS_API_VERSION, "status");
+
+    agent
+        .unsbuscribe(&subscription, Some(&group))
+        .context("Error unsubscribing to backend events topic")?;
+
+    // Kruonis
+    if let KruonisConfig {
+        id: Some(ref kruonis_id),
+    } = config.kruonis
+    {
+        unsubscribe_from_kruonis(kruonis_id, agent)?;
+    }
+    Ok(())
+}
+
 fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()> {
+    let timing = ShortTermTimingProperties::new(Utc::now());
+
+    let topic = Subscription::unicast_requests_from(kruonis_id)
+        .subscription_topic(agent.id(), API_VERSION)
+        .context("Failed to build subscription topic")?;
+
+    let props = OutgoingRequestProperties::new("kruonis.subscribe", &topic, "", timing);
+    let event = OutgoingRequest::multicast(json!({}), props, kruonis_id, API_VERSION);
+
+    agent.publish(event).context("Failed to publish message")?;
+
+    Ok(())
+}
+
+fn unsubscribe_from_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()> {
     let timing = ShortTermTimingProperties::new(Utc::now());
 
     let topic = Subscription::unicast_requests_from(kruonis_id)

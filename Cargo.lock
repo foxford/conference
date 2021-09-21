@@ -598,7 +598,7 @@ dependencies = [
  "serde_json",
  "signal-hook",
  "signal-hook-async-std",
- "svc-agent",
+ "svc-agent 0.17.0 (git+https://github.com/foxford/svc-agent-rs?branch=ULMS-1542/graceful-shutdown)",
  "svc-authn",
  "svc-authz",
  "svc-error",
@@ -3264,6 +3264,28 @@ dependencies = [
  "base64 0.13.0",
  "chrono",
  "crossbeam-channel 0.5.1",
+ "futures 0.3.17",
+ "futures-channel",
+ "http 0.1.21",
+ "lazy_static",
+ "log",
+ "rumqttc",
+ "serde 1.0.130",
+ "serde_json",
+ "svc-authn",
+ "tokio",
+ "uuid 0.8.2",
+]
+
+[[package]]
+name = "svc-agent"
+version = "0.17.0"
+source = "git+https://github.com/foxford/svc-agent-rs?branch=ULMS-1542/graceful-shutdown#051792ca1d5bd31e52099d96fdb80676f56efe1b"
+dependencies = [
+ "async-channel",
+ "base64 0.13.0",
+ "chrono",
+ "crossbeam-channel 0.5.1",
  "diesel",
  "futures 0.3.17",
  "futures-channel",
@@ -3329,7 +3351,7 @@ dependencies = [
  "sentry",
  "serde 1.0.130",
  "serde_derive",
- "svc-agent",
+ "svc-agent 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-authn",
  "svc-authz",
 ]
