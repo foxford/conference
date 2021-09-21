@@ -1,12 +1,4 @@
-use std::{
-    net::SocketAddr,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    thread,
-    time::Duration,
-};
+use std::{net::SocketAddr, sync::Arc, thread, time::Duration};
 
 use crate::{
     app::error::{Error as AppError, ErrorKind as AppErrorKind},
@@ -45,7 +37,6 @@ pub async fn run(
     authz_cache: Option<AuthzCache>,
 ) -> Result<()> {
     // Config
-    let is_stopped = Arc::new(AtomicBool::new(false));
     let config = config::load().expect("Failed to load config");
 
     // Agent
@@ -113,21 +104,8 @@ pub async fn run(
     // Message handler
     let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
     {
-        let is_stopped = is_stopped.clone();
+        let message_handler = message_handler.clone();
         thread::spawn(move || loop {
-            if is_stopped.load(Ordering::SeqCst) {
-                message_handler
-                    .global_context()
-                    .janus_clients()
-                    .stop_polling();
-                while let Ok(msg) = ev_rx.try_recv() {
-                    let message_handler = message_handler.clone();
-                    task::spawn(async move {
-                        message_handler.handle_events(msg).await;
-                    });
-                }
-                break;
-            }
             select! {
                 recv(rx) -> msg => {
                     let msg = msg.expect("Agent must be alive");
@@ -146,8 +124,11 @@ pub async fn run(
     let mut signals_stream = signal_hook_async_std::Signals::new(TERM_SIGNALS)?.fuse();
     let signals = signals_stream.next();
     let _ = signals.await;
-    is_stopped.store(true, Ordering::SeqCst);
     unsubscribe(&mut agent, &agent_id, &config)?;
+    message_handler
+        .global_context()
+        .janus_clients()
+        .stop_polling();
 
     task::sleep(Duration::from_secs(3)).await;
     info!(
