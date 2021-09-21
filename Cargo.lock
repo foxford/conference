@@ -3280,7 +3280,7 @@ dependencies = [
 [[package]]
 name = "svc-agent"
 version = "0.17.0"
-source = "git+https://github.com/foxford/svc-agent-rs?branch=ULMS-1542/graceful-shutdown#051792ca1d5bd31e52099d96fdb80676f56efe1b"
+source = "git+https://github.com/foxford/svc-agent-rs?branch=ULMS-1542/graceful-shutdown#ebd6b75cb0ab1a369581b84af523f72b7a9ec2c6"
 dependencies = [
  "async-channel",
  "base64 0.13.0",

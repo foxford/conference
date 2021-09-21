@@ -232,7 +232,7 @@ fn unsubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> anyhow
 
     // Multicast requests
     agent
-        .unsbuscribe(
+        .unsubscribe(
             &Subscription::multicast_requests(Some(API_VERSION)),
             Some(&group),
         )
@@ -240,7 +240,7 @@ fn unsubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> anyhow
 
     // Dynsub responses
     agent
-        .unsbuscribe(
+        .unsubscribe(
             &Subscription::unicast_responses_from(&config.broker_id),
             None,
         )
@@ -251,7 +251,7 @@ fn unsubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> anyhow
         Subscription::broadcast_events(&config.backend.id, JANUS_API_VERSION, "status");
 
     agent
-        .unsbuscribe(&subscription, Some(&group))
+        .unsubscribe(&subscription, Some(&group))
         .context("Error unsubscribing to backend events topic")?;
 
     Ok(())
