@@ -148,7 +148,7 @@ pub async fn run(
     let _ = signals.await;
     is_stopped.store(true, Ordering::SeqCst);
     unsubscribe(&mut agent, &agent_id, &config)?;
-    
+
     task::sleep(Duration::from_secs(3)).await;
     info!(
         requests_left = metrics.running_requests_total.get(),
