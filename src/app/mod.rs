@@ -254,32 +254,10 @@ fn unsubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> anyhow
         .unsbuscribe(&subscription, Some(&group))
         .context("Error unsubscribing to backend events topic")?;
 
-    // Kruonis
-    if let KruonisConfig {
-        id: Some(ref kruonis_id),
-    } = config.kruonis
-    {
-        unsubscribe_from_kruonis(kruonis_id, agent)?;
-    }
     Ok(())
 }
 
 fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()> {
-    let timing = ShortTermTimingProperties::new(Utc::now());
-
-    let topic = Subscription::unicast_requests_from(kruonis_id)
-        .subscription_topic(agent.id(), API_VERSION)
-        .context("Failed to build subscription topic")?;
-
-    let props = OutgoingRequestProperties::new("kruonis.subscribe", &topic, "", timing);
-    let event = OutgoingRequest::multicast(json!({}), props, kruonis_id, API_VERSION);
-
-    agent.publish(event).context("Failed to publish message")?;
-
-    Ok(())
-}
-
-fn unsubscribe_from_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()> {
     let timing = ShortTermTimingProperties::new(Utc::now());
 
     let topic = Subscription::unicast_requests_from(kruonis_id)
