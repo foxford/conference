@@ -243,12 +243,10 @@ const MOST_LOADED_SQL: &str = r#"
         room_load AS (
             SELECT
                 a.room_id,
-                SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
+                COUNT(a.id) AS taken
             FROM agent AS a
             INNER JOIN agent_connection AS ac
             ON ac.agent_id = a.id
-            LEFT JOIN rtc_writer_config AS rwc
-            ON rwc.rtc_id = ac.rtc_id
             GROUP BY a.room_id
         ),
         active_room AS (
@@ -311,12 +309,10 @@ const LEAST_LOADED_SQL: &str = r#"
         room_load AS (
             SELECT
                 a.room_id,
-                SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
+                COUNT(a.id) AS taken
             FROM agent AS a
             INNER JOIN agent_connection AS ac
             ON ac.agent_id = a.id
-            LEFT JOIN rtc_writer_config AS rwc
-            ON rwc.rtc_id = ac.rtc_id
             GROUP BY a.room_id
         ),
         active_room AS (
@@ -382,12 +378,10 @@ const FREE_CAPACITY_SQL: &str = r#"
         room_load AS (
             SELECT
                 a.room_id,
-                SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
+                COUNT(a.id) AS taken
             FROM agent AS a
             INNER JOIN agent_connection AS ac
             ON ac.agent_id = a.id
-            LEFT JOIN rtc_writer_config AS rwc
-            ON rwc.rtc_id = ac.rtc_id
             GROUP BY a.room_id
         ),
         active_room AS (
@@ -504,12 +498,10 @@ WITH
     room_load AS (
         SELECT
             a.room_id,
-            SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
+            COUNT(a.id) AS taken
         FROM agent AS a
         INNER JOIN agent_connection AS ac
         ON ac.agent_id = a.id
-        LEFT JOIN rtc_writer_config AS rwc
-        ON rwc.rtc_id = ac.rtc_id
         GROUP BY a.room_id
     ),
     active_room AS (
