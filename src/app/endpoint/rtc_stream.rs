@@ -45,7 +45,7 @@ impl RequestHandler for ListHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let room_id = payload.room_id;
             move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
@@ -70,7 +70,7 @@ impl RequestHandler for ListHandler {
         context.metrics().observe_auth(authz_time);
 
         let conn = context.get_conn().await?;
-        let rtc_streams = task::spawn_blocking(move || {
+        let rtc_streams = crate::util::spawn_blocking(move || {
             let mut query = db::janus_rtc_stream::ListQuery::new().room_id(payload.room_id);
 
             if let Some(rtc_id) = payload.rtc_id {
@@ -96,12 +96,14 @@ impl RequestHandler for ListHandler {
             .rtc_stream_list
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            rtc_streams,
-            reqp,
-            context.start_timestamp(),
-            Some(authz_time),
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                rtc_streams,
+                reqp,
+                context.start_timestamp(),
+                Some(authz_time),
+            ),
         ))))
     }
 }

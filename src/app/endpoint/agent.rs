@@ -35,7 +35,7 @@ impl RequestHandler for ListHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let room_id = payload.room_id;
             move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
@@ -53,7 +53,7 @@ impl RequestHandler for ListHandler {
 
         // Get agents list in the room.
         let conn = context.get_conn().await?;
-        let agents = task::spawn_blocking(move || {
+        let agents = crate::util::spawn_blocking(move || {
             db::agent::ListQuery::new()
                 .room_id(payload.room_id)
                 .offset(payload.offset.unwrap_or(0))
@@ -68,12 +68,14 @@ impl RequestHandler for ListHandler {
             .observe_timestamp(context.start_timestamp());
 
         // Respond with agents list.
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            agents,
-            reqp,
-            context.start_timestamp(),
-            Some(authz_time),
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                agents,
+                reqp,
+                context.start_timestamp(),
+                Some(authz_time),
+            ),
         ))))
     }
 }

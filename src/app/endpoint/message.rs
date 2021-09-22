@@ -56,7 +56,7 @@ impl RequestHandler for UnicastHandler {
             let room_id = payload.room_id;
             let reqp_agent_id = reqp.as_agent_id().clone();
             let payload_agent_id = payload.agent_id.clone();
-            task::spawn_blocking(move || {
+            crate::util::spawn_blocking(move || {
                 let room =
                     helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
 
@@ -99,7 +99,7 @@ impl RequestHandler for UnicastHandler {
             .observe_timestamp(context.start_timestamp());
 
         let boxed_req = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
-        Ok(Box::new(stream::once(boxed_req)))
+        Ok(Box::new(stream::once(std::future::ready(boxed_req))))
     }
 }
 
@@ -126,7 +126,7 @@ impl RequestHandler for BroadcastHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let room_id = payload.room_id;
             move || {
@@ -204,7 +204,7 @@ impl ResponseHandler for UnicastResponseHandler {
             .request_duration
             .message_unicast_response
             .observe_timestamp(context.start_timestamp());
-        Ok(Box::new(stream::once(boxed_resp)))
+        Ok(Box::new(stream::once(std::future::ready(boxed_resp))))
     }
 }
 

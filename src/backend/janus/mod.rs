@@ -56,7 +56,7 @@ fn handle_response_error<C: Context>(
     let respp = reqp.to_response(svc_error.status_code(), timing);
     let resp = OutgoingResponse::unicast(svc_error, respp, reqp, API_VERSION);
     let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-    Box::new(stream::once(boxed_resp))
+    Box::new(stream::once(std::future::ready(boxed_resp)))
 }
 
 #[instrument(skip(context, event), fields(
@@ -85,7 +85,7 @@ async fn handle_event_impl<C: Context>(
             // to the room's topic.
             let conn = context.get_conn().await?;
             let start_timestamp = context.start_timestamp();
-            task::spawn_blocking(move || {
+            crate::util::spawn_blocking(move || {
                 if let Some(rtc_stream) = janus_rtc_stream::start(inev.opaque_id.stream_id, &conn)?
                 {
                     let room = endpoint::helpers::find_room_by_rtc_id(
@@ -97,9 +97,9 @@ async fn handle_event_impl<C: Context>(
                     let event =
                         endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp)?;
 
-                    Ok(Box::new(stream::once(
+                    Ok(Box::new(stream::once(std::future::ready(
                         Box::new(event) as Box<dyn IntoPublishableMessage + Send>
-                    )) as MessageStream)
+                    ))) as MessageStream)
                 } else {
                     Ok(Box::new(stream::empty()) as MessageStream)
                 }
@@ -156,7 +156,8 @@ async fn handle_event_impl<C: Context>(
                                 .request_duration
                                 .rtc_signal_create
                                 .observe_timestamp(tn.start_timestamp);
-                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                            Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
+                                as MessageStream)
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
                 }
@@ -202,7 +203,8 @@ async fn handle_event_impl<C: Context>(
                                 .request_duration
                                 .rtc_signal_read
                                 .observe_timestamp(tn.start_timestamp);
-                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                            Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
+                                as MessageStream)
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
                 }
@@ -230,7 +232,7 @@ async fn handle_event_impl<C: Context>(
                             val if val == "404" => {
                                 let conn = context.get_conn().await?;
                                 let rtc_id = tn.rtc_id;
-                                task::spawn_blocking(move || {
+                                crate::util::spawn_blocking(move || {
                                     recording::UpdateQuery::new(rtc_id)
                                         .status(recording::Status::Missing)
                                         .execute(&conn)
@@ -278,7 +280,7 @@ async fn handle_event_impl<C: Context>(
                             Vec<(rtc::Object, Option<recording::Object>)>,
                         ) = {
                             let conn = context.get_conn().await?;
-                            task::spawn_blocking(move || {
+                            crate::util::spawn_blocking(move || {
                                 recording::UpdateQuery::new(rtc_id)
                                     .status(recording::Status::Ready)
                                     .mjr_dumps_uris(mjr_dumps_uris)
@@ -329,7 +331,7 @@ async fn handle_event_impl<C: Context>(
 
                         let event_box = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
 
-                        Ok(Box::new(stream::once(event_box)) as MessageStream)
+                        Ok(Box::new(stream::once(std::future::ready(event_box))) as MessageStream)
                     };
                     let response = upload_stream.await;
                     context
@@ -357,9 +359,9 @@ async fn handle_event_impl<C: Context>(
                     let props = OutgoingEventProperties::new("rtc_stream.agent_speaking", timing);
                     let event = OutgoingEvent::broadcast(notification, props, &uri);
 
-                    Ok(Box::new(stream::once(
+                    Ok(Box::new(stream::once(std::future::ready(
                         Box::new(event) as Box<dyn IntoPublishableMessage + Send>
-                    )) as MessageStream)
+                    ))) as MessageStream)
                 }
                 None => Ok(Box::new(stream::empty()) as MessageStream),
             }
@@ -382,7 +384,7 @@ async fn handle_hangup_detach<C: Context>(
     // to the room's topic.
     let conn = context.get_conn().await?;
     let start_timestamp = context.start_timestamp();
-    task::spawn_blocking(move || {
+    crate::util::spawn_blocking(move || {
         if let Some(rtc_stream) = janus_rtc_stream::stop(opaque_id.stream_id, &conn)? {
             // Publish the update event only if the stream object has been changed.
             // If there's no actual media stream, the object wouldn't contain its start time.
@@ -399,7 +401,7 @@ async fn handle_hangup_detach<C: Context>(
                 )?;
 
                 let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
-                return Ok(Box::new(stream::once(boxed_event)) as MessageStream);
+                return Ok(Box::new(stream::once(std::future::ready(boxed_event))) as MessageStream);
             }
         }
         Ok::<_, AppError>(Box::new(stream::empty()) as MessageStream)
@@ -440,7 +442,7 @@ async fn handle_status_event_impl<C: Context>(
     let payload = MQTTIncomingEvent::convert_payload::<StatusEvent>(event)
         .map_err(|err| anyhow!("Failed to parse event: {}", err))
         .error(AppErrorKind::MessageParsingFailed)?;
-    let janus_backend = task::spawn_blocking({
+    let janus_backend = crate::util::spawn_blocking({
         let conn = context.get_conn().await?;
         let backend_id = evp.as_agent_id().clone();
         move || {
@@ -515,7 +517,7 @@ async fn handle_online(
     let backend_id = backend_id.clone();
     let conn = context.get_conn().await?;
 
-    let backend = task::spawn_blocking(move || {
+    let backend = crate::util::spawn_blocking(move || {
         let mut q = janus_backend::UpsertQuery::new(&backend_id, handle.id, session.id, &janus_url);
 
         if let Some(capacity) = event.capacity {
@@ -547,7 +549,7 @@ async fn handle_offline(
     if let Some(backend) = existing_backend {
         let conn = context.get_conn().await?;
         let backend_id = backend.id().clone();
-        let streams_with_rtc = task::spawn_blocking(move || {
+        let streams_with_rtc = crate::util::spawn_blocking(move || {
             conn.transaction::<_, AppError, _>(|| {
                 let streams_with_rtc = janus_rtc_stream::ListWithRtcQuery::new()
                     .active(true)

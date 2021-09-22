@@ -82,7 +82,7 @@ impl RequestHandler for CreateHandler {
     ) -> Result {
         // Validate RTC and room presence.
         let conn = context.get_conn().await?;
-        let (room, rtc, backend) = task::spawn_blocking({
+        let (room, rtc, backend) =crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let handle_id = payload.handle_id.clone();
             move ||{
@@ -198,7 +198,7 @@ impl RequestHandler for CreateHandler {
 
                             let conn = context.get_conn().await?;
 
-                            task::spawn_blocking({
+                            crate::util::spawn_blocking({
                                 let handle_id = payload.handle_id.clone();
                                 let agent_id = reqp.as_agent_id().clone();
                                 move || {
@@ -214,7 +214,7 @@ impl RequestHandler for CreateHandler {
                                 }
                             })
                             .await?;
-                            let (writer_config, reader_config) = task::spawn_blocking({
+                            let (writer_config, reader_config) = crate::util::spawn_blocking({
                                 let rtc_id = payload.handle_id.rtc_id();
                                 let conn = context.get_conn().await?;
                                 move || {
@@ -304,7 +304,7 @@ impl RequestHandler for CreateHandler {
                     .rtc_signal_trickle
                     .observe_timestamp(context.start_timestamp());
 
-                Ok(Box::new(stream::once(boxed_resp)))
+                Ok(Box::new(stream::once(std::future::ready(boxed_resp))))
             }
         }
     }

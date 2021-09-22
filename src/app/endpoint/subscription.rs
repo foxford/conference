@@ -79,7 +79,7 @@ impl ResponseHandler for CreateResponseHandler {
         let room_id = try_room_id(&corr_data.object)?;
         let conn = context.get_conn().await?;
         let subject = corr_data.subject.clone();
-        let room = task::spawn_blocking(move || {
+        let room = crate::util::spawn_blocking(move || {
             let room =
                 helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)?;
             if room.host() == Some(&subject) {
@@ -201,7 +201,7 @@ impl EventHandler for DeleteEventHandler {
                 .subscription_delete_event
                 .observe_timestamp(context.start_timestamp());
 
-            Ok(Box::new(stream::once(notification)))
+            Ok(Box::new(stream::once(std::future::ready(notification))))
         } else {
             Ok(Box::new(stream::empty()))
         }
@@ -248,7 +248,7 @@ async fn leave_room<C: Context>(
     room_id: db::room::Id,
 ) -> StdResult<bool, AppError> {
     let conn = context.get_conn().await?;
-    let backends = task::spawn_blocking({
+    let backends = crate::util::spawn_blocking({
         let agent_id = agent_id.clone();
 
         move || {

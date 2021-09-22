@@ -10,7 +10,7 @@ use crate::{
 use anyhow::anyhow;
 use anyhow::Context as AnyhowContext;
 use chrono::{DateTime, Utc};
-use futures::{stream, Stream};
+use futures::{stream, Stream, StreamExt};
 use std::{future::Future, pin::Pin};
 use svc_agent::{
     mqtt::{
@@ -184,7 +184,7 @@ fn error_response(
     let props = reqp.to_response(status, timing);
     let resp = OutgoingResponse::unicast(err, props, reqp, API_VERSION);
     let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-    Box::new(stream::once(boxed_resp))
+    Box::new(stream::once(std::future::ready(boxed_resp)))
 }
 
 pub fn publish_message(agent: &mut Agent, message: Box<dyn IntoPublishableMessage>) {

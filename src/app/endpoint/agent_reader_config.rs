@@ -97,7 +97,7 @@ impl RequestHandler for UpdateHandler {
         }
 
         let conn = context.get_conn().await?;
-        let (room, rtc_reader_configs_with_rtcs, maybe_backend) = task::spawn_blocking({
+        let (room, rtc_reader_configs_with_rtcs, maybe_backend) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             move || {
                 let room = helpers::find_room_by_id(
@@ -214,7 +214,7 @@ impl RequestHandler for UpdateHandler {
             .request_duration
             .agent_reader_config_update
             .observe_timestamp(context.start_timestamp());
-        Ok(Box::new(stream::once(response)))
+        Ok(Box::new(stream::once(std::future::ready(response))))
     }
 }
 
@@ -240,7 +240,7 @@ impl RequestHandler for ReadHandler {
     ) -> Result {
         let conn = context.get_conn().await?;
 
-        let (room, rtc_reader_configs_with_rtcs) = task::spawn_blocking({
+        let (room, rtc_reader_configs_with_rtcs) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             move || {
                 let room = helpers::find_room_by_id(
@@ -272,12 +272,14 @@ impl RequestHandler for ReadHandler {
             .agent_reader_config_read
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            State::new(room.id(), &rtc_reader_configs_with_rtcs),
-            reqp,
-            context.start_timestamp(),
-            None,
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                State::new(room.id(), &rtc_reader_configs_with_rtcs),
+                reqp,
+                context.start_timestamp(),
+                None,
+            ),
         ))))
     }
 }

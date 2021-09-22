@@ -31,7 +31,7 @@ sentry = "0.23"
 serde = {version = "1", features = ["derive"]}
 serde_json = "1"
 signal-hook = "0.3.6"
-signal-hook-tokio = "0.3"
+signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 tracing-attributes  = "0.1"
 tracing-error = {version = "0.1" }
 tracing-appender = "0.1"
@@ -49,10 +49,10 @@ svc-error = {version = "0.1", features = [
   "svc-authz",
   "sentry-extension",
 ]}
-axum = "0.2"
 uuid = {version = "0.6", features = ["v4", "serde"]}
 webrtc-sdp = "0.3"
 tokio = { version = "1", features = ["full"] }
+hyper = { version = "0.14", features = [ "server" ]}
 
 [dev-dependencies]
 diesel_migrations = "1"

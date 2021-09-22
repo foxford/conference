@@ -15,11 +15,14 @@ use crate::{
     db::ConnectionPool,
 };
 use anyhow::{Context as AnyhowContext, Result};
-use tokio::task;
 use chrono::Utc;
 use context::{AppContext, GlobalContext, JanusTopics};
 use crossbeam_channel::select;
 use futures::StreamExt;
+use hyper::{
+    service::{make_service_fn, service_fn},
+    Body, Response, Server, StatusCode,
+};
 use message_handler::MessageHandler;
 use prometheus::{Encoder, Registry, TextEncoder};
 use serde_json::json;
@@ -33,6 +36,7 @@ use svc_agent::{
 };
 use svc_authn::token::jws_compact;
 use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
+use tokio::task;
 use tracing::{error, info, warn};
 
 pub const API_VERSION: &str = "v1";
@@ -148,7 +152,7 @@ pub async fn run(
     let signals = signals_stream.next();
     let _ = signals.await;
     is_stopped.store(true, Ordering::SeqCst);
-    task::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
     info!(
         requests_left = metrics.running_requests_total.get(),
         "Running requests left",
@@ -268,30 +272,35 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
     }
 }
 
-async fn start_metrics_collector(
-    registry: Registry,
-    bind_addr: SocketAddr,
-) -> tokio::io::Result<()> {
-    let mut app = tide::with_state(registry);
-    app.at("/metrics")
-        .get(|req: tide::Request<Registry>| async move {
-            let registry = req.state();
-            let mut buffer = vec![];
-            let encoder = TextEncoder::new();
-            let metric_families = registry.gather();
-            match encoder.encode(&metric_families, &mut buffer) {
-                Ok(_) => {
-                    let mut response = tide::Response::new(200);
-                    response.set_body(buffer);
-                    Ok(response)
-                }
-                Err(err) => {
-                    warn!(?err, "Metrics not gathered");
-                    Ok(tide::Response::new(500))
+async fn start_metrics_collector(registry: Registry, bind_addr: SocketAddr) -> anyhow::Result<()> {
+    let service = make_service_fn(move |_| {
+        let registry = registry.clone();
+        std::future::ready::<Result<_, hyper::Error>>(Ok(service_fn(move |_| {
+            let registry = registry.clone();
+            async move {
+                let mut buffer = vec![];
+                let encoder = TextEncoder::new();
+                let metric_families = registry.gather();
+                match encoder.encode(&metric_families, &mut buffer) {
+                    Ok(_) => {
+                        let response = Response::new(Body::from(buffer));
+                        Ok::<_, hyper::Error>(response)
+                    }
+                    Err(err) => {
+                        warn!(?err, "Metrics not gathered");
+                        let mut response = Response::default();
+                        *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                        Ok(response)
+                    }
                 }
             }
-        });
-    app.listen(bind_addr).await
+        })))
+    });
+    let server = Server::bind(&bind_addr).serve(service);
+
+    server.await?;
+
+    Ok(())
 }
 
 pub mod context;

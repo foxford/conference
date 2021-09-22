@@ -64,7 +64,7 @@ impl RequestHandler for CreateHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking(move || {
+        let room = crate::util::spawn_blocking(move || {
             helpers::find_room_by_id(payload.room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
@@ -82,7 +82,7 @@ impl RequestHandler for CreateHandler {
         let conn = context.get_conn().await?;
         let max_room_duration = context.config().max_room_duration;
         let room_id = room.id();
-        let rtc = task::spawn_blocking({
+        let rtc = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             move || {
                 conn.transaction::<_, diesel::result::Error, _>(|| {
@@ -153,7 +153,7 @@ impl RequestHandler for ReadHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let payload_id = payload.id;
             move || {
                 helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
@@ -174,7 +174,7 @@ impl RequestHandler for ReadHandler {
 
         // Return rtc.
         let conn = context.get_conn().await?;
-        let rtc = task::spawn_blocking(move || {
+        let rtc = crate::util::spawn_blocking(move || {
             db::rtc::FindQuery::new()
                 .id(payload.id)
                 .execute(&conn)?
@@ -188,12 +188,14 @@ impl RequestHandler for ReadHandler {
             .rtc_read
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            rtc,
-            reqp,
-            context.start_timestamp(),
-            Some(authz_time),
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                rtc,
+                reqp,
+                context.start_timestamp(),
+                Some(authz_time),
+            ),
         ))))
     }
 }
@@ -223,7 +225,7 @@ impl RequestHandler for ListHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let payload_room_id = payload.room_id;
             move || {
                 helpers::find_room_by_id(payload_room_id, helpers::RoomTimeRequirement::Open, &conn)
@@ -242,7 +244,7 @@ impl RequestHandler for ListHandler {
         context.metrics().observe_auth(authz_time);
         // Return rtc list.
         let conn = context.get_conn().await?;
-        let rtcs = task::spawn_blocking(move || {
+        let rtcs = crate::util::spawn_blocking(move || {
             let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
 
             if let Some(offset) = payload.offset {
@@ -261,12 +263,14 @@ impl RequestHandler for ListHandler {
             .rtc_list
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            rtcs,
-            reqp,
-            context.start_timestamp(),
-            Some(authz_time),
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                rtcs,
+                reqp,
+                context.start_timestamp(),
+                Some(authz_time),
+            ),
         ))))
     }
 }
@@ -320,7 +324,7 @@ impl RequestHandler for ConnectHandler {
     ) -> Result {
         let conn = context.get_conn().await?;
         let payload_id = payload.id;
-        let room = task::spawn_blocking(move || {
+        let room = crate::util::spawn_blocking(move || {
             helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
@@ -340,7 +344,7 @@ impl RequestHandler for ConnectHandler {
                     // Check that the RTC is owned by the same agent.
                     let conn = context.get_conn().await?;
 
-                    let rtc = task::spawn_blocking(move || {
+                    let rtc = crate::util::spawn_blocking(move || {
                         db::rtc::FindQuery::new()
                             .id(payload_id)
                             .execute(&conn)?
@@ -376,7 +380,7 @@ impl RequestHandler for ConnectHandler {
         let conn = context.get_conn().await?;
         let room_id = room.id();
         let backend_span = tracing::info_span!("finding_backend");
-        let backend = task::spawn_blocking(move || {
+        let backend =crate::util::spawn_blocking(move || {
             let _span_handle = backend_span.enter();
             // There are 4 cases:
             // 1. Connecting as a writer for a webinar for the first time. There's no `backend_id` in that case.
@@ -487,7 +491,7 @@ impl RequestHandler for ConnectHandler {
         let agent_id = reqp.as_agent_id().clone();
         let conn = context.get_conn().await?;
         let handle_id = handle.id;
-        task::spawn_blocking(move || {
+        crate::util::spawn_blocking(move || {
             conn.transaction::<_, AppError, _>(|| {
                 // Find agent in the DB who made the original `rtc.connect` request.
                 let maybe_agent = agent::ListQuery::new()
@@ -534,7 +538,7 @@ impl RequestHandler for ConnectHandler {
             .observe_timestamp(context.start_timestamp());
 
         let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-        Ok(Box::new(stream::once(boxed_resp)))
+        Ok(Box::new(stream::once(std::future::ready(boxed_resp))))
     }
 }
 

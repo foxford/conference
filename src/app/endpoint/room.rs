@@ -86,7 +86,7 @@ impl RequestHandler for CreateHandler {
         // Create a room.
         let conn = context.get_conn().await?;
         let audience = payload.audience.clone();
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             move || {
                 let mut q =
                     db::room::InsertQuery::new(payload.time, &payload.audience, rtc_sharing_policy);
@@ -151,7 +151,7 @@ impl RequestHandler for ReadHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking(move || {
+        let room = crate::util::spawn_blocking(move || {
             helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)
         })
         .await?;
@@ -171,12 +171,14 @@ impl RequestHandler for ReadHandler {
             .room_read
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            room,
-            reqp,
-            context.start_timestamp(),
-            Some(authz_time),
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                room,
+                reqp,
+                context.start_timestamp(),
+                Some(authz_time),
+            ),
         ))))
     }
 }
@@ -215,7 +217,7 @@ impl RequestHandler for UpdateHandler {
         };
         let conn = context.get_conn().await?;
 
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let id = payload.id;
             move || helpers::find_room_by_id(id, time_requirement, &conn)
         })
@@ -235,7 +237,7 @@ impl RequestHandler for UpdateHandler {
 
         // Update room.
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking(move ||{
+        let room =crate::util::spawn_blocking(move ||{
 
             let time = match payload.time {
                 None => None,
@@ -304,7 +306,7 @@ impl RequestHandler for UpdateHandler {
         // Publish room closed notification.
         if let (_, Bound::Excluded(closed_at)) = room.time() {
             if room_was_open && *closed_at <= Utc::now() {
-                let room = tokio::task::spawn_blocking({
+                let room = crate::util::spawn_blocking({
                     let room_id = room.id();
                     let agent = reqp.as_agent_id().to_owned();
                     let conn = context.get_conn().await?;
@@ -359,7 +361,7 @@ impl RequestHandler for CloseHandler {
     ) -> Result {
         let conn = context.get_conn().await?;
 
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let id = payload.id;
             move || {
                 helpers::find_room_by_id(
@@ -382,7 +384,7 @@ impl RequestHandler for CloseHandler {
         context.metrics().observe_auth(authz_time);
 
         // Update room.
-        let room = tokio::task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let room_id = room.id();
             let agent = reqp.as_agent_id().to_owned();
             let conn = context.get_conn().await?;
@@ -452,7 +454,7 @@ impl RequestHandler for EnterHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking(move || {
+        let room = crate::util::spawn_blocking(move || {
             helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::NotClosed, &conn)
         })
         .await?;
@@ -469,7 +471,7 @@ impl RequestHandler for EnterHandler {
 
         // Register agent in `in_progress` state.
         let conn = context.get_conn().await?;
-        task::spawn_blocking({
+        crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             move || db::agent::InsertQuery::new(&agent_id, room.id()).execute(&conn)
         })
@@ -511,7 +513,7 @@ impl RequestHandler for EnterHandler {
             .room_enter
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(boxed_request)))
+        Ok(Box::new(stream::once(std::future::ready(boxed_request))))
     }
 }
 
@@ -532,7 +534,7 @@ impl RequestHandler for LeaveHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let (room, presence) = task::spawn_blocking({
+        let (room, presence) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             move || {
                 let room =
@@ -586,7 +588,7 @@ impl RequestHandler for LeaveHandler {
             .room_leave
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(boxed_request)))
+        Ok(Box::new(stream::once(std::future::ready(boxed_request))))
     }
 }
 
