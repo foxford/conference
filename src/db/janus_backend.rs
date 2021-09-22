@@ -555,7 +555,7 @@ mod tests {
         test_helpers::{prelude::*, test_deps::LocalDeps},
     };
 
-    #[async_std::test]
+    #[tokio::test]
     async fn reserve_load_for_each_backend() {
         // Insert an rtc and janus backend.
         let now = Utc::now();

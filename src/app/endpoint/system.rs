@@ -12,9 +12,9 @@ use crate::{
     },
 };
 use anyhow::anyhow;
-use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::Utc;
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use std::{ops::Bound, result::Result as StdResult};
 use svc_agent::{
@@ -25,6 +25,7 @@ use svc_agent::{
     AgentId,
 };
 use svc_authn::Authenticable;
+use tokio::task;
 use tracing::error;
 use tracing_attributes::instrument;
 
@@ -132,7 +133,7 @@ impl RequestHandler for VacuumHandler {
             requests.push(closed_notification);
         }
 
-        Ok(Box::new(stream::from_iter(requests)))
+        Ok(Box::new(stream::iter(requests)))
     }
 }
 
@@ -162,7 +163,7 @@ impl EventHandler for OrphanedRoomCloseHandler {
             - chrono::Duration::from_std(context.config().orphaned_room_timeout)
                 .expect("Orphaned room timeout misconfigured");
         let connection = context.get_conn().await?;
-        let timed_out = async_std::task::spawn_blocking(move || {
+        let timed_out = tokio::task::spawn_blocking(move || {
             db::orphaned_room::get_timed_out(load_till, &connection)
         })
         .await?;
@@ -173,7 +174,7 @@ impl EventHandler for OrphanedRoomCloseHandler {
             match room {
                 Some(room) if !room.is_closed() => {
                     let connection = context.get_conn().await?;
-                    let close_task = async_std::task::spawn_blocking(move || {
+                    let close_task = tokio::task::spawn_blocking(move || {
                         let room = db::room::UpdateQuery::new(room.id())
                             .time(Some((room.time().0, Bound::Excluded(Utc::now()))))
                             .timed_out()
@@ -219,7 +220,7 @@ impl EventHandler for OrphanedRoomCloseHandler {
             error!(?err, "Error removing rooms fron orphan table");
         }
 
-        Ok(Box::new(stream::from_iter(notifications)))
+        Ok(Box::new(stream::iter(notifications)))
     }
 }
 
@@ -334,7 +335,7 @@ mod test {
             },
         };
 
-        #[async_std::test]
+        #[tokio::test]
         async fn close_orphaned_rooms() -> anyhow::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -401,7 +402,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn vacuum_system() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -487,7 +488,7 @@ mod test {
             assert_eq!(recv_rtcs, rtcs);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn vacuum_system_unauthorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

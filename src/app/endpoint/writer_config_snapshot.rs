@@ -1,11 +1,12 @@
 use anyhow::anyhow;
-use async_std::{stream, task};
 use async_trait::async_trait;
+use futures::stream;
 use serde::Deserialize;
 use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
     Authenticable,
 };
+use tokio::task;
 
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
@@ -90,7 +91,7 @@ mod tests {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -162,7 +163,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -202,7 +203,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn missing_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

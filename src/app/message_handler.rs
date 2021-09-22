@@ -9,11 +9,8 @@ use crate::{
 };
 use anyhow::anyhow;
 use anyhow::Context as AnyhowContext;
-use async_std::{
-    prelude::*,
-    stream::{self, Stream},
-};
 use chrono::{DateTime, Utc};
+use futures::{stream, Stream};
 use std::{future::Future, pin::Pin};
 use svc_agent::{
     mqtt::{

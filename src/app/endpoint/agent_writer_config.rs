@@ -10,14 +10,15 @@ use crate::{
     db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig},
 };
 use anyhow::anyhow;
-use async_std::{stream, task};
 use async_trait::async_trait;
 use diesel::Connection;
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
     Addressable, AgentId,
 };
+use tokio::task;
 use tracing_attributes::instrument;
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
@@ -298,7 +299,7 @@ impl RequestHandler for UpdateHandler {
             .agent_writer_config_update
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::from_iter(messages)))
+        Ok(Box::new(stream::iter(messages)))
     }
 }
 
@@ -378,7 +379,7 @@ mod tests {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn update_agent_writer_config() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -623,7 +624,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn not_authorized() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -663,7 +664,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn too_many_config_items() -> std::io::Result<()> {
             // Make agent_writer_config.update request.
             let local_deps = LocalDeps::new();
@@ -701,7 +702,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn not_entered() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -733,7 +734,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn closed_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -777,7 +778,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn room_with_wrong_rtc_policy() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -818,7 +819,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn missing_room() -> std::io::Result<()> {
             // Make agent_writer_config.update request.
             let local_deps = LocalDeps::new();
@@ -856,7 +857,7 @@ mod tests {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read_state() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -947,7 +948,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn not_entered() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -976,7 +977,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn closed_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1018,7 +1019,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1057,7 +1058,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn missing_room() -> std::io::Result<()> {
             // Make agent_writer_config.read request.
             let local_deps = LocalDeps::new();

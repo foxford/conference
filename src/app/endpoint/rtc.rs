@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context as AnyhowContext};
-use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use std::{fmt, ops::Bound};
 use svc_agent::{
@@ -11,6 +11,7 @@ use svc_agent::{
     },
     Addressable,
 };
+use tokio::task;
 use tracing::{warn, Span};
 
 use crate::{
@@ -127,7 +128,7 @@ impl RequestHandler for CreateHandler {
             .rtc_create
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::from_iter(vec![response, notification])))
+        Ok(Box::new(stream::iter(vec![response, notification])))
     }
 }
 
@@ -553,7 +554,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -593,7 +594,7 @@ mod test {
             assert_eq!(rtc.room_id(), room.id());
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_in_unbounded_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -646,7 +647,7 @@ mod test {
             assert_ne!(room.time().1, Bound::Unbounded);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_rtc_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -666,7 +667,7 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_rtc_duplicate() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -710,7 +711,7 @@ mod test {
             assert_eq!(err.kind(), "database_query_failed");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_rtc_for_different_agents_with_owned_sharing_policy() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -758,7 +759,7 @@ mod test {
             assert_eq!(rtc2.created_by(), agent2.agent_id());
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_rtc_for_the_same_agent_with_owned_sharing_policy() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -803,7 +804,7 @@ mod test {
             assert_eq!(err.kind(), "database_query_failed");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_rtc_unauthorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -839,7 +840,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read_rtc() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -877,7 +878,7 @@ mod test {
             assert_eq!(resp_rtc.room_id(), rtc.room_id());
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read_rtc_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -905,7 +906,7 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read_rtc_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -934,7 +935,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_rtcs() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -979,7 +980,7 @@ mod test {
             assert_eq!(rtcs[0].room_id(), rtc.room_id());
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_rtcs_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1011,7 +1012,7 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_rtcs_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1048,7 +1049,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_only() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1145,7 +1146,7 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_ongoing_rtc() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1204,7 +1205,7 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_with_reservation() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1305,7 +1306,7 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_take_reserved_slot() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1426,7 +1427,7 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_as_last_reader() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1495,7 +1496,7 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_full_server_as_reader() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1580,7 +1581,7 @@ mod test {
             assert_eq!(err.kind(), "capacity_exceeded");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_full_server_as_writer() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1649,7 +1650,7 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_too_big_reserve() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1815,7 +1816,7 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_reserve_overflow() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1984,7 +1985,7 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_shared_rtc_created_by_someone_else() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -2044,7 +2045,7 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_owned_rtc_created_by_someone_else_for_writing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -2106,7 +2107,7 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_owned_rtc_created_by_someone_else_for_reading() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -2166,7 +2167,7 @@ mod test {
             context.janus_clients().remove_client(&backend)
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_with_backend_grouping() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -2255,7 +2256,7 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -2286,7 +2287,7 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

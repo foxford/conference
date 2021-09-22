@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context as AnyhowContext};
-use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::ops::Bound;
@@ -12,6 +12,7 @@ use svc_agent::{
     },
     Addressable, AgentId, Subscription,
 };
+use tokio::task;
 use uuid::Uuid;
 
 use crate::{
@@ -125,7 +126,7 @@ impl RequestHandler for CreateHandler {
             context.start_timestamp(),
         );
 
-        Ok(Box::new(stream::from_iter(vec![response, notification])))
+        Ok(Box::new(stream::iter(vec![response, notification])))
     }
 }
 
@@ -303,7 +304,7 @@ impl RequestHandler for UpdateHandler {
         // Publish room closed notification.
         if let (_, Bound::Excluded(closed_at)) = room.time() {
             if room_was_open && *closed_at <= Utc::now() {
-                let room = async_std::task::spawn_blocking({
+                let room = tokio::task::spawn_blocking({
                     let room_id = room.id();
                     let agent = reqp.as_agent_id().to_owned();
                     let conn = context.get_conn().await?;
@@ -333,7 +334,7 @@ impl RequestHandler for UpdateHandler {
             .room_update
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::from_iter(responses)))
+        Ok(Box::new(stream::iter(responses)))
     }
 }
 
@@ -381,7 +382,7 @@ impl RequestHandler for CloseHandler {
         context.metrics().observe_auth(authz_time);
 
         // Update room.
-        let room = async_std::task::spawn_blocking({
+        let room = tokio::task::spawn_blocking({
             let room_id = room.id();
             let agent = reqp.as_agent_id().to_owned();
             let conn = context.get_conn().await?;
@@ -430,7 +431,7 @@ impl RequestHandler for CloseHandler {
             .room_close
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::from_iter(responses)))
+        Ok(Box::new(stream::iter(responses)))
     }
 }
 
@@ -616,61 +617,59 @@ mod test {
 
         use super::super::*;
 
-        #[test]
-        fn create() {
-            async_std::task::block_on(async {
-                let local_deps = LocalDeps::new();
-                let postgres = local_deps.run_postgres();
-                let db = TestDb::with_local_postgres(&postgres);
+        #[tokio::test]
+        async fn create() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
 
-                // Allow user to create rooms.
-                let mut authz = TestAuthz::new();
-                let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-                authz.allow(agent.account_id(), vec!["rooms"], "create");
+            // Allow user to create rooms.
+            let mut authz = TestAuthz::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            authz.allow(agent.account_id(), vec!["rooms"], "create");
 
-                // Make room.create request.
-                let mut context = TestContext::new(db.clone(), authz);
-                let time = (Bound::Unbounded, Bound::Unbounded);
-                let classroom_id = Uuid::new_v4();
+            // Make room.create request.
+            let mut context = TestContext::new(db.clone(), authz);
+            let time = (Bound::Unbounded, Bound::Unbounded);
+            let classroom_id = Uuid::new_v4();
 
-                let payload = CreateRequest {
-                    time: time.clone(),
-                    audience: USR_AUDIENCE.to_owned(),
-                    backend: None,
-                    rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
-                    reserve: Some(123),
-                    tags: Some(json!({ "foo": "bar" })),
-                    classroom_id: Some(classroom_id),
-                };
+            let payload = CreateRequest {
+                time: time.clone(),
+                audience: USR_AUDIENCE.to_owned(),
+                backend: None,
+                rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
+                reserve: Some(123),
+                tags: Some(json!({ "foo": "bar" })),
+                classroom_id: Some(classroom_id),
+            };
 
-                let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                    .await
-                    .expect("Room creation failed");
+            let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room creation failed");
 
-                // Assert response.
-                let (room, respp, _) = find_response::<Room>(messages.as_slice());
-                assert_eq!(respp.status(), ResponseStatus::OK);
-                assert_eq!(room.audience(), USR_AUDIENCE);
-                assert_eq!(room.time(), &time);
-                assert_eq!(room.rtc_sharing_policy(), db::rtc::SharingPolicy::Shared);
-                assert_eq!(room.reserve(), Some(123));
-                assert_eq!(room.tags(), &json!({ "foo": "bar" }));
-                assert_eq!(room.classroom_id(), Some(classroom_id));
+            // Assert response.
+            let (room, respp, _) = find_response::<Room>(messages.as_slice());
+            assert_eq!(respp.status(), ResponseStatus::OK);
+            assert_eq!(room.audience(), USR_AUDIENCE);
+            assert_eq!(room.time(), &time);
+            assert_eq!(room.rtc_sharing_policy(), db::rtc::SharingPolicy::Shared);
+            assert_eq!(room.reserve(), Some(123));
+            assert_eq!(room.tags(), &json!({ "foo": "bar" }));
+            assert_eq!(room.classroom_id(), Some(classroom_id));
 
-                // Assert notification.
-                let (room, evp, topic) = find_event::<Room>(messages.as_slice());
-                assert!(topic.ends_with(&format!("/audiences/{}/events", USR_AUDIENCE)));
-                assert_eq!(evp.label(), "room.create");
-                assert_eq!(room.audience(), USR_AUDIENCE);
-                assert_eq!(room.time(), &time);
-                assert_eq!(room.rtc_sharing_policy(), db::rtc::SharingPolicy::Shared);
-                assert_eq!(room.reserve(), Some(123));
-                assert_eq!(room.tags(), &json!({ "foo": "bar" }));
-                assert_eq!(room.classroom_id(), Some(classroom_id));
-            });
+            // Assert notification.
+            let (room, evp, topic) = find_event::<Room>(messages.as_slice());
+            assert!(topic.ends_with(&format!("/audiences/{}/events", USR_AUDIENCE)));
+            assert_eq!(evp.label(), "room.create");
+            assert_eq!(room.audience(), USR_AUDIENCE);
+            assert_eq!(room.time(), &time);
+            assert_eq!(room.rtc_sharing_policy(), db::rtc::SharingPolicy::Shared);
+            assert_eq!(room.reserve(), Some(123));
+            assert_eq!(room.tags(), &json!({ "foo": "bar" }));
+            assert_eq!(room.classroom_id(), Some(classroom_id));
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_room_unauthorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -707,7 +706,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -745,7 +744,7 @@ mod test {
             assert_eq!(resp_room.rtc_sharing_policy(), room.rtc_sharing_policy());
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read_room_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -772,7 +771,7 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read_room_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -807,7 +806,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn update_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -872,7 +871,7 @@ mod test {
             assert_eq!(resp_room.host(), Some(agent.agent_id()));
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn update_room_with_wrong_time() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -924,7 +923,7 @@ mod test {
                 .expect_err("Room update succeeded when it should've failed");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn update_and_close_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1002,7 +1001,7 @@ mod test {
             );
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn update_and_close_unbounded_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1050,7 +1049,7 @@ mod test {
                 .expect("Room update failed");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn update_room_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1076,7 +1075,7 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn update_room_closed() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1125,7 +1124,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn close_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1175,7 +1174,7 @@ mod test {
             );
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn close_bounded_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1228,7 +1227,7 @@ mod test {
             );
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn close_room_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1249,7 +1248,7 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn close_room_closed() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1286,7 +1285,7 @@ mod test {
 
         use super::{super::*, DynSubRequest};
 
-        #[async_std::test]
+        #[tokio::test]
         async fn enter_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1334,7 +1333,7 @@ mod test {
             assert_eq!(payload.object, vec!["rooms", &room_id, "events"]);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn enter_room_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1361,7 +1360,7 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn enter_room_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1381,7 +1380,7 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn enter_room_closed() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1416,7 +1415,7 @@ mod test {
             assert_eq!(err.kind(), "room_closed");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn enter_room_with_no_opening_time() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1454,7 +1453,7 @@ mod test {
             assert_eq!(err.kind(), "room_closed");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn enter_room_that_opens_in_the_future() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1498,7 +1497,7 @@ mod test {
 
         use super::{super::*, DynSubRequest};
 
-        #[async_std::test]
+        #[tokio::test]
         async fn leave_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1546,7 +1545,7 @@ mod test {
             assert_eq!(payload.object, vec!["rooms", &room_id, "events"]);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn leave_room_while_not_entered() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1573,7 +1572,7 @@ mod test {
             assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn leave_room_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

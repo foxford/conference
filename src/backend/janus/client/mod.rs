@@ -21,11 +21,8 @@ use self::{
 };
 use anyhow::Context;
 use diesel_derive_newtype::DieselNewType;
-use isahc::{
-    http::{StatusCode, Uri},
-    AsyncReadResponseExt, HttpClient, Request,
-};
 use rand::Rng;
+use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 
@@ -46,7 +43,7 @@ pub mod upload_stream;
 
 #[derive(Debug, Clone)]
 pub struct JanusClient {
-    http: Arc<HttpClient>,
+    http: Arc<Client>,
     janus_url: Uri,
 }
 

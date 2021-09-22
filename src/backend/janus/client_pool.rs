@@ -67,7 +67,7 @@ impl Clients {
                     is_cancelled: is_cancelled.clone(),
                     janus_url: backend.janus_url().to_owned(),
                 });
-                async_std::task::spawn({
+                tokio::task::spawn({
                     let client = client.clone();
                     async move {
                         let sink = this.events_sink.clone();
@@ -156,7 +156,7 @@ async fn start_polling(
             }
             Err(err) => {
                 error!(?err, ?janus_backend, "Polling error");
-                async_std::task::sleep(Duration::from_millis(500)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
                 fail_retries_count -= 1;
             }
         }

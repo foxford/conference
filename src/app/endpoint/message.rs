@@ -3,8 +3,8 @@ use crate::{
     db,
 };
 use anyhow::anyhow;
-use async_std::{stream, task};
 use async_trait::async_trait;
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use svc_agent::{
@@ -15,6 +15,7 @@ use svc_agent::{
     },
     Addressable, AgentId, Subscription,
 };
+use tokio::task;
 use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -160,7 +161,7 @@ impl RequestHandler for BroadcastHandler {
             .message_broadcast
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::from_iter(vec![response, notification])))
+        Ok(Box::new(stream::iter(vec![response, notification])))
     }
 }
 
@@ -220,7 +221,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn unicast_message() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -267,7 +268,7 @@ mod test {
             assert_eq!(payload, json!({"key": "value"}));
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn unicast_message_to_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -291,7 +292,7 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn unicast_message_when_sender_is_not_in_the_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -327,7 +328,7 @@ mod test {
             assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn unicast_message_when_receiver_is_not_in_the_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -372,7 +373,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn broadcast_message() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -422,7 +423,7 @@ mod test {
             assert_eq!(payload, json!({"key": "value"}));
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn broadcast_message_to_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -444,7 +445,7 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn broadcast_message_when_not_in_the_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

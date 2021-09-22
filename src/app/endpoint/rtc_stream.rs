@@ -1,13 +1,14 @@
 use anyhow::anyhow;
-use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use futures::stream;
 use serde::Deserialize;
 use std::result::Result as StdResult;
 use svc_agent::mqtt::{
     IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
     ResponseStatus, ShortTermTimingProperties,
 };
+use tokio::task;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
@@ -137,7 +138,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_rtc_streams() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -213,7 +214,7 @@ mod test {
             );
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_rtc_streams_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -247,7 +248,7 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_rtc_streams_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

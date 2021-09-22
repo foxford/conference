@@ -243,7 +243,7 @@
 ## v0.5.5 (September 9, 2020)
 
 ### Features
-- Updated svc agent, allows to tune threads configuration in tokio and async_std runtimes ([f890119](https://github.com/netology-group/conference/commit/f8901198f348845afe6e6978ed306fbdc08c9e0c))
+- Updated svc agent, allows to tune threads configuration in tokio and tokio runtimes ([f890119](https://github.com/netology-group/conference/commit/f8901198f348845afe6e6978ed306fbdc08c9e0c))
 - Added label metrics for message.broadcast ([9218acc](https://github.com/netology-group/conference/commit/9218accf25abbafc4952211ea7a4e5befe9982f6))
 - Added janus and connected agents metrics ([dee2d34](https://github.com/netology-group/conference/commit/dee2d34cf0a52d2da5c7cdc0c5dd80e4e0af65b0))
 

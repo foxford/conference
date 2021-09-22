@@ -1,7 +1,8 @@
-use async_std::{stream, task};
 use async_trait::async_trait;
+use futures::stream;
 use serde::Deserialize;
 use svc_agent::mqtt::{IncomingRequestProperties, ResponseStatus};
+use tokio::task;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
@@ -97,7 +98,7 @@ mod tests {
             room_id: db::room::Id,
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_agents() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -143,7 +144,7 @@ mod tests {
             assert_eq!(agents[0].room_id, room.id());
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_agents_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -175,7 +176,7 @@ mod tests {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_agents_closed_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -215,7 +216,7 @@ mod tests {
             assert_eq!(err.kind(), "room_closed");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_agents_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

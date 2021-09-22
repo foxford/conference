@@ -18,9 +18,9 @@ use crate::{
     db,
 };
 use anyhow::{anyhow, Context as AnyhowContext};
-use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::Duration;
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::result::Result as StdResult;
@@ -31,6 +31,7 @@ use svc_agent::{
     },
     Addressable,
 };
+use tokio::task;
 use tracing::Span;
 use tracing_attributes::instrument;
 
@@ -425,7 +426,7 @@ a=rtcp-fb:120 ccm fir
 a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
 "#;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn offer() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -521,7 +522,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn offer_unauthorized() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -612,7 +613,7 @@ a=rtcp-fb:120 nack pli
 a=rtcp-fb:120 ccm fir
 "#;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn answer() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -694,7 +695,7 @@ a=rtcp-fb:120 ccm fir
 
         const ICE_CANDIDATE: &str = "candidate:0 1 UDP 2113667327 198.51.100.7 49203 typ host";
 
-        #[async_std::test]
+        #[tokio::test]
         async fn candidate() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -771,7 +772,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn candidate_unauthorized() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -836,7 +837,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn wrong_rtc_id() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -889,7 +890,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn rtc_id_from_another_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -951,7 +952,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn wrong_backend_id() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1018,7 +1019,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn offline_backend() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1076,7 +1077,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn not_entered() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1129,7 +1130,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn not_connected() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1183,7 +1184,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn wrong_handle_id() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1244,7 +1245,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn spoof_handle_id() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1315,7 +1316,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn closed_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1378,7 +1379,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn spoof_owned_rtc() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

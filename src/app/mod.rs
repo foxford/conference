@@ -15,7 +15,7 @@ use crate::{
     db::ConnectionPool,
 };
 use anyhow::{Context as AnyhowContext, Result};
-use async_std::task;
+use tokio::task;
 use chrono::Utc;
 use context::{AppContext, GlobalContext, JanusTopics};
 use crossbeam_channel::select;
@@ -144,7 +144,7 @@ pub async fn run(
             }
         });
     }
-    let mut signals_stream = signal_hook_async_std::Signals::new(TERM_SIGNALS)?.fuse();
+    let mut signals_stream = signal_hook_tokio::Signals::new(TERM_SIGNALS)?.fuse();
     let signals = signals_stream.next();
     let _ = signals.await;
     is_stopped.store(true, Ordering::SeqCst);
@@ -271,7 +271,7 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
 async fn start_metrics_collector(
     registry: Registry,
     bind_addr: SocketAddr,
-) -> async_std::io::Result<()> {
+) -> tokio::io::Result<()> {
     let mut app = tide::with_state(registry);
     app.at("/metrics")
         .get(|req: tide::Request<Registry>| async move {

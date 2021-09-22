@@ -6,7 +6,6 @@ version = "0.6.33"
 
 [dependencies]
 anyhow = "1"
-async-std = {version = "1", features = ["attributes"]}
 async-trait = "0.1"
 base64 = "0.13"
 chrono = {version = "0.4", features = ["serde"]}
@@ -22,7 +21,7 @@ futures-channel = "0.3"
 futures-util = "0.3"
 http = "0.1"
 humantime-serde = "1"
-isahc = {version = "=1.1.0", features = ["json"]}
+reqwest = "0.11"
 once_cell = "1"
 openssl = "*"
 prometheus = "0.12"
@@ -32,7 +31,7 @@ sentry = "0.23"
 serde = {version = "1", features = ["derive"]}
 serde_json = "1"
 signal-hook = "0.3.6"
-signal-hook-async-std = "0.2.1"
+signal-hook-tokio = "0.3"
 tracing-attributes  = "0.1"
 tracing-error = {version = "0.1" }
 tracing-appender = "0.1"
@@ -50,9 +49,10 @@ svc-error = {version = "0.1", features = [
   "svc-authz",
   "sentry-extension",
 ]}
-tide = "0.16"
+axum = "0.2"
 uuid = {version = "0.6", features = ["v4", "serde"]}
 webrtc-sdp = "0.3"
+tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]
 diesel_migrations = "1"

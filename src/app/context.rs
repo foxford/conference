@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use async_std::task::JoinHandle;
 use chrono::{DateTime, Utc};
 use diesel::{
     pg::PgConnection,
@@ -8,6 +7,7 @@ use diesel::{
 };
 use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
+use tokio::task::JoinHandle;
 
 use crate::{
     app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
@@ -36,7 +36,7 @@ pub trait GlobalContext: Sync {
         &self,
     ) -> JoinHandle<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
         let db = self.db().clone();
-        async_std::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             db.get()
                 .map_err(|err| anyhow::Error::from(err).context("Failed to acquire DB connection"))
                 .error(AppErrorKind::DbConnAcquisitionFailed)

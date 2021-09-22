@@ -8,7 +8,7 @@ use svc_authz::cache::{create_pool, Cache};
 use tracing_error::ErrorLayer;
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter};
 
-#[async_std::main]
+#[tokio::main]
 async fn main() -> Result<()> {
     let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
     let subscriber = tracing_subscriber::fmt::layer()

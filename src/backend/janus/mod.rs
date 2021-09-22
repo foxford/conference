@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context as AnyhowContext, Result};
-use async_std::{stream, task};
 use chrono::Utc;
+use futures::stream;
 use std::ops::Bound;
 use svc_agent::{
     mqtt::{
@@ -11,6 +11,7 @@ use svc_agent::{
     Addressable, AgentId,
 };
 use svc_error::Error as SvcError;
+use tokio::task;
 use tracing::{error, field::Empty, Span};
 
 use crate::{
@@ -574,7 +575,7 @@ async fn handle_offline(
             events.push(Box::new(event) as Box<dyn IntoPublishableMessage + Send>);
         }
         context.janus_clients().remove_client(&backend);
-        Ok(Box::new(stream::from_iter(events)))
+        Ok(Box::new(stream::iter(events)))
     } else {
         Ok(Box::new(stream::empty()))
     }
@@ -610,7 +611,7 @@ mod test {
 
     use super::{handle_online, StatusEvent};
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_online_when_backends_absent() -> anyhow::Result<()> {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
@@ -642,7 +643,7 @@ mod test {
             .execute(&conn)?
             .unwrap();
         // check if handle expired by timeout;
-        async_std::task::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
         let _ping_response = context
             .janus_clients()
             .get_or_insert(&backend)?
@@ -656,7 +657,7 @@ mod test {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_online_when_backends_present() -> anyhow::Result<()> {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
@@ -689,7 +690,7 @@ mod test {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_online_after_offline() -> anyhow::Result<()> {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
@@ -719,7 +720,7 @@ mod test {
             .unwrap();
         assert_ne!(backend, new_backend);
         // check if handle expired by timeout;
-        async_std::task::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
         let _ping_response = context
             .janus_clients()
             .get_or_insert(&new_backend)?
