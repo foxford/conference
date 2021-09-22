@@ -11,7 +11,7 @@ use svc_agent::{
     },
     Addressable,
 };
-use tokio::task;
+
 use tracing::{warn, Span};
 
 use crate::{

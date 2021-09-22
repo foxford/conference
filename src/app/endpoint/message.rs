@@ -15,7 +15,7 @@ use svc_agent::{
     },
     Addressable, AgentId, Subscription,
 };
-use tokio::task;
+
 use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////

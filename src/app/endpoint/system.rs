@@ -25,7 +25,7 @@ use svc_agent::{
     AgentId,
 };
 use svc_authn::Authenticable;
-use tokio::task;
+
 use tracing::error;
 use tracing_attributes::instrument;
 

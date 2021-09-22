@@ -1,4 +1,4 @@
-use std::sync::Arc;
+
 
 use crate::trace_id::TraceId;
 
@@ -21,9 +21,9 @@ use self::{
 };
 use anyhow::Context;
 use diesel_derive_newtype::DieselNewType;
-use http::Uri;
+
 use rand::Rng;
-use reqwest::{Client, Request, StatusCode, Url};
+use reqwest::{Client, StatusCode, Url};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 
@@ -57,7 +57,7 @@ impl JanusClient {
     }
 
     pub async fn poll(&self, session_id: SessionId) -> anyhow::Result<PollResult> {
-        let mut response = self
+        let response = self
             .http
             .get(format!("{}/{}?maxev=5", self.janus_url, session_id))
             .send()

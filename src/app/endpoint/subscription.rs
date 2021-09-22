@@ -13,7 +13,7 @@ use svc_agent::{
     },
     Addressable, AgentId,
 };
-use tokio::task;
+
 use tracing::Span;
 
 use crate::{

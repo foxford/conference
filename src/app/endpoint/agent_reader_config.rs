@@ -18,7 +18,7 @@ use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
     Addressable, AgentId,
 };
-use tokio::task;
+
 use tracing_attributes::instrument;
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 

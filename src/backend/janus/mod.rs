@@ -11,7 +11,7 @@ use svc_agent::{
     Addressable, AgentId,
 };
 use svc_error::Error as SvcError;
-use tokio::task;
+
 use tracing::{error, field::Empty, Span};
 
 use crate::{

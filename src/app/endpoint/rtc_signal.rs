@@ -31,7 +31,7 @@ use svc_agent::{
     },
     Addressable,
 };
-use tokio::task;
+
 use tracing::Span;
 use tracing_attributes::instrument;
 
