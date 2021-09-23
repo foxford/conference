@@ -11,7 +11,7 @@ use svc_agent::{
     Addressable, AgentId,
 };
 use svc_error::Error as SvcError;
-use tracing::{error, field::Empty, Span};
+use tracing::{error, Span};
 
 use crate::{
     app::{
@@ -58,11 +58,6 @@ fn handle_response_error<C: Context>(
     Box::new(stream::once(boxed_resp))
 }
 
-#[instrument(skip(context, event), fields(
-    rtc_id = Empty,
-    event_kind = ?event.event_kind(),
-    opaque_id = ?event.opaque_id(),
-))]
 pub async fn handle_event<C: Context>(context: &mut C, event: IncomingEvent) -> MessageStream {
     handle_event_impl(context, event)
         .await
