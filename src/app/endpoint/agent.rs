@@ -3,7 +3,6 @@ use futures::stream;
 use serde::Deserialize;
 use svc_agent::mqtt::{IncomingRequestProperties, ResponseStatus};
 
-
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
     db,

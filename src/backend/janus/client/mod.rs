@@ -1,5 +1,3 @@
-
-
 use crate::trace_id::TraceId;
 
 use self::{

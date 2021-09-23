@@ -7,7 +7,6 @@ use svc_agent::{
     Authenticable,
 };
 
-
 use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
 use crate::db;

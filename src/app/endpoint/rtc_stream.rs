@@ -9,7 +9,6 @@ use svc_agent::mqtt::{
     ResponseStatus, ShortTermTimingProperties,
 };
 
-
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
     db,
