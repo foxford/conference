@@ -1,12 +1,4 @@
-use std::{
-    net::SocketAddr,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    thread,
-    time::Duration,
-};
+use std::{net::SocketAddr, sync::Arc, thread, time::Duration};
 
 use crate::{
     app::error::{Error as AppError, ErrorKind as AppErrorKind},
@@ -49,7 +41,6 @@ pub async fn run(
     authz_cache: Option<AuthzCache>,
 ) -> Result<()> {
     // Config
-    let is_stopped = Arc::new(AtomicBool::new(false));
     let config = config::load().expect("Failed to load config");
 
     // Agent
@@ -79,7 +70,6 @@ pub async fn run(
     if let Some(sentry_config) = config.sentry.as_ref() {
         svc_error::extension::sentry::init(sentry_config);
     }
-
     //metrics
     let metrics_registry = Registry::new();
     let metrics = crate::app::metrics::Metrics::new(&metrics_registry)?;
@@ -116,23 +106,10 @@ pub async fn run(
     };
 
     // Message handler
-    let message_handler = Arc::new(MessageHandler::new(agent, context));
+    let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
     {
-        let is_stopped = is_stopped.clone();
+        let message_handler = message_handler.clone();
         thread::spawn(move || loop {
-            if is_stopped.load(Ordering::SeqCst) {
-                message_handler
-                    .global_context()
-                    .janus_clients()
-                    .stop_polling();
-                while let Ok(msg) = ev_rx.try_recv() {
-                    let message_handler = message_handler.clone();
-                    task::spawn(async move {
-                        message_handler.handle_events(msg).await;
-                    });
-                }
-                break;
-            }
             select! {
                 recv(rx) -> msg => {
                     let msg = msg.expect("Agent must be alive");
@@ -151,8 +128,13 @@ pub async fn run(
     let mut signals_stream = signal_hook_tokio::Signals::new(TERM_SIGNALS)?.fuse();
     let signals = signals_stream.next();
     let _ = signals.await;
-    is_stopped.store(true, Ordering::SeqCst);
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    unsubscribe(&mut agent, &agent_id, &config)?;
+    message_handler
+        .global_context()
+        .janus_clients()
+        .stop_polling();
+
+    task::sleep(Duration::from_secs(3)).await;
     info!(
         requests_left = metrics.running_requests_total.get(),
         "Running requests left",
@@ -190,7 +172,9 @@ fn handle_message(message: AgentNotification, message_handler: Arc<MessageHandle
             AgentNotification::Connack(_) => (),
             AgentNotification::Pubrel(_) => (),
             AgentNotification::Subscribe(_) => (),
-            AgentNotification::Unsubscribe(_) => (),
+            AgentNotification::Unsubscribe(_) => {
+                info!("Unsubscribed")
+            }
             AgentNotification::PingReq => (),
             AgentNotification::PingResp => (),
             AgentNotification::Disconnect => {
@@ -245,6 +229,36 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
 
     // Return Janus subscription topics
     Ok(JanusTopics::new(&janus_status_events_topic))
+}
+
+fn unsubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> anyhow::Result<()> {
+    let group = SharedGroup::new("loadbalancer", agent_id.as_account_id().clone());
+
+    // Multicast requests
+    agent
+        .unsubscribe(
+            &Subscription::multicast_requests(Some(API_VERSION)),
+            Some(&group),
+        )
+        .context("Error unsubscribing to multicast requests")?;
+
+    // Dynsub responses
+    agent
+        .unsubscribe(
+            &Subscription::unicast_responses_from(&config.broker_id),
+            None,
+        )
+        .context("Error unsubscribing to dynsub responses")?;
+
+    // Janus status events
+    let subscription =
+        Subscription::broadcast_events(&config.backend.id, JANUS_API_VERSION, "status");
+
+    agent
+        .unsubscribe(&subscription, Some(&group))
+        .context("Error unsubscribing to backend events topic")?;
+
+    Ok(())
 }
 
 fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()> {
