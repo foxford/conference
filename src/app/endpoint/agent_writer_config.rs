@@ -433,7 +433,7 @@ mod tests {
 
             // Make agent_writer_config.update request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _rx) = crossbeam_channel::unbounded();
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = State {

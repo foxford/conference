@@ -466,7 +466,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
 
             // Make rtc_signal.create request.
             let mut context = TestContext::new(db, authz);
-            let (tx, rx) = crossbeam_channel::unbounded();
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             let rtc_stream_id = db::janus_rtc_stream::Id::random();
             let handle_id = HandleId::new(
@@ -488,9 +488,9 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             handle_request::<CreateHandler>(&mut context, &agent, payload)
                 .await
                 .expect("Rtc signal creation failed");
-            rx.recv().unwrap();
+            rx.recv().await.unwrap();
             context.janus_clients().remove_client(&backend);
-            match rx.recv().unwrap() {
+            match rx.recv().await.unwrap() {
                 IncomingEvent::Event(EventResponse {
                     transaction:
                         Transaction {
@@ -737,7 +737,7 @@ a=rtcp-fb:120 ccm fir
 
             // Make rtc_signal.create request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let handle_id = HandleId::new(

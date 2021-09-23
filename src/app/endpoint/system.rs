@@ -456,15 +456,15 @@ mod test {
 
             // Make system.vacuum request.
             let mut context = TestContext::new(db, authz);
-            let (tx, rx) = crossbeam_channel::unbounded();
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx.clone());
             let payload = VacuumRequest {};
 
             let messages = handle_request::<VacuumHandler>(&mut context, &agent, payload)
                 .await
                 .expect("System vacuum failed");
-            rx.recv().unwrap();
-            let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().unwrap(), rx.recv().unwrap()]
+            rx.recv().await.unwrap();
+            let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().await.unwrap(), rx.recv().await.unwrap()]
                 .iter()
                 .map(|resp| match resp {
                     IncomingEvent::Event(EventResponse {
@@ -483,7 +483,6 @@ mod test {
                 })
                 .collect();
             context.janus_clients().remove_client(&backend);
-            assert!(tx.is_empty());
             assert!(messages.len() > 0);
             assert_eq!(recv_rtcs, rtcs);
         }

@@ -9,7 +9,6 @@ use crate::{
 use anyhow::{Context as AnyhowContext, Result};
 use chrono::Utc;
 use context::{AppContext, GlobalContext, JanusTopics};
-use crossbeam_channel::select;
 use futures::StreamExt;
 use hyper::{
     service::{make_service_fn, service_fn},
@@ -28,7 +27,7 @@ use svc_agent::{
 };
 use svc_authn::token::jws_compact;
 use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
-use tokio::task;
+use tokio::{select, task};
 use tracing::{error, info, warn};
 
 pub const API_VERSION: &str = "v1";
@@ -57,7 +56,7 @@ pub async fn run(
     let mut agent_config = config.mqtt.clone();
     agent_config.set_password(&token);
 
-    let (mut agent, rx) = AgentBuilder::new(agent_id.clone(), API_VERSION)
+    let (mut agent, mut rx) = AgentBuilder::new(agent_id.clone(), API_VERSION)
         .connection_mode(ConnectionMode::Service)
         .start(&agent_config)
         .context("Failed to create an agent")?;
@@ -74,7 +73,7 @@ pub async fn run(
     let metrics_registry = Registry::new();
     let metrics = crate::app::metrics::Metrics::new(&metrics_registry)?;
     let janus_metrics = crate::backend::janus::metrics::Metrics::new(&metrics_registry)?;
-    let (ev_tx, ev_rx) = crossbeam_channel::unbounded();
+    let (ev_tx, mut ev_rx) = tokio::sync::mpsc::unbounded_channel();
     let clients = Clients::new(ev_tx, config.janus_group.clone());
     thread::spawn({
         let db = db.clone();
@@ -109,19 +108,23 @@ pub async fn run(
     let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
     {
         let message_handler = message_handler.clone();
-        thread::spawn(move || loop {
-            select! {
-                recv(rx) -> msg => {
-                    let msg = msg.expect("Agent must be alive");
-                    handle_message(msg, message_handler.clone());
-                },
-                recv(ev_rx) -> msg => {
-                    let msg = msg.expect("Events sender must exist");
-                    let message_handler = message_handler.clone();
-                    task::spawn(async move {
-                        message_handler.handle_events(msg).await;
-                    });
-                },
+        tokio::spawn(async move {
+            loop {
+                select! {
+                    msg = rx.recv() => {
+                        if let Some(msg) = msg {
+                            handle_message(msg, message_handler.clone())
+                        }
+                    },
+                    msg = ev_rx.recv() => {
+                        if let Some(msg) = msg {
+                            let message_handler = message_handler.clone();
+                            tokio::spawn(async move {
+                                message_handler.handle_events(msg).await;
+                            });
+                        }
+                    },
+                }
             }
         });
     }
@@ -134,7 +137,7 @@ pub async fn run(
         .janus_clients()
         .stop_polling();
 
-    task::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
     info!(
         requests_left = metrics.running_requests_total.get(),
         "Running requests left",

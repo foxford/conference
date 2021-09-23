@@ -1128,7 +1128,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             // Make rtc.connect request.
 
@@ -1188,7 +1188,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1289,7 +1289,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1393,7 +1393,7 @@ mod test {
 
             // Connect to the rtc in the room without reserve.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1486,7 +1486,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1569,7 +1569,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1640,7 +1640,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1799,7 +1799,7 @@ mod test {
             // Despite none of the backends are capable to host the reserve it should
             // select the least loaded one.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1948,7 +1948,7 @@ mod test {
             }
 
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             // First two rooms have reserves AND there is free capacity so we can connect to them
@@ -2035,7 +2035,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -2094,7 +2094,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -2157,7 +2157,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -2238,7 +2238,7 @@ mod test {
             // Configure the app to the `right` janus group.
             let mut context = TestContext::new(db, authz);
             context.config_mut().janus_group = Some(String::from("right"));
-            let (tx, _rx) = crossbeam_channel::unbounded();
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_grouped_janus("right", tx);
 
             // Make rtc.connect request.
