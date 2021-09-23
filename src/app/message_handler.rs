@@ -145,7 +145,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
 
         self.publish_outgoing_messages(outgoing_message_stream)
             .await;
-        info!("Nonitifacitons sent");
+        info!("Notification sent");
     }
 
     #[instrument(skip(self, msg_context, event), fields(
