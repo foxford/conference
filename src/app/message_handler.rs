@@ -21,7 +21,7 @@ use svc_agent::{
     Addressable, Authenticable,
 };
 use svc_error::Error as SvcError;
-use tracing::{error, warn};
+use tracing::{error, field::display, info, warn, Span};
 use tracing_attributes::instrument;
 use uuid::Uuid;
 
@@ -66,13 +66,25 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         }
     }
 
-    #[instrument(name = "trace_id", skip(self, message), fields(request_id = message.trace_id().map_or("", |x| x.as_str())))]
+    #[instrument(name = "trace_id", skip(self, message), fields(
+        rtc_id,
+        event_kind = ?message.event_kind(),
+        room_id,
+        rtc_stream_id,
+        request_id = message.trace_id().map_or("", |x| x.as_str())))]
     pub async fn handle_events(&self, message: janus::client::IncomingEvent) {
+        if let Some(opaque_id) = message.opaque_id() {
+            Span::current()
+                .record("room_id", &display(opaque_id.room_id))
+                .record("rtc_stream_id", &display(opaque_id.stream_id));
+        }
+        info!("Janus notification received");
         let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
 
         let messages = handle_event(&mut msg_context, message).await;
 
         self.publish_outgoing_messages(messages).await;
+        info!("Janus notifications sent");
     }
 
     async fn handle_message(
@@ -99,6 +111,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         request: &IncomingRequest<String>,
         topic: &str,
     ) {
+        info!("Request received");
         let outgoing_message_stream = endpoint::route_request(msg_context, request, topic)
             .await
             .unwrap_or_else(|| {
@@ -113,7 +126,8 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
             });
 
         self.publish_outgoing_messages(outgoing_message_stream)
-            .await
+            .await;
+        info!("Response sent");
     }
 
     #[instrument(skip(self, msg_context, response), fields(
@@ -126,13 +140,15 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         response: &IncomingResponse<String>,
         topic: &str,
     ) {
+        info!("Response received");
         let raw_corr_data = response.properties().correlation_data();
 
         let outgoing_message_stream =
             endpoint::route_response(msg_context, response, raw_corr_data, topic).await;
 
         self.publish_outgoing_messages(outgoing_message_stream)
-            .await
+            .await;
+        info!("Notification sent");
     }
 
     #[instrument(skip(self, msg_context, event), fields(
@@ -146,6 +162,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         event: &IncomingEvent<String>,
         topic: &str,
     ) {
+        info!("Event received");
         let outgoing_message_stream = endpoint::route_event(msg_context, event, topic)
             .await
             .unwrap_or_else(|| {
@@ -154,7 +171,8 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
             });
 
         self.publish_outgoing_messages(outgoing_message_stream)
-            .await
+            .await;
+        info!("Notifications sent");
     }
 
     async fn publish_outgoing_messages(&self, mut message_stream: MessageStream) {
