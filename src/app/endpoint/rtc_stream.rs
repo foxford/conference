@@ -9,10 +9,7 @@ use svc_agent::mqtt::{
     ResponseStatus, ShortTermTimingProperties,
 };
 
-use crate::{
-    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
-    db,
-};
+use crate::{app::{context::Context, endpoint::prelude::*, metrics::HistogramExt}, authz::AuthzObject, db};
 use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -60,11 +57,11 @@ impl RequestHandler for ListHandler {
         }
 
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id];
+        let object = AuthzObject::new(&["rooms", &room_id]).into();
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "read")
+            .authorize(room.audience().into(), reqp, object, "read".into())
             .await?;
         context.metrics().observe_auth(authz_time);
 

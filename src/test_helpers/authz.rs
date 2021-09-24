@@ -3,7 +3,7 @@ use svc_authz::{
     Authenticable, ClientMap, Config, ConfigMap, LocalWhitelistConfig, LocalWhitelistRecord,
 };
 
-use crate::test_helpers::USR_AUDIENCE;
+use crate::{authz::AuthzObject, test_helpers::USR_AUDIENCE};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -27,7 +27,7 @@ impl TestAuthz {
     }
 
     pub fn allow<A: Authenticable>(&mut self, subject: &A, object: Vec<&str>, action: &str) {
-        let record = LocalWhitelistRecord::new(subject, object, action);
+        let record = LocalWhitelistRecord::new(subject, AuthzObject::new(&object).into(), action);
         self.records.push(record);
     }
 }
@@ -40,6 +40,6 @@ impl Into<ClientMap> for TestAuthz {
         config_map.insert(self.audience.to_owned(), Config::LocalWhitelist(config));
 
         let account_id = AccountId::new("conference", &self.audience);
-        ClientMap::new(&account_id, None, config_map).expect("Failed to build authz")
+        ClientMap::new(&account_id, None, config_map, None).expect("Failed to build authz")
     }
 }

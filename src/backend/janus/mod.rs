@@ -620,6 +620,7 @@ mod test {
         let label_suffix: String = rng
             .sample_iter(&rand::distributions::Alphanumeric)
             .take(5)
+            .map(char::from)
             .collect();
         let label = format!("janus-gateway-{}", label_suffix);
         let backend_id = TestAgent::new("alpha", &label, SVC_AUDIENCE);

@@ -19,6 +19,7 @@ use crate::{
         context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId,
         metrics::HistogramExt,
     },
+    authz::AuthzObject,
     backend::janus::{
         client::create_handle::{CreateHandleRequest, OpaqueId},
         JANUS_API_VERSION,
@@ -71,11 +72,11 @@ impl RequestHandler for CreateHandler {
 
         // Authorize room creation.
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id, "rtcs"];
+        let object = AuthzObject::new(&["rooms", &room_id, "rtcs"]).into();
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "create")
+            .authorize(room.audience().into(), reqp, object, "create".into())
             .await?;
 
         // Create an rtc.
@@ -164,11 +165,11 @@ impl RequestHandler for ReadHandler {
         // Authorize rtc reading.
         let rtc_id = payload.id.to_string();
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+        let object = AuthzObject::new(&["rooms", &room_id, "rtcs", &rtc_id]).into();
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "read")
+            .authorize(room.audience().into(), reqp, object, "read".into())
             .await?;
         context.metrics().observe_auth(authz_time);
 
@@ -235,11 +236,11 @@ impl RequestHandler for ListHandler {
 
         // Authorize rtc listing.
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id, "rtcs"];
+        let object = AuthzObject::new(&["rooms", &room_id, "rtcs"]).into();
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "list")
+            .authorize(room.audience().into(), reqp, object, "list".into())
             .await?;
         context.metrics().observe_auth(authz_time);
         // Return rtc list.
@@ -363,7 +364,7 @@ impl RequestHandler for ConnectHandler {
 
         let rtc_id = payload.id.to_string();
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+        let object = AuthzObject::new(&["rooms", &room_id, "rtcs", &rtc_id]).into();
 
         let action = match payload.intent {
             ConnectIntent::Read => "read",
@@ -372,7 +373,7 @@ impl RequestHandler for ConnectHandler {
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, action)
+            .authorize(room.audience().into(), reqp, object, action.into())
             .await?;
         context.metrics().observe_auth(authz_time);
         // Choose backend to connect.

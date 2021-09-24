@@ -26,7 +26,7 @@ use svc_agent::{
     AccountId, AgentId, Authenticable, SharedGroup, Subscription,
 };
 use svc_authn::token::jws_compact;
-use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
+use svc_authz::cache::{AuthzCache, ConnectionPool as RedisConnectionPool, RedisCache};
 use tokio::{select, task};
 use tracing::{error, info, warn};
 
@@ -37,7 +37,7 @@ pub const API_VERSION: &str = "v1";
 pub async fn run(
     db: &ConnectionPool,
     redis_pool: Option<RedisConnectionPool>,
-    authz_cache: Option<AuthzCache>,
+    authz_cache: Option<Box<RedisCache>>,
 ) -> Result<()> {
     // Config
     let config = config::load().expect("Failed to load config");
@@ -62,8 +62,13 @@ pub async fn run(
         .context("Failed to create an agent")?;
 
     // Authz
-    let authz = svc_authz::ClientMap::new(&config.id, authz_cache, config.authz.clone())
-        .context("Error converting authz config to clients")?;
+    let authz = svc_authz::ClientMap::new(
+        &config.id,
+        authz_cache.map(|x| x as Box<dyn AuthzCache>),
+        config.authz.clone(),
+        None,
+    )
+    .context("Error converting authz config to clients")?;
 
     // Sentry
     if let Some(sentry_config) = config.sentry.as_ref() {

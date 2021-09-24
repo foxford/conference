@@ -1,5 +1,6 @@
 use crate::{
     app::{context::Context, endpoint::prelude::*, error::Error as AppError},
+    authz::AuthzObject,
     backend::janus::client::upload_stream::{
         UploadStreamRequest, UploadStreamRequestBody, UploadStreamTransaction,
     },
@@ -77,7 +78,12 @@ impl RequestHandler for VacuumHandler {
 
         context
             .authz()
-            .authorize(audience, reqp, vec!["system"], "update")
+            .authorize(
+                audience.into(),
+                reqp,
+                AuthzObject::new(&["system"]).into(),
+                "update".into(),
+            )
             .await?;
 
         let mut requests = Vec::new();
@@ -156,7 +162,12 @@ impl EventHandler for OrphanedRoomCloseHandler {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         context
             .authz()
-            .authorize(audience, evp, vec!["system"], "update")
+            .authorize(
+                audience.into(),
+                evp,
+                AuthzObject::new(&["system"]).into(),
+                "update".into(),
+            )
             .await?;
 
         let load_till = Utc::now()

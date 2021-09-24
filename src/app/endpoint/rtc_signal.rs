@@ -3,6 +3,7 @@ use crate::{
         context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId,
         metrics::HistogramExt,
     },
+    authz::AuthzObject,
     backend::janus::{
         client::{
             create_stream::{
@@ -330,11 +331,11 @@ async fn authorize<C: Context>(
 
     let room_id = room.id().to_string();
     let rtc_id = rtc_id.to_string();
-    let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+    let object = AuthzObject::new(&["rooms", &room_id, "rtcs", &rtc_id]).into();
 
     let elapsed = context
         .authz()
-        .authorize(room.audience(), reqp, object, action)
+        .authorize(room.audience().into(), reqp, object, action.into())
         .await?;
     context.metrics().observe_auth(elapsed);
     Ok(elapsed)

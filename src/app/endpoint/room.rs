@@ -22,6 +22,7 @@ use crate::{
         metrics::HistogramExt,
         API_VERSION,
     },
+    authz::AuthzObject,
     db,
     db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
 };
@@ -80,7 +81,12 @@ impl RequestHandler for CreateHandler {
         // Authorize room creation on the tenant.
         let authz_time = context
             .authz()
-            .authorize(&payload.audience, reqp, vec!["rooms"], "create")
+            .authorize(
+                payload.audience.clone(),
+                reqp,
+                AuthzObject::new(&["rooms"]).into(),
+                "create".into(),
+            )
             .await?;
         context.metrics().observe_auth(authz_time);
         // Create a room.
@@ -158,11 +164,11 @@ impl RequestHandler for ReadHandler {
 
         // Authorize room reading on the tenant.
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id];
+        let object = AuthzObject::new(&["rooms", &room_id]).into();
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "read")
+            .authorize(room.audience().into(), reqp, object, "read".into())
             .await?;
         context.metrics().observe_auth(authz_time);
         context
@@ -225,11 +231,11 @@ impl RequestHandler for UpdateHandler {
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id];
+        let object = AuthzObject::new(&["rooms", &room_id]).into();
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "update")
+            .authorize(room.audience().into(), reqp, object, "update".into())
             .await?;
         context.metrics().observe_auth(authz_time);
 
@@ -375,11 +381,11 @@ impl RequestHandler for CloseHandler {
 
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id];
+        let object = AuthzObject::new(&["rooms", &room_id]).into();
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "update")
+            .authorize(room.audience().into(), reqp, object, "update".into())
             .await?;
         context.metrics().observe_auth(authz_time);
 
@@ -461,11 +467,11 @@ impl RequestHandler for EnterHandler {
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id];
+        let object = AuthzObject::new(&["rooms", &room_id]).into();
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "read")
+            .authorize(room.audience().into(), reqp, object, "read".into())
             .await?;
         context.metrics().observe_auth(authz_time);
 

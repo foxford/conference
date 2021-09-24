@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    authz::AuthzObject,
     backend::janus::client::update_agent_writer_config::{
         UpdateWriterConfigRequest, UpdateWriterConfigRequestBody,
         UpdateWriterConfigRequestBodyConfigItem,
@@ -157,11 +158,11 @@ impl RequestHandler for UpdateHandler {
             None
         } else {
             let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id];
+            let object = AuthzObject::new(&["rooms", &room_id]);
 
             let authz_time = context
                 .authz()
-                .authorize(room.audience(), reqp, object, "update")
+                .authorize(room.audience().into(), reqp, object.into(), "update".into())
                 .await?;
             context.metrics().observe_auth(authz_time);
             Some(authz_time)
