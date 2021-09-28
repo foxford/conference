@@ -2,12 +2,10 @@ use anyhow::{anyhow, Result};
 
 use futures::stream;
 
-
 use svc_agent::{
     mqtt::{
-        IncomingRequestProperties, IntoPublishableMessage,
-        OutgoingEvent, OutgoingEventProperties, OutgoingResponse, ResponseStatus,
-        ShortTermTimingProperties,
+        IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
+        OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
     },
     Addressable, AgentId,
 };
@@ -26,7 +24,6 @@ use crate::{
     db::{self, agent_connection, janus_rtc_stream, recording, room, rtc},
     diesel::Connection,
 };
-
 
 use serde::{Deserialize, Serialize};
 
