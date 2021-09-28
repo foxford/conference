@@ -189,7 +189,7 @@ async fn remove_backend(backend: &janus_backend::Object, db: ConnectionPool) {
                 )
                 .execute(&conn)?;
                 if deleted > 0 {
-                    agent_connection::BulkDisconnectByBackendQuery::new(&backend.id())
+                    agent_connection::BulkDisconnectByBackendQuery::new(backend.id())
                         .execute(&conn)?;
                 }
                 Ok(())

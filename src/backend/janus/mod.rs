@@ -22,7 +22,6 @@ use crate::{
         API_VERSION,
     },
     db::{self, agent_connection, janus_rtc_stream, recording, room, rtc},
-    diesel::Connection,
 };
 
 use serde::{Deserialize, Serialize};

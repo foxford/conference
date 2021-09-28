@@ -9,7 +9,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::{
-        context::{Context, GlobalContext, JanusTopics, MessageContext},
+        context::{Context, GlobalContext, MessageContext},
         metrics::Metrics,
     },
     backend::janus::{client::IncomingEvent, client_pool::Clients},
@@ -80,7 +80,6 @@ pub struct TestContext {
     authz: Authz,
     db: TestDb,
     agent_id: AgentId,
-    janus_topics: JanusTopics,
     start_timestamp: DateTime<Utc>,
     clients: Option<Clients>,
 }
@@ -95,7 +94,6 @@ impl TestContext {
             authz: authz.into(),
             db,
             agent_id,
-            janus_topics: JanusTopics::new("ignore"),
             start_timestamp: Utc::now(),
             clients: None,
         }
@@ -133,10 +131,6 @@ impl GlobalContext for TestContext {
 
     fn agent_id(&self) -> &AgentId {
         &self.agent_id
-    }
-
-    fn janus_topics(&self) -> &JanusTopics {
-        &self.janus_topics
     }
 
     fn redis_pool(&self) -> &Option<RedisConnectionPool> {

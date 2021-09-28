@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
 use serde::Deserialize;
 use svc_agent::{mqtt::AgentConfig, AccountId};
@@ -26,6 +26,7 @@ pub struct Config {
     pub janus_group: Option<String>,
     #[serde(with = "humantime_serde")]
     pub orphaned_room_timeout: Duration,
+    pub janus_reg_addr: SocketAddr,
 }
 
 #[derive(Clone, Debug, Deserialize)]

@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 
 use crate::{
-    app,
     backend::janus::client::{
         create_handle::CreateHandleRequest,
         service_ping::{ServicePingRequest, ServicePingRequestBody},
@@ -17,11 +16,12 @@ use hyper::{
 };
 use serde::Deserialize;
 use svc_agent::AgentId;
+use tracing::error;
 
 use super::client_pool::Clients;
 
 #[derive(Debug, Deserialize)]
-pub struct Online {
+struct Online {
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     group: Option<String>,
@@ -29,12 +29,11 @@ pub struct Online {
     agent_id: AgentId,
 }
 
-async fn handle_janus_messages<C: app::context::Context>(
+pub async fn start_janus_reg_handler(
     bind_addr: SocketAddr,
-    ctx: &mut C,
+    clients: Clients,
+    db: ConnectionPool,
 ) -> anyhow::Result<()> {
-    let clients = ctx.janus_clients();
-    let db = ctx.db().clone();
     let service = make_service_fn(move |_| {
         let clients = clients.clone();
         let db = db.clone();
@@ -42,10 +41,19 @@ async fn handle_janus_messages<C: app::context::Context>(
             let clients = clients.clone();
             let db = db.clone();
             async move {
-                let online: Online =
-                    serde_json::from_slice(&hyper::body::to_bytes(req.into_body()).await?)?;
-                handle_online(online, clients, db).await?;
-                Ok::<_, anyhow::Error>(Response::builder().body(Body::empty())?)
+                let handle = async {
+                    let online: Online =
+                        serde_json::from_slice(&hyper::body::to_bytes(req.into_body()).await?)?;
+                    handle_online(online, clients, db).await?;
+                    Ok::<_, anyhow::Error>(Response::builder().body(Body::empty())?)
+                };
+                Ok::<_, String>(handle.await.unwrap_or_else(|err| {
+                    error!(?err, "Register janus failed");
+                    Response::builder()
+                        .status(500)
+                        .body(Body::empty())
+                        .expect("Must be ok")
+                }))
             }
         })))
     });
