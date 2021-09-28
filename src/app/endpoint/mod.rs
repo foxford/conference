@@ -7,7 +7,6 @@ use crate::{
         error::Error as AppError,
         message_handler::{EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler},
     },
-    backend::janus,
 };
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;

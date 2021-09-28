@@ -1,11 +1,11 @@
-use anyhow::{anyhow, Context as AnyhowContext, Result};
-use chrono::Utc;
+use anyhow::{anyhow, Result};
+
 use futures::stream;
-use hyper::service::{make_service_fn, service_fn};
-use std::ops::Bound;
+
+
 use svc_agent::{
     mqtt::{
-        IncomingEvent as MQTTIncomingEvent, IncomingRequestProperties, IntoPublishableMessage,
+        IncomingRequestProperties, IntoPublishableMessage,
         OutgoingEvent, OutgoingEventProperties, OutgoingResponse, ResponseStatus,
         ShortTermTimingProperties,
     },
@@ -23,15 +23,10 @@ use crate::{
         metrics::HistogramExt,
         API_VERSION,
     },
-    backend::janus::client::{
-        create_handle::CreateHandleRequest,
-        service_ping::{ServicePingRequest, ServicePingRequestBody},
-        JanusClient,
-    },
-    db::{self, agent_connection, janus_backend, janus_rtc_stream, recording, room, rtc},
+    db::{self, agent_connection, janus_rtc_stream, recording, room, rtc},
     diesel::Connection,
 };
-use tracing_attributes::instrument;
+
 
 use serde::{Deserialize, Serialize};
 
