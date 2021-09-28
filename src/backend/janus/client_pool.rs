@@ -138,7 +138,11 @@ async fn start_polling(
 ) {
     let mut fail_retries_count = 5;
     loop {
-        if fail_retries_count == 0 || is_cancelled.load(Ordering::SeqCst) {
+        if fail_retries_count == 0 {
+            remove_backend(janus_backend, db).await;
+            break;
+        }
+        if is_cancelled.load(Ordering::SeqCst) {
             break;
         }
         let poll_result = janus_client.poll(session_id).await;
