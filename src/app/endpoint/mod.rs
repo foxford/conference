@@ -155,16 +155,12 @@ macro_rules! event_routes {
             event: &IncomingEvent<String>,
             topic: &str,
         ) -> Option<MessageStream> {
-            if topic == context.janus_topics().status_events_topic() {
-                Some(janus::handle_status_event::<C>(context, event).await)
-            } else {
                 match event.properties().label() {
                     $(
                         Some($l) => Some(<$h>::handle_envelope::<C>(context, event).await),
                     )*
                     _ => None,
                 }
-            }
         }
     }
 }

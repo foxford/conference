@@ -102,11 +102,15 @@ impl TestContext {
     }
 
     pub fn with_janus(&mut self, events_sink: UnboundedSender<IncomingEvent>) {
-        self.clients = Some(Clients::new(events_sink, None));
+        self.clients = Some(Clients::new(events_sink, None, self.db().clone()));
     }
 
     pub fn with_grouped_janus(&mut self, group: &str, events_sink: UnboundedSender<IncomingEvent>) {
-        self.clients = Some(Clients::new(events_sink, Some(group.to_string())));
+        self.clients = Some(Clients::new(
+            events_sink,
+            Some(group.to_string()),
+            self.db().clone(),
+        ));
     }
 
     pub fn config_mut(&mut self) -> &mut Config {

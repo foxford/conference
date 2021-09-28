@@ -215,17 +215,32 @@ impl<'a> UpsertQuery<'a> {
 
 pub struct DeleteQuery<'a> {
     id: &'a AgentId,
+    session_id: SessionId,
+    handle_id: HandleId,
 }
 
 impl<'a> DeleteQuery<'a> {
-    pub fn new(id: &'a AgentId) -> Self {
-        Self { id }
+    pub fn new(id: &'a AgentId, session_id: SessionId, handle_id: HandleId) -> Self {
+        Self {
+            id,
+            session_id,
+            handle_id,
+        }
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use diesel::prelude::*;
 
-        diesel::delete(janus_backend::table.filter(janus_backend::id.eq(self.id))).execute(conn)
+        diesel::delete(
+            janus_backend::table.filter(
+                janus_backend::id.eq(self.id).and(
+                    janus_backend::session_id
+                        .eq(self.session_id)
+                        .and(janus_backend::handle_id.eq(self.handle_id)),
+                ),
+            ),
+        )
+        .execute(conn)
     }
 }
 
