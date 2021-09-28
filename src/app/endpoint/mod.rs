@@ -1,12 +1,10 @@
 use std::result::Result as StdResult;
 
 pub(self) use crate::app::message_handler::MessageStream;
-use crate::{
-    app::{
-        context::Context,
-        error::Error as AppError,
-        message_handler::{EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler},
-    },
+use crate::app::{
+    context::Context,
+    error::Error as AppError,
+    message_handler::{EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler},
 };
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
