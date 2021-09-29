@@ -104,7 +104,7 @@ pub async fn run(
         metrics.clone(),
     );
     let reg_handler = tokio::spawn(start_janus_reg_handler(
-        config.janus_reg_addr,
+        config.janus_reg_addr.clone(),
         context.janus_clients(),
         context.db().clone(),
     ));

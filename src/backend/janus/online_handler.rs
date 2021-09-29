@@ -1,11 +1,10 @@
-use std::net::SocketAddr;
-
 use crate::{
     backend::janus::client::{
         create_handle::CreateHandleRequest,
         service_ping::{ServicePingRequest, ServicePingRequestBody},
         JanusClient,
     },
+    config::JanusRegistry,
     db::{self, ConnectionPool},
 };
 use anyhow::{Context, Result};
@@ -30,18 +29,31 @@ struct Online {
 }
 
 pub async fn start_janus_reg_handler(
-    bind_addr: SocketAddr,
+    janus_registry: JanusRegistry,
     clients: Clients,
     db: ConnectionPool,
 ) -> anyhow::Result<()> {
+    let token = janus_registry.token.clone();
     let service = make_service_fn(move |_| {
         let clients = clients.clone();
         let db = db.clone();
+        let token = token.clone();
         std::future::ready::<Result<_, hyper::Error>>(Ok(service_fn(move |req| {
             let clients = clients.clone();
             let db = db.clone();
+            let token = token.clone();
             async move {
                 let handle = async {
+                    if req
+                        .headers()
+                        .get("Authorization")
+                        .and_then(|x| x.to_str().ok())
+                        .map_or(true, |h| h != &token)
+                    {
+                        return Ok::<_, anyhow::Error>(
+                            Response::builder().status(401).body(Body::empty())?,
+                        );
+                    }
                     let online: Online =
                         serde_json::from_slice(&hyper::body::to_bytes(req.into_body()).await?)?;
                     handle_online(online, clients, db).await?;
@@ -57,7 +69,7 @@ pub async fn start_janus_reg_handler(
             }
         })))
     });
-    let server = Server::bind(&bind_addr).serve(service);
+    let server = Server::bind(&janus_registry.bind_addr).serve(service);
 
     server.await?;
 

@@ -26,7 +26,13 @@ pub struct Config {
     pub janus_group: Option<String>,
     #[serde(with = "humantime_serde")]
     pub orphaned_room_timeout: Duration,
-    pub janus_reg_addr: SocketAddr,
+    pub janus_reg_addr: JanusRegistry,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct JanusRegistry {
+    pub bind_addr: SocketAddr,
+    pub token: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
