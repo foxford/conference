@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context as AnyhowContext};
-use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use std::{fmt, ops::Bound};
 use svc_agent::{
@@ -11,6 +11,7 @@ use svc_agent::{
     },
     Addressable,
 };
+
 use tracing::{warn, Span};
 
 use crate::{
@@ -18,6 +19,7 @@ use crate::{
         context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId,
         metrics::HistogramExt,
     },
+    authz::AuthzObject,
     backend::janus::{
         client::create_handle::{CreateHandleRequest, OpaqueId},
         JANUS_API_VERSION,
@@ -63,25 +65,25 @@ impl RequestHandler for CreateHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking(move || {
+        let room = crate::util::spawn_blocking(move || {
             helpers::find_room_by_id(payload.room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
 
         // Authorize room creation.
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id, "rtcs"];
+        let object = AuthzObject::new(&["rooms", &room_id, "rtcs"]).into();
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "create")
+            .authorize(room.audience().into(), reqp, object, "create".into())
             .await?;
 
         // Create an rtc.
         let conn = context.get_conn().await?;
         let max_room_duration = context.config().max_room_duration;
         let room_id = room.id();
-        let rtc = task::spawn_blocking({
+        let rtc = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             move || {
                 conn.transaction::<_, diesel::result::Error, _>(|| {
@@ -127,7 +129,7 @@ impl RequestHandler for CreateHandler {
             .rtc_create
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::from_iter(vec![response, notification])))
+        Ok(Box::new(stream::iter(vec![response, notification])))
     }
 }
 
@@ -152,7 +154,7 @@ impl RequestHandler for ReadHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let payload_id = payload.id;
             move || {
                 helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
@@ -163,17 +165,17 @@ impl RequestHandler for ReadHandler {
         // Authorize rtc reading.
         let rtc_id = payload.id.to_string();
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+        let object = AuthzObject::new(&["rooms", &room_id, "rtcs", &rtc_id]).into();
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "read")
+            .authorize(room.audience().into(), reqp, object, "read".into())
             .await?;
         context.metrics().observe_auth(authz_time);
 
         // Return rtc.
         let conn = context.get_conn().await?;
-        let rtc = task::spawn_blocking(move || {
+        let rtc = crate::util::spawn_blocking(move || {
             db::rtc::FindQuery::new()
                 .id(payload.id)
                 .execute(&conn)?
@@ -187,12 +189,14 @@ impl RequestHandler for ReadHandler {
             .rtc_read
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            rtc,
-            reqp,
-            context.start_timestamp(),
-            Some(authz_time),
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                rtc,
+                reqp,
+                context.start_timestamp(),
+                Some(authz_time),
+            ),
         ))))
     }
 }
@@ -222,7 +226,7 @@ impl RequestHandler for ListHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let payload_room_id = payload.room_id;
             move || {
                 helpers::find_room_by_id(payload_room_id, helpers::RoomTimeRequirement::Open, &conn)
@@ -232,16 +236,16 @@ impl RequestHandler for ListHandler {
 
         // Authorize rtc listing.
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id, "rtcs"];
+        let object = AuthzObject::new(&["rooms", &room_id, "rtcs"]).into();
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "list")
+            .authorize(room.audience().into(), reqp, object, "list".into())
             .await?;
         context.metrics().observe_auth(authz_time);
         // Return rtc list.
         let conn = context.get_conn().await?;
-        let rtcs = task::spawn_blocking(move || {
+        let rtcs = crate::util::spawn_blocking(move || {
             let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
 
             if let Some(offset) = payload.offset {
@@ -260,12 +264,14 @@ impl RequestHandler for ListHandler {
             .rtc_list
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            rtcs,
-            reqp,
-            context.start_timestamp(),
-            Some(authz_time),
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                rtcs,
+                reqp,
+                context.start_timestamp(),
+                Some(authz_time),
+            ),
         ))))
     }
 }
@@ -319,7 +325,7 @@ impl RequestHandler for ConnectHandler {
     ) -> Result {
         let conn = context.get_conn().await?;
         let payload_id = payload.id;
-        let room = task::spawn_blocking(move || {
+        let room = crate::util::spawn_blocking(move || {
             helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
@@ -339,7 +345,7 @@ impl RequestHandler for ConnectHandler {
                     // Check that the RTC is owned by the same agent.
                     let conn = context.get_conn().await?;
 
-                    let rtc = task::spawn_blocking(move || {
+                    let rtc = crate::util::spawn_blocking(move || {
                         db::rtc::FindQuery::new()
                             .id(payload_id)
                             .execute(&conn)?
@@ -358,7 +364,7 @@ impl RequestHandler for ConnectHandler {
 
         let rtc_id = payload.id.to_string();
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+        let object = AuthzObject::new(&["rooms", &room_id, "rtcs", &rtc_id]).into();
 
         let action = match payload.intent {
             ConnectIntent::Read => "read",
@@ -367,7 +373,7 @@ impl RequestHandler for ConnectHandler {
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, action)
+            .authorize(room.audience().into(), reqp, object, action.into())
             .await?;
         context.metrics().observe_auth(authz_time);
         // Choose backend to connect.
@@ -375,7 +381,7 @@ impl RequestHandler for ConnectHandler {
         let conn = context.get_conn().await?;
         let room_id = room.id();
         let backend_span = tracing::info_span!("finding_backend");
-        let backend = task::spawn_blocking(move || {
+        let backend =crate::util::spawn_blocking(move || {
             let _span_handle = backend_span.enter();
             // There are 4 cases:
             // 1. Connecting as a writer for a webinar for the first time. There's no `backend_id` in that case.
@@ -486,7 +492,7 @@ impl RequestHandler for ConnectHandler {
         let agent_id = reqp.as_agent_id().clone();
         let conn = context.get_conn().await?;
         let handle_id = handle.id;
-        task::spawn_blocking(move || {
+        crate::util::spawn_blocking(move || {
             conn.transaction::<_, AppError, _>(|| {
                 // Find agent in the DB who made the original `rtc.connect` request.
                 let maybe_agent = agent::ListQuery::new()
@@ -533,7 +539,7 @@ impl RequestHandler for ConnectHandler {
             .observe_timestamp(context.start_timestamp());
 
         let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-        Ok(Box::new(stream::once(boxed_resp)))
+        Ok(Box::new(stream::once(std::future::ready(boxed_resp))))
     }
 }
 
@@ -553,7 +559,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -593,7 +599,7 @@ mod test {
             assert_eq!(rtc.room_id(), room.id());
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_in_unbounded_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -646,7 +652,7 @@ mod test {
             assert_ne!(room.time().1, Bound::Unbounded);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_rtc_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -666,7 +672,7 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_rtc_duplicate() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -710,7 +716,7 @@ mod test {
             assert_eq!(err.kind(), "database_query_failed");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_rtc_for_different_agents_with_owned_sharing_policy() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -758,7 +764,7 @@ mod test {
             assert_eq!(rtc2.created_by(), agent2.agent_id());
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_rtc_for_the_same_agent_with_owned_sharing_policy() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -803,7 +809,7 @@ mod test {
             assert_eq!(err.kind(), "database_query_failed");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_rtc_unauthorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -839,7 +845,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read_rtc() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -877,7 +883,7 @@ mod test {
             assert_eq!(resp_rtc.room_id(), rtc.room_id());
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read_rtc_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -905,7 +911,7 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read_rtc_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -934,7 +940,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_rtcs() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -979,7 +985,7 @@ mod test {
             assert_eq!(rtcs[0].room_id(), rtc.room_id());
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_rtcs_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1011,7 +1017,7 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_rtcs_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1048,7 +1054,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_only() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1123,7 +1129,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             // Make rtc.connect request.
 
@@ -1145,7 +1151,7 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_ongoing_rtc() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1183,7 +1189,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1204,7 +1210,7 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_with_reservation() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1284,7 +1290,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1305,7 +1311,7 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_take_reserved_slot() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1388,7 +1394,7 @@ mod test {
 
             // Connect to the rtc in the room without reserve.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1426,7 +1432,7 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_as_last_reader() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1481,7 +1487,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1495,7 +1501,7 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_full_server_as_reader() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1564,7 +1570,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1580,7 +1586,7 @@ mod test {
             assert_eq!(err.kind(), "capacity_exceeded");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_full_server_as_writer() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1635,7 +1641,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1649,7 +1655,7 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_too_big_reserve() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1794,7 +1800,7 @@ mod test {
             // Despite none of the backends are capable to host the reserve it should
             // select the least loaded one.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -1815,7 +1821,7 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_reserve_overflow() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1943,7 +1949,7 @@ mod test {
             }
 
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             // First two rooms have reserves AND there is free capacity so we can connect to them
@@ -1984,7 +1990,7 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_shared_rtc_created_by_someone_else() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -2030,7 +2036,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -2044,7 +2050,7 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_owned_rtc_created_by_someone_else_for_writing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -2089,7 +2095,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -2106,7 +2112,7 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_owned_rtc_created_by_someone_else_for_reading() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -2152,7 +2158,7 @@ mod test {
 
             // Make rtc.connect request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
@@ -2166,7 +2172,7 @@ mod test {
             context.janus_clients().remove_client(&backend)
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_with_backend_grouping() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -2233,7 +2239,7 @@ mod test {
             // Configure the app to the `right` janus group.
             let mut context = TestContext::new(db, authz);
             context.config_mut().janus_group = Some(String::from("right"));
-            let (tx, _rx) = crossbeam_channel::unbounded();
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_grouped_janus("right", tx);
 
             // Make rtc.connect request.
@@ -2255,7 +2261,7 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -2286,7 +2292,7 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn connect_to_rtc_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

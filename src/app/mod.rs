@@ -7,11 +7,13 @@ use crate::{
     db::ConnectionPool,
 };
 use anyhow::{Context as AnyhowContext, Result};
-use async_std::task;
 use chrono::Utc;
 use context::{AppContext, GlobalContext, JanusTopics};
-use crossbeam_channel::select;
 use futures::StreamExt;
+use hyper::{
+    service::{make_service_fn, service_fn},
+    Body, Response, Server, StatusCode,
+};
 use message_handler::MessageHandler;
 use prometheus::{Encoder, Registry, TextEncoder};
 use serde_json::json;
@@ -24,7 +26,8 @@ use svc_agent::{
     AccountId, AgentId, Authenticable, SharedGroup, Subscription,
 };
 use svc_authn::token::jws_compact;
-use svc_authz::cache::{Cache as AuthzCache, ConnectionPool as RedisConnectionPool};
+use svc_authz::cache::{AuthzCache, ConnectionPool as RedisConnectionPool, RedisCache};
+use tokio::{select, task};
 use tracing::{error, info, warn};
 
 pub const API_VERSION: &str = "v1";
@@ -34,7 +37,7 @@ pub const API_VERSION: &str = "v1";
 pub async fn run(
     db: &ConnectionPool,
     redis_pool: Option<RedisConnectionPool>,
-    authz_cache: Option<AuthzCache>,
+    authz_cache: Option<Box<RedisCache>>,
 ) -> Result<()> {
     // Config
     let config = config::load().expect("Failed to load config");
@@ -53,14 +56,19 @@ pub async fn run(
     let mut agent_config = config.mqtt.clone();
     agent_config.set_password(&token);
 
-    let (mut agent, rx) = AgentBuilder::new(agent_id.clone(), API_VERSION)
+    let (mut agent, mut rx) = AgentBuilder::new(agent_id.clone(), API_VERSION)
         .connection_mode(ConnectionMode::Service)
         .start(&agent_config)
         .context("Failed to create an agent")?;
 
     // Authz
-    let authz = svc_authz::ClientMap::new(&config.id, authz_cache, config.authz.clone())
-        .context("Error converting authz config to clients")?;
+    let authz = svc_authz::ClientMap::new(
+        &config.id,
+        authz_cache.map(|x| x as Box<dyn AuthzCache>),
+        config.authz.clone(),
+        None,
+    )
+    .context("Error converting authz config to clients")?;
 
     // Sentry
     if let Some(sentry_config) = config.sentry.as_ref() {
@@ -70,7 +78,7 @@ pub async fn run(
     let metrics_registry = Registry::new();
     let metrics = crate::app::metrics::Metrics::new(&metrics_registry)?;
     let janus_metrics = crate::backend::janus::metrics::Metrics::new(&metrics_registry)?;
-    let (ev_tx, ev_rx) = crossbeam_channel::unbounded();
+    let (ev_tx, mut ev_rx) = tokio::sync::mpsc::unbounded_channel();
     let clients = Clients::new(ev_tx, config.janus_group.clone());
     thread::spawn({
         let db = db.clone();
@@ -105,23 +113,27 @@ pub async fn run(
     let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
     {
         let message_handler = message_handler.clone();
-        thread::spawn(move || loop {
-            select! {
-                recv(rx) -> msg => {
-                    let msg = msg.expect("Agent must be alive");
-                    handle_message(msg, message_handler.clone());
-                },
-                recv(ev_rx) -> msg => {
-                    let msg = msg.expect("Events sender must exist");
-                    let message_handler = message_handler.clone();
-                    task::spawn(async move {
-                        message_handler.handle_events(msg).await;
-                    });
-                },
+        tokio::spawn(async move {
+            loop {
+                select! {
+                    msg = rx.recv() => {
+                        if let Some(msg) = msg {
+                            handle_message(msg, message_handler.clone())
+                        }
+                    },
+                    msg = ev_rx.recv() => {
+                        if let Some(msg) = msg {
+                            let message_handler = message_handler.clone();
+                            tokio::spawn(async move {
+                                message_handler.handle_events(msg).await;
+                            });
+                        }
+                    },
+                }
             }
         });
     }
-    let mut signals_stream = signal_hook_async_std::Signals::new(TERM_SIGNALS)?.fuse();
+    let mut signals_stream = signal_hook_tokio::Signals::new(TERM_SIGNALS)?.fuse();
     let signals = signals_stream.next();
     let _ = signals.await;
     unsubscribe(&mut agent, &agent_id, &config)?;
@@ -130,7 +142,7 @@ pub async fn run(
         .janus_clients()
         .stop_polling();
 
-    task::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
     info!(
         requests_left = metrics.running_requests_total.get(),
         "Running requests left",
@@ -282,30 +294,35 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
     }
 }
 
-async fn start_metrics_collector(
-    registry: Registry,
-    bind_addr: SocketAddr,
-) -> async_std::io::Result<()> {
-    let mut app = tide::with_state(registry);
-    app.at("/metrics")
-        .get(|req: tide::Request<Registry>| async move {
-            let registry = req.state();
-            let mut buffer = vec![];
-            let encoder = TextEncoder::new();
-            let metric_families = registry.gather();
-            match encoder.encode(&metric_families, &mut buffer) {
-                Ok(_) => {
-                    let mut response = tide::Response::new(200);
-                    response.set_body(buffer);
-                    Ok(response)
-                }
-                Err(err) => {
-                    warn!(?err, "Metrics not gathered");
-                    Ok(tide::Response::new(500))
+async fn start_metrics_collector(registry: Registry, bind_addr: SocketAddr) -> anyhow::Result<()> {
+    let service = make_service_fn(move |_| {
+        let registry = registry.clone();
+        std::future::ready::<Result<_, hyper::Error>>(Ok(service_fn(move |_| {
+            let registry = registry.clone();
+            async move {
+                let mut buffer = vec![];
+                let encoder = TextEncoder::new();
+                let metric_families = registry.gather();
+                match encoder.encode(&metric_families, &mut buffer) {
+                    Ok(_) => {
+                        let response = Response::new(Body::from(buffer));
+                        Ok::<_, hyper::Error>(response)
+                    }
+                    Err(err) => {
+                        warn!(?err, "Metrics not gathered");
+                        let mut response = Response::default();
+                        *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                        Ok(response)
+                    }
                 }
             }
-        });
-    app.listen(bind_addr).await
+        })))
+    });
+    let server = Server::bind(&bind_addr).serve(service);
+
+    server.await?;
+
+    Ok(())
 }
 
 pub mod context;

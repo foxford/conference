@@ -2,6 +2,7 @@
 vacuum_interval = "1 seconds"
 fir_interval = "15 minutes"
 sessions_ttl = "1 seconds"
+health_check_addr = "0.0.0.0:8082"
 
 [recordings]
 delete_records = true

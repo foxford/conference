@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    authz::AuthzObject,
     backend::janus::client::update_agent_writer_config::{
         UpdateWriterConfigRequest, UpdateWriterConfigRequestBody,
         UpdateWriterConfigRequestBodyConfigItem,
@@ -10,15 +11,16 @@ use crate::{
     db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig},
 };
 use anyhow::anyhow;
-use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use diesel::Connection;
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
     Addressable, AgentId,
 };
+
 use tracing_attributes::instrument;
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
@@ -141,7 +143,7 @@ impl RequestHandler for UpdateHandler {
                 .error(AppErrorKind::InvalidPayload)?;
         }
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let room_id = payload.room_id;
             move || {
@@ -168,11 +170,11 @@ impl RequestHandler for UpdateHandler {
             None
         } else {
             let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id];
+            let object = AuthzObject::new(&["rooms", &room_id]);
 
             let authz_time = context
                 .authz()
-                .authorize(room.audience(), reqp, object, "update")
+                .authorize(room.audience().into(), reqp, object.into(), "update".into())
                 .await?;
             context.metrics().observe_auth(authz_time);
             Some(authz_time)
@@ -180,7 +182,7 @@ impl RequestHandler for UpdateHandler {
 
         let conn = context.get_conn().await?;
 
-        let (rtc_writer_configs_with_rtcs, maybe_backend) = task::spawn_blocking({
+        let (rtc_writer_configs_with_rtcs, maybe_backend) = crate::util::spawn_blocking({
             let room_id = room.id();
             let backend_id = room.backend_id().cloned();
             let agent_id = reqp.as_agent_id().clone();
@@ -311,7 +313,7 @@ impl RequestHandler for UpdateHandler {
             .agent_writer_config_update
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::from_iter(messages)))
+        Ok(Box::new(stream::iter(messages)))
     }
 }
 
@@ -336,7 +338,7 @@ impl RequestHandler for ReadHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let (room, rtc_writer_configs_with_rtcs) = task::spawn_blocking({
+        let (room, rtc_writer_configs_with_rtcs) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             move || {
                 let room = helpers::find_room_by_id(
@@ -366,12 +368,14 @@ impl RequestHandler for ReadHandler {
             .agent_writer_config_read
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            State::new(room.id(), &rtc_writer_configs_with_rtcs),
-            reqp,
-            context.start_timestamp(),
-            None,
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                State::new(room.id(), &rtc_writer_configs_with_rtcs),
+                reqp,
+                context.start_timestamp(),
+                None,
+            ),
         ))))
     }
 }
@@ -391,7 +395,7 @@ mod tests {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn update_agent_writer_config() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -443,7 +447,7 @@ mod tests {
 
             // Make agent_writer_config.update request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _rx) = crossbeam_channel::unbounded();
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = State {
@@ -638,7 +642,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn not_authorized() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -679,7 +683,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn too_many_config_items() -> std::io::Result<()> {
             // Make agent_writer_config.update request.
             let local_deps = LocalDeps::new();
@@ -718,7 +722,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn not_entered() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -751,7 +755,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn closed_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -796,7 +800,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn room_with_wrong_rtc_policy() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -838,7 +842,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn missing_room() -> std::io::Result<()> {
             // Make agent_writer_config.update request.
             let local_deps = LocalDeps::new();
@@ -877,7 +881,7 @@ mod tests {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read_state() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -968,7 +972,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn not_entered() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -997,7 +1001,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn closed_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1039,7 +1043,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1078,7 +1082,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn missing_room() -> std::io::Result<()> {
             // Make agent_writer_config.read request.
             let local_deps = LocalDeps::new();

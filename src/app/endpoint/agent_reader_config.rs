@@ -11,15 +11,15 @@ use crate::{
     diesel::Connection,
 };
 use anyhow::{anyhow, Context as AnyhowContext};
-use async_std::{stream, task};
 use async_trait::async_trait;
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
     Addressable, AgentId,
 };
-use tracing_attributes::instrument;
 
+use tracing_attributes::instrument;
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -97,7 +97,7 @@ impl RequestHandler for UpdateHandler {
         }
 
         let conn = context.get_conn().await?;
-        let (room, rtc_reader_configs_with_rtcs, maybe_backend) = task::spawn_blocking({
+        let (room, rtc_reader_configs_with_rtcs, maybe_backend) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             move || {
                 let room = helpers::find_room_by_id(
@@ -214,7 +214,7 @@ impl RequestHandler for UpdateHandler {
             .request_duration
             .agent_reader_config_update
             .observe_timestamp(context.start_timestamp());
-        Ok(Box::new(stream::once(response)))
+        Ok(Box::new(stream::once(std::future::ready(response))))
     }
 }
 
@@ -240,7 +240,7 @@ impl RequestHandler for ReadHandler {
     ) -> Result {
         let conn = context.get_conn().await?;
 
-        let (room, rtc_reader_configs_with_rtcs) = task::spawn_blocking({
+        let (room, rtc_reader_configs_with_rtcs) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             move || {
                 let room = helpers::find_room_by_id(
@@ -272,12 +272,14 @@ impl RequestHandler for ReadHandler {
             .agent_reader_config_read
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            State::new(room.id(), &rtc_reader_configs_with_rtcs),
-            reqp,
-            context.start_timestamp(),
-            None,
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                State::new(room.id(), &rtc_reader_configs_with_rtcs),
+                reqp,
+                context.start_timestamp(),
+                None,
+            ),
         ))))
     }
 }
@@ -297,7 +299,7 @@ mod tests {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn update_agent_reader_config() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -343,7 +345,7 @@ mod tests {
 
             // Make agent_reader_config.update request.
             let mut context = TestContext::new(db, TestAuthz::new());
-            let (tx, _rx) = crossbeam_channel::unbounded();
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = State {
@@ -448,7 +450,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn too_many_config_items() -> std::io::Result<()> {
             // Make agent_reader_config.update request.
             let local_deps = LocalDeps::new();
@@ -484,7 +486,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn agent_without_rtc() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -532,7 +534,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn not_entered() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -564,7 +566,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn closed_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -609,7 +611,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn room_with_wrong_rtc_policy() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -651,7 +653,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn missing_room() -> std::io::Result<()> {
             // Make agent_reader_config.update request.
             let local_deps = LocalDeps::new();
@@ -688,7 +690,7 @@ mod tests {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read_state() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -768,7 +770,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn not_entered() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -797,7 +799,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn closed_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -839,7 +841,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -878,7 +880,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn missing_room() -> std::io::Result<()> {
             // Make agent_reader_config.read request.
             let local_deps = LocalDeps::new();

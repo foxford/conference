@@ -171,6 +171,7 @@ pub fn insert_janus_backend(
     let label_suffix: String = rng
         .sample_iter(&rand::distributions::Alphanumeric)
         .take(5)
+        .map(char::from)
         .collect();
     let label = format!("janus-gateway-{}", label_suffix);
 
@@ -196,6 +197,7 @@ pub fn insert_janus_backend_with_group(
     let label_suffix: String = rng
         .sample_iter(&rand::distributions::Alphanumeric)
         .take(5)
+        .map(char::from)
         .collect();
     let label = format!("janus-gateway-{}", label_suffix);
 

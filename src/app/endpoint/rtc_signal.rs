@@ -3,6 +3,7 @@ use crate::{
         context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId,
         metrics::HistogramExt,
     },
+    authz::AuthzObject,
     backend::janus::{
         client::{
             create_stream::{
@@ -18,9 +19,9 @@ use crate::{
     db,
 };
 use anyhow::{anyhow, Context as AnyhowContext};
-use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::Duration;
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::result::Result as StdResult;
@@ -31,6 +32,7 @@ use svc_agent::{
     },
     Addressable,
 };
+
 use tracing::Span;
 use tracing_attributes::instrument;
 
@@ -81,7 +83,7 @@ impl RequestHandler for CreateHandler {
     ) -> Result {
         // Validate RTC and room presence.
         let conn = context.get_conn().await?;
-        let (room, rtc, backend) = task::spawn_blocking({
+        let (room, rtc, backend) =crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let handle_id = payload.handle_id.clone();
             move ||{
@@ -197,7 +199,7 @@ impl RequestHandler for CreateHandler {
 
                             let conn = context.get_conn().await?;
 
-                            task::spawn_blocking({
+                            crate::util::spawn_blocking({
                                 let handle_id = payload.handle_id.clone();
                                 let agent_id = reqp.as_agent_id().clone();
                                 move || {
@@ -213,7 +215,7 @@ impl RequestHandler for CreateHandler {
                                 }
                             })
                             .await?;
-                            let (writer_config, reader_config) = task::spawn_blocking({
+                            let (writer_config, reader_config) = crate::util::spawn_blocking({
                                 let rtc_id = payload.handle_id.rtc_id();
                                 let conn = context.get_conn().await?;
                                 move || {
@@ -303,7 +305,7 @@ impl RequestHandler for CreateHandler {
                     .rtc_signal_trickle
                     .observe_timestamp(context.start_timestamp());
 
-                Ok(Box::new(stream::once(boxed_resp)))
+                Ok(Box::new(stream::once(std::future::ready(boxed_resp))))
             }
         }
     }
@@ -329,11 +331,11 @@ async fn authorize<C: Context>(
 
     let room_id = room.id().to_string();
     let rtc_id = rtc_id.to_string();
-    let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+    let object = AuthzObject::new(&["rooms", &room_id, "rtcs", &rtc_id]).into();
 
     let elapsed = context
         .authz()
-        .authorize(room.audience(), reqp, object, action)
+        .authorize(room.audience().into(), reqp, object, action.into())
         .await?;
     context.metrics().observe_auth(elapsed);
     Ok(elapsed)
@@ -425,7 +427,7 @@ a=rtcp-fb:120 ccm fir
 a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
 "#;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn offer() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -465,7 +467,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
 
             // Make rtc_signal.create request.
             let mut context = TestContext::new(db, authz);
-            let (tx, rx) = crossbeam_channel::unbounded();
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             let rtc_stream_id = db::janus_rtc_stream::Id::random();
             let handle_id = HandleId::new(
@@ -487,9 +489,9 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             handle_request::<CreateHandler>(&mut context, &agent, payload)
                 .await
                 .expect("Rtc signal creation failed");
-            rx.recv().unwrap();
+            rx.recv().await.unwrap();
             context.janus_clients().remove_client(&backend);
-            match rx.recv().unwrap() {
+            match rx.recv().await.unwrap() {
                 IncomingEvent::Event(EventResponse {
                     transaction:
                         Transaction {
@@ -521,7 +523,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn offer_unauthorized() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -612,7 +614,7 @@ a=rtcp-fb:120 nack pli
 a=rtcp-fb:120 ccm fir
 "#;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn answer() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -694,7 +696,7 @@ a=rtcp-fb:120 ccm fir
 
         const ICE_CANDIDATE: &str = "candidate:0 1 UDP 2113667327 198.51.100.7 49203 typ host";
 
-        #[async_std::test]
+        #[tokio::test]
         async fn candidate() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -736,7 +738,7 @@ a=rtcp-fb:120 ccm fir
 
             // Make rtc_signal.create request.
             let mut context = TestContext::new(db, authz);
-            let (tx, _) = crossbeam_channel::unbounded();
+            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let handle_id = HandleId::new(
@@ -771,7 +773,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn candidate_unauthorized() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -836,7 +838,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn wrong_rtc_id() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -889,7 +891,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn rtc_id_from_another_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -951,7 +953,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn wrong_backend_id() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1018,7 +1020,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn offline_backend() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1076,7 +1078,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn not_entered() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1129,7 +1131,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn not_connected() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1183,7 +1185,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn wrong_handle_id() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1244,7 +1246,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn spoof_handle_id() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1315,7 +1317,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn closed_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -1378,7 +1380,7 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn spoof_owned_rtc() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
