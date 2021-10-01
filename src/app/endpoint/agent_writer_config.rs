@@ -12,6 +12,7 @@ use crate::{
 use anyhow::anyhow;
 use async_std::{stream, task};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use svc_agent::{
@@ -28,6 +29,9 @@ const MAX_STATE_CONFIGS_LEN: usize = 20;
 pub struct State {
     room_id: db::room::Id,
     configs: Vec<StateConfigItem>,
+    #[serde(with = "chrono::serde::ts_nanoseconds_option")]
+    #[serde(default)]
+    updated_at_ns: Option<DateTime<Utc>>,
 }
 
 impl State {
@@ -35,6 +39,10 @@ impl State {
         room_id: db::room::Id,
         rtc_writer_configs_with_rtcs: &[(RtcWriterConfig, Rtc)],
     ) -> State {
+        let updated_at = rtc_writer_configs_with_rtcs
+            .iter()
+            .map(|(c, _r)| c.updated_at())
+            .max();
         let configs = rtc_writer_configs_with_rtcs
             .iter()
             .map(|(rtc_writer_config, rtc)| {
@@ -55,7 +63,11 @@ impl State {
             })
             .collect::<Vec<_>>();
 
-        Self { room_id, configs }
+        Self {
+            room_id,
+            configs,
+            updated_at_ns: updated_at,
+        }
     }
 }
 
@@ -227,20 +239,21 @@ impl RequestHandler for UpdateHandler {
                             snapshot_q.execute(&conn)?;
                         }
                     }
+                    Ok(())
+                })?;
 
-                    // Retrieve state data.
-                    let rtc_writer_configs_with_rtcs =
-                        db::rtc_writer_config::ListWithRtcQuery::new(room_id).execute(&conn)?;
-                    // Find backend and send updates to it if present.
-                    let maybe_backend = match &backend_id {
-                        None => None,
-                        Some(backend_id) => db::janus_backend::FindQuery::new()
-                            .id(backend_id)
-                            .execute(&conn)?,
-                    };
+                // Retrieve state data.
+                let rtc_writer_configs_with_rtcs =
+                    db::rtc_writer_config::ListWithRtcQuery::new(room_id).execute(&conn)?;
+                // Find backend and send updates to it if present.
+                let maybe_backend = match &backend_id {
+                    None => None,
+                    Some(backend_id) => db::janus_backend::FindQuery::new()
+                        .id(backend_id)
+                        .execute(&conn)?,
+                };
 
-                    Ok::<_, AppError>((rtc_writer_configs_with_rtcs, maybe_backend))
-                })
+                Ok::<_, AppError>((rtc_writer_configs_with_rtcs, maybe_backend))
             }
         })
         .await?;
@@ -435,6 +448,7 @@ mod tests {
 
             let payload = State {
                 room_id: room.id(),
+                updated_at_ns: Some(Utc::now()),
                 configs: vec![
                     StateConfigItem {
                         agent_id: agent2.agent_id().to_owned(),
@@ -526,6 +540,7 @@ mod tests {
             // Make one more agent_writer_config.update request.
             let payload = State {
                 room_id: room.id(),
+                updated_at_ns: Some(Utc::now()),
                 configs: vec![
                     StateConfigItem {
                         agent_id: agent4.agent_id().to_owned(),
@@ -650,6 +665,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
+                updated_at_ns: Some(Utc::now()),
                 room_id: room.id(),
                 configs: vec![],
             };
@@ -687,6 +703,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             let payload = State {
+                updated_at_ns: Some(Utc::now()),
                 room_id: db::room::Id::random(),
                 configs,
             };
@@ -719,6 +736,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
+                updated_at_ns: Some(Utc::now()),
                 room_id: room.id(),
                 configs: vec![],
             };
@@ -763,6 +781,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
+                updated_at_ns: Some(Utc::now()),
                 room_id: room.id(),
                 configs: vec![],
             };
@@ -804,6 +823,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
+                updated_at_ns: Some(Utc::now()),
                 room_id: room.id(),
                 configs: vec![],
             };
@@ -829,6 +849,7 @@ mod tests {
             let mut context = TestContext::new(db, TestAuthz::new());
 
             let payload = State {
+                updated_at_ns: Some(Utc::now()),
                 room_id: db::room::Id::random(),
                 configs: vec![],
             };

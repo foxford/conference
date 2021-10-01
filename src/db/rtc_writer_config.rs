@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
 
@@ -15,6 +16,7 @@ type AllColumns = (
     rtc_writer_config::send_audio,
     rtc_writer_config::video_remb,
     rtc_writer_config::send_audio_updated_by,
+    rtc_writer_config::updated_at,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -23,6 +25,7 @@ const ALL_COLUMNS: AllColumns = (
     rtc_writer_config::send_audio,
     rtc_writer_config::video_remb,
     rtc_writer_config::send_audio_updated_by,
+    rtc_writer_config::updated_at,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -37,6 +40,7 @@ pub struct Object {
     send_audio: bool,
     video_remb: Option<i64>,
     send_audio_updated_by: Option<AgentId>,
+    updated_at: DateTime<Utc>,
 }
 
 impl Object {
@@ -54,6 +58,11 @@ impl Object {
 
     pub fn send_audio_updated_by(&self) -> Option<&AgentId> {
         self.send_audio_updated_by.as_ref()
+    }
+
+    /// Get a reference to the object's updated at.
+    pub fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
     }
 }
 
