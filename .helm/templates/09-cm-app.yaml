@@ -40,8 +40,8 @@ data:
     ## ULMS
     ##
     [id_token]
-    algorithm = {{ pluck .Values.werf.env (index .Values.app.id_token.algorithm .Values.global.org .Values.global.app) | first | default (index .Values.app.id_token.algorithm .Values.global.org .Values.global.app)._default | quote }}
-    key = {{ pluck .Values.werf.env (index .Values.app.id_token.key .Values.global.org .Values.global.app) | first | default (index .Values.app.id_token.key .Values.global.org .Values.global.app)._default | quote }}
+    algorithm = {{ pluck .Values.werf.env .Values.app.id_token.algorithm | first | default .Values.app.id_token.algorithm._default | quote }}
+    key = {{ pluck .Values.werf.env .Values.app.id_token.key  | first | default .Values.app.id_token.key._default | quote }}
 
     [authz.{{ pluck .Values.werf.env (index .Values.app.authz.ident .Values.global.org .Values.global.app) | first | default (index .Values.app.authz.ident .Values.global.org .Values.global.app)._default | quote }}]
     type = {{ pluck .Values.werf.env (index .Values.app.authz.type .Values.global.org .Values.global.app) | first | default (index .Values.app.authz.type .Values.global.org .Values.global.app)._default | quote }}
@@ -80,7 +80,7 @@ data:
 
     [upload.owned.{{ pluck $.Values.werf.env $tenant.upload.owned.ident | first | default $tenant.upload.owned.ident._default | quote }}]
     backend = {{ pluck $.Values.werf.env $tenant.upload.owned.backend | first | default $tenant.upload.owned.backend._default | quote }}
-    bucket = {{ pluck $.Values.werf.env $tenant.upload.owned.bucker | first | default $tenant.upload.owned.bucket._default | quote }}
+    bucket = {{ pluck $.Values.werf.env $tenant.upload.owned.bucket | first | default $tenant.upload.owned.bucket._default | quote }}
 {{- end }}
 {{- else if hasPrefix "staging" $.Values.werf.env }}
 {{- if (pluck $.Values.werf.env $tenant.authz.ident | first) }}
@@ -108,7 +108,7 @@ data:
 
     [upload.owned.{{ pluck $.Values.werf.env $tenant.upload.owned.ident | first | default $tenant.upload.owned.ident._default | quote }}]
     backend = {{ pluck $.Values.werf.env $tenant.upload.owned.backend | first | default $tenant.upload.owned.backend._default | quote }}
-    bucket = {{ pluck $.Values.werf.env $tenant.upload.owned.bucker | first | default $tenant.upload.owned.bucket._default | quote }}
+    bucket = {{ pluck $.Values.werf.env $tenant.upload.owned.bucket | first | default $tenant.upload.owned.bucket._default | quote }}
 {{- end }}
 {{- else if hasPrefix "testing" $.Values.werf.env }}
 {{- if (pluck $.Values.werf.env $tenant.authz.ident | first) }}
@@ -136,7 +136,7 @@ data:
 
     [upload.owned.{{ pluck $.Values.werf.env $tenant.upload.owned.ident | first | default $tenant.upload.owned.ident._default | quote }}]
     backend = {{ pluck $.Values.werf.env $tenant.upload.owned.backend | first | default $tenant.upload.owned.backend._default | quote }}
-    bucket = {{ pluck $.Values.werf.env $tenant.upload.owned.bucker | first | default $tenant.upload.owned.bucket._default | quote }}
+    bucket = {{ pluck $.Values.werf.env $tenant.upload.owned.bucket | first | default $tenant.upload.owned.bucket._default | quote }}
 {{- end }}
 {{- end }}
 
@@ -149,7 +149,7 @@ data:
     id = {{ pluck .Values.werf.env (index .Values.app.kruonis.id .Values.global.org .Values.global.app) | first | default (index .Values.app.kruonis.id .Values.global.org .Values.global.app)._default | quote }}
 
     [metrics.http]
-    bind_address = "0.0.0.0:8080"
+    bind_address = "0.0.0.0:{{ pluck .Values.werf.env .Values.app.port.number | first | default .Values.app.port.number._default }}"
 
     [metrics]
     janus_metrics_collect_interval = {{ pluck .Values.werf.env (index .Values.app.metrics.janus_metrics_collect_interval .Values.global.org .Values.global.app) | first | default (index .Values.app.metrics.janus_metrics_collect_interval .Values.global.org .Values.global.app)._default | quote }}
@@ -159,7 +159,7 @@ data:
     rtc_by_id = {{ pluck .Values.werf.env (index .Values.app.cache_configs.rtc_by_id .Values.global.org .Values.global.app) | first | default (index .Values.app.cache_configs.rtc_by_id .Values.global.org .Values.global.app)._default | quote }}
 {{- end }}
 
-{{- if (pluck $.Values.werf.env .Values.app.janus_registry.token | first) }}
+{{- if (pluck .Values.werf.env .Values.app.janus_registry.token | first) }}
     [janus_registry]
     token = {{ pluck .Values.werf.env (index .Values.app.janus_registry.token .Values.global.org .Values.global.app) | first | default (index .Values.app.janus_registry.token .Values.global.org .Values.global.app)._default | quote }}
     bind_addr = {{ pluck .Values.werf.env (index .Values.app.janus_registry.bind_addr .Values.global.org .Values.global.app) | first | default (index .Values.app.janus_registry.bind_addr .Values.global.org .Values.global.app)._default | quote }}

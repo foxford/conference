@@ -1,4 +1,9 @@
 app:
+  port:
+    name:
+      _default: metrics
+    number:
+      _default: "8080"
   hpa:
     min_replicas:
       _default: "2"
