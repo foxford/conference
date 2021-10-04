@@ -14,18 +14,31 @@ on:
       environment:
         description: 'Deploy to environment...'
         required: true
-        default: 'testing03'
-      version:
-        description: 'Deploy commit/tag/branch'
-        required: false
+        default: 'testing01'
 
 jobs:
   converge:
     name: Converge
     runs-on: ubuntu-latest
     steps:
+      - name: Login to Registry
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.WERF_REPO_DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.WERF_REPO_DOCKER_HUB_PASSWORD }}
       - name: Checkout code
         uses: actions/checkout@v2
         with:
-          ref: ${{ github.event.inputs.version }}
           fetch-depth: 0
+      - name: Converge
+        uses: werf/actions/converge@v1.2
+        with:
+          channel: beta
+          env: ${{ github.event.inputs.environment }}
+          kube-config-base64-data: ${{ secrets.KUBE_CONFIG_BASE64_DATA }}
+        env:
+          WERF_REPO: "foxford/event"
+          WERF_SECRET_KEY: ${{ secrets.WERF_SECRET_KEY }}
+          WERF_NAMESPACE: ${{ github.event.inputs.application }}-${{ github.event.inputs.environment }}-${{ github.event.inputs.organization }}
+          WERF_SET_ORG: "global.org=${{ github.event.inputs.organization }}"
+          WERF_SET_APP: "global.app=${{ github.event.inputs.application }}"
