@@ -22,3 +22,18 @@ app:
         classroom:
           _default: 500Mi
           production: 1Gi
+postgres:
+  resources:
+    requests:
+      cpu:
+        _default: 100m
+      memory:
+        _default: 256Mi
+    limits:
+      memory:
+        _default: 1Gi
+  storage:
+    size:
+      _default: 50Gi
+    storageClassName:
+      _default: universal.ru-2c
