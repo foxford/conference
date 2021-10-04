@@ -24,7 +24,6 @@ spec:
       - name: registrysecret
       initContainers:
 {{ include "wait_postgres" . | indent 6 }}
-{{ include "wait_redis" . | indent 6 }}
 {{ include "psql_check_db" . | indent 6 }}
       containers:
       - name: event

@@ -1,0 +1,77 @@
+{{- if and (ne .Values.werf.env "production") (ne .Values.werf.env "staging01") }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Chart.Name }}-postgres
+  labels:
+    service: {{ .Chart.Name }}-postgres
+spec:
+  serviceName: {{ .Chart.Name }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      service: {{ .Chart.Name }}-postgres
+  template:
+    metadata:
+      labels:
+        service: {{ .Chart.Name }}-postgres
+    spec:
+      imagePullSecrets:
+      - name: registrysecret
+      containers:
+      - name: postgres
+        image: {{ .Values.werf.image.postgres }}
+        args:
+        - -c
+        - max_connections=200
+        env:
+        - name: POSTGRES_DB
+          value: {{ pluck .Values.werf.env (index .Values.app.database.db .Values.global.org .Values.global.app) | first | default (index .Values.app.database.db .Values.global.org .Values.global.app)._default | quote }}
+        - name: POSTGRES_USER
+          value: {{ pluck .Values.werf.env (index .Values.app.database.user .Values.global.org .Values.global.app) | first | default (index .Values.app.database.user .Values.global.org .Values.global.app)._default | quote }}
+        - name: POSTGRES_PASSWORD
+          value: {{ pluck .Values.werf.env (index .Values.app.database.password .Values.global.org .Values.global.app) | first | default (index .Values.app.database.password .Values.global.org .Values.global.app)._default | quote }}
+        - name: PGDATA
+          value: "/data/pg_data"
+        ports:
+        - name: postgres
+          containerPort: 5432
+        readinessProbe:
+          timeoutSeconds: 1
+          initialDelaySeconds: 30
+          exec:
+            command: [ "/bin/sh", "-i", "-c", "psql -h 127.0.0.1 -U $POSTGRES_USER -q -d $POSTGRES_DB -c 'SELECT 1'"]
+        volumeMounts:
+        - name: pg-data
+          mountPath: /data
+        resources:
+          requests:
+            memory: {{ pluck .Values.werf.env .Values.postgres.resources.requests.memory | first | default .Values.postgres.resources.requests.memory._default }}
+            cpu: {{ pluck .Values.werf.env .Values.postgres.resources.requests.cpu | first | default .Values.postgres.resources.requests.cpu._default }}
+          limits:
+            memory: {{ pluck .Values.werf.env .Values.postgres.resources.limits.memory | first | default .Values.postgres.resources.limits.memory._default }}
+  volumeClaimTemplates:
+    - metadata:
+        name: pg-data
+        annotations:
+          volume.beta.kubernetes.io/mount-options: "discard"
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: {{ pluck .Values.werf.env .Values.postgres.storage.size | first | default .Values.postgres.storage.size._default }}
+        storageClassName: {{ pluck .Values.werf.env .Values.postgres.storage.storageClassName | first | default .Values.postgres.storage.storageClassName._default }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}-postgres
+spec:
+  clusterIP: None
+  selector:
+    service: {{ .Chart.Name }}-postgres
+  ports:
+    - name: postgres
+      port: 5432
+{{- end }}
