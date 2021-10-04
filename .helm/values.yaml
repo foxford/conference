@@ -1,0 +1,19 @@
+app:
+  hpa:
+    min_replicas:
+      _default: "2"
+    max_replicas:
+      _default: "4"
+    average_utilization:
+      _default: "80"
+  resources:
+    cpu:
+      ng:
+        classroom:
+          _default: 500m
+          production: "2"
+    memory:
+      ng:
+        classroom:
+          _default: 500Mi
+          production: 1Gi

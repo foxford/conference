@@ -1,0 +1,14 @@
+project: conference
+configVersion: 1
+---
+image: conference
+dockerfile: docker/Dockerfile
+---
+image: migrate
+dockerfile: docker/migration.dockerfile
+---
+image: postgres
+from: postgres:12.6
+---
+image: alpine
+from: alpine:3.6

@@ -1,0 +1,29 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Chart.Name }}-migration
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "10"
+spec:
+  ttlSecondsAfterFinished: 1800
+  activeDeadlineSeconds: 3600
+  backoffLimit: 0
+  template:
+    spec:
+      imagePullSecrets:
+      - name: registrysecret
+      initContainers:
+{{- include "wait_postgres" . | indent 6 }}
+{{- include "psql_check_db" . | indent 6 }}
+      containers:
+      - name: migrations
+        image: {{ .Values.werf.image.migrate }}
+        env:
+{{- include "envs" . | indent 8 }}
+        volumeMounts:
+{{- include "volumeMounts" . | indent 8 }}
+      volumes:
+{{- include "volumes" . | indent 6 }}
+      restartPolicy: Never

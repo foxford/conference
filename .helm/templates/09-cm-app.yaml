@@ -1,0 +1,166 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Chart.Name }}-config
+  annotations:
+    "helm.sh/hook": "pre-install,pre-upgrade"
+    "helm.sh/hook-delete-policy": "before-hook-creation"
+    "helm.sh/hook-weight": "1"
+data:
+  App.toml: |
+    id = {{ pluck .Values.werf.env (index .Values.app.id .Values.global.org .Values.global.app) | first | default (index .Values.app.id .Values.global.org .Values.global.app)._default | quote }}
+    broker_id = {{ pluck .Values.werf.env (index .Values.app.broker_id .Values.global.org .Values.global.app) | first | default (index .Values.app.broker_id .Values.global.org .Values.global.app)._default | quote }}
+    orphaned_room_timeout = {{ pluck .Values.werf.env (index .Values.app.orphaned_room_timeout .Values.global.org .Values.global.app) | first | default (index .Values.app.orphaned_room_timeout .Values.global.org .Values.global.app)._default | quote }}
+{{- if and (ne .Values.werf.env "production") (ne .Values.werf.env "staging01") }}
+    max_room_duration = {{ pluck .Values.werf.env (index .Values.app.max_room_duration .Values.global.org .Values.global.app) | first | default (index .Values.app.max_room_duration .Values.global.org .Values.global.app)._default | quote }}
+    janus_group = {{ pluck .Values.werf.env (index .Values.app.janus_group .Values.global.org .Values.global.app) | first | default (index .Values.app.janus_group .Values.global.org .Values.global.app)._default | quote }}
+{{- end }}
+
+    [mqtt]
+    uri = {{ pluck .Values.werf.env (index .Values.app.mqtt.uri .Values.global.org .Values.global.app) | first | default (index .Values.app.mqtt.uri .Values.global.org .Values.global.app)._default | quote }}
+    clean_session = {{ pluck .Values.werf.env (index .Values.app.mqtt.clean_session .Values.global.org .Values.global.app) | first | default (index .Values.app.mqtt.clean_session .Values.global.org .Values.global.app)._default }}
+    incoming_message_queue_size = {{ pluck .Values.werf.env (index .Values.app.mqtt.incoming_message_queue_size .Values.global.org .Values.global.app) | first | default (index .Values.app.mqtt.incoming_message_queue_size .Values.global.org .Values.global.app)._default }}
+    outgoing_message_queue_size = {{ pluck .Values.werf.env (index .Values.app.mqtt.outgoing_message_queue_size .Values.global.org .Values.global.app) | first | default (index .Values.app.mqtt.outgoing_message_queue_size .Values.global.org .Values.global.app)._default }}
+    reconnect_interval = {{ pluck .Values.werf.env (index .Values.app.mqtt.reconnect_interval .Values.global.org .Values.global.app) | first | default (index .Values.app.mqtt.reconnect_interval .Values.global.org .Values.global.app)._default }}
+    keep_alive = {{ pluck .Values.werf.env (index .Values.app.mqtt.keep_alive .Values.global.org .Values.global.app) | first | default (index .Values.app.mqtt.keep_alive .Values.global.org .Values.global.app)._default }}
+    max_message_size = {{ pluck .Values.werf.env (index .Values.app.mqtt.max_message_size .Values.global.org .Values.global.app) | first | default (index .Values.app.mqtt.max_message_size .Values.global.org .Values.global.app)._default }}
+
+    [backend]
+    id = {{ pluck .Values.werf.env (index .Values.app.backend.id .Values.global.org .Values.global.app) | first | default (index .Values.app.backend.id .Values.global.org .Values.global.app)._default | quote }}
+    default_timeout = {{ pluck .Values.werf.env (index .Values.app.backend.default_timeout .Values.global.org .Values.global.app) | first | default (index .Values.app.backend.default_timeout .Values.global.org .Values.global.app)._default }}
+    stream_upload_timeout = {{ pluck .Values.werf.env (index .Values.app.backend.stream_upload_timeout .Values.global.org .Values.global.app) | first | default (index .Values.app.backend.stream_upload_timeout .Values.global.org .Values.global.app)._default }}
+    transaction_watchdog_check_period = {{ pluck .Values.werf.env (index .Values.app.backend.transaction_watchdog_check_period .Values.global.org .Values.global.app) | first | default (index .Values.app.backend.transaction_watchdog_check_period .Values.global.org .Values.global.app)._default }}
+
+    [sentry]
+    dsn = {{ pluck .Values.werf.env (index .Values.app.sentry.dsn .Values.global.org .Values.global.app) | first | default (index .Values.app.sentry.dsn .Values.global.org .Values.global.app)._default | quote }}
+    environment = {{ .Values.werf.env | quote }}
+
+    ##
+    ## ULMS
+    ##
+    [id_token]
+    algorithm = {{ pluck .Values.werf.env (index .Values.app.id_token.algorithm .Values.global.org .Values.global.app) | first | default (index .Values.app.id_token.algorithm .Values.global.org .Values.global.app)._default | quote }}
+    key = {{ pluck .Values.werf.env (index .Values.app.id_token.key .Values.global.org .Values.global.app) | first | default (index .Values.app.id_token.key .Values.global.org .Values.global.app)._default | quote }}
+
+    [authz.{{ pluck .Values.werf.env (index .Values.app.authz.ident .Values.global.org .Values.global.app) | first | default (index .Values.app.authz.ident .Values.global.org .Values.global.app)._default | quote }}]
+    type = {{ pluck .Values.werf.env (index .Values.app.authz.type .Values.global.org .Values.global.app) | first | default (index .Values.app.authz.type .Values.global.org .Values.global.app)._default | quote }}
+    trusted = [
+    {{- range $k, $v := (pluck .Values.werf.env (index .Values.app.authz.trusted .Values.global.org .Values.global.app) | first | default (index .Values.app.authz.trusted .Values.global.org .Values.global.app)._default) }}
+    {{- if $k }}, {{ end }}
+    {{- $v | quote -}}
+    {{- end -}}
+    ]
+
+{{- range $tenant := .Values.app.tenants }}
+
+{{- if hasPrefix "production" $.Values.werf.env }}
+{{- if (pluck $.Values.werf.env $tenant.authz.ident | first) }}
+    ##
+    ## {{ $tenant.name }}
+    ##
+    [authz.{{ pluck $.Values.werf.env $tenant.authz.ident | first | default $tenant.authz.ident._default | quote }}]
+    type = {{ pluck $.Values.werf.env $tenant.authz.type | first | default $tenant.authz.type._default | quote }}
+{{- if (pluck $.Values.werf.env $tenant.authz.trusted | first) }}
+    trusted = [{{ pluck $.Values.werf.env $tenant.authz.trusted | first | default $tenant.authz.trusted._default | quote }}]
+{{- end }}
+    uri = {{ pluck $.Values.werf.env $tenant.authz.uri | first | default $tenant.authz.uri._default | quote }}
+    algorithm = {{ pluck $.Values.werf.env $tenant.authz.algorithm | first | default $tenant.authz.algorithm._default | quote }}
+    key = "{{ printf "/app/%s" (pluck $.Values.werf.env $tenant.authz.key | first | default $tenant.authz.key._default) }}"
+{{- if (pluck $.Values.werf.env $tenant.authz.user_agent | first) }}
+    user_agent = {{ pluck $.Values.werf.env $tenant.authz.user_agent | first | default $tenant.authz.user_agent._default | quote }}
+{{- end }}
+{{- if (pluck $.Values.werf.env $tenant.authz.max_retries | first) }}
+    max_retries = {{ pluck $.Values.werf.env $tenant.authz.max_retries | first | default $tenant.authz.max_retries._default }}
+{{- end }}
+
+    [upload.shared.{{ pluck $.Values.werf.env $tenant.upload.shared.ident | first | default $tenant.upload.shared.ident._default | quote }}]
+    backend = {{ pluck $.Values.werf.env $tenant.upload.shared.backend | first | default $tenant.upload.shared.backend._default | quote }}
+    bucket = {{ pluck $.Values.werf.env $tenant.upload.shared.bucket | first | default $tenant.upload.shared.bucket._default | quote }}
+
+    [upload.owned.{{ pluck $.Values.werf.env $tenant.upload.owned.ident | first | default $tenant.upload.owned.ident._default | quote }}]
+    backend = {{ pluck $.Values.werf.env $tenant.upload.owned.backend | first | default $tenant.upload.owned.backend._default | quote }}
+    bucket = {{ pluck $.Values.werf.env $tenant.upload.owned.bucker | first | default $tenant.upload.owned.bucket._default | quote }}
+{{- end }}
+{{- else if hasPrefix "staging" $.Values.werf.env }}
+{{- if (pluck $.Values.werf.env $tenant.authz.ident | first) }}
+    ##
+    ## {{ $tenant.name }}
+    ##
+    [authz.{{ pluck $.Values.werf.env $tenant.authz.ident | first | default $tenant.authz.ident._default | quote }}]
+    type = {{ pluck $.Values.werf.env $tenant.authz.type | first | default $tenant.authz.type._default | quote }}
+{{- if (pluck $.Values.werf.env $tenant.authz.trusted | first) }}
+    trusted = [{{ pluck $.Values.werf.env $tenant.authz.trusted | first | default $tenant.authz.trusted._default | quote }}]
+{{- end }}
+    uri = {{ pluck $.Values.werf.env $tenant.authz.uri | first | default $tenant.authz.uri._default | quote }}
+    algorithm = {{ pluck $.Values.werf.env $tenant.authz.algorithm | first | default $tenant.authz.algorithm._default | quote }}
+    key = "{{ printf "/app/%s" (pluck $.Values.werf.env $tenant.authz.key | first | default $tenant.authz.key._default) }}"
+{{- if (pluck $.Values.werf.env $tenant.authz.user_agent | first) }}
+    user_agent = {{ pluck $.Values.werf.env $tenant.authz.user_agent | first | default $tenant.authz.user_agent._default | quote }}
+{{- end }}
+{{- if (pluck $.Values.werf.env $tenant.authz.max_retries | first) }}
+    max_retries = {{ pluck $.Values.werf.env $tenant.authz.max_retries | first | default $tenant.authz.max_retries._default }}
+{{- end }}
+
+    [upload.shared.{{ pluck $.Values.werf.env $tenant.upload.shared.ident | first | default $tenant.upload.shared.ident._default | quote }}]
+    backend = {{ pluck $.Values.werf.env $tenant.upload.shared.backend | first | default $tenant.upload.shared.backend._default | quote }}
+    bucket = {{ pluck $.Values.werf.env $tenant.upload.shared.bucket | first | default $tenant.upload.shared.bucket._default | quote }}
+
+    [upload.owned.{{ pluck $.Values.werf.env $tenant.upload.owned.ident | first | default $tenant.upload.owned.ident._default | quote }}]
+    backend = {{ pluck $.Values.werf.env $tenant.upload.owned.backend | first | default $tenant.upload.owned.backend._default | quote }}
+    bucket = {{ pluck $.Values.werf.env $tenant.upload.owned.bucker | first | default $tenant.upload.owned.bucket._default | quote }}
+{{- end }}
+{{- else if hasPrefix "testing" $.Values.werf.env }}
+{{- if (pluck $.Values.werf.env $tenant.authz.ident | first) }}
+    ##
+    ## {{ $tenant.name }}
+    ##
+    [authz.{{ pluck $.Values.werf.env $tenant.authz.ident | first | default $tenant.authz.ident._default | quote }}]
+    type = {{ pluck $.Values.werf.env $tenant.authz.type | first | default $tenant.authz.type._default | quote }}
+{{- if (pluck $.Values.werf.env $tenant.authz.trusted | first) }}
+    trusted = [{{ pluck $.Values.werf.env $tenant.authz.trusted | first | default $tenant.authz.trusted._default | quote }}]
+{{- end }}
+    uri = {{ pluck $.Values.werf.env $tenant.authz.uri | first | default $tenant.authz.uri._default | quote }}
+    algorithm = {{ pluck $.Values.werf.env $tenant.authz.algorithm | first | default $tenant.authz.algorithm._default | quote }}
+    key = "{{ printf "/app/%s" (pluck $.Values.werf.env $tenant.authz.key | first | default $tenant.authz.key._default) }}"
+{{- if (pluck $.Values.werf.env $tenant.authz.user_agent | first) }}
+    user_agent = {{ pluck $.Values.werf.env $tenant.authz.user_agent | first | default $tenant.authz.user_agent._default | quote }}
+{{- end }}
+{{- if (pluck $.Values.werf.env $tenant.authz.max_retries | first) }}
+    max_retries = {{ pluck $.Values.werf.env $tenant.authz.max_retries | first | default $tenant.authz.max_retries._default }}
+{{- end }}
+
+    [upload.shared.{{ pluck $.Values.werf.env $tenant.upload.shared.ident | first | default $tenant.upload.shared.ident._default | quote }}]
+    backend = {{ pluck $.Values.werf.env $tenant.upload.shared.backend | first | default $tenant.upload.shared.backend._default | quote }}
+    bucket = {{ pluck $.Values.werf.env $tenant.upload.shared.bucket | first | default $tenant.upload.shared.bucket._default | quote }}
+
+    [upload.owned.{{ pluck $.Values.werf.env $tenant.upload.owned.ident | first | default $tenant.upload.owned.ident._default | quote }}]
+    backend = {{ pluck $.Values.werf.env $tenant.upload.owned.backend | first | default $tenant.upload.owned.backend._default | quote }}
+    bucket = {{ pluck $.Values.werf.env $tenant.upload.owned.bucker | first | default $tenant.upload.owned.bucket._default | quote }}
+{{- end }}
+{{- end }}
+
+{{- end }}
+
+    [telemetry]
+    id = {{ pluck .Values.werf.env (index .Values.app.telemetry.id .Values.global.org .Values.global.app) | first | default (index .Values.app.telemetry.id .Values.global.org .Values.global.app)._default | quote }}
+
+    [kruonis]
+    id = {{ pluck .Values.werf.env (index .Values.app.kruonis.id .Values.global.org .Values.global.app) | first | default (index .Values.app.kruonis.id .Values.global.org .Values.global.app)._default | quote }}
+
+    [metrics.http]
+    bind_address = "0.0.0.0:8080"
+
+    [metrics]
+    janus_metrics_collect_interval = {{ pluck .Values.werf.env (index .Values.app.metrics.janus_metrics_collect_interval .Values.global.org .Values.global.app) | first | default (index .Values.app.metrics.janus_metrics_collect_interval .Values.global.org .Values.global.app)._default | quote }}
+
+{{- if (pluck .Values.werf.env .Values.app.cache_configs.rtc_by_id | first) }}
+    [cache_configs]
+    rtc_by_id = {{ pluck .Values.werf.env (index .Values.app.cache_configs.rtc_by_id .Values.global.org .Values.global.app) | first | default (index .Values.app.cache_configs.rtc_by_id .Values.global.org .Values.global.app)._default | quote }}
+{{- end }}
+
+{{- if (pluck $.Values.werf.env .Values.app.janus_registry.token | first) }}
+    [janus_registry]
+    token = {{ pluck .Values.werf.env (index .Values.app.janus_registry.token .Values.global.org .Values.global.app) | first | default (index .Values.app.janus_registry.token .Values.global.org .Values.global.app)._default | quote }}
+    bind_addr = {{ pluck .Values.werf.env (index .Values.app.janus_registry.bind_addr .Values.global.org .Values.global.app) | first | default (index .Values.app.janus_registry.bind_addr .Values.global.org .Values.global.app)._default | quote }}
+{{- end }}

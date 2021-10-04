@@ -1,0 +1,21 @@
+{{- if eq .Values.werf.env "production" }}
+---
+kind: HorizontalPodAutoscaler
+apiVersion: autoscaling/v2beta2
+metadata:
+  name: {{ .Chart.Name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: {{ .Chart.Name }}
+  minReplicas: {{ pluck .Values.werf.env .Values.app.hpa.min_replicas | first | default .Values.app.hpa.min_replicas._default }}
+  maxReplicas: {{ pluck .Values.werf.env .Values.app.hpa.max_replicas | first | default .Values.app.hpa.max_replicas._default }}
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: {{ pluck .Values.werf.env .Values.app.hpa.average_utilization | first | default .Values.app.hpa.average_utilization._default }}
+{{- end }}

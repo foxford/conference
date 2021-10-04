@@ -1,0 +1,30 @@
+{{- define "envs" }}
+- name: APP_AGENT_LABEL
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.name
+- name: RUST_LOG
+  value: {{ pluck .Values.werf.env (index .Values.app.env.rust_log .Values.global.org .Values.global.app) | first | default (index .Values.app.env.rust_log .Values.global.org .Values.global.app)._default | quote }}
+- name: CACHE_ENABLED
+  value: {{ pluck .Values.werf.env (index .Values.app.env.cache.enabled .Values.global.org .Values.global.app) | first | default (index .Values.app.env.cache.enabled .Values.global.org .Values.global.app)._default | quote }}
+- name: CACHE_POOL_SIZE
+  value: {{ pluck .Values.werf.env (index .Values.app.env.cache.pool_size .Values.global.org .Values.global.app) | first | default (index .Values.app.env.cache.pool_size .Values.global.org .Values.global.app)._default | quote }}
+- name: CACHE_POOL_IDLE_SIZE
+  value: {{ pluck .Values.werf.env (index .Values.app.env.cache.pool_idle_size .Values.global.org .Values.global.app) | first | default (index .Values.app.env.cache.pool_idle_size .Values.global.org .Values.global.app)._default | quote }}
+- name: CACHE_POOL_TIMEOUT
+  value: {{ pluck .Values.werf.env (index .Values.app.env.cache.pool_timeout .Values.global.org .Values.global.app) | first | default (index .Values.app.env.cache.pool_timeout .Values.global.org .Values.global.app)._default | quote }}
+- name: CACHE_EXPIRATION_TIME
+  value: {{ pluck .Values.werf.env (index .Values.app.env.cache.expiration_time .Values.global.org .Values.global.app) | first | default (index .Values.app.env.cache.expiration_time .Values.global.org .Values.global.app)._default | quote }}
+- name: DATABASE_POOL_SIZE
+  value: {{ pluck .Values.werf.env (index .Values.app.env.database.pool_size .Values.global.org .Values.global.app) | first | default (index .Values.app.env.database.pool_size .Values.global.org .Values.global.app)._default | quote }}
+- name: DATABASE_POOL_IDLE_SIZE
+  value: {{ pluck .Values.werf.env (index .Values.app.env.database.pool_idle_size .Values.global.org .Values.global.app) | first | default (index .Values.app.env.database.pool_idle_size .Values.global.org .Values.global.app)._default | quote }}
+- name: DATABASE_POOL_TIMEOUT
+  value: {{ pluck .Values.werf.env (index .Values.app.env.database.pool_timeout .Values.global.org .Values.global.app) | first | default (index .Values.app.env.database.pool_timeout .Values.global.org .Values.global.app)._default | quote }}
+- name: DATABASE_POOL_MAX_LIFETIME
+  value: {{ pluck .Values.werf.env (index .Values.app.env.database.pool_max_lifetime .Values.global.org .Values.global.app) | first | default (index .Values.app.env.database.pool_max_lifetime .Values.global.org .Values.global.app)._default | quote }}
+- name: DATABASE_URL
+  value: postgres://{{ pluck .Values.werf.env (index .Values.app.database.user .Values.global.org .Values.global.app) | first | default (index .Values.app.database.user .Values.global.org .Values.global.app)._default }}:{{ pluck .Values.werf.env (index .Values.app.database.password .Values.global.org .Values.global.app) | first | default (index .Values.app.database.password .Values.global.org .Values.global.app)._default }}@{{ pluck .Values.werf.env (index .Values.app.database.host .Values.global.org .Values.global.app) | first | default (index .Values.app.database.host .Values.global.org .Values.global.app)._default }}:{{ pluck .Values.werf.env (index .Values.app.database.port .Values.global.org .Values.global.app) | first | default (index .Values.app.database.port .Values.global.org .Values.global.app)._default }}/{{ pluck .Values.werf.env (index .Values.app.database.user .Values.global.org .Values.global.app) | first | default (index .Values.app.database.user .Values.global.org .Values.global.app)._default }}
+- name: CACHE_URL
+  value: redis://{{ pluck .Values.werf.env (index .Values.app.redis.host .Values.global.org .Values.global.app) | first | default (index .Values.app.redis.host .Values.global.org .Values.global.app)._default }}:{{ pluck .Values.werf.env (index .Values.app.redis.port .Values.global.org .Values.global.app) | first | default (index .Values.app.redis.port .Values.global.org .Values.global.app)._default }}
+{{- end }}
