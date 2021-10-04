@@ -48,7 +48,7 @@ pub async fn start_janus_reg_handler(
                         .headers()
                         .get("Authorization")
                         .and_then(|x| x.to_str().ok())
-                        .map_or(true, |h| h != &token)
+                        .map_or(true, |h| h != token)
                     {
                         return Ok::<_, anyhow::Error>(
                             Response::builder().status(401).body(Body::empty())?,
