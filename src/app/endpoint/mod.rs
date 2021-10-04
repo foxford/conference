@@ -116,7 +116,7 @@ macro_rules! response_routes {
                         %corr_data,
                         "Failed to parse response correlation data"
                     );
-                    return Box::new(async_std::stream::empty()) as MessageStream;
+                    return Box::new(futures::stream::empty()) as MessageStream;
                 }
             };
             match corr_data {
@@ -185,7 +185,7 @@ impl EventHandler for PullHandler {
         _payload: Self::Payload,
         _evp: &IncomingEventProperties,
     ) -> Result {
-        Ok(Box::new(async_std::stream::empty()))
+        Ok(Box::new(futures::stream::empty()))
     }
 }
 // Event routes configuration: label => EventHandler

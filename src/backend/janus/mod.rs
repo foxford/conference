@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context as AnyhowContext, Result};
-use async_std::{stream, task};
 use chrono::Utc;
+use futures::stream;
 use std::ops::Bound;
 use svc_agent::{
     mqtt::{
@@ -55,7 +55,7 @@ fn handle_response_error<C: Context>(
     let respp = reqp.to_response(svc_error.status_code(), timing);
     let resp = OutgoingResponse::unicast(svc_error, respp, reqp, API_VERSION);
     let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-    Box::new(stream::once(boxed_resp))
+    Box::new(stream::once(std::future::ready(boxed_resp)))
 }
 
 pub async fn handle_event<C: Context>(context: &mut C, event: IncomingEvent) -> MessageStream {
@@ -79,7 +79,7 @@ async fn handle_event_impl<C: Context>(
             // to the room's topic.
             let conn = context.get_conn().await?;
             let start_timestamp = context.start_timestamp();
-            task::spawn_blocking(move || {
+            crate::util::spawn_blocking(move || {
                 if let Some(rtc_stream) = janus_rtc_stream::start(inev.opaque_id.stream_id, &conn)?
                 {
                     let room = endpoint::helpers::find_room_by_rtc_id(
@@ -91,9 +91,9 @@ async fn handle_event_impl<C: Context>(
                     let event =
                         endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp)?;
 
-                    Ok(Box::new(stream::once(
+                    Ok(Box::new(stream::once(std::future::ready(
                         Box::new(event) as Box<dyn IntoPublishableMessage + Send>
-                    )) as MessageStream)
+                    ))) as MessageStream)
                 } else {
                     Ok(Box::new(stream::empty()) as MessageStream)
                 }
@@ -150,7 +150,8 @@ async fn handle_event_impl<C: Context>(
                                 .request_duration
                                 .rtc_signal_create
                                 .observe_timestamp(tn.start_timestamp);
-                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                            Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
+                                as MessageStream)
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
                 }
@@ -196,7 +197,8 @@ async fn handle_event_impl<C: Context>(
                                 .request_duration
                                 .rtc_signal_read
                                 .observe_timestamp(tn.start_timestamp);
-                            Ok(Box::new(stream::once(boxed_resp)) as MessageStream)
+                            Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
+                                as MessageStream)
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
                 }
@@ -224,7 +226,7 @@ async fn handle_event_impl<C: Context>(
                             val if val == "404" => {
                                 let conn = context.get_conn().await?;
                                 let rtc_id = tn.rtc_id;
-                                task::spawn_blocking(move || {
+                                crate::util::spawn_blocking(move || {
                                     recording::UpdateQuery::new(rtc_id)
                                         .status(recording::Status::Missing)
                                         .execute(&conn)
@@ -272,7 +274,7 @@ async fn handle_event_impl<C: Context>(
                             Vec<(rtc::Object, Option<recording::Object>)>,
                         ) = {
                             let conn = context.get_conn().await?;
-                            task::spawn_blocking(move || {
+                            crate::util::spawn_blocking(move || {
                                 recording::UpdateQuery::new(rtc_id)
                                     .status(recording::Status::Ready)
                                     .mjr_dumps_uris(mjr_dumps_uris)
@@ -323,7 +325,7 @@ async fn handle_event_impl<C: Context>(
 
                         let event_box = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
 
-                        Ok(Box::new(stream::once(event_box)) as MessageStream)
+                        Ok(Box::new(stream::once(std::future::ready(event_box))) as MessageStream)
                     };
                     let response = upload_stream.await;
                     context
@@ -351,9 +353,9 @@ async fn handle_event_impl<C: Context>(
                     let props = OutgoingEventProperties::new("rtc_stream.agent_speaking", timing);
                     let event = OutgoingEvent::broadcast(notification, props, &uri);
 
-                    Ok(Box::new(stream::once(
+                    Ok(Box::new(stream::once(std::future::ready(
                         Box::new(event) as Box<dyn IntoPublishableMessage + Send>
-                    )) as MessageStream)
+                    ))) as MessageStream)
                 }
                 None => Ok(Box::new(stream::empty()) as MessageStream),
             }
@@ -376,7 +378,7 @@ async fn handle_hangup_detach<C: Context>(
     // to the room's topic.
     let conn = context.get_conn().await?;
     let start_timestamp = context.start_timestamp();
-    task::spawn_blocking(move || {
+    crate::util::spawn_blocking(move || {
         if let Some(rtc_stream) = janus_rtc_stream::stop(opaque_id.stream_id, &conn)? {
             // Publish the update event only if the stream object has been changed.
             // If there's no actual media stream, the object wouldn't contain its start time.
@@ -393,7 +395,7 @@ async fn handle_hangup_detach<C: Context>(
                 )?;
 
                 let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
-                return Ok(Box::new(stream::once(boxed_event)) as MessageStream);
+                return Ok(Box::new(stream::once(std::future::ready(boxed_event))) as MessageStream);
             }
         }
         Ok::<_, AppError>(Box::new(stream::empty()) as MessageStream)
@@ -434,7 +436,7 @@ async fn handle_status_event_impl<C: Context>(
     let payload = MQTTIncomingEvent::convert_payload::<StatusEvent>(event)
         .map_err(|err| anyhow!("Failed to parse event: {}", err))
         .error(AppErrorKind::MessageParsingFailed)?;
-    let janus_backend = task::spawn_blocking({
+    let janus_backend = crate::util::spawn_blocking({
         let conn = context.get_conn().await?;
         let backend_id = evp.as_agent_id().clone();
         move || {
@@ -509,7 +511,7 @@ async fn handle_online(
     let backend_id = backend_id.clone();
     let conn = context.get_conn().await?;
 
-    let backend = task::spawn_blocking(move || {
+    let backend = crate::util::spawn_blocking(move || {
         let mut q = janus_backend::UpsertQuery::new(&backend_id, handle.id, session.id, &janus_url);
 
         if let Some(capacity) = event.capacity {
@@ -541,7 +543,7 @@ async fn handle_offline(
     if let Some(backend) = existing_backend {
         let conn = context.get_conn().await?;
         let backend_id = backend.id().clone();
-        let streams_with_rtc = task::spawn_blocking(move || {
+        let streams_with_rtc = crate::util::spawn_blocking(move || {
             conn.transaction::<_, AppError, _>(|| {
                 let streams_with_rtc = janus_rtc_stream::ListWithRtcQuery::new()
                     .active(true)
@@ -569,7 +571,7 @@ async fn handle_offline(
             events.push(Box::new(event) as Box<dyn IntoPublishableMessage + Send>);
         }
         context.janus_clients().remove_client(&backend);
-        Ok(Box::new(stream::from_iter(events)))
+        Ok(Box::new(stream::iter(events)))
     } else {
         Ok(Box::new(stream::empty()))
     }
@@ -605,19 +607,20 @@ mod test {
 
     use super::{handle_online, StatusEvent};
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_online_when_backends_absent() -> anyhow::Result<()> {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let janus = local_deps.run_janus();
         let db = TestDb::with_local_postgres(&postgres);
         let mut context = TestContext::new(db, TestAuthz::new());
-        let (tx, _rx) = crossbeam_channel::unbounded();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
         let rng = rand::thread_rng();
         let label_suffix: String = rng
             .sample_iter(&rand::distributions::Alphanumeric)
             .take(5)
+            .map(char::from)
             .collect();
         let label = format!("janus-gateway-{}", label_suffix);
         let backend_id = TestAgent::new("alpha", &label, SVC_AUDIENCE);
@@ -637,7 +640,7 @@ mod test {
             .execute(&conn)?
             .unwrap();
         // check if handle expired by timeout;
-        async_std::task::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
         let _ping_response = context
             .janus_clients()
             .get_or_insert(&backend)?
@@ -651,7 +654,7 @@ mod test {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_online_when_backends_present() -> anyhow::Result<()> {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
@@ -659,7 +662,7 @@ mod test {
         let db = TestDb::with_local_postgres(&postgres);
         let mut context = TestContext::new(db, TestAuthz::new());
         let conn = context.get_conn().await?;
-        let (tx, _rx) = crossbeam_channel::unbounded();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
         let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
         let backend =
@@ -684,7 +687,7 @@ mod test {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_online_after_offline() -> anyhow::Result<()> {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
@@ -692,7 +695,7 @@ mod test {
         let db = TestDb::with_local_postgres(&postgres);
         let mut context = TestContext::new(db, TestAuthz::new());
         let conn = context.get_conn().await?;
-        let (tx, _rx) = crossbeam_channel::unbounded();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
         let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
         let backend =
@@ -714,7 +717,7 @@ mod test {
             .unwrap();
         assert_ne!(backend, new_backend);
         // check if handle expired by timeout;
-        async_std::task::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
         let _ping_response = context
             .janus_clients()
             .get_or_insert(&new_backend)?

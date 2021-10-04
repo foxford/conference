@@ -3,8 +3,8 @@ use crate::{
     db,
 };
 use anyhow::anyhow;
-use async_std::{stream, task};
 use async_trait::async_trait;
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use svc_agent::{
@@ -15,6 +15,7 @@ use svc_agent::{
     },
     Addressable, AgentId, Subscription,
 };
+
 use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -55,7 +56,7 @@ impl RequestHandler for UnicastHandler {
             let room_id = payload.room_id;
             let reqp_agent_id = reqp.as_agent_id().clone();
             let payload_agent_id = payload.agent_id.clone();
-            task::spawn_blocking(move || {
+            crate::util::spawn_blocking(move || {
                 let room =
                     helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
 
@@ -98,7 +99,7 @@ impl RequestHandler for UnicastHandler {
             .observe_timestamp(context.start_timestamp());
 
         let boxed_req = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
-        Ok(Box::new(stream::once(boxed_req)))
+        Ok(Box::new(stream::once(std::future::ready(boxed_req))))
     }
 }
 
@@ -125,7 +126,7 @@ impl RequestHandler for BroadcastHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let room_id = payload.room_id;
             move || {
@@ -160,7 +161,7 @@ impl RequestHandler for BroadcastHandler {
             .message_broadcast
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::from_iter(vec![response, notification])))
+        Ok(Box::new(stream::iter(vec![response, notification])))
     }
 }
 
@@ -203,7 +204,7 @@ impl ResponseHandler for UnicastResponseHandler {
             .request_duration
             .message_unicast_response
             .observe_timestamp(context.start_timestamp());
-        Ok(Box::new(stream::once(boxed_resp)))
+        Ok(Box::new(stream::once(std::future::ready(boxed_resp))))
     }
 }
 
@@ -220,7 +221,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn unicast_message() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -267,7 +268,7 @@ mod test {
             assert_eq!(payload, json!({"key": "value"}));
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn unicast_message_to_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -291,7 +292,7 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn unicast_message_when_sender_is_not_in_the_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -327,7 +328,7 @@ mod test {
             assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn unicast_message_when_receiver_is_not_in_the_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -372,7 +373,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn broadcast_message() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -422,7 +423,7 @@ mod test {
             assert_eq!(payload, json!({"key": "value"}));
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn broadcast_message_to_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -444,7 +445,7 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn broadcast_message_when_not_in_the_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

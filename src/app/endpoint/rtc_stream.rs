@@ -1,7 +1,7 @@
 use anyhow::anyhow;
-use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use futures::stream;
 use serde::Deserialize;
 use std::result::Result as StdResult;
 use svc_agent::mqtt::{
@@ -11,6 +11,7 @@ use svc_agent::mqtt::{
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    authz::AuthzObject,
     db,
 };
 use tracing_attributes::instrument;
@@ -44,7 +45,7 @@ impl RequestHandler for ListHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let room_id = payload.room_id;
             move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
@@ -60,16 +61,16 @@ impl RequestHandler for ListHandler {
         }
 
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id];
+        let object = AuthzObject::new(&["rooms", &room_id]).into();
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "read")
+            .authorize(room.audience().into(), reqp, object, "read".into())
             .await?;
         context.metrics().observe_auth(authz_time);
 
         let conn = context.get_conn().await?;
-        let rtc_streams = task::spawn_blocking(move || {
+        let rtc_streams = crate::util::spawn_blocking(move || {
             let mut query = db::janus_rtc_stream::ListQuery::new().room_id(payload.room_id);
 
             if let Some(rtc_id) = payload.rtc_id {
@@ -95,12 +96,14 @@ impl RequestHandler for ListHandler {
             .rtc_stream_list
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            rtc_streams,
-            reqp,
-            context.start_timestamp(),
-            Some(authz_time),
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                rtc_streams,
+                reqp,
+                context.start_timestamp(),
+                Some(authz_time),
+            ),
         ))))
     }
 }
@@ -137,7 +140,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_rtc_streams() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -213,7 +216,7 @@ mod test {
             );
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_rtc_streams_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -247,7 +250,7 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_rtc_streams_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

@@ -134,6 +134,7 @@ table! {
         send_audio -> Bool,
         video_remb -> Nullable<Int8>,
         send_audio_updated_by -> Nullable<Agent_id>,
+        updated_at -> Timestamptz,
     }
 }
 

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::trace_id::TraceId;
 
 use self::{
@@ -21,11 +19,9 @@ use self::{
 };
 use anyhow::Context;
 use diesel_derive_newtype::DieselNewType;
-use isahc::{
-    http::{StatusCode, Uri},
-    AsyncReadResponseExt, HttpClient, Request,
-};
+
 use rand::Rng;
+use reqwest::{Client, StatusCode, Url};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 
@@ -46,22 +42,23 @@ pub mod upload_stream;
 
 #[derive(Debug, Clone)]
 pub struct JanusClient {
-    http: Arc<HttpClient>,
-    janus_url: Uri,
+    http: Client,
+    janus_url: Url,
 }
 
 impl JanusClient {
     pub fn new(janus_url: &str) -> anyhow::Result<Self> {
         Ok(Self {
-            http: Arc::new(HttpClient::new()?),
+            http: Client::new(),
             janus_url: janus_url.parse()?,
         })
     }
 
     pub async fn poll(&self, session_id: SessionId) -> anyhow::Result<PollResult> {
-        let mut response = self
+        let response = self
             .http
-            .get_async(format!("{}/{}?maxev=5", self.janus_url, session_id))
+            .get(format!("{}/{}?maxev=5", self.janus_url, session_id))
+            .send()
             .await?;
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(PollResult::SessionNotFound);
@@ -145,8 +142,14 @@ impl JanusClient {
 
     async fn send_request<R: DeserializeOwned>(&self, body: impl Serialize) -> anyhow::Result<R> {
         let body = serde_json::to_vec(&body)?;
-        let request = Request::post(self.janus_url.clone()).body(body)?;
-        let response = self.http.send_async(request).await?.text().await?;
+        let response = self
+            .http
+            .post(self.janus_url.clone())
+            .body(body)
+            .send()
+            .await?
+            .text()
+            .await?;
         Ok(serde_json::from_str(&response).context(response)?)
     }
 }

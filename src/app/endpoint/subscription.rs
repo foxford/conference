@@ -1,8 +1,8 @@
 use anyhow::anyhow;
-use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::Utc;
 use diesel::PgConnection;
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::result::Result as StdResult;
@@ -13,6 +13,7 @@ use svc_agent::{
     },
     Addressable, AgentId,
 };
+
 use tracing::Span;
 
 use crate::{
@@ -78,7 +79,7 @@ impl ResponseHandler for CreateResponseHandler {
         let room_id = try_room_id(&corr_data.object)?;
         let conn = context.get_conn().await?;
         let subject = corr_data.subject.clone();
-        let room = task::spawn_blocking(move || {
+        let room = crate::util::spawn_blocking(move || {
             let room =
                 helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)?;
             if room.host() == Some(&subject) {
@@ -115,7 +116,7 @@ impl ResponseHandler for CreateResponseHandler {
             .subscription_create
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::from_iter(vec![response, notification])))
+        Ok(Box::new(stream::iter(vec![response, notification])))
     }
 }
 
@@ -160,7 +161,7 @@ impl ResponseHandler for DeleteResponseHandler {
                 .subscription_delete_response
                 .observe_timestamp(context.start_timestamp());
 
-            Ok(Box::new(stream::from_iter(vec![response, notification])))
+            Ok(Box::new(stream::iter(vec![response, notification])))
         } else {
             Err(anyhow!("The agent is not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
         }
@@ -200,7 +201,7 @@ impl EventHandler for DeleteEventHandler {
                 .subscription_delete_event
                 .observe_timestamp(context.start_timestamp());
 
-            Ok(Box::new(stream::once(notification)))
+            Ok(Box::new(stream::once(std::future::ready(notification))))
         } else {
             Ok(Box::new(stream::empty()))
         }
@@ -247,7 +248,7 @@ async fn leave_room<C: Context>(
     room_id: db::room::Id,
 ) -> StdResult<bool, AppError> {
     let conn = context.get_conn().await?;
-    let backends = task::spawn_blocking({
+    let backends = crate::util::spawn_blocking({
         let agent_id = agent_id.clone();
 
         move || {
@@ -352,7 +353,7 @@ mod tests {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_subscription() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -439,7 +440,7 @@ mod tests {
             assert_eq!(db_agent.status(), AgentStatus::Ready);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_subscription_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -471,7 +472,7 @@ mod tests {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn create_subscription_closed_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -524,7 +525,7 @@ mod tests {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn delete_subscription() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -604,7 +605,7 @@ mod tests {
             assert_eq!(db_agents.len(), 0);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn delete_subscription_missing_agent() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -645,7 +646,7 @@ mod tests {
             assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn delete_subscription_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -686,7 +687,7 @@ mod tests {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn delete_subscription() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -744,7 +745,7 @@ mod tests {
             assert_eq!(db_agents.len(), 0);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn delete_subscription_missing_agent() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use crossbeam_channel::Sender;
 use prometheus::Registry;
 use serde_json::json;
 use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::{
@@ -101,11 +101,11 @@ impl TestContext {
         }
     }
 
-    pub fn with_janus(&mut self, events_sink: Sender<IncomingEvent>) {
+    pub fn with_janus(&mut self, events_sink: UnboundedSender<IncomingEvent>) {
         self.clients = Some(Clients::new(events_sink, None));
     }
 
-    pub fn with_grouped_janus(&mut self, group: &str, events_sink: Sender<IncomingEvent>) {
+    pub fn with_grouped_janus(&mut self, group: &str, events_sink: UnboundedSender<IncomingEvent>) {
         self.clients = Some(Clients::new(events_sink, Some(group.to_string())));
     }
 

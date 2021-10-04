@@ -1,10 +1,11 @@
-use async_std::{stream, task};
 use async_trait::async_trait;
+use futures::stream;
 use serde::Deserialize;
 use svc_agent::mqtt::{IncomingRequestProperties, ResponseStatus};
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    authz::AuthzObject,
     db,
 };
 use tracing_attributes::instrument;
@@ -34,7 +35,7 @@ impl RequestHandler for ListHandler {
         reqp: &IncomingRequestProperties,
     ) -> Result {
         let conn = context.get_conn().await?;
-        let room = task::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let room_id = payload.room_id;
             move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
@@ -42,17 +43,17 @@ impl RequestHandler for ListHandler {
 
         // Authorize agents listing in the room.
         let room_id = room.id().to_string();
-        let object = vec!["rooms", &room_id];
+        let object = AuthzObject::new(&["rooms", &room_id]);
 
         let authz_time = context
             .authz()
-            .authorize(room.audience(), reqp, object, "read")
+            .authorize(room.audience().into(), reqp, object.into(), "read".into())
             .await?;
         context.metrics().observe_auth(authz_time);
 
         // Get agents list in the room.
         let conn = context.get_conn().await?;
-        let agents = task::spawn_blocking(move || {
+        let agents = crate::util::spawn_blocking(move || {
             db::agent::ListQuery::new()
                 .room_id(payload.room_id)
                 .offset(payload.offset.unwrap_or(0))
@@ -67,12 +68,14 @@ impl RequestHandler for ListHandler {
             .observe_timestamp(context.start_timestamp());
 
         // Respond with agents list.
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            agents,
-            reqp,
-            context.start_timestamp(),
-            Some(authz_time),
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                agents,
+                reqp,
+                context.start_timestamp(),
+                Some(authz_time),
+            ),
         ))))
     }
 }
@@ -97,7 +100,7 @@ mod tests {
             room_id: db::room::Id,
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_agents() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -143,7 +146,7 @@ mod tests {
             assert_eq!(agents[0].room_id, room.id());
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_agents_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -175,7 +178,7 @@ mod tests {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_agents_closed_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -215,7 +218,7 @@ mod tests {
             assert_eq!(err.kind(), "room_closed");
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn list_agents_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

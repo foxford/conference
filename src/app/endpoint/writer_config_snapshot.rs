@@ -1,6 +1,6 @@
 use anyhow::anyhow;
-use async_std::{stream, task};
 use async_trait::async_trait;
+use futures::stream;
 use serde::Deserialize;
 use svc_agent::{
     mqtt::{IncomingRequestProperties, ResponseStatus},
@@ -35,7 +35,7 @@ impl RequestHandler for ReadHandler {
         let account_id = reqp.as_account_id().to_owned();
         let service_audience = context.agent_id().as_account_id().to_owned();
 
-        let snapshots = task::spawn_blocking(move || {
+        let snapshots = crate::util::spawn_blocking(move || {
             let room = helpers::find_room_by_id(
                 payload.room_id,
                 helpers::RoomTimeRequirement::Any,
@@ -64,12 +64,14 @@ impl RequestHandler for ReadHandler {
         })
         .await?;
 
-        Ok(Box::new(stream::once(helpers::build_response(
-            ResponseStatus::OK,
-            snapshots,
-            reqp,
-            context.start_timestamp(),
-            None,
+        Ok(Box::new(stream::once(std::future::ready(
+            helpers::build_response(
+                ResponseStatus::OK,
+                snapshots,
+                reqp,
+                context.start_timestamp(),
+                None,
+            ),
         ))))
     }
 }
@@ -90,7 +92,7 @@ mod tests {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn read() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -162,7 +164,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -202,7 +204,7 @@ mod tests {
             Ok(())
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn missing_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();

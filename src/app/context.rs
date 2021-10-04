@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use async_std::task::JoinHandle;
 use chrono::{DateTime, Utc};
 use diesel::{
     pg::PgConnection,
     r2d2::{ConnectionManager, PooledConnection},
 };
+use futures::{future::BoxFuture, FutureExt};
 use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 
@@ -34,13 +34,19 @@ pub trait GlobalContext: Sync {
 
     fn get_conn(
         &self,
-    ) -> JoinHandle<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
+    ) -> BoxFuture<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
         let db = self.db().clone();
-        async_std::task::spawn_blocking(move || {
-            db.get()
-                .map_err(|err| anyhow::Error::from(err).context("Failed to acquire DB connection"))
-                .error(AppErrorKind::DbConnAcquisitionFailed)
-        })
+        async move {
+            crate::util::spawn_blocking(move || {
+                db.get()
+                    .map_err(|err| {
+                        anyhow::Error::from(err).context("Failed to acquire DB connection")
+                    })
+                    .error(AppErrorKind::DbConnAcquisitionFailed)
+            })
+            .await
+        }
+        .boxed()
     }
 }
 

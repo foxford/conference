@@ -4,11 +4,11 @@ extern crate diesel;
 use std::env::var;
 
 use anyhow::Result;
-use svc_authz::cache::{create_pool, Cache};
+use svc_authz::cache::{create_pool, RedisCache};
 use tracing_error::ErrorLayer;
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter};
 
-#[async_std::main]
+#[tokio::main]
 async fn main() -> Result<()> {
     let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
     let subscriber = tracing_subscriber::fmt::layer()
@@ -68,13 +68,13 @@ async fn main() -> Result<()> {
 
         let expiration_time = var("CACHE_EXPIRATION_TIME")
             .map(|val| {
-                val.parse::<u64>()
+                val.parse::<usize>()
                     .expect("Error converting CACHE_EXPIRATION_TIME variable into u64")
             })
             .unwrap_or_else(|_| 300);
 
-        let pool = create_pool(&url, size, timeout);
-        let cache = Cache::new(pool.clone(), expiration_time);
+        let pool = create_pool(&url, size, None, timeout);
+        let cache = Box::new(RedisCache::new(pool.clone(), expiration_time));
         (Some(pool), Some(cache))
     } else {
         (None, None)
@@ -84,6 +84,7 @@ async fn main() -> Result<()> {
 }
 
 mod app;
+mod authz;
 mod backend;
 mod config;
 mod db;

@@ -1,7 +1,6 @@
 use super::client::{IncomingEvent, JanusClient, PollResult, SessionId};
 use crate::db::janus_backend;
 use anyhow::anyhow;
-use crossbeam_channel::Sender;
 use std::{
     collections::{hash_map::Entry, HashMap},
     sync::{
@@ -10,17 +9,18 @@ use std::{
     },
     time::Duration,
 };
+use tokio::sync::mpsc::UnboundedSender;
 use tracing::{error, warn};
 
 #[derive(Debug, Clone)]
 pub struct Clients {
     clients: Arc<RwLock<HashMap<janus_backend::Object, ClientHandle>>>,
-    events_sink: Sender<IncomingEvent>,
+    events_sink: UnboundedSender<IncomingEvent>,
     group: Option<String>,
 }
 
 impl Clients {
-    pub fn new(events_sink: Sender<IncomingEvent>, group: Option<String>) -> Self {
+    pub fn new(events_sink: UnboundedSender<IncomingEvent>, group: Option<String>) -> Self {
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
             events_sink,
@@ -67,7 +67,7 @@ impl Clients {
                     is_cancelled: is_cancelled.clone(),
                     janus_url: backend.janus_url().to_owned(),
                 });
-                async_std::task::spawn({
+                tokio::task::spawn({
                     let client = client.clone();
                     async move {
                         let sink = this.events_sink.clone();
@@ -120,7 +120,7 @@ impl<'a> Drop for PollerGuard<'a> {
 async fn start_polling(
     janus_client: JanusClient,
     session_id: SessionId,
-    sink: Sender<IncomingEvent>,
+    sink: UnboundedSender<IncomingEvent>,
     is_cancelled: &AtomicBool,
     janus_backend: &janus_backend::Object,
 ) {
@@ -156,7 +156,7 @@ async fn start_polling(
             }
             Err(err) => {
                 error!(?err, ?janus_backend, "Polling error");
-                async_std::task::sleep(Duration::from_millis(500)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
                 fail_retries_count -= 1;
             }
         }

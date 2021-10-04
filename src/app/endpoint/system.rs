@@ -1,5 +1,6 @@
 use crate::{
     app::{context::Context, endpoint::prelude::*, error::Error as AppError},
+    authz::AuthzObject,
     backend::janus::client::upload_stream::{
         UploadStreamRequest, UploadStreamRequestBody, UploadStreamTransaction,
     },
@@ -12,9 +13,9 @@ use crate::{
     },
 };
 use anyhow::anyhow;
-use async_std::{stream, task};
 use async_trait::async_trait;
 use chrono::Utc;
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use std::{ops::Bound, result::Result as StdResult};
 use svc_agent::{
@@ -25,6 +26,7 @@ use svc_agent::{
     AgentId,
 };
 use svc_authn::Authenticable;
+
 use tracing::error;
 use tracing_attributes::instrument;
 
@@ -76,13 +78,18 @@ impl RequestHandler for VacuumHandler {
 
         context
             .authz()
-            .authorize(audience, reqp, vec!["system"], "update")
+            .authorize(
+                audience.into(),
+                reqp,
+                AuthzObject::new(&["system"]).into(),
+                "update".into(),
+            )
             .await?;
 
         let mut requests = Vec::new();
         let conn = context.get_conn().await?;
         let group = context.config().janus_group.clone();
-        let rooms = task::spawn_blocking(move || {
+        let rooms = crate::util::spawn_blocking(move || {
             db::room::finished_with_in_progress_recordings(&conn, group.as_deref())
         })
         .await?;
@@ -90,7 +97,7 @@ impl RequestHandler for VacuumHandler {
         for (room, recording, backend) in rooms.into_iter() {
             let conn = context.get_conn().await?;
             let room_id = room.id();
-            task::spawn_blocking(move || {
+            crate::util::spawn_blocking(move || {
                 db::agent::DeleteQuery::new()
                     .room_id(room_id)
                     .execute(&conn)
@@ -132,7 +139,7 @@ impl RequestHandler for VacuumHandler {
             requests.push(closed_notification);
         }
 
-        Ok(Box::new(stream::from_iter(requests)))
+        Ok(Box::new(stream::iter(requests)))
     }
 }
 
@@ -155,14 +162,19 @@ impl EventHandler for OrphanedRoomCloseHandler {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         context
             .authz()
-            .authorize(audience, evp, vec!["system"], "update")
+            .authorize(
+                audience.into(),
+                evp,
+                AuthzObject::new(&["system"]).into(),
+                "update".into(),
+            )
             .await?;
 
         let load_till = Utc::now()
             - chrono::Duration::from_std(context.config().orphaned_room_timeout)
                 .expect("Orphaned room timeout misconfigured");
         let connection = context.get_conn().await?;
-        let timed_out = async_std::task::spawn_blocking(move || {
+        let timed_out = crate::util::spawn_blocking(move || {
             db::orphaned_room::get_timed_out(load_till, &connection)
         })
         .await?;
@@ -173,7 +185,7 @@ impl EventHandler for OrphanedRoomCloseHandler {
             match room {
                 Some(room) if !room.is_closed() => {
                     let connection = context.get_conn().await?;
-                    let close_task = async_std::task::spawn_blocking(move || {
+                    let close_task = crate::util::spawn_blocking(move || {
                         let room = db::room::UpdateQuery::new(room.id())
                             .time(Some((room.time().0, Bound::Excluded(Utc::now()))))
                             .timed_out()
@@ -219,7 +231,7 @@ impl EventHandler for OrphanedRoomCloseHandler {
             error!(?err, "Error removing rooms fron orphan table");
         }
 
-        Ok(Box::new(stream::from_iter(notifications)))
+        Ok(Box::new(stream::iter(notifications)))
     }
 }
 
@@ -334,7 +346,7 @@ mod test {
             },
         };
 
-        #[async_std::test]
+        #[tokio::test]
         async fn close_orphaned_rooms() -> anyhow::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -401,7 +413,7 @@ mod test {
 
         use super::super::*;
 
-        #[async_std::test]
+        #[tokio::test]
         async fn vacuum_system() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
@@ -455,15 +467,15 @@ mod test {
 
             // Make system.vacuum request.
             let mut context = TestContext::new(db, authz);
-            let (tx, rx) = crossbeam_channel::unbounded();
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx.clone());
             let payload = VacuumRequest {};
 
             let messages = handle_request::<VacuumHandler>(&mut context, &agent, payload)
                 .await
                 .expect("System vacuum failed");
-            rx.recv().unwrap();
-            let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().unwrap(), rx.recv().unwrap()]
+            rx.recv().await.unwrap();
+            let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().await.unwrap(), rx.recv().await.unwrap()]
                 .iter()
                 .map(|resp| match resp {
                     IncomingEvent::Event(EventResponse {
@@ -482,12 +494,11 @@ mod test {
                 })
                 .collect();
             context.janus_clients().remove_client(&backend);
-            assert!(tx.is_empty());
             assert!(messages.len() > 0);
             assert_eq!(recv_rtcs, rtcs);
         }
 
-        #[async_std::test]
+        #[tokio::test]
         async fn vacuum_system_unauthorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
