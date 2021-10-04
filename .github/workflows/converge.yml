@@ -37,7 +37,7 @@ jobs:
           env: ${{ github.event.inputs.environment }}
           kube-config-base64-data: ${{ secrets.KUBE_CONFIG_BASE64_DATA }}
         env:
-          WERF_REPO: "foxford/event"
+          WERF_REPO: "foxford/conference"
           WERF_SECRET_KEY: ${{ secrets.WERF_SECRET_KEY }}
           WERF_NAMESPACE: ${{ github.event.inputs.application }}-${{ github.event.inputs.environment }}-${{ github.event.inputs.organization }}
           WERF_SET_ORG: "global.org=${{ github.event.inputs.organization }}"
