@@ -26,8 +26,8 @@ spec:
 {{ include "wait_postgres" . | indent 6 }}
 {{ include "psql_check_db" . | indent 6 }}
       containers:
-      - name: event
-        image: {{ .Values.werf.image.event }}
+      - name: conference
+        image: {{ .Values.werf.image.conference }}
         resources:
           requests:
             cpu: {{ pluck .Values.werf.env (index .Values.app.resources.cpu .Values.global.org .Values.global.app) | first | default (index .Values.app.resources.cpu .Values.global.org .Values.global.app)._default }}
