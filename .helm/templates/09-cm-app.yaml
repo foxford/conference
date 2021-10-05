@@ -154,12 +154,14 @@ data:
     [metrics]
     janus_metrics_collect_interval = {{ pluck .Values.werf.env (index .Values.app.metrics.janus_metrics_collect_interval .Values.global.org .Values.global.app) | first | default (index .Values.app.metrics.janus_metrics_collect_interval .Values.global.org .Values.global.app)._default | quote }}
 
-{{- if (pluck .Values.werf.env .Values.app.cache_configs.rtc_by_id | first) }}
+{{- if pluck .Values.werf.env (index .Values.app.cache_configs.rtc_by_id .Values.global.org .Values.global.app) | first }}
     [cache_configs]
-    rtc_by_id = {{ pluck .Values.werf.env (index .Values.app.cache_configs.rtc_by_id .Values.global.org .Values.global.app) | first | default (index .Values.app.cache_configs.rtc_by_id .Values.global.org .Values.global.app)._default | quote }}
+    rtc_by_id = {{ pluck .Values.werf.env (index .Values.app.cache_configs.rtc_by_id .Values.global.org .Values.global.app) | first | default (index .Values.app.cache_configs.rtc_by_id .Values.global.org .Values.global.app)._default }}
+
 {{- end }}
 
-{{- if (pluck .Values.werf.env .Values.app.janus_registry.token | first) }}
+
+{{- if pluck .Values.werf.env (index .Values.app.janus_registry.token .Values.global.org .Values.global.app) | first }}
     [janus_registry]
     token = {{ pluck .Values.werf.env (index .Values.app.janus_registry.token .Values.global.org .Values.global.app) | first | default (index .Values.app.janus_registry.token .Values.global.org .Values.global.app)._default | quote }}
     bind_addr = {{ pluck .Values.werf.env (index .Values.app.janus_registry.bind_addr .Values.global.org .Values.global.app) | first | default (index .Values.app.janus_registry.bind_addr .Values.global.org .Values.global.app)._default | quote }}
