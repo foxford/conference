@@ -1,7 +1,12 @@
 use std::collections::HashMap;
 
 use crate::{
-    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    app::{
+        context::Context,
+        endpoint::prelude::*,
+        metrics::HistogramExt,
+        service_utils::{RequestParams, Response},
+    },
     backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
         UpdateReaderConfigRequestBodyConfigItem,
@@ -12,12 +17,8 @@ use crate::{
 };
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
-use futures::stream;
 use serde::{Deserialize, Serialize};
-use svc_agent::{
-    mqtt::{IncomingRequestProperties, ResponseStatus},
-    Addressable, AgentId,
-};
+use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId};
 
 use tracing_attributes::instrument;
 const MAX_STATE_CONFIGS_LEN: usize = 20;
@@ -89,7 +90,7 @@ impl RequestHandler for UpdateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         if payload.configs.len() > MAX_STATE_CONFIGS_LEN {
             return Err(anyhow!("Too many items in `configs` list"))
@@ -214,7 +215,13 @@ impl RequestHandler for UpdateHandler {
             .request_duration
             .agent_reader_config_update
             .observe_timestamp(context.start_timestamp());
-        Ok(Box::new(stream::once(std::future::ready(response))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            State::new(room.id(), &rtc_reader_configs_with_rtcs),
+            reqp,
+            context.start_timestamp(),
+            None,
+        ))
     }
 }
 
@@ -236,7 +243,7 @@ impl RequestHandler for ReadHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let conn = context.get_conn().await?;
 
@@ -272,15 +279,13 @@ impl RequestHandler for ReadHandler {
             .agent_reader_config_read
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(std::future::ready(
-            helpers::build_response(
-                ResponseStatus::OK,
-                State::new(room.id(), &rtc_reader_configs_with_rtcs),
-                reqp,
-                context.start_timestamp(),
-                None,
-            ),
-        ))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            State::new(room.id(), &rtc_reader_configs_with_rtcs),
+            reqp,
+            context.start_timestamp(),
+            None,
+        ))
     }
 }
 

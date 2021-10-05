@@ -52,6 +52,7 @@ uuid = {version = "0.6", features = ["v4", "serde"]}
 webrtc-sdp = "0.3"
 tokio = { version = "1", features = ["full"] }
 hyper = { version = "0.14", features = [ "server" ]}
+axum = "0.2"
 
 [dev-dependencies]
 diesel_migrations = "1"

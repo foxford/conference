@@ -1,7 +1,12 @@
 use std::collections::HashMap;
 
 use crate::{
-    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    app::{
+        context::Context,
+        endpoint::prelude::*,
+        metrics::HistogramExt,
+        service_utils::{RequestParams, Response},
+    },
     authz::AuthzObject,
     backend::janus::client::update_agent_writer_config::{
         UpdateWriterConfigRequest, UpdateWriterConfigRequestBody,
@@ -14,12 +19,8 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use diesel::Connection;
-use futures::stream;
 use serde::{Deserialize, Serialize};
-use svc_agent::{
-    mqtt::{IncomingRequestProperties, ResponseStatus},
-    Addressable, AgentId,
-};
+use svc_agent::{mqtt::ResponseStatus, AgentId};
 
 use tracing_attributes::instrument;
 
@@ -136,7 +137,7 @@ impl RequestHandler for UpdateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         if payload.configs.len() > MAX_STATE_CONFIGS_LEN {
             return Err(anyhow!("Too many items in `configs` list"))
@@ -290,30 +291,26 @@ impl RequestHandler for UpdateHandler {
         // Respond to the agent and broadcast notification.
         let state = State::new(room.id(), &rtc_writer_configs_with_rtcs);
 
-        let response = helpers::build_response(
+        let response = Response::new(
             ResponseStatus::OK,
             state.clone(),
             reqp,
             context.start_timestamp(),
             maybe_authz_time,
         );
-
-        let notification = helpers::build_notification(
+        response.add_notification(
             "agent_writer_config.update",
             &format!("rooms/{}/events", room.id()),
             state,
-            reqp.tracking(),
             context.start_timestamp(),
         );
-
-        let messages = vec![response, notification];
         context
             .metrics()
             .request_duration
             .agent_writer_config_update
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::iter(messages)))
+        Ok(response)
     }
 }
 
@@ -335,7 +332,7 @@ impl RequestHandler for ReadHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let conn = context.get_conn().await?;
         let (room, rtc_writer_configs_with_rtcs) = crate::util::spawn_blocking({
@@ -368,15 +365,13 @@ impl RequestHandler for ReadHandler {
             .agent_writer_config_read
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(std::future::ready(
-            helpers::build_response(
-                ResponseStatus::OK,
-                State::new(room.id(), &rtc_writer_configs_with_rtcs),
-                reqp,
-                context.start_timestamp(),
-                None,
-            ),
-        ))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            State::new(room.id(), &rtc_writer_configs_with_rtcs),
+            reqp,
+            context.start_timestamp(),
+            None,
+        ))
     }
 }
 

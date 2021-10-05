@@ -28,7 +28,7 @@ impl RequestHandler for ReadHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let conn = context.get_conn().await?;
 

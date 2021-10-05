@@ -49,7 +49,7 @@ impl RequestHandler for UnicastHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         {
             let conn = context.get_conn().await?;
@@ -123,7 +123,7 @@ impl RequestHandler for BroadcastHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking({

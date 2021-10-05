@@ -62,7 +62,7 @@ impl RequestHandler for CreateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking(move || {
@@ -151,7 +151,7 @@ impl RequestHandler for ReadHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking({
@@ -223,7 +223,7 @@ impl RequestHandler for ListHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking({
@@ -321,7 +321,7 @@ impl RequestHandler for ConnectHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let conn = context.get_conn().await?;
         let payload_id = payload.id;

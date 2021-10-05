@@ -19,7 +19,7 @@ use tracing::warn;
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub type Result = StdResult<MessageStream, AppError>;
+pub type Result = StdResult<Response, AppError>;
 
 #[async_trait]
 pub trait RequestHandler {
@@ -29,7 +29,7 @@ pub trait RequestHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result;
 }
 
@@ -78,6 +78,8 @@ request_routes!(
 ///////////////////////////////////////////////////////////////////////////////
 
 use serde::{Deserialize, Serialize};
+
+use super::service_utils::{RequestParams, Response};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CorrelationData {

@@ -79,7 +79,7 @@ impl RequestHandler for CreateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         // Validate RTC and room presence.
         let conn = context.get_conn().await?;
@@ -314,7 +314,7 @@ impl RequestHandler for CreateHandler {
 async fn authorize<C: Context>(
     context: &mut C,
     payload: &CreateRequest,
-    reqp: &IncomingRequestProperties,
+    reqp: RequestParams,
     action: &str,
     room: &db::room::Object,
 ) -> StdResult<Duration, AppError> {

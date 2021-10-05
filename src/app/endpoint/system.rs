@@ -71,7 +71,7 @@ impl RequestHandler for VacuumHandler {
     async fn handle<C: Context>(
         context: &mut C,
         _payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         let audience = context.agent_id().as_account_id().audience();

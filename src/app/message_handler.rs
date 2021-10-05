@@ -189,7 +189,7 @@ fn error_response(
     kind: &str,
     title: &str,
     detail: &str,
-    reqp: &IncomingRequestProperties,
+    reqp: RequestParams,
     start_timestamp: DateTime<Utc>,
 ) -> MessageStream {
     let err = SvcError::builder()

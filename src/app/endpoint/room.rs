@@ -70,7 +70,7 @@ impl RequestHandler for CreateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         // Prefer `rtc_sharing_policy` with fallback to `backend` and `None` as default.
         let rtc_sharing_policy = payload
@@ -154,7 +154,7 @@ impl RequestHandler for ReadHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking(move || {
@@ -213,7 +213,7 @@ impl RequestHandler for UpdateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let time_requirement = if payload.time.is_some() {
             // Forbid changing time of a closed room.
@@ -363,7 +363,7 @@ impl RequestHandler for CloseHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let conn = context.get_conn().await?;
 
@@ -457,7 +457,7 @@ impl RequestHandler for EnterHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking(move || {
@@ -537,7 +537,7 @@ impl RequestHandler for LeaveHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
+        reqp: RequestParams,
     ) -> Result {
         let conn = context.get_conn().await?;
         let (room, presence) = crate::util::spawn_blocking({
