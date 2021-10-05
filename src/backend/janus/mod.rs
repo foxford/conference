@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Result};
-
 use futures::stream;
-
+use serde::{Deserialize, Serialize};
 use svc_agent::{
     mqtt::{
         IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
@@ -12,6 +11,7 @@ use svc_agent::{
 use svc_error::Error as SvcError;
 use tracing::{error, Span};
 
+use self::client::{create_handle::OpaqueId, transactions::TransactionKind, IncomingEvent};
 use crate::{
     app::{
         context::Context,
@@ -23,10 +23,6 @@ use crate::{
     },
     db::{self, agent_connection, janus_rtc_stream, recording, room, rtc},
 };
-
-use serde::{Deserialize, Serialize};
-
-use self::client::{create_handle::OpaqueId, transactions::TransactionKind, IncomingEvent};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -46,7 +42,7 @@ fn handle_response_error<C: Context>(
     let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
     let respp = reqp.to_response(svc_error.status_code(), timing);
     let resp = OutgoingResponse::unicast(svc_error, respp, reqp, API_VERSION);
-    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
     Box::new(stream::once(std::future::ready(boxed_resp)))
 }
 
@@ -84,7 +80,7 @@ async fn handle_event_impl<C: Context>(
                         endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp)?;
 
                     Ok(Box::new(stream::once(std::future::ready(
-                        Box::new(event) as Box<dyn IntoPublishableMessage + Send>
+                        Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>
                     ))) as MessageStream)
                 } else {
                     Ok(Box::new(stream::empty()) as MessageStream)
@@ -135,8 +131,8 @@ async fn handle_event_impl<C: Context>(
                                 JANUS_API_VERSION,
                             );
 
-                            let boxed_resp =
-                                Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                            let boxed_resp = Box::new(resp)
+                                as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
                             context
                                 .metrics()
                                 .request_duration
@@ -182,8 +178,8 @@ async fn handle_event_impl<C: Context>(
                                 JANUS_API_VERSION,
                             );
 
-                            let boxed_resp =
-                                Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+                            let boxed_resp = Box::new(resp)
+                                as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
                             context
                                 .metrics()
                                 .request_duration
@@ -318,7 +314,8 @@ async fn handle_event_impl<C: Context>(
                         // Send room.upload event.
                         let event = endpoint::system::upload_event(context, &room, recs_with_rtcs)?;
 
-                        let event_box = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
+                        let event_box = Box::new(event)
+                            as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
 
                         Ok(Box::new(stream::once(std::future::ready(event_box))) as MessageStream)
                     };
@@ -349,7 +346,7 @@ async fn handle_event_impl<C: Context>(
                     let event = OutgoingEvent::broadcast(notification, props, &uri);
 
                     Ok(Box::new(stream::once(std::future::ready(
-                        Box::new(event) as Box<dyn IntoPublishableMessage + Send>
+                        Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>
                     ))) as MessageStream)
                 }
                 None => Ok(Box::new(stream::empty()) as MessageStream),
@@ -389,7 +386,8 @@ async fn handle_hangup_detach<C: Context>(
                     start_timestamp,
                 )?;
 
-                let boxed_event = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
+                let boxed_event =
+                    Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
                 return Ok(Box::new(stream::once(std::future::ready(boxed_event))) as MessageStream);
             }
         }

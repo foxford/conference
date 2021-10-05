@@ -22,6 +22,8 @@ use crate::{
 };
 use tracing_attributes::instrument;
 
+use super::MqttResult;
+
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -71,7 +73,7 @@ impl ResponseHandler for CreateResponseHandler {
         _payload: Self::Payload,
         respp: &IncomingResponseProperties,
         corr_data: &Self::CorrelationData,
-    ) -> Result {
+    ) -> MqttResult {
         ensure_broker(context, respp)?;
 
         // Find room.
@@ -134,7 +136,7 @@ impl ResponseHandler for DeleteResponseHandler {
         _payload: Self::Payload,
         respp: &IncomingResponseProperties,
         corr_data: &Self::CorrelationData,
-    ) -> Result {
+    ) -> MqttResult {
         ensure_broker(context, respp)?;
         let room_id = try_room_id(&corr_data.object)?;
         let maybe_left = leave_room(context, &corr_data.subject, room_id).await?;
@@ -183,7 +185,7 @@ impl EventHandler for DeleteEventHandler {
         context: &mut C,
         payload: Self::Payload,
         evp: &IncomingEventProperties,
-    ) -> Result {
+    ) -> MqttResult {
         ensure_broker(context, evp)?;
         let room_id = try_room_id(&payload.object)?;
         if leave_room(context, &payload.subject, room_id).await? {
@@ -193,7 +195,8 @@ impl EventHandler for DeleteEventHandler {
             let props = evp.to_event("room.leave", short_term_timing);
             let to_uri = format!("rooms/{}/events", room_id);
             let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
-            let notification = Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send>;
+            let notification =
+                Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
             context
                 .metrics()
                 .request_duration

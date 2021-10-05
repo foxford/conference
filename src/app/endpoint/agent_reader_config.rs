@@ -1,7 +1,13 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    app::{
+        context::{AppContext, Context},
+        endpoint::prelude::*,
+        http::AuthExtractor,
+        metrics::HistogramExt,
+        service_utils::{RequestParams, Response},
+    },
     backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
         UpdateReaderConfigRequestBodyConfigItem,
@@ -12,12 +18,12 @@ use crate::{
 };
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
-use futures::stream;
-use serde::{Deserialize, Serialize};
-use svc_agent::{
-    mqtt::{IncomingRequestProperties, ResponseStatus},
-    Addressable, AgentId,
+use axum::{
+    extract::{Extension, Path},
+    Json,
 };
+use serde::{Deserialize, Serialize};
+use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId};
 
 use tracing_attributes::instrument;
 const MAX_STATE_CONFIGS_LEN: usize = 20;
@@ -77,6 +83,30 @@ impl StateConfigItem {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+#[derive(Debug, Deserialize)]
+pub struct StateConfigs {
+    configs: Vec<StateConfigItem>,
+}
+
+pub async fn update(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+    Json(configs): Json<StateConfigs>,
+) -> RequestResult {
+    let request = State {
+        room_id,
+        configs: configs.configs,
+    };
+    UpdateHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
 
 pub struct UpdateHandler;
 
@@ -89,8 +119,8 @@ impl RequestHandler for UpdateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         if payload.configs.len() > MAX_STATE_CONFIGS_LEN {
             return Err(anyhow!("Too many items in `configs` list"))
                 .error(AppErrorKind::InvalidPayload)?;
@@ -202,19 +232,18 @@ impl RequestHandler for UpdateHandler {
                 .context("Reader update")
                 .error(AppErrorKind::BackendRequestFailed)?
         }
-        let response = helpers::build_response(
-            ResponseStatus::OK,
-            State::new(room.id(), &rtc_reader_configs_with_rtcs),
-            reqp,
-            context.start_timestamp(),
-            None,
-        );
+
         context
             .metrics()
             .request_duration
             .agent_reader_config_update
             .observe_timestamp(context.start_timestamp());
-        Ok(Box::new(stream::once(std::future::ready(response))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            State::new(room.id(), &rtc_reader_configs_with_rtcs),
+            context.start_timestamp(),
+            None,
+        ))
     }
 }
 
@@ -223,6 +252,22 @@ impl RequestHandler for UpdateHandler {
 #[derive(Debug, Deserialize)]
 pub struct ReadRequest {
     room_id: db::room::Id,
+}
+
+pub async fn read(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+) -> RequestResult {
+    let request = ReadRequest { room_id };
+    ReadHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct ReadHandler;
@@ -236,8 +281,8 @@ impl RequestHandler for ReadHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
 
         let (room, rtc_reader_configs_with_rtcs) = crate::util::spawn_blocking({
@@ -272,15 +317,12 @@ impl RequestHandler for ReadHandler {
             .agent_reader_config_read
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(std::future::ready(
-            helpers::build_response(
-                ResponseStatus::OK,
-                State::new(room.id(), &rtc_reader_configs_with_rtcs),
-                reqp,
-                context.start_timestamp(),
-                None,
-            ),
-        ))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            State::new(room.id(), &rtc_reader_configs_with_rtcs),
+            context.start_timestamp(),
+            None,
+        ))
     }
 }
 

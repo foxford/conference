@@ -3,6 +3,7 @@ use crate::{
         context::{AppMessageContext, Context, GlobalContext, MessageContext},
         endpoint,
         error::{Error as AppError, ErrorKind as AppErrorKind},
+        service_utils::RequestParams,
         API_VERSION,
     },
     backend::{janus, janus::handle_event},
@@ -26,7 +27,7 @@ use tracing_attributes::instrument;
 use uuid::Uuid;
 
 pub type MessageStream =
-    Box<dyn Stream<Item = Box<dyn IntoPublishableMessage + Send>> + Send + Unpin>;
+    Box<dyn Stream<Item = Box<dyn IntoPublishableMessage + Send + Sync + 'static>> + Send + Unpin>;
 
 pub struct MessageHandler<C: GlobalContext> {
     agent: Agent,
@@ -201,7 +202,7 @@ fn error_response(
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let props = reqp.to_response(status, timing);
     let resp = OutgoingResponse::unicast(err, props, reqp, API_VERSION);
-    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
     Box::new(stream::once(std::future::ready(boxed_resp)))
 }
 
@@ -251,20 +252,23 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
             match payload {
                 // Call handler.
                 Ok(payload) => {
-                    let app_result = H::handle(context, payload, reqp).await;
+                    let app_result =
+                        H::handle(context, payload, RequestParams::MqttParams(reqp)).await;
                     context.metrics().observe_app_result(&app_result);
-                    app_result.unwrap_or_else(|err| {
-                        error!(?err, "Failed to handle request");
-                        err.notify_sentry();
-                        error_response(
-                            err.status(),
-                            err.kind(),
-                            err.title(),
-                            &err.source().to_string(),
-                            reqp,
-                            context.start_timestamp(),
-                        )
-                    })
+                    app_result
+                        .and_then(|r| r.into_mqtt_messages(reqp))
+                        .unwrap_or_else(|err| {
+                            error!(?err, "Failed to handle request");
+                            err.notify_sentry();
+                            error_response(
+                                err.status(),
+                                err.kind(),
+                                err.title(),
+                                &err.source().to_string(),
+                                reqp,
+                                context.start_timestamp(),
+                            )
+                        })
                 }
                 // Bad envelope or payload format => 400.
                 Err(err) => error_response(

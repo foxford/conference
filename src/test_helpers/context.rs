@@ -29,12 +29,14 @@ fn build_config() -> Config {
     let config = json!({
         "id": id,
         "agent_label": "alpha",
+        "http_addr": "0.0.0.0:1239",
         "broker_id": broker_id,
         "id_token": {
             "algorithm": "ES256",
             "key": "data/keys/svc.private_key.p8.der.sample",
         },
         "authz": {},
+        "authn": {},
         "mqtt": {
             "uri": "mqtt://0.0.0.0:1883",
             "clean_session": false,

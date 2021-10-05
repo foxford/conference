@@ -1,35 +1,33 @@
 use crate::{
     app::{
-        context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId,
+        context::Context,
+        endpoint,
+        endpoint::prelude::*,
+        handle_id::HandleId,
         metrics::HistogramExt,
+        service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
-    backend::janus::{
-        client::{
-            create_stream::{
-                CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction,
-                ReaderConfig, WriterConfig,
-            },
-            read_stream::{ReadStreamRequest, ReadStreamRequestBody, ReadStreamTransaction},
-            trickle::TrickleRequest,
-            Jsep, JsepType,
+    backend::janus::client::{
+        create_stream::{
+            CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction, ReaderConfig,
+            WriterConfig,
         },
-        JANUS_API_VERSION,
+        read_stream::{ReadStreamRequest, ReadStreamRequestBody, ReadStreamTransaction},
+        trickle::TrickleRequest,
+        Jsep, JsepType,
     },
     db,
 };
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
 use chrono::Duration;
-use futures::stream;
+
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
 use std::result::Result as StdResult;
 use svc_agent::{
-    mqtt::{
-        IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
-        ShortTermTimingProperties,
-    },
+    mqtt::{OutgoingResponse, ResponseStatus},
     Addressable,
 };
 
@@ -79,8 +77,9 @@ impl RequestHandler for CreateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
+        let mqtt_params = reqp.as_mqtt_params()?;
         // Validate RTC and room presence.
         let conn = context.get_conn().await?;
         let (room, rtc, backend) =crate::util::spawn_blocking({
@@ -165,7 +164,7 @@ impl RequestHandler for CreateHandler {
                                 jsep: payload.jsep,
                             };
                             let transaction = ReadStreamTransaction {
-                                reqp: reqp.clone(),
+                                reqp: mqtt_params.clone(),
                                 start_timestamp: context.start_timestamp(),
                             };
                             context
@@ -175,7 +174,6 @@ impl RequestHandler for CreateHandler {
                                 .read_stream(request, transaction)
                                 .await
                                 .error(AppErrorKind::BackendRequestFailed)?;
-                            Ok(Box::new(stream::empty()))
                         } else {
                             current_span.record("intent", &"update");
 
@@ -252,7 +250,7 @@ impl RequestHandler for CreateHandler {
                                 jsep: payload.jsep,
                             };
                             let transaction = CreateStreamTransaction {
-                                reqp: reqp.clone(),
+                                reqp: mqtt_params.clone(),
                                 start_timestamp: context.start_timestamp(),
                             };
                             context
@@ -262,8 +260,13 @@ impl RequestHandler for CreateHandler {
                                 .create_stream(request, transaction)
                                 .await
                                 .error(AppErrorKind::BackendRequestFailed)?;
-                            Ok(Box::new(stream::empty()))
                         }
+                        Ok(Response::new(
+                            ResponseStatus::NO_CONTENT,
+                            json!({}),
+                            context.start_timestamp(),
+                            None,
+                        ))
                     }
                     JsepType::Answer => Err(anyhow!("sdp_type = 'answer' is not allowed"))
                         .error(AppErrorKind::InvalidSdpType)?,
@@ -288,24 +291,20 @@ impl RequestHandler for CreateHandler {
                     .trickle_request(request)
                     .await
                     .error(AppErrorKind::BackendRequestFailed)?;
-                let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                let response = Response::new(
+                    ResponseStatus::OK,
                     endpoint::rtc_signal::CreateResponseData::new(None),
-                    reqp.to_response(
-                        ResponseStatus::OK,
-                        ShortTermTimingProperties::until_now(context.start_timestamp()),
-                    ),
-                    reqp.as_agent_id(),
-                    JANUS_API_VERSION,
+                    context.start_timestamp(),
+                    None,
                 );
 
-                let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
                 context
                     .metrics()
                     .request_duration
                     .rtc_signal_trickle
                     .observe_timestamp(context.start_timestamp());
 
-                Ok(Box::new(stream::once(std::future::ready(boxed_resp))))
+                Ok(response)
             }
         }
     }
@@ -314,7 +313,7 @@ impl RequestHandler for CreateHandler {
 async fn authorize<C: Context>(
     context: &mut C,
     payload: &CreateRequest,
-    reqp: &IncomingRequestProperties,
+    reqp: RequestParams<'_>,
     action: &str,
     room: &db::room::Object,
 ) -> StdResult<Duration, AppError> {

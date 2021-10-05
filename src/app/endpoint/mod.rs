@@ -9,14 +9,15 @@ use crate::app::{
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use svc_agent::mqtt::{
-    IncomingEvent, IncomingEventProperties, IncomingRequest, IncomingRequestProperties,
-    IncomingResponse, IncomingResponseProperties,
+    IncomingEvent, IncomingEventProperties, IncomingRequest, IncomingResponse,
+    IncomingResponseProperties,
 };
 use tracing::warn;
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub type Result = StdResult<MessageStream, AppError>;
+pub type RequestResult = StdResult<Response, AppError>;
+pub type MqttResult = StdResult<MessageStream, AppError>;
 
 #[async_trait]
 pub trait RequestHandler {
@@ -26,8 +27,8 @@ pub trait RequestHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
-    ) -> Result;
+        reqp: RequestParams<'_>,
+    ) -> RequestResult;
 }
 
 macro_rules! request_routes {
@@ -76,6 +77,8 @@ request_routes!(
 
 use serde::{Deserialize, Serialize};
 
+use super::service_utils::{RequestParams, Response};
+
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CorrelationData {
     SubscriptionCreate(subscription::CorrelationDataPayload),
@@ -93,7 +96,7 @@ pub trait ResponseHandler {
         payload: Self::Payload,
         respp: &IncomingResponseProperties,
         corr_data: &Self::CorrelationData,
-    ) -> Result;
+    ) -> MqttResult;
 }
 
 macro_rules! response_routes {
@@ -141,7 +144,7 @@ pub trait EventHandler {
         context: &mut C,
         payload: Self::Payload,
         evp: &IncomingEventProperties,
-    ) -> Result;
+    ) -> MqttResult;
 }
 
 macro_rules! event_routes {
@@ -177,7 +180,7 @@ impl EventHandler for PullHandler {
         _context: &mut C,
         _payload: Self::Payload,
         _evp: &IncomingEventProperties,
-    ) -> Result {
+    ) -> MqttResult {
         Ok(Box::new(futures::stream::empty()))
     }
 }
@@ -190,21 +193,21 @@ event_routes!(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-mod agent;
-mod agent_reader_config;
-mod agent_writer_config;
+pub mod agent;
+pub mod agent_reader_config;
+pub mod agent_writer_config;
 pub mod helpers;
-mod message;
-mod room;
+pub mod message;
+pub mod room;
 pub mod rtc;
 pub mod rtc_signal;
 pub mod rtc_stream;
-mod subscription;
+pub mod subscription;
 pub mod system;
-mod writer_config_snapshot;
+pub mod writer_config_snapshot;
 
 pub(self) mod prelude {
-    pub(super) use super::{helpers, EventHandler, RequestHandler, ResponseHandler, Result};
+    pub(super) use super::{helpers, EventHandler, RequestHandler, RequestResult, ResponseHandler};
     pub(super) use crate::app::{
         endpoint::CorrelationData,
         error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
