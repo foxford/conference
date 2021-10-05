@@ -58,7 +58,7 @@ kind: Service
 metadata:
   name: {{ .Chart.Name }}
   labels:
-    prometheus.deckhouse.io/target: rust
+    prometheus.deckhouse.io/custom-target: rust
 spec:
   selector:
     app: {{ .Chart.Name }}
