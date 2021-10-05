@@ -12,8 +12,10 @@ data:
     id = {{ pluck .Values.werf.env (index .Values.app.id .Values.global.org .Values.global.app) | first | default (index .Values.app.id .Values.global.org .Values.global.app)._default | quote }}
     broker_id = {{ pluck .Values.werf.env (index .Values.app.broker_id .Values.global.org .Values.global.app) | first | default (index .Values.app.broker_id .Values.global.org .Values.global.app)._default | quote }}
     orphaned_room_timeout = {{ pluck .Values.werf.env (index .Values.app.orphaned_room_timeout .Values.global.org .Values.global.app) | first | default (index .Values.app.orphaned_room_timeout .Values.global.org .Values.global.app)._default | quote }}
-{{- if and (ne .Values.werf.env "production") (ne .Values.werf.env "staging01") }}
-    max_room_duration = {{ pluck .Values.werf.env (index .Values.app.max_room_duration .Values.global.org .Values.global.app) | first | default (index .Values.app.max_room_duration .Values.global.org .Values.global.app)._default | quote }}
+{{- if pluck .Values.werf.env (index .Values.app.max_room_duration .Values.global.org .Values.global.app) | first }}
+    max_room_duration = {{ pluck .Values.werf.env (index .Values.app.max_room_duration .Values.global.org .Values.global.app) | first | default (index .Values.app.max_room_duration .Values.global.org .Values.global.app)._default }}
+{{- end }}
+{{- if pluck .Values.werf.env (index .Values.app.janus_group .Values.global.org .Values.global.app) | first }}
     janus_group = {{ pluck .Values.werf.env (index .Values.app.janus_group .Values.global.org .Values.global.app) | first | default (index .Values.app.janus_group .Values.global.org .Values.global.app)._default | quote }}
 {{- end }}
 
@@ -157,7 +159,6 @@ data:
 {{- if pluck .Values.werf.env (index .Values.app.cache_configs.rtc_by_id .Values.global.org .Values.global.app) | first }}
     [cache_configs]
     rtc_by_id = {{ pluck .Values.werf.env (index .Values.app.cache_configs.rtc_by_id .Values.global.org .Values.global.app) | first | default (index .Values.app.cache_configs.rtc_by_id .Values.global.org .Values.global.app)._default }}
-
 {{- end }}
 
 
