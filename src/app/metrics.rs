@@ -125,7 +125,7 @@ impl Metrics {
         }
     }
 
-    pub fn observe_app_result(&self, result: &endpoint::Result) {
+    pub fn observe_app_result(&self, result: &endpoint::RequestResult) {
         match result {
             Ok(_) => {
                 self.app_result_ok.inc();

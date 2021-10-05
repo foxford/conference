@@ -1,10 +1,19 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use futures::stream;
+use axum::extract::{Extension, Path, Query};
+
 use serde::Deserialize;
-use svc_agent::mqtt::{IncomingRequestProperties, ResponseStatus};
+use svc_agent::mqtt::ResponseStatus;
 
 use crate::{
-    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    app::{
+        context::{AppContext, Context},
+        endpoint::prelude::*,
+        http::AuthExtractor,
+        metrics::HistogramExt,
+        service_utils::{RequestParams, Response},
+    },
     authz::AuthzObject,
     db,
 };
@@ -21,6 +30,33 @@ pub struct ListRequest {
     limit: Option<i64>,
 }
 
+#[derive(Deserialize, Clone, Copy)]
+pub struct Pagination {
+    offset: i64,
+    limit: i64,
+}
+
+pub async fn list(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+    query: Option<Query<Pagination>>,
+) -> RequestResult {
+    let request = ListRequest {
+        room_id,
+        offset: query.map(|x| x.offset),
+        limit: query.map(|x| x.limit),
+    };
+    ListHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
+
 pub struct ListHandler;
 
 #[async_trait]
@@ -32,8 +68,8 @@ impl RequestHandler for ListHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking({
             let room_id = payload.room_id;
@@ -68,15 +104,12 @@ impl RequestHandler for ListHandler {
             .observe_timestamp(context.start_timestamp());
 
         // Respond with agents list.
-        Ok(Box::new(stream::once(std::future::ready(
-            helpers::build_response(
-                ResponseStatus::OK,
-                agents,
-                reqp,
-                context.start_timestamp(),
-                Some(authz_time),
-            ),
-        ))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            agents,
+            context.start_timestamp(),
+            Some(authz_time),
+        ))
     }
 }
 

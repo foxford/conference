@@ -1,14 +1,17 @@
+use std::sync::Arc;
+
 use anyhow::anyhow;
 use async_trait::async_trait;
-use futures::stream;
-use serde::Deserialize;
-use svc_agent::{
-    mqtt::{IncomingRequestProperties, ResponseStatus},
-    Authenticable,
-};
+use axum::extract::{Extension, Path};
 
-use crate::app::context::Context;
-use crate::app::endpoint::prelude::*;
+use serde::Deserialize;
+use svc_agent::{mqtt::ResponseStatus, Authenticable};
+
+use crate::app::{
+    context::{AppContext, Context},
+    service_utils::{RequestParams, Response},
+};
+use crate::app::{endpoint::prelude::*, http::AuthExtractor};
 use crate::db;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -16,6 +19,22 @@ use crate::db;
 #[derive(Debug, Deserialize)]
 pub struct ReadRequest {
     room_id: db::room::Id,
+}
+
+pub async fn read(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+) -> RequestResult {
+    let request = ReadRequest { room_id };
+    ReadHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct ReadHandler;
@@ -28,8 +47,8 @@ impl RequestHandler for ReadHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
 
         let account_id = reqp.as_account_id().to_owned();
@@ -64,15 +83,12 @@ impl RequestHandler for ReadHandler {
         })
         .await?;
 
-        Ok(Box::new(stream::once(std::future::ready(
-            helpers::build_response(
-                ResponseStatus::OK,
-                snapshots,
-                reqp,
-                context.start_timestamp(),
-                None,
-            ),
-        ))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            snapshots,
+            context.start_timestamp(),
+            None,
+        ))
     }
 }
 

@@ -6,7 +6,9 @@ use diesel::{
     r2d2::{ConnectionManager, PooledConnection},
 };
 use futures::{future::BoxFuture, FutureExt};
+
 use svc_agent::AgentId;
+
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 
 use crate::{
@@ -30,7 +32,6 @@ pub trait GlobalContext: Sync {
     fn janus_clients(&self) -> Clients;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
     fn metrics(&self) -> Arc<Metrics>;
-
     fn get_conn(
         &self,
     ) -> BoxFuture<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
@@ -92,6 +93,10 @@ impl AppContext {
             redis_pool: Some(pool),
             ..self
         }
+    }
+
+    pub fn start_message(&self) -> AppMessageContext<'_, Self> {
+        AppMessageContext::new(self, Utc::now())
     }
 }
 

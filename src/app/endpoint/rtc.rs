@@ -1,29 +1,29 @@
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
-use futures::stream;
-use serde::{Deserialize, Serialize};
-use std::{fmt, ops::Bound};
-use svc_agent::{
-    mqtt::{
-        IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
-        ShortTermTimingProperties,
-    },
-    Addressable,
+use axum::{
+    extract::{Extension, Path, Query},
+    Json,
 };
+use chrono::{Duration, Utc};
+
+use serde::{Deserialize, Serialize};
+use std::{fmt, ops::Bound, sync::Arc};
+use svc_agent::{mqtt::ResponseStatus, Addressable};
 
 use tracing::{warn, Span};
 
 use crate::{
     app::{
-        context::Context, endpoint, endpoint::prelude::*, handle_id::HandleId,
+        context::{AppContext, Context},
+        endpoint,
+        endpoint::prelude::*,
+        handle_id::HandleId,
+        http::AuthExtractor,
         metrics::HistogramExt,
+        service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
-    backend::janus::{
-        client::create_handle::{CreateHandleRequest, OpaqueId},
-        JANUS_API_VERSION,
-    },
+    backend::janus::client::create_handle::{CreateHandleRequest, OpaqueId},
     db::{self, agent, agent_connection, rtc::SharingPolicy as RtcSharingPolicy},
     diesel::{Connection, Identifiable},
 };
@@ -42,13 +42,27 @@ impl ConnectResponseData {
     }
 }
 
-pub type ConnectResponse = OutgoingResponse<ConnectResponseData>;
-
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]
 pub struct CreateRequest {
     room_id: db::room::Id,
+}
+
+pub async fn create(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+) -> RequestResult {
+    let request = CreateRequest { room_id };
+    CreateHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct CreateHandler;
@@ -62,8 +76,8 @@ impl RequestHandler for CreateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking(move || {
             helpers::find_room_by_id(payload.room_id, helpers::RoomTimeRequirement::Open, &conn)
@@ -108,19 +122,17 @@ impl RequestHandler for CreateHandler {
         Span::current().record("rtc_id", &rtc.id().to_string().as_str());
 
         // Respond and broadcast to the room topic.
-        let response = helpers::build_response(
+        let mut response = Response::new(
             ResponseStatus::CREATED,
             rtc.clone(),
-            reqp,
             context.start_timestamp(),
             Some(authz_time),
         );
 
-        let notification = helpers::build_notification(
+        response.add_notification(
             "rtc.create",
             &format!("rooms/{}/events", room_id),
             rtc,
-            reqp.tracking(),
             context.start_timestamp(),
         );
         context
@@ -129,7 +141,7 @@ impl RequestHandler for CreateHandler {
             .rtc_create
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::iter(vec![response, notification])))
+        Ok(response)
     }
 }
 
@@ -138,6 +150,22 @@ impl RequestHandler for CreateHandler {
 #[derive(Debug, Deserialize)]
 pub struct ReadRequest {
     id: db::rtc::Id,
+}
+
+pub async fn read(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(rtc_id): Path<db::rtc::Id>,
+) -> RequestResult {
+    let request = ReadRequest { id: rtc_id };
+    ReadHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct ReadHandler;
@@ -151,8 +179,8 @@ impl RequestHandler for ReadHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking({
             let payload_id = payload.id;
@@ -189,15 +217,12 @@ impl RequestHandler for ReadHandler {
             .rtc_read
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(std::future::ready(
-            helpers::build_response(
-                ResponseStatus::OK,
-                rtc,
-                reqp,
-                context.start_timestamp(),
-                Some(authz_time),
-            ),
-        ))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            rtc,
+            context.start_timestamp(),
+            Some(authz_time),
+        ))
     }
 }
 
@@ -212,6 +237,40 @@ pub struct ListRequest {
     limit: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListParams {
+    offset: Option<i64>,
+    limit: Option<i64>,
+}
+
+pub async fn list(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+    query: Option<Query<ListParams>>,
+) -> RequestResult {
+    let request = match query {
+        Some(x) => ListRequest {
+            room_id,
+            offset: x.offset,
+            limit: x.limit,
+        },
+        None => ListRequest {
+            room_id,
+            offset: None,
+            limit: None,
+        },
+    };
+    ListHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
+
 pub struct ListHandler;
 
 #[async_trait]
@@ -223,8 +282,8 @@ impl RequestHandler for ListHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking({
             let payload_room_id = payload.room_id;
@@ -264,15 +323,12 @@ impl RequestHandler for ListHandler {
             .rtc_list
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(std::future::ready(
-            helpers::build_response(
-                ResponseStatus::OK,
-                rtcs,
-                reqp,
-                context.start_timestamp(),
-                Some(authz_time),
-            ),
-        ))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            rtcs,
+            context.start_timestamp(),
+            Some(authz_time),
+        ))
     }
 }
 
@@ -307,6 +363,32 @@ impl ConnectRequest {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct Intent {
+    #[serde(default = "ConnectRequest::default_intent")]
+    intent: ConnectIntent,
+}
+
+pub async fn connect(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(rtc_id): Path<db::rtc::Id>,
+    Json(intent): Json<Intent>,
+) -> RequestResult {
+    let request = ConnectRequest {
+        id: rtc_id,
+        intent: intent.intent,
+    };
+    ConnectHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
+
 pub struct ConnectHandler;
 
 #[async_trait]
@@ -321,8 +403,8 @@ impl RequestHandler for ConnectHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: &IncomingRequestProperties,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
         let payload_id = payload.id;
         let room = crate::util::spawn_blocking(move || {
@@ -517,7 +599,8 @@ impl RequestHandler for ConnectHandler {
         .await?;
 
         // Returning Real-Time connection handle
-        let resp = endpoint::rtc::ConnectResponse::unicast(
+        let resp = Response::new(
+            ResponseStatus::OK,
             endpoint::rtc::ConnectResponseData::new(HandleId::new(
                 rtc_stream_id,
                 payload_id,
@@ -525,12 +608,8 @@ impl RequestHandler for ConnectHandler {
                 backend.session_id(),
                 backend.id().clone(),
             )),
-            reqp.to_response(
-                ResponseStatus::OK,
-                ShortTermTimingProperties::until_now(context.start_timestamp()),
-            ),
-            reqp,
-            JANUS_API_VERSION,
+            context.start_timestamp(),
+            None,
         );
         context
             .metrics()
@@ -538,8 +617,7 @@ impl RequestHandler for ConnectHandler {
             .rtc_connect
             .observe_timestamp(context.start_timestamp());
 
-        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
-        Ok(Box::new(stream::once(std::future::ready(boxed_resp))))
+        Ok(resp)
     }
 }
 

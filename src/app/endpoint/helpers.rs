@@ -24,11 +24,11 @@ use svc_agent::{
 
 pub fn build_response(
     status: ResponseStatus,
-    payload: impl Serialize + Send + 'static,
+    payload: impl Serialize + Send + Sync + 'static,
     reqp: &IncomingRequestProperties,
     start_timestamp: DateTime<Utc>,
     maybe_authz_time: Option<Duration>,
-) -> Box<dyn IntoPublishableMessage + Send> {
+) -> Box<dyn IntoPublishableMessage + Send + Sync + 'static> {
     let mut timing = ShortTermTimingProperties::until_now(start_timestamp);
 
     if let Some(authz_time) = maybe_authz_time {
@@ -42,10 +42,10 @@ pub fn build_response(
 pub fn build_notification(
     label: &'static str,
     path: &str,
-    payload: impl Serialize + Send + 'static,
+    payload: impl Serialize + Send + Sync + 'static,
     trp: &TrackingProperties,
     start_timestamp: DateTime<Utc>,
-) -> Box<dyn IntoPublishableMessage + Send> {
+) -> Box<dyn IntoPublishableMessage + Send + Sync + 'static> {
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let mut props = OutgoingEventProperties::new(label, timing);
     props.set_tracking(trp.to_owned());

@@ -9,6 +9,7 @@ use svc_error::extension::sentry::Config as SentryConfig;
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
     pub id: AccountId,
+    pub http_addr: SocketAddr,
     pub id_token: JwtConfig,
     pub agent_label: String,
     pub broker_id: AccountId,
@@ -27,6 +28,7 @@ pub struct Config {
     #[serde(with = "humantime_serde")]
     pub orphaned_room_timeout: Duration,
     pub janus_registry: JanusRegistry,
+    pub authn: svc_authn::jose::ConfigMap,
 }
 
 #[derive(Clone, Debug, Deserialize)]
