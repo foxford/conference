@@ -7,8 +7,11 @@ use svc_agent::{
     Authenticable,
 };
 
-use crate::app::context::Context;
 use crate::app::endpoint::prelude::*;
+use crate::app::{
+    context::Context,
+    service_utils::{RequestParams, Response},
+};
 use crate::db;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -28,8 +31,8 @@ impl RequestHandler for ReadHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
 
         let account_id = reqp.as_account_id().to_owned();
@@ -64,15 +67,12 @@ impl RequestHandler for ReadHandler {
         })
         .await?;
 
-        Ok(Box::new(stream::once(std::future::ready(
-            helpers::build_response(
-                ResponseStatus::OK,
-                snapshots,
-                reqp,
-                context.start_timestamp(),
-                None,
-            ),
-        ))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            snapshots,
+            context.start_timestamp(),
+            None,
+        ))
     }
 }
 

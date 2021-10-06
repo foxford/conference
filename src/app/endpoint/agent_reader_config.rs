@@ -90,8 +90,8 @@ impl RequestHandler for UpdateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         if payload.configs.len() > MAX_STATE_CONFIGS_LEN {
             return Err(anyhow!("Too many items in `configs` list"))
                 .error(AppErrorKind::InvalidPayload)?;
@@ -203,13 +203,7 @@ impl RequestHandler for UpdateHandler {
                 .context("Reader update")
                 .error(AppErrorKind::BackendRequestFailed)?
         }
-        let response = helpers::build_response(
-            ResponseStatus::OK,
-            State::new(room.id(), &rtc_reader_configs_with_rtcs),
-            reqp,
-            context.start_timestamp(),
-            None,
-        );
+
         context
             .metrics()
             .request_duration
@@ -218,7 +212,6 @@ impl RequestHandler for UpdateHandler {
         Ok(Response::new(
             ResponseStatus::OK,
             State::new(room.id(), &rtc_reader_configs_with_rtcs),
-            reqp,
             context.start_timestamp(),
             None,
         ))
@@ -243,8 +236,8 @@ impl RequestHandler for ReadHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
 
         let (room, rtc_reader_configs_with_rtcs) = crate::util::spawn_blocking({
@@ -282,7 +275,6 @@ impl RequestHandler for ReadHandler {
         Ok(Response::new(
             ResponseStatus::OK,
             State::new(room.id(), &rtc_reader_configs_with_rtcs),
-            reqp,
             context.start_timestamp(),
             None,
         ))

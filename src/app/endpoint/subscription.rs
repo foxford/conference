@@ -17,11 +17,13 @@ use svc_agent::{
 use tracing::Span;
 
 use crate::{
-    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt, service_utils::Response},
     backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
     db::{self, room::FindQueryable},
 };
 use tracing_attributes::instrument;
+
+use super::MqttResult;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -72,7 +74,7 @@ impl ResponseHandler for CreateResponseHandler {
         _payload: Self::Payload,
         respp: &IncomingResponseProperties,
         corr_data: &Self::CorrelationData,
-    ) -> Result {
+    ) -> MqttResult {
         ensure_broker(context, respp)?;
 
         // Find room.
@@ -135,7 +137,7 @@ impl ResponseHandler for DeleteResponseHandler {
         _payload: Self::Payload,
         respp: &IncomingResponseProperties,
         corr_data: &Self::CorrelationData,
-    ) -> Result {
+    ) -> MqttResult {
         ensure_broker(context, respp)?;
         let room_id = try_room_id(&corr_data.object)?;
         let maybe_left = leave_room(context, &corr_data.subject, room_id).await?;
@@ -184,7 +186,7 @@ impl EventHandler for DeleteEventHandler {
         context: &mut C,
         payload: Self::Payload,
         evp: &IncomingEventProperties,
-    ) -> Result {
+    ) -> MqttResult {
         ensure_broker(context, evp)?;
         let room_id = try_room_id(&payload.object)?;
         if leave_room(context, &payload.subject, room_id).await? {

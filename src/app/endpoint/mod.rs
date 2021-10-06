@@ -19,7 +19,8 @@ use tracing::warn;
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub type Result = StdResult<Response, AppError>;
+pub type RequestResult = StdResult<Response, AppError>;
+pub type MqttResult = StdResult<MessageStream, AppError>;
 
 #[async_trait]
 pub trait RequestHandler {
@@ -29,8 +30,8 @@ pub trait RequestHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result;
+        reqp: RequestParams<'_>,
+    ) -> RequestResult;
 }
 
 macro_rules! request_routes {
@@ -98,7 +99,7 @@ pub trait ResponseHandler {
         payload: Self::Payload,
         respp: &IncomingResponseProperties,
         corr_data: &Self::CorrelationData,
-    ) -> Result;
+    ) -> MqttResult;
 }
 
 macro_rules! response_routes {
@@ -146,7 +147,7 @@ pub trait EventHandler {
         context: &mut C,
         payload: Self::Payload,
         evp: &IncomingEventProperties,
-    ) -> Result;
+    ) -> MqttResult;
 }
 
 macro_rules! event_routes {
@@ -186,7 +187,7 @@ impl EventHandler for PullHandler {
         _context: &mut C,
         _payload: Self::Payload,
         _evp: &IncomingEventProperties,
-    ) -> Result {
+    ) -> MqttResult {
         Ok(Box::new(futures::stream::empty()))
     }
 }
@@ -213,7 +214,7 @@ pub mod system;
 mod writer_config_snapshot;
 
 pub(self) mod prelude {
-    pub(super) use super::{helpers, EventHandler, RequestHandler, ResponseHandler, Result};
+    pub(super) use super::{helpers, EventHandler, RequestHandler, RequestResult, ResponseHandler};
     pub(super) use crate::app::{
         endpoint::CorrelationData,
         error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},

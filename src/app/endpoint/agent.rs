@@ -4,7 +4,12 @@ use serde::Deserialize;
 use svc_agent::mqtt::{IncomingRequestProperties, ResponseStatus};
 
 use crate::{
-    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    app::{
+        context::Context,
+        endpoint::prelude::*,
+        metrics::HistogramExt,
+        service_utils::{RequestParams, Response},
+    },
     authz::AuthzObject,
     db,
 };
@@ -32,8 +37,8 @@ impl RequestHandler for ListHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking({
             let room_id = payload.room_id;
@@ -68,15 +73,12 @@ impl RequestHandler for ListHandler {
             .observe_timestamp(context.start_timestamp());
 
         // Respond with agents list.
-        Ok(Box::new(stream::once(std::future::ready(
-            helpers::build_response(
-                ResponseStatus::OK,
-                agents,
-                reqp,
-                context.start_timestamp(),
-                Some(authz_time),
-            ),
-        ))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            agents,
+            context.start_timestamp(),
+            Some(authz_time),
+        ))
     }
 }
 

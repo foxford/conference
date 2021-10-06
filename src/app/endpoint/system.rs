@@ -1,5 +1,10 @@
 use crate::{
-    app::{context::Context, endpoint::prelude::*, error::Error as AppError},
+    app::{
+        context::Context,
+        endpoint::prelude::*,
+        error::Error as AppError,
+        service_utils::{RequestParams, Response},
+    },
     authz::AuthzObject,
     backend::janus::client::upload_stream::{
         UploadStreamRequest, UploadStreamRequestBody, UploadStreamTransaction,
@@ -17,11 +22,12 @@ use async_trait::async_trait;
 use chrono::Utc;
 use futures::stream;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{ops::Bound, result::Result as StdResult};
 use svc_agent::{
     mqtt::{
         IncomingEventProperties, IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties,
-        OutgoingMessage, ShortTermTimingProperties,
+        OutgoingMessage, ResponseStatus, ShortTermTimingProperties,
     },
     AgentId,
 };
@@ -29,6 +35,8 @@ use svc_authn::Authenticable;
 
 use tracing::error;
 use tracing_attributes::instrument;
+
+use super::MqttResult;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -67,12 +75,12 @@ impl RequestHandler for VacuumHandler {
     type Payload = VacuumRequest;
     const ERROR_TITLE: &'static str = "Failed to vacuum system";
 
-    #[instrument(skip(context, _payload))]
+    #[instrument(skip(context, _payload, reqp))]
     async fn handle<C: Context>(
         context: &mut C,
         _payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         // Authorization: only trusted subjects are allowed to perform operations with the system
         let audience = context.agent_id().as_account_id().audience();
 
@@ -86,7 +94,12 @@ impl RequestHandler for VacuumHandler {
             )
             .await?;
 
-        let mut requests = Vec::new();
+        let mut response = Response::new(
+            ResponseStatus::NO_CONTENT,
+            json!({}),
+            context.start_timestamp(),
+            None,
+        );
         let conn = context.get_conn().await?;
         let group = context.config().janus_group.clone();
         let rooms = crate::util::spawn_blocking(move || {
@@ -128,18 +141,15 @@ impl RequestHandler for VacuumHandler {
                 .error(AppErrorKind::BackendRequestFailed)?;
 
             // Publish room closed notification
-            let closed_notification = helpers::build_notification(
+            response.add_notification(
                 "room.close",
                 &format!("rooms/{}/events", room.id()),
                 room,
-                reqp.tracking(),
                 context.start_timestamp(),
             );
-
-            requests.push(closed_notification);
         }
 
-        Ok(Box::new(stream::iter(requests)))
+        Ok(response)
     }
 }
 
@@ -157,7 +167,7 @@ impl EventHandler for OrphanedRoomCloseHandler {
         context: &mut C,
         _payload: Self::Payload,
         evp: &IncomingEventProperties,
-    ) -> Result {
+    ) -> MqttResult {
         let audience = context.agent_id().as_account_id().audience();
         // Authorization: only trusted subjects are allowed to perform operations with the system
         context

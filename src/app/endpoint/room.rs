@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::stream;
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
 use std::ops::Bound;
 use svc_agent::{
     mqtt::{
@@ -20,6 +20,7 @@ use crate::{
         context::Context,
         endpoint::{prelude::*, subscription::CorrelationDataPayload},
         metrics::HistogramExt,
+        service_utils::{RequestParams, Response},
         API_VERSION,
     },
     authz::AuthzObject,
@@ -70,8 +71,8 @@ impl RequestHandler for CreateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         // Prefer `rtc_sharing_policy` with fallback to `backend` and `None` as default.
         let rtc_sharing_policy = payload
             .rtc_sharing_policy
@@ -115,24 +116,22 @@ impl RequestHandler for CreateHandler {
         .await?;
 
         // Respond and broadcast to the audience topic.
-        let response = helpers::build_response(
+        let mut response = Response::new(
             // TODO: Change to `ResponseStatus::CREATED` (breaking).
             ResponseStatus::OK,
             room.clone(),
-            reqp,
             context.start_timestamp(),
             Some(authz_time),
         );
 
-        let notification = helpers::build_notification(
+        response.add_notification(
             "room.create",
             &format!("audiences/{}/events", audience),
             room,
-            reqp.tracking(),
             context.start_timestamp(),
         );
 
-        Ok(Box::new(stream::iter(vec![response, notification])))
+        Ok(response)
     }
 }
 
@@ -154,8 +153,8 @@ impl RequestHandler for ReadHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking(move || {
             helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)
@@ -177,15 +176,12 @@ impl RequestHandler for ReadHandler {
             .room_read
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(std::future::ready(
-            helpers::build_response(
-                ResponseStatus::OK,
-                room,
-                reqp,
-                context.start_timestamp(),
-                Some(authz_time),
-            ),
-        ))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            room,
+            context.start_timestamp(),
+            Some(authz_time),
+        ))
     }
 }
 
@@ -213,8 +209,8 @@ impl RequestHandler for UpdateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let time_requirement = if payload.time.is_some() {
             // Forbid changing time of a closed room.
             helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen
@@ -291,23 +287,19 @@ impl RequestHandler for UpdateHandler {
         }).await?;
 
         // Respond and broadcast to the audience topic.
-        let response = helpers::build_response(
+        let mut response = Response::new(
             ResponseStatus::OK,
             room.clone(),
-            reqp,
             context.start_timestamp(),
             Some(authz_time),
         );
 
-        let notification = helpers::build_notification(
+        response.add_notification(
             "room.update",
             &format!("audiences/{}/events", room.audience()),
             room.clone(),
-            reqp.tracking(),
             context.start_timestamp(),
         );
-
-        let mut responses = vec![response, notification];
 
         // Publish room closed notification.
         if let (_, Bound::Excluded(closed_at)) = room.time() {
@@ -319,21 +311,19 @@ impl RequestHandler for UpdateHandler {
                     move || db::room::set_closed_by(room_id, &agent, &conn)
                 })
                 .await?;
-                responses.push(helpers::build_notification(
+                response.add_notification(
                     "room.close",
                     &format!("rooms/{}/events", room.id()),
                     room.clone(),
-                    reqp.tracking(),
                     context.start_timestamp(),
-                ));
+                );
 
-                responses.push(helpers::build_notification(
+                response.add_notification(
                     "room.close",
                     &format!("audiences/{}/events", room.audience()),
                     room,
-                    reqp.tracking(),
                     context.start_timestamp(),
-                ));
+                );
             }
         }
         context
@@ -342,7 +332,7 @@ impl RequestHandler for UpdateHandler {
             .room_update
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::iter(responses)))
+        Ok(response)
     }
 }
 
@@ -363,8 +353,8 @@ impl RequestHandler for CloseHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
 
         let room = crate::util::spawn_blocking({
@@ -399,39 +389,33 @@ impl RequestHandler for CloseHandler {
         .await?;
 
         // Respond and broadcast to the audience topic.
-        let response = helpers::build_response(
+        let mut response = Response::new(
             ResponseStatus::OK,
             room.clone(),
-            reqp,
             context.start_timestamp(),
             Some(authz_time),
         );
 
-        let notification = helpers::build_notification(
+        response.add_notification(
             "room.update",
             &format!("audiences/{}/events", room.audience()),
             room.clone(),
-            reqp.tracking(),
             context.start_timestamp(),
         );
 
-        let mut responses = vec![response, notification];
-
-        responses.push(helpers::build_notification(
+        response.add_notification(
             "room.close",
             &format!("rooms/{}/events", room.id()),
             room.clone(),
-            reqp.tracking(),
             context.start_timestamp(),
-        ));
+        );
 
-        responses.push(helpers::build_notification(
+        response.add_notification(
             "room.close",
             &format!("audiences/{}/events", room.audience()),
             room,
-            reqp.tracking(),
             context.start_timestamp(),
-        ));
+        );
 
         context
             .metrics()
@@ -439,7 +423,7 @@ impl RequestHandler for CloseHandler {
             .room_close
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::iter(responses)))
+        Ok(response)
     }
 }
 
@@ -457,8 +441,9 @@ impl RequestHandler for EnterHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
+        let mqtt_params = reqp.as_mqtt_params()?;
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking(move || {
             helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::NotClosed, &conn)
@@ -499,7 +484,8 @@ impl RequestHandler for EnterHandler {
             .context("Failed to build response topic")
             .error(AppErrorKind::BrokerRequestFailed)?;
 
-        let corr_data_payload = CorrelationDataPayload::new(reqp.to_owned(), subject, object);
+        let corr_data_payload =
+            CorrelationDataPayload::new(mqtt_params.to_owned(), subject, object);
 
         let corr_data = CorrelationData::SubscriptionCreate(corr_data_payload)
             .dump()
@@ -509,17 +495,24 @@ impl RequestHandler for EnterHandler {
         let mut timing = ShortTermTimingProperties::until_now(context.start_timestamp());
         timing.set_authorization_time(authz_time);
 
-        let props = reqp.to_request("subscription.create", &response_topic, &corr_data, timing);
+        let props =
+            mqtt_params.to_request("subscription.create", &response_topic, &corr_data, timing);
         let to = &context.config().broker_id;
         let outgoing_request = OutgoingRequest::multicast(payload, props, to, API_VERSION);
-        let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableMessage + Send>;
+        let mut response = Response::new(
+            ResponseStatus::OK,
+            json!({}),
+            context.start_timestamp(),
+            None,
+        );
+        response.add_message(Box::new(outgoing_request));
         context
             .metrics()
             .request_duration
             .room_enter
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(std::future::ready(boxed_request))))
+        Ok(response)
     }
 }
 
@@ -537,8 +530,9 @@ impl RequestHandler for LeaveHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
+        let mqtt_params = reqp.as_mqtt_params()?;
         let conn = context.get_conn().await?;
         let (room, presence) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
@@ -575,7 +569,8 @@ impl RequestHandler for LeaveHandler {
             .context("Failed to build response topic")
             .error(AppErrorKind::BrokerRequestFailed)?;
 
-        let corr_data_payload = CorrelationDataPayload::new(reqp.to_owned(), subject, object);
+        let corr_data_payload =
+            CorrelationDataPayload::new(mqtt_params.to_owned(), subject, object);
 
         let corr_data = CorrelationData::SubscriptionDelete(corr_data_payload)
             .dump()
@@ -584,17 +579,24 @@ impl RequestHandler for LeaveHandler {
 
         let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
 
-        let props = reqp.to_request("subscription.delete", &response_topic, &corr_data, timing);
+        let props =
+            mqtt_params.to_request("subscription.delete", &response_topic, &corr_data, timing);
         let to = &context.config().broker_id;
         let outgoing_request = OutgoingRequest::multicast(payload, props, to, API_VERSION);
-        let boxed_request = Box::new(outgoing_request) as Box<dyn IntoPublishableMessage + Send>;
+        let mut response = Response::new(
+            ResponseStatus::OK,
+            json!({}),
+            context.start_timestamp(),
+            None,
+        );
+        response.add_message(Box::new(outgoing_request));
         context
             .metrics()
             .request_duration
             .room_leave
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(std::future::ready(boxed_request))))
+        Ok(response)
     }
 }
 

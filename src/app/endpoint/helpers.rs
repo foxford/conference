@@ -25,7 +25,7 @@ use svc_agent::{
 pub fn build_response(
     status: ResponseStatus,
     payload: impl Serialize + Send + 'static,
-    reqp: RequestParams,
+    reqp: &IncomingRequestProperties,
     start_timestamp: DateTime<Utc>,
     maybe_authz_time: Option<Duration>,
 ) -> Box<dyn IntoPublishableMessage + Send> {

@@ -3,6 +3,7 @@ use crate::{
         context::{AppMessageContext, Context, GlobalContext, MessageContext},
         endpoint,
         error::{Error as AppError, ErrorKind as AppErrorKind},
+        service_utils::RequestParams,
         API_VERSION,
     },
     backend::{janus, janus::handle_event},
@@ -189,7 +190,7 @@ fn error_response(
     kind: &str,
     title: &str,
     detail: &str,
-    reqp: RequestParams,
+    reqp: &IncomingRequestProperties,
     start_timestamp: DateTime<Utc>,
 ) -> MessageStream {
     let err = SvcError::builder()
@@ -251,20 +252,23 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
             match payload {
                 // Call handler.
                 Ok(payload) => {
-                    let app_result = H::handle(context, payload, reqp).await;
+                    let app_result =
+                        H::handle(context, payload, RequestParams::MqttParams(reqp)).await;
                     context.metrics().observe_app_result(&app_result);
-                    app_result.unwrap_or_else(|err| {
-                        error!(?err, "Failed to handle request");
-                        err.notify_sentry();
-                        error_response(
-                            err.status(),
-                            err.kind(),
-                            err.title(),
-                            &err.source().to_string(),
-                            reqp,
-                            context.start_timestamp(),
-                        )
-                    })
+                    app_result
+                        .and_then(|r| r.into_mqtt_messages(reqp))
+                        .unwrap_or_else(|err| {
+                            error!(?err, "Failed to handle request");
+                            err.notify_sentry();
+                            error_response(
+                                err.status(),
+                                err.kind(),
+                                err.title(),
+                                &err.source().to_string(),
+                                reqp,
+                                context.start_timestamp(),
+                            )
+                        })
                 }
                 // Bad envelope or payload format => 400.
                 Err(err) => error_response(

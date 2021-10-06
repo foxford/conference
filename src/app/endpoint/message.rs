@@ -1,5 +1,11 @@
 use crate::{
-    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt, API_VERSION},
+    app::{
+        context::Context,
+        endpoint::prelude::*,
+        metrics::HistogramExt,
+        service_utils::{RequestParams, Response},
+        API_VERSION,
+    },
     db,
 };
 use anyhow::anyhow;
@@ -17,6 +23,8 @@ use svc_agent::{
 };
 
 use tracing_attributes::instrument;
+
+use super::MqttResult;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -49,8 +57,9 @@ impl RequestHandler for UnicastHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
+        let mqtt_params = reqp.as_mqtt_params()?;
         {
             let conn = context.get_conn().await?;
             let room_id = payload.room_id;
@@ -73,33 +82,38 @@ impl RequestHandler for UnicastHandler {
                 .map_err(|err| anyhow!("Error building responses subscription topic: {}", err))
                 .error(AppErrorKind::MessageBuildingFailed)?;
 
-        let corr_data_payload = CorrelationDataPayload::new(reqp.to_owned());
+        let corr_data_payload = CorrelationDataPayload::new(mqtt_params.to_owned());
 
         let corr_data = CorrelationData::MessageUnicast(corr_data_payload)
             .dump()
             .error(AppErrorKind::MessageBuildingFailed)?;
 
-        let props = reqp.to_request(
-            reqp.method(),
+        let props = mqtt_params.to_request(
+            mqtt_params.method(),
             &response_topic,
             &corr_data,
             ShortTermTimingProperties::until_now(context.start_timestamp()),
         );
-
-        let req = OutgoingRequest::unicast(
+        let mut response = Response::new(
+            ResponseStatus::OK,
+            json!({}),
+            context.start_timestamp(),
+            None,
+        );
+        response.add_message(Box::new(OutgoingRequest::unicast(
             payload.data.to_owned(),
             props,
             &payload.agent_id,
             API_VERSION,
-        );
+        )));
+
         context
             .metrics()
             .request_duration
             .message_unicast_request
             .observe_timestamp(context.start_timestamp());
 
-        let boxed_req = Box::new(req) as Box<dyn IntoPublishableMessage + Send>;
-        Ok(Box::new(stream::once(std::future::ready(boxed_req))))
+        Ok(response)
     }
 }
 
@@ -123,8 +137,8 @@ impl RequestHandler for BroadcastHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
@@ -140,19 +154,17 @@ impl RequestHandler for BroadcastHandler {
         .await?;
 
         // Respond and broadcast to the room topic.
-        let response = helpers::build_response(
+        let mut response = Response::new(
             ResponseStatus::OK,
             json!({}),
-            reqp,
             context.start_timestamp(),
             None,
         );
 
-        let notification = helpers::build_notification(
+        response.add_notification(
             "message.broadcast",
             &format!("rooms/{}/events", room.id()),
             payload.data,
-            reqp.tracking(),
             context.start_timestamp(),
         );
         context
@@ -161,7 +173,7 @@ impl RequestHandler for BroadcastHandler {
             .message_broadcast
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::iter(vec![response, notification])))
+        Ok(response)
     }
 }
 
@@ -180,7 +192,7 @@ impl ResponseHandler for UnicastResponseHandler {
         payload: Self::Payload,
         respp: &IncomingResponseProperties,
         corr_data: &Self::CorrelationData,
-    ) -> Result {
+    ) -> MqttResult {
         let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
 
         let long_term_timing = respp

@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use diesel::Connection;
 use serde::{Deserialize, Serialize};
-use svc_agent::{mqtt::ResponseStatus, AgentId};
+use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId};
 
 use tracing_attributes::instrument;
 
@@ -137,8 +137,8 @@ impl RequestHandler for UpdateHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         if payload.configs.len() > MAX_STATE_CONFIGS_LEN {
             return Err(anyhow!("Too many items in `configs` list"))
                 .error(AppErrorKind::InvalidPayload)?;
@@ -291,10 +291,9 @@ impl RequestHandler for UpdateHandler {
         // Respond to the agent and broadcast notification.
         let state = State::new(room.id(), &rtc_writer_configs_with_rtcs);
 
-        let response = Response::new(
+        let mut response = Response::new(
             ResponseStatus::OK,
             state.clone(),
-            reqp,
             context.start_timestamp(),
             maybe_authz_time,
         );
@@ -332,8 +331,8 @@ impl RequestHandler for ReadHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
         let (room, rtc_writer_configs_with_rtcs) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
@@ -368,7 +367,6 @@ impl RequestHandler for ReadHandler {
         Ok(Response::new(
             ResponseStatus::OK,
             State::new(room.id(), &rtc_writer_configs_with_rtcs),
-            reqp,
             context.start_timestamp(),
             None,
         ))

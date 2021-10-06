@@ -12,6 +12,7 @@ use crate::app::{
     endpoint::{EventHandler, RequestHandler, ResponseHandler},
     error::Error as AppError,
     message_handler::MessageStream,
+    service_utils::RequestParams,
     API_VERSION,
 };
 
@@ -35,8 +36,8 @@ pub async fn handle_request<H: RequestHandler>(
     payload: H::Payload,
 ) -> Result<Vec<OutgoingEnvelope>, AppError> {
     let reqp = build_reqp(agent.agent_id(), "ignore");
-    let messages = H::handle(context, payload, &reqp).await?;
-    Ok(parse_messages(messages).await)
+    let messages = H::handle(context, payload, RequestParams::MqttParams(&reqp)).await?;
+    Ok(parse_messages(messages.into_mqtt_messages(&reqp)?).await)
 }
 
 pub async fn handle_response<H: ResponseHandler>(

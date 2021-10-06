@@ -44,7 +44,7 @@ const ALREADY_RUNNING_STATE: &str = "already_running";
 
 fn handle_response_error<C: Context>(
     context: &mut C,
-    reqp: RequestParams,
+    reqp: &IncomingRequestProperties,
     err: AppError,
 ) -> MessageStream {
     error!(?err, "Failed to handle a response from janus",);

@@ -10,7 +10,12 @@ use svc_agent::mqtt::{
 };
 
 use crate::{
-    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
+    app::{
+        context::Context,
+        endpoint::prelude::*,
+        metrics::HistogramExt,
+        service_utils::{RequestParams, Response},
+    },
     authz::AuthzObject,
     db,
 };
@@ -42,8 +47,8 @@ impl RequestHandler for ListHandler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        reqp: RequestParams,
-    ) -> Result {
+        reqp: RequestParams<'_>,
+    ) -> RequestResult {
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking({
             let room_id = payload.room_id;
@@ -96,15 +101,12 @@ impl RequestHandler for ListHandler {
             .rtc_stream_list
             .observe_timestamp(context.start_timestamp());
 
-        Ok(Box::new(stream::once(std::future::ready(
-            helpers::build_response(
-                ResponseStatus::OK,
-                rtc_streams,
-                reqp,
-                context.start_timestamp(),
-                Some(authz_time),
-            ),
-        ))))
+        Ok(Response::new(
+            ResponseStatus::OK,
+            rtc_streams,
+            context.start_timestamp(),
+            Some(authz_time),
+        ))
     }
 }
 
