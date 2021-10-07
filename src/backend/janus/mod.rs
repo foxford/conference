@@ -285,35 +285,38 @@ async fn handle_event_impl<C: Context>(
                                 )?;
 
                                 let rtcs_with_recs =
-                                    rtc::ListWithReadyRecordingQuery::new(room.id())
-                                        .execute(&conn)?;
+                                    rtc::ListWithRecordingQuery::new(room.id()).execute(&conn)?;
 
                                 Ok::<_, AppError>((room, rtcs_with_recs))
                             })
                             .await?
                         };
-                        // Ensure that all rtcs have a ready recording.
-                        let rtcs_total = rtcs_with_recs.len();
 
-                        let recs_with_rtcs = rtcs_with_recs
-                            .into_iter()
-                            .filter_map(|(rtc, maybe_recording)| {
-                                let recording = maybe_recording?;
-                                matches!(recording.status(), db::recording::Status::Ready)
-                                    .then(|| (recording, rtc))
-                            })
-                            .collect::<Vec<_>>();
+                        // Ensure that all rtcs with a recording have ready recording.
+                        let room_done = rtcs_with_recs.iter().all(|(_rtc, maybe_recording)| {
+                            match maybe_recording {
+                                None => true,
+                                Some(recording) => {
+                                    recording.status() == db::recording::Status::Ready
+                                }
+                            }
+                        });
 
-                        if recs_with_rtcs.len() < rtcs_total {
+                        if !room_done {
                             return Ok(Box::new(stream::empty()) as MessageStream);
                         }
 
+                        let recs_with_rtcs =
+                            rtcs_with_recs
+                                .into_iter()
+                                .filter_map(|(rtc, maybe_recording)| {
+                                    let recording = maybe_recording?;
+                                    matches!(recording.status(), db::recording::Status::Ready)
+                                        .then(|| (recording, rtc))
+                                });
+
                         // Send room.upload event.
-                        let event = endpoint::system::upload_event(
-                            context,
-                            &room,
-                            recs_with_rtcs.into_iter(),
-                        )?;
+                        let event = endpoint::system::upload_event(context, &room, recs_with_rtcs)?;
 
                         let event_box = Box::new(event) as Box<dyn IntoPublishableMessage + Send>;
 
