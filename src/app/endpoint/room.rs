@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use std::ops::Bound;
+use std::{ops::Bound, sync::Arc};
 use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Subscription,
@@ -63,7 +63,7 @@ pub struct CreateRequest {
 }
 
 pub async fn create(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Json(request): Json<CreateRequest>,
 ) -> RequestResult {
@@ -160,7 +160,7 @@ pub struct ReadRequest {
 }
 
 pub async fn read(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
@@ -244,7 +244,7 @@ pub struct UpdateFields {
 }
 
 pub async fn update(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Path(room_id): Path<db::room::Id>,
     Json(request): Json<UpdateFields>,
@@ -413,7 +413,7 @@ pub struct CloseRequest {
 }
 
 pub async fn close(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {

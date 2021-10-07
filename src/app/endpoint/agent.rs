@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use axum::extract::{Extension, Path, Query};
 
@@ -35,7 +37,7 @@ pub struct Pagination {
 }
 
 pub async fn list(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<Pagination>>,

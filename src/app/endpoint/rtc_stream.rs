@@ -4,7 +4,7 @@ use axum::extract::{Extension, Path, Query};
 use chrono::{DateTime, Utc};
 
 use serde::Deserialize;
-use std::result::Result as StdResult;
+use std::{result::Result as StdResult, sync::Arc};
 use svc_agent::mqtt::{
     OutgoingEvent, OutgoingEventProperties, OutgoingMessage, ResponseStatus,
     ShortTermTimingProperties,
@@ -49,7 +49,7 @@ pub struct ListParams {
 }
 
 pub async fn list(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<ListParams>>,

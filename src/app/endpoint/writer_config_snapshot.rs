@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::anyhow;
 use async_trait::async_trait;
 use axum::extract::{Extension, Path};
@@ -20,7 +22,7 @@ pub struct ReadRequest {
 }
 
 pub async fn read(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     app::{
@@ -140,7 +140,7 @@ pub struct StateConfigs {
 }
 
 pub async fn update(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Path(room_id): Path<db::room::Id>,
     Json(configs): Json<StateConfigs>,
@@ -355,7 +355,7 @@ pub struct ReadRequest {
 }
 
 pub async fn read(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {

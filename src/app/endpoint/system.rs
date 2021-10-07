@@ -25,7 +25,7 @@ use chrono::Utc;
 use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{ops::Bound, result::Result as StdResult};
+use std::{ops::Bound, result::Result as StdResult, sync::Arc};
 use svc_agent::{
     mqtt::{
         IncomingEventProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
@@ -70,7 +70,7 @@ struct ClosedRoomNotification {
 #[derive(Debug, Deserialize)]
 pub struct VacuumRequest {}
 pub async fn vacuum(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
 ) -> RequestResult {
     let request = VacuumRequest {};

@@ -7,7 +7,7 @@ use axum::{
 use chrono::{Duration, Utc};
 
 use serde::{Deserialize, Serialize};
-use std::{fmt, ops::Bound};
+use std::{fmt, ops::Bound, sync::Arc};
 use svc_agent::{mqtt::ResponseStatus, Addressable};
 
 use tracing::{warn, Span};
@@ -50,7 +50,7 @@ pub struct CreateRequest {
 }
 
 pub async fn create(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
@@ -153,7 +153,7 @@ pub struct ReadRequest {
 }
 
 pub async fn read(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Path(rtc_id): Path<db::rtc::Id>,
 ) -> RequestResult {
@@ -244,7 +244,7 @@ pub struct ListParams {
 }
 
 pub async fn list(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<ListParams>>,
@@ -370,7 +370,7 @@ pub struct Intent {
 }
 
 pub async fn connect(
-    Extension(ctx): Extension<AppContext>,
+    Extension(ctx): Extension<Arc<AppContext>>,
     AuthExtractor(agent_id): AuthExtractor,
     Path(rtc_id): Path<db::rtc::Id>,
     Json(intent): Json<Intent>,
