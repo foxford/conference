@@ -6,11 +6,21 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::result::Result as StdResult;
 use svc_agent::mqtt::{
-    OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
-    ResponseStatus, ShortTermTimingProperties,
+    OutgoingEvent, OutgoingEventProperties, OutgoingMessage, ResponseStatus,
+    ShortTermTimingProperties,
 };
 
-use crate::{app::{context::{AppContext, Context}, endpoint::prelude::*, http::AuthExtractor, metrics::HistogramExt, service_utils::{RequestParams, Response}}, authz::AuthzObject, db};
+use crate::{
+    app::{
+        context::{AppContext, Context},
+        endpoint::prelude::*,
+        http::AuthExtractor,
+        metrics::HistogramExt,
+        service_utils::{RequestParams, Response},
+    },
+    authz::AuthzObject,
+    db,
+};
 use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -3,10 +3,7 @@ use async_trait::async_trait;
 use axum::extract::{Extension, Path};
 
 use serde::Deserialize;
-use svc_agent::{
-    mqtt::{ResponseStatus},
-    Authenticable,
-};
+use svc_agent::{mqtt::ResponseStatus, Authenticable};
 
 use crate::app::{
     context::{AppContext, Context},

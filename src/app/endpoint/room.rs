@@ -10,10 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::ops::Bound;
 use svc_agent::{
-    mqtt::{
-        OutgoingRequest, ResponseStatus,
-        ShortTermTimingProperties, SubscriptionTopic,
-    },
+    mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Subscription,
 };
 

@@ -7,7 +7,7 @@ use diesel::{
 };
 use futures::{future::BoxFuture, FutureExt};
 
-use svc_agent::{AgentId};
+use svc_agent::AgentId;
 
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 

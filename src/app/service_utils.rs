@@ -6,7 +6,8 @@ use serde::Serialize;
 use serde_json::Value;
 use svc_agent::{
     mqtt::{
-        IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties, ShortTermTimingProperties,
+        IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
+        ShortTermTimingProperties,
     },
     Addressable, AgentId, Authenticable,
 };

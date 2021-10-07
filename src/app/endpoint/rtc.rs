@@ -8,12 +8,7 @@ use chrono::{Duration, Utc};
 
 use serde::{Deserialize, Serialize};
 use std::{fmt, ops::Bound};
-use svc_agent::{
-    mqtt::{
-        ResponseStatus,
-    },
-    Addressable,
-};
+use svc_agent::{mqtt::ResponseStatus, Addressable};
 
 use tracing::{warn, Span};
 
@@ -28,9 +23,7 @@ use crate::{
         service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
-    backend::janus::{
-        client::create_handle::{CreateHandleRequest, OpaqueId},
-    },
+    backend::janus::client::create_handle::{CreateHandleRequest, OpaqueId},
     db::{self, agent, agent_connection, rtc::SharingPolicy as RtcSharingPolicy},
     diesel::{Connection, Identifiable},
 };

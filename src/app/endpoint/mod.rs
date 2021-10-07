@@ -12,8 +12,8 @@ use crate::{
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use svc_agent::mqtt::{
-    IncomingEvent, IncomingEventProperties, IncomingRequest,
-    IncomingResponse, IncomingResponseProperties,
+    IncomingEvent, IncomingEventProperties, IncomingRequest, IncomingResponse,
+    IncomingResponseProperties,
 };
 use tracing::warn;
 

@@ -63,9 +63,9 @@ pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router<BoxRoute> 
             "/rooms/:id/configs/writer/snapshot",
             get(endpoint::writer_config_snapshot::read),
         )
+        .layer(layer_fn(|inner| NotificationsMiddleware { inner }))
         .layer(AddExtensionLayer::new(context))
-        .layer(AddExtensionLayer::new(agent))
-        .layer(layer_fn(|inner| NotificationsMiddleware { inner }));
+        .layer(AddExtensionLayer::new(agent));
     let router = Router::new().route("/api/v1", router);
     router.boxed()
 }
@@ -111,8 +111,6 @@ where
     }
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
-        println!("`MyMiddleware` called!");
-
         // best practice is to clone the inner service like this
         // see https://github.com/tower-rs/tower/issues/547 for details
         let clone = self.inner.clone();
@@ -129,8 +127,6 @@ where
                     publish_message(&mut agent, notification)
                 }
             }
-
-            println!("`MyMiddleware` received the response");
 
             Ok(res)
         })

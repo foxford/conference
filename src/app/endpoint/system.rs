@@ -28,8 +28,8 @@ use serde_json::json;
 use std::{ops::Bound, result::Result as StdResult};
 use svc_agent::{
     mqtt::{
-        IncomingEventProperties, OutgoingEvent, OutgoingEventProperties,
-        OutgoingMessage, ResponseStatus, ShortTermTimingProperties,
+        IncomingEventProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
+        ResponseStatus, ShortTermTimingProperties,
     },
     AgentId,
 };

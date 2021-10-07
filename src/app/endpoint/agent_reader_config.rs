@@ -1,9 +1,21 @@
 use std::collections::HashMap;
 
-use crate::{app::{context::{AppContext, Context}, endpoint::prelude::*, http::AuthExtractor, metrics::HistogramExt, service_utils::{RequestParams, Response}}, backend::janus::client::update_agent_reader_config::{
+use crate::{
+    app::{
+        context::{AppContext, Context},
+        endpoint::prelude::*,
+        http::AuthExtractor,
+        metrics::HistogramExt,
+        service_utils::{RequestParams, Response},
+    },
+    backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
         UpdateReaderConfigRequestBodyConfigItem,
-    }, db, db::{rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig}, diesel::Connection};
+    },
+    db,
+    db::{rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},
+    diesel::Connection,
+};
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
 use axum::{
