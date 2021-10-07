@@ -1,12 +1,18 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
+use axum::extract::{Extension, Path, Query, TypedHeader};
+use chrono::Utc;
 use futures::stream;
+use headers::{authorization::Bearer, Authorization};
 use serde::Deserialize;
 use svc_agent::mqtt::{IncomingRequestProperties, ResponseStatus};
 
 use crate::{
     app::{
-        context::Context,
+        context::{AppContext, AppMessageContext, Context, GlobalContext},
         endpoint::prelude::*,
+        http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
     },
@@ -24,6 +30,33 @@ pub struct ListRequest {
     room_id: db::room::Id,
     offset: Option<i64>,
     limit: Option<i64>,
+}
+
+#[derive(Deserialize, Clone, Copy)]
+pub struct Pagination {
+    offset: i64,
+    limit: i64,
+}
+
+pub async fn list(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+    query: Option<Query<Pagination>>,
+) -> RequestResult {
+    let request = ListRequest {
+        room_id,
+        offset: query.map(|x| x.offset),
+        limit: query.map(|x| x.limit),
+    };
+    ListHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct ListHandler;

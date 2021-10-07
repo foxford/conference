@@ -210,7 +210,7 @@ impl ResponseHandler for UnicastResponseHandler {
         );
 
         let resp = OutgoingResponse::unicast(payload, props, &corr_data.reqp, API_VERSION);
-        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
         context
             .metrics()
             .request_duration

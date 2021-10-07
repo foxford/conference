@@ -1,3 +1,4 @@
+use axum::response::IntoResponse;
 use chrono::{DateTime, Duration, Utc};
 use futures::{stream, Stream};
 use http::StatusCode;
@@ -18,7 +19,7 @@ use super::error;
 // use svc_authn::token::jws_compact::extract::decode_jws_compact_with_config;
 
 pub struct Response {
-    notifications: Vec<Box<dyn IntoPublishableMessage + Send>>,
+    notifications: Vec<Box<dyn IntoPublishableMessage + Send + Sync + 'static>>,
     status: StatusCode,
     start_timestamp: DateTime<Utc>,
     authz_time: Option<Duration>,
@@ -28,7 +29,7 @@ pub struct Response {
 impl Response {
     pub fn new(
         status: StatusCode,
-        payload: impl Serialize + Send + 'static,
+        payload: impl Serialize + Send + Sync + 'static,
         start_timestamp: DateTime<Utc>,
         maybe_authz_time: Option<Duration>,
     ) -> Self {
@@ -45,7 +46,11 @@ impl Response {
         self,
         reqp: &IncomingRequestProperties,
     ) -> Result<
-        Box<dyn Stream<Item = Box<dyn IntoPublishableMessage + Send>> + Send + Unpin>,
+        Box<
+            dyn Stream<Item = Box<dyn IntoPublishableMessage + Send + Sync + 'static>>
+                + Send
+                + Unpin,
+        >,
         error::Error,
     > {
         let payload = self.payload.error(error::ErrorKind::InvalidPayload)?;
@@ -65,30 +70,49 @@ impl Response {
         &mut self,
         label: &'static str,
         path: &str,
-        payload: impl Serialize + Send + 'static,
+        payload: impl Serialize + Send + Sync + 'static,
         start_timestamp: DateTime<Utc>,
     ) {
         let timing = ShortTermTimingProperties::until_now(start_timestamp);
-        let mut props = OutgoingEventProperties::new(label, timing);
+        let props = OutgoingEventProperties::new(label, timing);
         self.notifications
             .push(Box::new(OutgoingEvent::broadcast(payload, props, path)))
     }
 
-    pub fn add_message(&mut self, message: Box<dyn IntoPublishableMessage + Send>) {
+    pub fn add_message(
+        &mut self,
+        message: Box<dyn IntoPublishableMessage + Send + Sync + 'static>,
+    ) {
         self.notifications.push(message)
+    }
+}
+
+impl IntoResponse for Response {
+    type Body = axum::body::Body;
+
+    type BodyError = <Self::Body as axum::body::HttpBody>::Error;
+
+    fn into_response(self) -> http::Response<Self::Body> {
+        http::Response::builder()
+            .status(self.status)
+            .extension(self.notifications)
+            .body(axum::body::Body::from(
+                serde_json::to_string(&self.payload.expect("Todo")).expect("todo"),
+            ))
+            .expect("Must be valid response")
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum RequestParams<'a> {
-    HttpHeaders { agent_id: &'a AgentId },
+    Http { agent_id: &'a AgentId },
     MqttParams(&'a IncomingRequestProperties),
 }
 
 impl<'a> RequestParams<'a> {
     pub fn as_mqtt_params(&self) -> Result<&IncomingRequestProperties, error::Error> {
         match self {
-            RequestParams::HttpHeaders { agent_id } => Err(error::Error::new(
+            RequestParams::Http { agent_id } => Err(error::Error::new(
                 error::ErrorKind::AccessDenied,
                 anyhow::anyhow!("Trying convert http params into mqtt"),
             )),
@@ -100,7 +124,7 @@ impl<'a> RequestParams<'a> {
 impl<'a> Addressable for RequestParams<'a> {
     fn as_agent_id(&self) -> &svc_agent::AgentId {
         match self {
-            RequestParams::HttpHeaders { agent_id } => agent_id,
+            RequestParams::Http { agent_id } => agent_id,
             RequestParams::MqttParams(reqp) => reqp.as_agent_id(),
         }
     }
@@ -109,7 +133,7 @@ impl<'a> Addressable for RequestParams<'a> {
 impl<'a> Authenticable for RequestParams<'a> {
     fn as_account_id(&self) -> &svc_agent::AccountId {
         match self {
-            RequestParams::HttpHeaders { agent_id } => agent_id.as_account_id(),
+            RequestParams::Http { agent_id } => agent_id.as_account_id(),
             RequestParams::MqttParams(reqp) => reqp.as_account_id(),
         }
     }

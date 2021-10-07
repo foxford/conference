@@ -46,8 +46,6 @@ impl ConnectResponseData {
     }
 }
 
-pub type ConnectResponse = OutgoingResponse<ConnectResponseData>;
-
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]

@@ -7,6 +7,7 @@ use crate::{
     db::ConnectionPool,
 };
 use anyhow::{Context as AnyhowContext, Result};
+use axum::Router;
 use chrono::Utc;
 use context::{AppContext, GlobalContext, JanusTopics};
 use futures::StreamExt;
@@ -329,6 +330,7 @@ pub mod context;
 pub mod endpoint;
 pub mod error;
 pub mod handle_id;
+pub mod http;
 pub mod message_handler;
 pub mod metrics;
 pub mod service_utils;

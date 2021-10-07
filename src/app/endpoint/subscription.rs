@@ -196,7 +196,8 @@ impl EventHandler for DeleteEventHandler {
             let props = evp.to_event("room.leave", short_term_timing);
             let to_uri = format!("rooms/{}/events", room_id);
             let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
-            let notification = Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send>;
+            let notification =
+                Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
             context
                 .metrics()
                 .request_duration

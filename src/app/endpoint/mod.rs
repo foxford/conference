@@ -200,18 +200,18 @@ event_routes!(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-mod agent;
-mod agent_reader_config;
-mod agent_writer_config;
+pub mod agent;
+pub mod agent_reader_config;
+pub mod agent_writer_config;
 pub mod helpers;
-mod message;
-mod room;
+pub mod message;
+pub mod room;
 pub mod rtc;
 pub mod rtc_signal;
 pub mod rtc_stream;
-mod subscription;
+pub mod subscription;
 pub mod system;
-mod writer_config_snapshot;
+pub mod writer_config_snapshot;
 
 pub(self) mod prelude {
     pub(super) use super::{helpers, EventHandler, RequestHandler, RequestResult, ResponseHandler};

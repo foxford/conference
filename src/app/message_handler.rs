@@ -27,7 +27,7 @@ use tracing_attributes::instrument;
 use uuid::Uuid;
 
 pub type MessageStream =
-    Box<dyn Stream<Item = Box<dyn IntoPublishableMessage + Send>> + Send + Unpin>;
+    Box<dyn Stream<Item = Box<dyn IntoPublishableMessage + Send + Sync + 'static>> + Send + Unpin>;
 
 pub struct MessageHandler<C: GlobalContext> {
     agent: Agent,
@@ -202,7 +202,7 @@ fn error_response(
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let props = reqp.to_response(status, timing);
     let resp = OutgoingResponse::unicast(err, props, reqp, API_VERSION);
-    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send>;
+    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
     Box::new(stream::once(std::future::ready(boxed_resp)))
 }
 

@@ -21,6 +21,7 @@ pub enum ErrorKind {
     AgentNotConnected,
     AgentNotEnteredTheRoom,
     AuthorizationFailed,
+    AuthenticationFailed,
     BackendRecordingMissing,
     BackendRequestFailed,
     BackendClientCreationFailed,
@@ -280,6 +281,12 @@ impl From<ErrorKind> for ErrorKindProperties {
                 status: ResponseStatus::METHOD_NOT_ALLOWED,
                 kind: "method_not_supported",
                 title: "Method not supported",
+                is_notify_sentry: true,
+            },
+            ErrorKind::AuthenticationFailed => ErrorKindProperties {
+                status: ResponseStatus::UNAUTHORIZED,
+                kind: "authentication_failed",
+                title: "Authentication failed",
                 is_notify_sentry: true,
             },
         }

@@ -26,6 +26,7 @@ pub struct Config {
     pub janus_group: Option<String>,
     #[serde(with = "humantime_serde")]
     pub orphaned_room_timeout: Duration,
+    pub authn: svc_authn::jose::ConfigMap,
 }
 
 #[derive(Clone, Debug, Deserialize)]
