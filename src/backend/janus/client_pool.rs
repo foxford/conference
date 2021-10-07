@@ -1,6 +1,10 @@
 use super::client::{IncomingEvent, JanusClient, PollResult, SessionId};
-use crate::db::janus_backend;
+use crate::{
+    db::{agent_connection, janus_backend, ConnectionPool},
+    util::spawn_blocking,
+};
 use anyhow::anyhow;
+use diesel::Connection;
 use std::{
     collections::{hash_map::Entry, HashMap},
     sync::{
@@ -12,19 +16,25 @@ use std::{
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{error, warn};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Clients {
     clients: Arc<RwLock<HashMap<janus_backend::Object, ClientHandle>>>,
     events_sink: UnboundedSender<IncomingEvent>,
     group: Option<String>,
+    db: ConnectionPool,
 }
 
 impl Clients {
-    pub fn new(events_sink: UnboundedSender<IncomingEvent>, group: Option<String>) -> Self {
+    pub fn new(
+        events_sink: UnboundedSender<IncomingEvent>,
+        group: Option<String>,
+        db: ConnectionPool,
+    ) -> Self {
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
             events_sink,
             group,
+            db,
         }
     }
 
@@ -69,13 +79,14 @@ impl Clients {
                 });
                 tokio::task::spawn({
                     let client = client.clone();
+                    let db = self.db.clone();
                     async move {
                         let sink = this.events_sink.clone();
                         let _guard = PollerGuard {
                             clients: &this,
                             backend: &backend,
                         };
-                        start_polling(client, session_id, sink, &is_cancelled, &backend).await;
+                        start_polling(client, session_id, sink, db, &is_cancelled, &backend).await;
                     }
                 });
                 Ok(client)
@@ -105,7 +116,7 @@ struct ClientHandle {
     janus_url: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct PollerGuard<'a> {
     clients: &'a Clients,
     backend: &'a janus_backend::Object,
@@ -121,18 +132,24 @@ async fn start_polling(
     janus_client: JanusClient,
     session_id: SessionId,
     sink: UnboundedSender<IncomingEvent>,
+    db: ConnectionPool,
     is_cancelled: &AtomicBool,
     janus_backend: &janus_backend::Object,
 ) {
     let mut fail_retries_count = 5;
     loop {
-        if fail_retries_count == 0 || is_cancelled.load(Ordering::SeqCst) {
+        if fail_retries_count == 0 {
+            remove_backend(janus_backend, db).await;
+            break;
+        }
+        if is_cancelled.load(Ordering::SeqCst) {
             break;
         }
         let poll_result = janus_client.poll(session_id).await;
         match poll_result {
             Ok(PollResult::SessionNotFound) => {
                 warn!(?janus_backend, "Session not found");
+                remove_backend(janus_backend, db).await;
                 break;
             }
             Ok(PollResult::Events(events)) => {
@@ -160,5 +177,32 @@ async fn start_polling(
                 fail_retries_count -= 1;
             }
         }
+    }
+}
+
+async fn remove_backend(backend: &janus_backend::Object, db: ConnectionPool) {
+    let result = spawn_blocking({
+        let backend = backend.clone();
+        move || {
+            let conn = db.get()?;
+            conn.transaction::<_, diesel::result::Error, _>(|| {
+                let deleted = janus_backend::DeleteQuery::new(
+                    backend.id(),
+                    backend.session_id(),
+                    backend.handle_id(),
+                )
+                .execute(&conn)?;
+                if deleted > 0 {
+                    agent_connection::BulkDisconnectByBackendQuery::new(backend.id())
+                        .execute(&conn)?;
+                }
+                Ok(())
+            })?;
+            Ok::<_, anyhow::Error>(())
+        }
+    })
+    .await;
+    if let Err(err) = result {
+        error!(backend = ?backend, ?err, "Error removing backend");
     }
 }
