@@ -6,8 +6,7 @@ use serde::Serialize;
 use serde_json::Value;
 use svc_agent::{
     mqtt::{
-        IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
-        OutgoingResponse, ShortTermTimingProperties,
+        IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties, ShortTermTimingProperties,
     },
     Addressable, AgentId, Authenticable,
 };
@@ -112,7 +111,7 @@ pub enum RequestParams<'a> {
 impl<'a> RequestParams<'a> {
     pub fn as_mqtt_params(&self) -> Result<&IncomingRequestProperties, error::Error> {
         match self {
-            RequestParams::Http { agent_id } => Err(error::Error::new(
+            RequestParams::Http { agent_id: _ } => Err(error::Error::new(
                 error::ErrorKind::AccessDenied,
                 anyhow::anyhow!("Trying convert http params into mqtt"),
             )),

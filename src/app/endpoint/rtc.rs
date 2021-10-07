@@ -5,13 +5,12 @@ use axum::{
     Json,
 };
 use chrono::{Duration, Utc};
-use futures::stream;
+
 use serde::{Deserialize, Serialize};
 use std::{fmt, ops::Bound};
 use svc_agent::{
     mqtt::{
-        IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
-        ShortTermTimingProperties,
+        ResponseStatus,
     },
     Addressable,
 };
@@ -31,7 +30,6 @@ use crate::{
     authz::AuthzObject,
     backend::janus::{
         client::create_handle::{CreateHandleRequest, OpaqueId},
-        JANUS_API_VERSION,
     },
     db::{self, agent, agent_connection, rtc::SharingPolicy as RtcSharingPolicy},
     diesel::{Connection, Identifiable},

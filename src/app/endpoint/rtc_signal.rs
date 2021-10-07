@@ -18,21 +18,19 @@ use crate::{
             trickle::TrickleRequest,
             Jsep, JsepType,
         },
-        JANUS_API_VERSION,
     },
     db,
 };
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
 use chrono::Duration;
-use futures::stream;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::result::Result as StdResult;
 use svc_agent::{
     mqtt::{
-        IncomingRequestProperties, IntoPublishableMessage, OutgoingResponse, ResponseStatus,
-        ShortTermTimingProperties,
+        OutgoingResponse, ResponseStatus,
     },
     Addressable,
 };

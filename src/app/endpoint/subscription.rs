@@ -17,7 +17,7 @@ use svc_agent::{
 use tracing::Span;
 
 use crate::{
-    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt, service_utils::Response},
+    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
     backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
     db::{self, room::FindQueryable},
 };

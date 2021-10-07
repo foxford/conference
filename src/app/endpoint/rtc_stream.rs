@@ -2,11 +2,11 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use axum::extract::{Extension, Path, Query};
 use chrono::{DateTime, Utc};
-use futures::stream;
+
 use serde::Deserialize;
 use std::result::Result as StdResult;
 use svc_agent::mqtt::{
-    IncomingRequestProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
+    OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
     ResponseStatus, ShortTermTimingProperties,
 };
 

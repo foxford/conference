@@ -1,16 +1,16 @@
-use std::sync::Arc;
+
 
 use async_trait::async_trait;
-use axum::extract::{Extension, Path, Query, TypedHeader};
-use chrono::Utc;
-use futures::stream;
-use headers::{authorization::Bearer, Authorization};
+use axum::extract::{Extension, Path, Query};
+
+
+
 use serde::Deserialize;
-use svc_agent::mqtt::{IncomingRequestProperties, ResponseStatus};
+use svc_agent::mqtt::{ResponseStatus};
 
 use crate::{
     app::{
-        context::{AppContext, AppMessageContext, Context, GlobalContext},
+        context::{AppContext, Context, GlobalContext},
         endpoint::prelude::*,
         http::AuthExtractor,
         metrics::HistogramExt,

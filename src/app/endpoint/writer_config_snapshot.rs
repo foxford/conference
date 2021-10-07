@@ -1,10 +1,10 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
 use axum::extract::{Extension, Path};
-use futures::stream;
+
 use serde::Deserialize;
 use svc_agent::{
-    mqtt::{IncomingRequestProperties, ResponseStatus},
+    mqtt::{ResponseStatus},
     Authenticable,
 };
 

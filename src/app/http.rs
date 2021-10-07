@@ -3,26 +3,19 @@ use std::{
     task::{Context, Poll},
 };
 
-use crate::{
-    app::{error::ErrorExt, message_handler::publish_message},
-    db,
-};
+use crate::app::{error::ErrorExt, message_handler::publish_message};
 use async_trait::async_trait;
 use axum::{
-    extract::{
-        self,
-        rejection::{ExtensionRejection, ExtensionsAlreadyExtracted, MissingExtension},
-        Extension, FromRequest, Path, Query, RequestParts, TypedHeader,
-    },
+    extract::{FromRequest, RequestParts},
     handler::{get, patch, post},
     response::IntoResponse,
     routing::BoxRoute,
     AddExtensionLayer, Router,
 };
-use chrono::Utc;
+
 use futures::future::BoxFuture;
 use http::{Request, Response};
-use serde::Deserialize;
+
 use svc_agent::{
     mqtt::{Agent, IntoPublishableMessage},
     AccountId, AgentId,
@@ -30,11 +23,10 @@ use svc_agent::{
 use svc_authn::token::jws_compact::extract::decode_jws_compact_with_config;
 use tower::{layer::layer_fn, Layer, Service};
 use tracing_subscriber::registry::SpanData;
-use uuid::Uuid;
 
 use super::{
-    context::{AppContext, AppMessageContext, GlobalContext},
-    endpoint, error, service_utils,
+    context::{AppContext, GlobalContext},
+    endpoint, error,
 };
 
 pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router<BoxRoute> {
@@ -50,11 +42,11 @@ pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router<BoxRoute> 
         )
         .route(
             "/rooms/:id/configs/writer",
-            get(endpoint::agent_reader_config::read),
+            get(endpoint::agent_writer_config::read),
         )
         .route(
             "/rooms/:id/configs/reader",
-            post(endpoint::agent_reader_config::update),
+            post(endpoint::agent_writer_config::update),
         )
         .route("/rooms/:id/close", post(endpoint::room::close))
         .route("/rooms", post(endpoint::room::create))
@@ -68,6 +60,10 @@ pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router<BoxRoute> 
         .route("/rtcs/:id/streams", post(endpoint::rtc::connect))
         .route("/rooms/:id/streams", get(endpoint::rtc_stream::list))
         .route("/system/vacuum", post(endpoint::system::vacuum))
+        .route(
+            "/rooms/:id/configs/writer/snapshot",
+            get(endpoint::writer_config_snapshot::read),
+        )
         .layer(AddExtensionLayer::new(context))
         .layer(AddExtensionLayer::new(agent))
         .layer(layer_fn(|inner| NotificationsMiddleware { inner }));

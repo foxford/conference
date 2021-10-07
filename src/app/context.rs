@@ -6,9 +6,9 @@ use diesel::{
     r2d2::{ConnectionManager, PooledConnection},
 };
 use futures::{future::BoxFuture, FutureExt};
-use headers::authorization::Bearer;
-use svc_agent::{AccountId, AgentId};
-use svc_authn::token::jws_compact::extract::decode_jws_compact_with_config;
+
+use svc_agent::{AgentId};
+
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 
 use crate::{
