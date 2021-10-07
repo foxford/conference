@@ -1,7 +1,10 @@
 use std::{net::SocketAddr, sync::Arc, thread, time::Duration};
 
 use crate::{
-    app::error::{Error as AppError, ErrorKind as AppErrorKind},
+    app::{
+        error::{Error as AppError, ErrorKind as AppErrorKind},
+        http::build_router,
+    },
     backend::janus::{client_pool::Clients, JANUS_API_VERSION},
     config::{self, Config, KruonisConfig},
     db::ConnectionPool,
@@ -109,6 +112,14 @@ pub async fn run(
         Some(pool) => context.add_redis_pool(pool),
         None => context,
     };
+    let (graceful_tx, graceful_rx) = tokio::sync::oneshot::channel();
+    let _http_task = tokio::spawn(
+        axum::Server::bind(&config.http_addr)
+            .serve(build_router(Arc::new(context.clone()), agent.clone()).into_make_service())
+            .with_graceful_shutdown(async move {
+                let _ = graceful_rx.await;
+            }),
+    );
 
     // Message handler
     let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
@@ -137,6 +148,7 @@ pub async fn run(
     let mut signals_stream = signal_hook_tokio::Signals::new(TERM_SIGNALS)?.fuse();
     let signals = signals_stream.next();
     let _ = signals.await;
+    let _ = graceful_tx.send(());
     unsubscribe(&mut agent, &agent_id, &config)?;
     message_handler
         .global_context()

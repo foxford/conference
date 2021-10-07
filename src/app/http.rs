@@ -3,7 +3,10 @@ use std::{
     task::{Context, Poll},
 };
 
-use crate::{app::error::ErrorExt, db};
+use crate::{
+    app::{error::ErrorExt, message_handler::publish_message},
+    db,
+};
 use async_trait::async_trait;
 use axum::{
     extract::{
@@ -18,11 +21,15 @@ use axum::{
 };
 use chrono::Utc;
 use futures::future::BoxFuture;
-use http::Request;
+use http::{Request, Response};
 use serde::Deserialize;
-use svc_agent::{AccountId, AgentId};
+use svc_agent::{
+    mqtt::{Agent, IntoPublishableMessage},
+    AccountId, AgentId,
+};
 use svc_authn::token::jws_compact::extract::decode_jws_compact_with_config;
 use tower::{layer::layer_fn, Layer, Service};
+use tracing_subscriber::registry::SpanData;
 use uuid::Uuid;
 
 use super::{
@@ -30,10 +37,12 @@ use super::{
     error, service_utils,
 };
 
-fn build_router(context: Arc<AppContext>) -> Router<BoxRoute> {
+pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router<BoxRoute> {
     let router = Router::new()
         .route("/rooms/:id/agents", get(super::endpoint::agent::list))
-        .layer(AddExtensionLayer::new(context));
+        .layer(AddExtensionLayer::new(context))
+        .layer(AddExtensionLayer::new(agent))
+        .layer(layer_fn(|inner| NotificationsMiddleware { inner }));
     router.boxed()
 }
 
@@ -54,6 +63,53 @@ impl IntoResponse for error::Error {
             .status(self.status())
             .body(axum::body::Body::from(error))
             .expect("This is a valid response")
+    }
+}
+
+#[derive(Clone)]
+struct NotificationsMiddleware<S> {
+    inner: S,
+}
+
+impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for NotificationsMiddleware<S>
+where
+    S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone + Send + 'static,
+    S::Future: Send + 'static,
+    ReqBody: Send + 'static,
+    ResBody: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
+        println!("`MyMiddleware` called!");
+
+        // best practice is to clone the inner service like this
+        // see https://github.com/tower-rs/tower/issues/547 for details
+        let clone = self.inner.clone();
+        let mut inner = std::mem::replace(&mut self.inner, clone);
+
+        Box::pin(async move {
+            let mut agent = req.extensions().get::<Agent>().cloned().unwrap();
+            let mut res: Response<ResBody> = inner.call(req).await?;
+            if let Some(notifications) = res
+                .extensions_mut()
+                .remove::<Vec<Box<dyn IntoPublishableMessage + Send + Sync + 'static>>>()
+            {
+                for notification in notifications {
+                    publish_message(&mut agent, notification)
+                }
+            }
+
+            println!("`MyMiddleware` received the response");
+
+            Ok(res)
+        })
     }
 }
 
