@@ -29,6 +29,7 @@ fn build_config() -> Config {
     let config = json!({
         "id": id,
         "agent_label": "alpha",
+        "http_addr": "0.0.0.0:1239",
         "broker_id": broker_id,
         "id_token": {
             "algorithm": "ES256",

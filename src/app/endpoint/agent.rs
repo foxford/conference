@@ -1,16 +1,12 @@
-
-
 use async_trait::async_trait;
 use axum::extract::{Extension, Path, Query};
 
-
-
 use serde::Deserialize;
-use svc_agent::mqtt::{ResponseStatus};
+use svc_agent::mqtt::ResponseStatus;
 
 use crate::{
     app::{
-        context::{AppContext, Context, GlobalContext},
+        context::{AppContext, Context},
         endpoint::prelude::*,
         http::AuthExtractor,
         metrics::HistogramExt,

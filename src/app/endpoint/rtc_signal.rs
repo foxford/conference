@@ -8,16 +8,14 @@ use crate::{
         service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
-    backend::janus::{
-        client::{
-            create_stream::{
-                CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction,
-                ReaderConfig, WriterConfig,
-            },
-            read_stream::{ReadStreamRequest, ReadStreamRequestBody, ReadStreamTransaction},
-            trickle::TrickleRequest,
-            Jsep, JsepType,
+    backend::janus::client::{
+        create_stream::{
+            CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction, ReaderConfig,
+            WriterConfig,
         },
+        read_stream::{ReadStreamRequest, ReadStreamRequestBody, ReadStreamTransaction},
+        trickle::TrickleRequest,
+        Jsep, JsepType,
     },
     db,
 };
@@ -29,9 +27,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::result::Result as StdResult;
 use svc_agent::{
-    mqtt::{
-        OutgoingResponse, ResponseStatus,
-    },
+    mqtt::{OutgoingResponse, ResponseStatus},
     Addressable,
 };
 
@@ -178,12 +174,6 @@ impl RequestHandler for CreateHandler {
                                 .read_stream(request, transaction)
                                 .await
                                 .error(AppErrorKind::BackendRequestFailed)?;
-                            Ok(Response::new(
-                                ResponseStatus::NO_CONTENT,
-                                json!({}),
-                                context.start_timestamp(),
-                                None,
-                            ))
                         } else {
                             current_span.record("intent", &"update");
 
@@ -270,13 +260,13 @@ impl RequestHandler for CreateHandler {
                                 .create_stream(request, transaction)
                                 .await
                                 .error(AppErrorKind::BackendRequestFailed)?;
-                            Ok(Response::new(
-                                ResponseStatus::NO_CONTENT,
-                                json!({}),
-                                context.start_timestamp(),
-                                None,
-                            ))
                         }
+                        Ok(Response::new(
+                            ResponseStatus::NO_CONTENT,
+                            json!({}),
+                            context.start_timestamp(),
+                            None,
+                        ))
                     }
                     JsepType::Answer => Err(anyhow!("sdp_type = 'answer' is not allowed"))
                         .error(AppErrorKind::InvalidSdpType)?,

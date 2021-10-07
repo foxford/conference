@@ -21,8 +21,7 @@ use svc_agent::{
     AccountId, AgentId,
 };
 use svc_authn::token::jws_compact::extract::decode_jws_compact_with_config;
-use tower::{layer::layer_fn, Layer, Service};
-use tracing_subscriber::registry::SpanData;
+use tower::{layer::layer_fn, Service};
 
 use super::{
     context::{AppContext, GlobalContext},

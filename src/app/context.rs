@@ -100,7 +100,7 @@ impl AppContext {
     }
 
     pub fn start_message(&self) -> AppMessageContext<'_, Self> {
-        AppMessageContext::new(&self, Utc::now())
+        AppMessageContext::new(self, Utc::now())
     }
 }
 

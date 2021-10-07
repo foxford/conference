@@ -56,7 +56,7 @@ impl Response {
         let response = helpers::build_response(
             self.status,
             payload,
-            &reqp,
+            reqp,
             self.start_timestamp,
             self.authz_time,
         );
