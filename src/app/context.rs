@@ -30,7 +30,6 @@ pub trait GlobalContext: Sync {
     fn db(&self) -> &Db;
     fn agent_id(&self) -> &AgentId;
     fn janus_clients(&self) -> Clients;
-    fn janus_topics(&self) -> &JanusTopics;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
     fn metrics(&self) -> Arc<Metrics>;
     fn get_conn(
@@ -63,7 +62,6 @@ pub struct AppContext {
     authz: Authz,
     db: Db,
     agent_id: AgentId,
-    janus_topics: JanusTopics,
     redis_pool: Option<RedisConnectionPool>,
     clients: Clients,
     metrics: Arc<Metrics>,
@@ -74,7 +72,6 @@ impl AppContext {
         config: Config,
         authz: Authz,
         db: Db,
-        janus_topics: JanusTopics,
         clients: Clients,
         metrics: Arc<Metrics>,
     ) -> Self {
@@ -85,7 +82,6 @@ impl AppContext {
             authz,
             db,
             agent_id,
-            janus_topics,
             redis_pool: None,
             clients,
             metrics,
@@ -119,10 +115,6 @@ impl GlobalContext for AppContext {
 
     fn agent_id(&self) -> &AgentId {
         &self.agent_id
-    }
-
-    fn janus_topics(&self) -> &JanusTopics {
-        &self.janus_topics
     }
 
     fn redis_pool(&self) -> &Option<RedisConnectionPool> {
@@ -171,10 +163,6 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.agent_id()
     }
 
-    fn janus_topics(&self) -> &JanusTopics {
-        self.global_context.janus_topics()
-    }
-
     fn redis_pool(&self) -> &Option<RedisConnectionPool> {
         self.global_context.redis_pool()
     }
@@ -195,22 +183,3 @@ impl<'a, C: GlobalContext> MessageContext for AppMessageContext<'a, C> {
 }
 
 impl<'a, C: GlobalContext> Context for AppMessageContext<'a, C> {}
-
-///////////////////////////////////////////////////////////////////////////////
-
-#[derive(Clone, Debug)]
-pub struct JanusTopics {
-    status_events_topic: String,
-}
-
-impl JanusTopics {
-    pub fn new(status_events_topic: &str) -> Self {
-        Self {
-            status_events_topic: status_events_topic.to_owned(),
-        }
-    }
-
-    pub fn status_events_topic(&self) -> &str {
-        &self.status_events_topic
-    }
-}

@@ -28,6 +28,13 @@ pub struct Config {
     #[serde(with = "humantime_serde")]
     pub orphaned_room_timeout: Duration,
     pub authn: svc_authn::jose::ConfigMap,
+    pub janus_registry: JanusRegistry,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct JanusRegistry {
+    pub bind_addr: SocketAddr,
+    pub token: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]

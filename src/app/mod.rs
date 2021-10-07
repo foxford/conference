@@ -5,14 +5,16 @@ use crate::{
         error::{Error as AppError, ErrorKind as AppErrorKind},
         http::build_router,
     },
-    backend::janus::{client_pool::Clients, JANUS_API_VERSION},
+    backend::janus::{
+        client_pool::Clients, online_handler::start_janus_reg_handler, JANUS_API_VERSION,
+    },
     config::{self, Config, KruonisConfig},
     db::ConnectionPool,
 };
 use anyhow::{Context as AnyhowContext, Result};
 
 use chrono::Utc;
-use context::{AppContext, GlobalContext, JanusTopics};
+use context::{AppContext, GlobalContext};
 use futures::StreamExt;
 use hyper::{
     service::{make_service_fn, service_fn},
@@ -73,7 +75,6 @@ pub async fn run(
         None,
     )
     .context("Error converting authz config to clients")?;
-
     // Sentry
     if let Some(sentry_config) = config.sentry.as_ref() {
         svc_error::extension::sentry::init(sentry_config);
@@ -83,7 +84,7 @@ pub async fn run(
     let metrics = crate::app::metrics::Metrics::new(&metrics_registry)?;
     let janus_metrics = crate::backend::janus::metrics::Metrics::new(&metrics_registry)?;
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::unbounded_channel();
-    let clients = Clients::new(ev_tx, config.janus_group.clone());
+    let clients = Clients::new(ev_tx, config.janus_group.clone(), db.clone());
     thread::spawn({
         let db = db.clone();
         let collect_interval = config.metrics.janus_metrics_collect_interval;
@@ -96,17 +97,21 @@ pub async fn run(
     ));
 
     // Subscribe to topics
-    let janus_topics = subscribe(&mut agent, &agent_id, &config)?;
+    subscribe(&mut agent, &agent_id, &config)?;
     // Context
     let metrics = Arc::new(metrics);
     let context = AppContext::new(
         config.clone(),
         authz,
         db.clone(),
-        janus_topics,
         clients.clone(),
         metrics.clone(),
     );
+    let reg_handler = tokio::spawn(start_janus_reg_handler(
+        config.janus_registry.clone(),
+        context.janus_clients(),
+        context.db().clone(),
+    ));
 
     let context = match redis_pool {
         Some(pool) => context.add_redis_pool(pool),
@@ -154,7 +159,7 @@ pub async fn run(
         .global_context()
         .janus_clients()
         .stop_polling();
-
+    reg_handler.abort();
     tokio::time::sleep(Duration::from_secs(3)).await;
     info!(
         requests_left = metrics.running_requests_total.get(),
@@ -207,7 +212,7 @@ fn handle_message(message: AgentNotification, message_handler: Arc<MessageHandle
     });
 }
 
-fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<JanusTopics> {
+fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<()> {
     let group = SharedGroup::new("loadbalancer", agent_id.as_account_id().clone());
 
     // Multicast requests
@@ -236,10 +241,6 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
         .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
         .context("Error subscribing to backend events topic")?;
 
-    let janus_status_events_topic = subscription
-        .subscription_topic(agent_id, API_VERSION)
-        .context("Error building janus events subscription topic")?;
-
     // Kruonis
     if let KruonisConfig {
         id: Some(ref kruonis_id),
@@ -249,7 +250,7 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<J
     }
 
     // Return Janus subscription topics
-    Ok(JanusTopics::new(&janus_status_events_topic))
+    Ok(())
 }
 
 fn unsubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> anyhow::Result<()> {

@@ -8,7 +8,6 @@ use uuid::Uuid;
 use crate::{
     backend::janus::client::HandleId,
     db,
-    db::rtc::Object as Rtc,
     schema::{janus_rtc_stream, rtc},
 };
 use derive_more::{Display, FromStr};
@@ -208,50 +207,6 @@ impl ListQuery {
 
         q.order_by(janus_rtc_stream::created_at.desc())
             .get_results(conn)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Default)]
-pub struct ListWithRtcQuery<'a> {
-    active: Option<bool>,
-    backend_id: Option<&'a AgentId>,
-}
-
-impl<'a> ListWithRtcQuery<'a> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn active(self, active: bool) -> Self {
-        Self {
-            active: Some(active),
-            ..self
-        }
-    }
-
-    pub fn backend_id(self, backend_id: &'a AgentId) -> Self {
-        Self {
-            backend_id: Some(backend_id),
-            ..self
-        }
-    }
-
-    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Rtc)>, Error> {
-        use diesel::{dsl::sql, prelude::*};
-
-        let mut q = janus_rtc_stream::table.inner_join(rtc::table).into_boxed();
-
-        match self.active {
-            None => (),
-            Some(true) => q = q.filter(sql(ACTIVE_SQL)),
-            Some(false) => q = q.filter(sql(&format!("not {}", ACTIVE_SQL))),
-        }
-
-        q.order_by(janus_rtc_stream::id)
-            .select((self::ALL_COLUMNS, super::rtc::ALL_COLUMNS))
-            .load(conn)
     }
 }
 

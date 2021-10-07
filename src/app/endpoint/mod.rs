@@ -1,13 +1,10 @@
 use std::result::Result as StdResult;
 
 pub(self) use crate::app::message_handler::MessageStream;
-use crate::{
-    app::{
-        context::Context,
-        error::Error as AppError,
-        message_handler::{EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler},
-    },
-    backend::janus,
+use crate::app::{
+    context::Context,
+    error::Error as AppError,
+    message_handler::{EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler},
 };
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
@@ -158,16 +155,12 @@ macro_rules! event_routes {
             event: &IncomingEvent<String>,
             topic: &str,
         ) -> Option<MessageStream> {
-            if topic == context.janus_topics().status_events_topic() {
-                Some(janus::handle_status_event::<C>(context, event).await)
-            } else {
                 match event.properties().label() {
                     $(
                         Some($l) => Some(<$h>::handle_envelope::<C>(context, event).await),
                     )*
                     _ => None,
                 }
-            }
         }
     }
 }
