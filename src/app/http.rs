@@ -7,7 +7,7 @@ use crate::app::{error::ErrorExt, message_handler::publish_message};
 use async_trait::async_trait;
 use axum::{
     extract::{FromRequest, RequestParts},
-    handler::{get, patch, post},
+    handler::{get, post},
     response::IntoResponse,
     routing::BoxRoute,
     AddExtensionLayer, Router,
@@ -33,28 +33,24 @@ pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router<BoxRoute> 
         .route("/rooms/:id/agents", get(endpoint::agent::list))
         .route(
             "/rooms/:id/configs/reader",
-            get(endpoint::agent_reader_config::read),
-        )
-        .route(
-            "/rooms/:id/configs/reader",
-            post(endpoint::agent_reader_config::update),
+            get(endpoint::agent_reader_config::read).post(endpoint::agent_reader_config::update),
         )
         .route(
             "/rooms/:id/configs/writer",
-            get(endpoint::agent_writer_config::read),
-        )
-        .route(
-            "/rooms/:id/configs/reader",
-            post(endpoint::agent_writer_config::update),
+            get(endpoint::agent_writer_config::read).post(endpoint::agent_writer_config::update),
         )
         .route("/rooms/:id/close", post(endpoint::room::close))
         .route("/rooms", post(endpoint::room::create))
         // .route("/rooms/:id/enter", post(endpoint::room::enter))
         // .route("/rooms/:id/leave", post(endpoint::room::leave))
-        .route("/rooms/:id", get(endpoint::room::read))
-        .route("/rooms/:id", patch(endpoint::room::update))
-        .route("/rooms/:id/rtcs", post(endpoint::rtc::create))
-        .route("/rooms/:id/rtcs", get(endpoint::rtc::list))
+        .route(
+            "/rooms/:id",
+            get(endpoint::room::read).patch(endpoint::room::update),
+        )
+        .route(
+            "/rooms/:id/rtcs",
+            get(endpoint::rtc::list).post(endpoint::rtc::create),
+        )
         .route("/rtcs/:id", get(endpoint::rtc::read))
         .route("/rtcs/:id/streams", post(endpoint::rtc::connect))
         .route("/rooms/:id/streams", get(endpoint::rtc_stream::list))
