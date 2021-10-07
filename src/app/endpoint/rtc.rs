@@ -1,5 +1,9 @@
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
+use axum::{
+    extract::{Extension, Path, Query},
+    Json,
+};
 use chrono::{Duration, Utc};
 use futures::stream;
 use serde::{Deserialize, Serialize};
@@ -16,10 +20,11 @@ use tracing::{warn, Span};
 
 use crate::{
     app::{
-        context::Context,
+        context::{AppContext, Context},
         endpoint,
         endpoint::prelude::*,
         handle_id::HandleId,
+        http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
     },
@@ -51,6 +56,22 @@ impl ConnectResponseData {
 #[derive(Debug, Deserialize)]
 pub struct CreateRequest {
     room_id: db::room::Id,
+}
+
+pub async fn create(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+) -> RequestResult {
+    let request = CreateRequest { room_id };
+    CreateHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct CreateHandler;
@@ -140,6 +161,22 @@ pub struct ReadRequest {
     id: db::rtc::Id,
 }
 
+pub async fn read(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(rtc_id): Path<db::rtc::Id>,
+) -> RequestResult {
+    let request = ReadRequest { id: rtc_id };
+    ReadHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
+
 pub struct ReadHandler;
 
 #[async_trait]
@@ -207,6 +244,40 @@ pub struct ListRequest {
     room_id: db::room::Id,
     offset: Option<i64>,
     limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListParams {
+    offset: Option<i64>,
+    limit: Option<i64>,
+}
+
+pub async fn list(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+    query: Option<Query<ListParams>>,
+) -> RequestResult {
+    let request = match query {
+        Some(x) => ListRequest {
+            room_id,
+            offset: x.offset,
+            limit: x.limit,
+        },
+        None => ListRequest {
+            room_id,
+            offset: None,
+            limit: None,
+        },
+    };
+    ListHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct ListHandler;
@@ -299,6 +370,32 @@ impl ConnectRequest {
     fn default_intent() -> ConnectIntent {
         ConnectIntent::Read
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Intent {
+    #[serde(default = "ConnectRequest::default_intent")]
+    intent: ConnectIntent,
+}
+
+pub async fn connect(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(rtc_id): Path<db::rtc::Id>,
+    Json(intent): Json<Intent>,
+) -> RequestResult {
+    let request = ConnectRequest {
+        id: rtc_id,
+        intent: intent.intent,
+    };
+    ConnectHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct ConnectHandler;

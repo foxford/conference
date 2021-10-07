@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
+use axum::extract::{Extension, Path};
 use futures::stream;
 use serde::Deserialize;
 use svc_agent::{
@@ -7,11 +8,11 @@ use svc_agent::{
     Authenticable,
 };
 
-use crate::app::endpoint::prelude::*;
 use crate::app::{
-    context::Context,
+    context::{AppContext, Context},
     service_utils::{RequestParams, Response},
 };
+use crate::app::{endpoint::prelude::*, http::AuthExtractor};
 use crate::db;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -19,6 +20,22 @@ use crate::db;
 #[derive(Debug, Deserialize)]
 pub struct ReadRequest {
     room_id: db::room::Id,
+}
+
+pub async fn read(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+) -> RequestResult {
+    let request = ReadRequest { room_id };
+    ReadHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct ReadHandler;

@@ -1,22 +1,15 @@
 use std::collections::HashMap;
 
-use crate::{
-    app::{
-        context::Context,
-        endpoint::prelude::*,
-        metrics::HistogramExt,
-        service_utils::{RequestParams, Response},
-    },
-    backend::janus::client::update_agent_reader_config::{
+use crate::{app::{context::{AppContext, Context}, endpoint::prelude::*, http::AuthExtractor, metrics::HistogramExt, service_utils::{RequestParams, Response}}, backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
         UpdateReaderConfigRequestBodyConfigItem,
-    },
-    db,
-    db::{rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},
-    diesel::Connection,
-};
+    }, db, db::{rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig}, diesel::Connection};
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
+use axum::{
+    extract::{Extension, Path},
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId};
 
@@ -78,6 +71,30 @@ impl StateConfigItem {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+#[derive(Debug, Deserialize)]
+pub struct StateConfigs {
+    configs: Vec<StateConfigItem>,
+}
+
+pub async fn update(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+    Json(configs): Json<StateConfigs>,
+) -> RequestResult {
+    let request = State {
+        room_id,
+        configs: configs.configs,
+    };
+    UpdateHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
 
 pub struct UpdateHandler;
 
@@ -223,6 +240,22 @@ impl RequestHandler for UpdateHandler {
 #[derive(Debug, Deserialize)]
 pub struct ReadRequest {
     room_id: db::room::Id,
+}
+
+pub async fn read(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+) -> RequestResult {
+    let request = ReadRequest { room_id };
+    ReadHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct ReadHandler;

@@ -14,7 +14,7 @@ use axum::{
         rejection::{ExtensionRejection, ExtensionsAlreadyExtracted, MissingExtension},
         Extension, FromRequest, Path, Query, RequestParts, TypedHeader,
     },
-    handler::get,
+    handler::{get, patch, post},
     response::IntoResponse,
     routing::BoxRoute,
     AddExtensionLayer, Router,
@@ -34,12 +34,40 @@ use uuid::Uuid;
 
 use super::{
     context::{AppContext, AppMessageContext, GlobalContext},
-    error, service_utils,
+    endpoint, error, service_utils,
 };
 
 pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router<BoxRoute> {
     let router = Router::new()
-        .route("/rooms/:id/agents", get(super::endpoint::agent::list))
+        .route("/rooms/:id/agents", get(endpoint::agent::list))
+        .route(
+            "/rooms/:id/configs/reader",
+            get(endpoint::agent_reader_config::read),
+        )
+        .route(
+            "/rooms/:id/configs/reader",
+            post(endpoint::agent_reader_config::update),
+        )
+        .route(
+            "/rooms/:id/configs/writer",
+            get(endpoint::agent_reader_config::read),
+        )
+        .route(
+            "/rooms/:id/configs/reader",
+            post(endpoint::agent_reader_config::update),
+        )
+        .route("/rooms/:id/close", post(endpoint::room::close))
+        .route("/rooms", post(endpoint::room::create))
+        // .route("/rooms/:id/enter", post(endpoint::room::enter))
+        // .route("/rooms/:id/leave", post(endpoint::room::leave))
+        .route("/rooms/:id", get(endpoint::room::read))
+        .route("/rooms/:id", patch(endpoint::room::update))
+        .route("/rooms/:id/rtcs", post(endpoint::rtc::create))
+        .route("/rooms/:id/rtcs", get(endpoint::rtc::list))
+        .route("/rtcs/:id", get(endpoint::rtc::read))
+        .route("/rtcs/:id/streams", post(endpoint::rtc::connect))
+        .route("/rooms/:id/streams", get(endpoint::rtc_stream::list))
+        .route("/system/vacuum", post(endpoint::system::vacuum))
         .layer(AddExtensionLayer::new(context))
         .layer(AddExtensionLayer::new(agent))
         .layer(layer_fn(|inner| NotificationsMiddleware { inner }));

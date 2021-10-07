@@ -1,5 +1,9 @@
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
+use axum::{
+    extract::{Extension, Path},
+    Json,
+};
 use chrono::{DateTime, Utc};
 use futures::stream;
 use serde::{Deserialize, Serialize};
@@ -17,8 +21,9 @@ use uuid::Uuid;
 
 use crate::{
     app::{
-        context::Context,
+        context::{AppContext, Context},
         endpoint::{prelude::*, subscription::CorrelationDataPayload},
+        http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
         API_VERSION,
@@ -58,6 +63,21 @@ pub struct CreateRequest {
     reserve: Option<i32>,
     tags: Option<JsonValue>,
     classroom_id: Option<Uuid>,
+}
+
+pub async fn create(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Json(request): Json<CreateRequest>,
+) -> RequestResult {
+    CreateHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct CreateHandler;
@@ -142,6 +162,22 @@ pub struct ReadRequest {
     id: db::room::Id,
 }
 
+pub async fn read(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+) -> RequestResult {
+    let request = ReadRequest { id: room_id };
+    ReadHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
+
 pub struct ReadHandler;
 
 #[async_trait]
@@ -198,6 +234,42 @@ pub struct UpdateRequest {
     classroom_id: Option<Uuid>,
     host: Option<AgentId>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateFields {
+    #[serde(default)]
+    #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
+    time: Option<db::room::Time>,
+    reserve: Option<Option<i32>>,
+    tags: Option<JsonValue>,
+    classroom_id: Option<Uuid>,
+    host: Option<AgentId>,
+}
+
+pub async fn update(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+    Json(request): Json<UpdateFields>,
+) -> RequestResult {
+    let request = UpdateRequest {
+        id: room_id,
+        time: request.time,
+        reserve: request.reserve,
+        tags: request.tags,
+        classroom_id: request.classroom_id,
+        host: request.host,
+    };
+    UpdateHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
+
 pub struct UpdateHandler;
 
 #[async_trait]
@@ -342,6 +414,23 @@ impl RequestHandler for UpdateHandler {
 pub struct CloseRequest {
     id: db::room::Id,
 }
+
+pub async fn close(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+) -> RequestResult {
+    let request = CloseRequest { id: room_id };
+    CloseHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
+
 pub struct CloseHandler;
 
 #[async_trait]

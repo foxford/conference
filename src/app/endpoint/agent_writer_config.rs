@@ -1,22 +1,15 @@
 use std::collections::HashMap;
 
-use crate::{
-    app::{
-        context::Context,
-        endpoint::prelude::*,
-        metrics::HistogramExt,
-        service_utils::{RequestParams, Response},
-    },
-    authz::AuthzObject,
-    backend::janus::client::update_agent_writer_config::{
+use crate::{app::{context::{AppContext, Context}, endpoint::prelude::*, http::AuthExtractor, metrics::HistogramExt, service_utils::{RequestParams, Response}}, authz::AuthzObject, backend::janus::client::update_agent_writer_config::{
         UpdateWriterConfigRequest, UpdateWriterConfigRequestBody,
         UpdateWriterConfigRequestBodyConfigItem,
-    },
-    db,
-    db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig},
-};
+    }, db, db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig}};
 use anyhow::anyhow;
 use async_trait::async_trait;
+use axum::{
+    extract::{Extension, Path},
+    Json,
+};
 use chrono::{DateTime, Utc};
 use diesel::Connection;
 use serde::{Deserialize, Serialize};
@@ -125,6 +118,35 @@ impl StateConfigItem {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Deserialize)]
+pub struct StateConfigs {
+    configs: Vec<StateConfigItem>,
+    #[serde(with = "chrono::serde::ts_nanoseconds_option")]
+    #[serde(default)]
+    updated_at_ns: Option<DateTime<Utc>>,
+}
+
+pub async fn update(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+    Json(configs): Json<StateConfigs>,
+) -> RequestResult {
+    let request = State {
+        room_id,
+        configs: configs.configs,
+        updated_at_ns: configs.updated_at_ns,
+    };
+    UpdateHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
 
 pub struct UpdateHandler;
 
@@ -318,6 +340,22 @@ impl RequestHandler for UpdateHandler {
 #[derive(Debug, Deserialize)]
 pub struct ReadRequest {
     room_id: db::room::Id,
+}
+
+pub async fn read(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+) -> RequestResult {
+    let request = ReadRequest { room_id };
+    ReadHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct ReadHandler;

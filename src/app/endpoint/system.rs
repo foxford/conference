@@ -1,8 +1,9 @@
 use crate::{
     app::{
-        context::Context,
+        context::{AppContext, Context},
         endpoint::prelude::*,
         error::Error as AppError,
+        http::AuthExtractor,
         service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
@@ -19,6 +20,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use async_trait::async_trait;
+use axum::extract::Extension;
 use chrono::Utc;
 use futures::stream;
 use serde::{Deserialize, Serialize};
@@ -67,6 +69,20 @@ struct ClosedRoomNotification {
 
 #[derive(Debug, Deserialize)]
 pub struct VacuumRequest {}
+pub async fn vacuum(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+) -> RequestResult {
+    let request = VacuumRequest {};
+    VacuumHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
 
 pub struct VacuumHandler;
 

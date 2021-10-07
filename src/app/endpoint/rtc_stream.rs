@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
+use axum::extract::{Extension, Path, Query};
 use chrono::{DateTime, Utc};
 use futures::stream;
 use serde::Deserialize;
@@ -9,16 +10,7 @@ use svc_agent::mqtt::{
     ResponseStatus, ShortTermTimingProperties,
 };
 
-use crate::{
-    app::{
-        context::Context,
-        endpoint::prelude::*,
-        metrics::HistogramExt,
-        service_utils::{RequestParams, Response},
-    },
-    authz::AuthzObject,
-    db,
-};
+use crate::{app::{context::{AppContext, Context}, endpoint::prelude::*, http::AuthExtractor, metrics::HistogramExt, service_utils::{RequestParams, Response}}, authz::AuthzObject, db};
 use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -34,6 +26,48 @@ pub struct ListRequest {
     time: Option<db::room::Time>,
     offset: Option<i64>,
     limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListParams {
+    rtc_id: Option<db::rtc::Id>,
+    #[serde(default)]
+    #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
+    time: Option<db::room::Time>,
+    offset: Option<i64>,
+    limit: Option<i64>,
+}
+
+pub async fn list(
+    Extension(ctx): Extension<AppContext>,
+    AuthExtractor(agent_id): AuthExtractor,
+    Path(room_id): Path<db::room::Id>,
+    query: Option<Query<ListParams>>,
+) -> RequestResult {
+    let request = match query {
+        Some(x) => ListRequest {
+            room_id,
+            rtc_id: x.rtc_id,
+            time: x.time,
+            offset: x.offset,
+            limit: x.limit,
+        },
+        None => ListRequest {
+            room_id,
+            rtc_id: None,
+            time: None,
+            offset: None,
+            limit: None,
+        },
+    };
+    ListHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct ListHandler;
