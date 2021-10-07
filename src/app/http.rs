@@ -71,6 +71,7 @@ pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router<BoxRoute> 
         .layer(AddExtensionLayer::new(context))
         .layer(AddExtensionLayer::new(agent))
         .layer(layer_fn(|inner| NotificationsMiddleware { inner }));
+    let router = Router::new().route("/api/v1", router);
     router.boxed()
 }
 
