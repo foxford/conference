@@ -175,11 +175,11 @@ impl<'a> ListQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub struct ListWithReadyRecordingQuery {
+pub struct ListWithRecordingQuery {
     room_id: db::room::Id,
 }
 
-impl ListWithReadyRecordingQuery {
+impl ListWithRecordingQuery {
     pub fn new(room_id: db::room::Id) -> Self {
         Self { room_id }
     }

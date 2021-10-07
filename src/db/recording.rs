@@ -76,8 +76,8 @@ impl Object {
         &self.segments
     }
 
-    pub fn status(&self) -> &Status {
-        &self.status
+    pub fn status(&self) -> Status {
+        self.status
     }
 
     /// Get a reference to the object's janus dumps uris.
