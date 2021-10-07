@@ -36,6 +36,7 @@ fn build_config() -> Config {
             "key": "data/keys/svc.private_key.p8.der.sample",
         },
         "authz": {},
+        "authn": {},
         "mqtt": {
             "uri": "mqtt://0.0.0.0:1883",
             "clean_session": false,
