@@ -81,8 +81,6 @@ use super::service_utils::{RequestParams, Response};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CorrelationData {
-    SubscriptionCreate(subscription::CorrelationDataPayload),
-    SubscriptionDelete(subscription::CorrelationDataPayload),
     MessageUnicast(message::CorrelationDataPayload),
 }
 
@@ -111,6 +109,7 @@ macro_rules! response_routes {
             let corr_data = match CorrelationData::parse(corr_data) {
                 Ok(corr_data) => corr_data,
                 Err(err) => {
+                    let _ = dbg!(context.dispatcher().response(IncomingResponse::convert::<serde_json::Value>(response.clone()).unwrap()));
                     warn!(
                         ?err,
                         %corr_data,
@@ -129,8 +128,6 @@ macro_rules! response_routes {
 }
 
 response_routes!(
-    SubscriptionCreate => subscription::CreateResponseHandler,
-    SubscriptionDelete => subscription::DeleteResponseHandler,
     MessageUnicast => message::UnicastResponseHandler
 );
 

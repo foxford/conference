@@ -160,6 +160,10 @@ impl GlobalContext for TestContext {
     fn wait(&self) -> &Wait {
         todo!()
     }
+
+    fn dispatcher(&self) -> &Arc<svc_agent::request::Dispatcher> {
+        todo!()
+    }
 }
 
 impl MessageContext for TestContext {

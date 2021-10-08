@@ -7,7 +7,7 @@ use diesel::{
 };
 use futures::{future::BoxFuture, FutureExt};
 
-use svc_agent::AgentId;
+use svc_agent::{request::Dispatcher, AgentId};
 
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 
@@ -33,6 +33,7 @@ pub trait GlobalContext: Sync {
     fn janus_clients(&self) -> Clients;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
     fn wait(&self) -> &Wait;
+    fn dispatcher(&self) -> &Arc<Dispatcher>;
     fn metrics(&self) -> Arc<Metrics>;
     fn get_conn(
         &self,
@@ -68,6 +69,7 @@ pub struct AppContext {
     clients: Clients,
     metrics: Arc<Metrics>,
     wait: Wait,
+    dispatcher: Arc<Dispatcher>,
 }
 
 impl AppContext {
@@ -78,6 +80,7 @@ impl AppContext {
         clients: Clients,
         metrics: Arc<Metrics>,
         wait: Wait,
+        dispatcher: Arc<Dispatcher>,
     ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
 
@@ -90,6 +93,7 @@ impl AppContext {
             clients,
             metrics,
             wait,
+            dispatcher,
         }
     }
 
@@ -136,6 +140,10 @@ impl GlobalContext for AppContext {
 
     fn wait(&self) -> &Wait {
         &self.wait
+    }
+
+    fn dispatcher(&self) -> &Arc<Dispatcher> {
+        &self.dispatcher
     }
 }
 
@@ -186,6 +194,10 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 
     fn wait(&self) -> &Wait {
         self.global_context.wait()
+    }
+
+    fn dispatcher(&self) -> &Arc<Dispatcher> {
+        self.global_context.dispatcher()
     }
 }
 

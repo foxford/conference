@@ -15,10 +15,7 @@ pub struct ReadStreamRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ReadStreamTransaction {
-    pub reqp: IncomingRequestProperties,
-    pub start_timestamp: DateTime<Utc>,
-}
+pub struct ReadStreamTransaction;
 
 #[derive(Serialize, Debug)]
 pub struct ReadStreamRequestBody {

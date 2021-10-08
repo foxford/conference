@@ -155,7 +155,8 @@ async fn handle_event_impl<C: Context>(
                             //     as MessageStream)
                             Ok(Box::new(stream::empty()) as MessageStream)
                         })
-                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
+                        //todo error
+                        .or_else(|err| Ok(Box::new(stream::empty()) as MessageStream))
                 }
                 Some(TransactionKind::ReadStream(tn)) => {
                     let jsep = resp.jsep;
@@ -193,7 +194,6 @@ async fn handle_event_impl<C: Context>(
                             let wait = context.wait().clone();
                             tokio::spawn(async move {
                                 let r = wait.put_value(k, jsep).await;
-                                dbg!(r);
                             });
                             // let resp = endpoint::rtc_signal::CreateResponse::unicast(
                             //     endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),
@@ -213,7 +213,8 @@ async fn handle_event_impl<C: Context>(
                             //     as MessageStream)
                             Ok(Box::new(stream::empty()) as MessageStream)
                         })
-                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
+                        //todo error
+                        .or_else(|err| Ok(Box::new(stream::empty()) as MessageStream))
                 }
                 Some(TransactionKind::UpdateReaderConfig) => Ok(Box::new(stream::empty())),
                 Some(TransactionKind::UpdateWriterConfig) => Ok(Box::new(stream::empty())),

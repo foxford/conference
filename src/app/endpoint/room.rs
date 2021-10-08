@@ -5,12 +5,17 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
+use std::result::Result as StdResult;
 
+use diesel::PgConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::{ops::Bound, sync::Arc};
 use svc_agent::{
-    mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
+    mqtt::{
+        OutgoingMessage, OutgoingRequest, OutgoingRequestProperties, ResponseStatus,
+        ShortTermTimingProperties, SubscriptionTopic,
+    },
     Addressable, AgentId, Subscription,
 };
 
@@ -19,15 +24,22 @@ use uuid::Uuid;
 use crate::{
     app::{
         context::{AppContext, Context},
-        endpoint::{prelude::*, subscription::CorrelationDataPayload},
+        endpoint::{
+            prelude::*,
+            subscription::{CorrelationDataPayload, RoomEnterLeaveEvent},
+        },
         http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
         API_VERSION,
     },
     authz::AuthzObject,
+    backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
     db,
-    db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
+    db::{
+        room::{FindQueryable, RoomBackend},
+        rtc::SharingPolicy as RtcSharingPolicy,
+    },
 };
 use tracing_attributes::instrument;
 
@@ -516,6 +528,8 @@ impl RequestHandler for CloseHandler {
 ///////////////////////////////////////////////////////////////////////////////
 
 pub type EnterRequest = ReadRequest;
+#[derive(Debug, Deserialize)]
+pub struct CreateDeleteResponsePayload {}
 pub struct EnterHandler;
 
 #[async_trait]
@@ -529,7 +543,6 @@ impl RequestHandler for EnterHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let mqtt_params = reqp.as_mqtt_params()?;
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking(move || {
             helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::NotClosed, &conn)
@@ -537,8 +550,9 @@ impl RequestHandler for EnterHandler {
         .await?;
 
         // Authorize subscribing to the room's events.
-        let room_id = room.id().to_string();
-        let object = AuthzObject::new(&["rooms", &room_id]).into();
+        let room_id = room.id();
+        let room_id_str = room_id.to_string();
+        let object = AuthzObject::new(&["rooms", &room_id_str]).into();
 
         let authz_time = context
             .authz()
@@ -550,13 +564,13 @@ impl RequestHandler for EnterHandler {
         let conn = context.get_conn().await?;
         crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
-            move || db::agent::InsertQuery::new(&agent_id, room.id()).execute(&conn)
+            move || db::agent::InsertQuery::new(&agent_id, room_id).execute(&conn)
         })
         .await?;
 
         // Send dynamic subscription creation request to the broker.
         let subject = reqp.as_agent_id().to_owned();
-        let object = vec!["rooms", &room_id, "events"];
+        let object = vec!["rooms", &room_id_str, "events"];
         let object = object
             .into_iter()
             .map(|s| s.to_owned())
@@ -570,28 +584,54 @@ impl RequestHandler for EnterHandler {
             .context("Failed to build response topic")
             .error(AppErrorKind::BrokerRequestFailed)?;
 
-        let corr_data_payload =
-            CorrelationDataPayload::new(mqtt_params.to_owned(), subject, object);
-
-        let corr_data = CorrelationData::SubscriptionCreate(corr_data_payload)
-            .dump()
-            .context("Failed to dump correlation data")
-            .error(AppErrorKind::BrokerRequestFailed)?;
-
         let mut timing = ShortTermTimingProperties::until_now(context.start_timestamp());
         timing.set_authorization_time(authz_time);
 
-        let props =
-            mqtt_params.to_request("subscription.create", &response_topic, &corr_data, timing);
+        let props = OutgoingRequestProperties::new(
+            "subscription.create",
+            &response_topic,
+            &Uuid::new_v4().to_string(),
+            timing,
+        );
+
         let to = &context.config().broker_id;
-        let outgoing_request = OutgoingRequest::multicast(payload, props, to, API_VERSION);
+        let msg = if let OutgoingMessage::Request(msg) =
+            OutgoingRequest::multicast(payload, props, to, API_VERSION)
+        {
+            msg
+        } else {
+            unreachable!()
+        };
+        let dispatcher = context
+            .dispatcher()
+            .request::<_, CreateDeleteResponsePayload>(msg)
+            .await;
+
+        let conn = context.get_conn().await?;
+        crate::util::spawn_blocking(move || {
+            if room.host() == Some(&subject) {
+                db::orphaned_room::remove_room(room_id, &conn)?;
+            }
+            // Update agent state to `ready`.
+            db::agent::UpdateQuery::new(&subject, room_id)
+                .status(db::agent::Status::Ready)
+                .execute(&conn)?;
+            Ok::<_, diesel::result::Error>(())
+        })
+        .await?;
         let mut response = Response::new(
             ResponseStatus::OK,
             json!({}),
             context.start_timestamp(),
             None,
         );
-        response.add_message(Box::new(outgoing_request));
+
+        response.add_notification(
+            "room.enter",
+            &format!("rooms/{}/events", room_id),
+            RoomEnterLeaveEvent::new(room_id, reqp.as_agent_id().to_owned()),
+            context.start_timestamp(),
+        );
         context
             .metrics()
             .request_duration
@@ -618,7 +658,6 @@ impl RequestHandler for LeaveHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let mqtt_params = reqp.as_mqtt_params()?;
         let conn = context.get_conn().await?;
         let (room, presence) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
@@ -644,8 +683,9 @@ impl RequestHandler for LeaveHandler {
 
         // Send dynamic subscription deletion request to the broker.
         let subject = reqp.as_agent_id().to_owned();
-        let room_id = room.id().to_string();
-        let object = vec![String::from("rooms"), room_id, String::from("events")];
+        let room_id = room.id();
+        let room_id_str = room_id.to_string();
+        let object = vec![String::from("rooms"), room_id_str, String::from("events")];
         let payload = SubscriptionRequest::new(subject.clone(), object.clone());
 
         let broker_id = AgentId::new("nevermind", context.config().broker_id.to_owned());
@@ -655,35 +695,150 @@ impl RequestHandler for LeaveHandler {
             .context("Failed to build response topic")
             .error(AppErrorKind::BrokerRequestFailed)?;
 
-        let corr_data_payload =
-            CorrelationDataPayload::new(mqtt_params.to_owned(), subject, object);
-
-        let corr_data = CorrelationData::SubscriptionDelete(corr_data_payload)
-            .dump()
-            .context("Failed to dump correlation data")
-            .error(AppErrorKind::BrokerRequestFailed)?;
-
         let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
-
-        let props =
-            mqtt_params.to_request("subscription.delete", &response_topic, &corr_data, timing);
-        let to = &context.config().broker_id;
-        let outgoing_request = OutgoingRequest::multicast(payload, props, to, API_VERSION);
-        let mut response = Response::new(
-            ResponseStatus::OK,
-            json!({}),
-            context.start_timestamp(),
-            None,
+        let props = OutgoingRequestProperties::new(
+            "subscription.delete",
+            &response_topic,
+            &Uuid::new_v4().to_string(),
+            timing,
         );
-        response.add_message(Box::new(outgoing_request));
+
+        let to = &context.config().broker_id;
+        let msg = if let OutgoingMessage::Request(msg) =
+            OutgoingRequest::multicast(payload, props, to, API_VERSION)
+        {
+            msg
+        } else {
+            unreachable!()
+        };
+        let dispatcher = context
+            .dispatcher()
+            .request::<_, CreateDeleteResponsePayload>(msg)
+            .await;
+
+        let maybe_left = leave_room(context, reqp.as_agent_id(), room_id).await?;
         context
             .metrics()
             .request_duration
             .room_leave
             .observe_timestamp(context.start_timestamp());
 
-        Ok(response)
+        if maybe_left {
+            let mut response = Response::new(
+                ResponseStatus::OK,
+                json!({}),
+                context.start_timestamp(),
+                None,
+            );
+
+            response.add_notification(
+                "room.leave",
+                &format!("rooms/{}/events", room_id),
+                RoomEnterLeaveEvent::new(room_id, reqp.as_agent_id().to_owned()),
+                context.start_timestamp(),
+            );
+            Ok(response)
+        } else {
+            Err(anyhow!("The agent is not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
+        }
     }
+}
+
+#[instrument(skip(context))]
+async fn leave_room<C: Context>(
+    context: &mut C,
+    agent_id: &AgentId,
+    room_id: db::room::Id,
+) -> StdResult<bool, AppError> {
+    let conn = context.get_conn().await?;
+    let backends = crate::util::spawn_blocking({
+        let agent_id = agent_id.clone();
+
+        move || {
+            let row_count = db::agent::DeleteQuery::new()
+                .agent_id(&agent_id)
+                .room_id(room_id)
+                .execute(&conn)?;
+
+            if row_count != 1 {
+                return Ok::<_, AppError>(None);
+            }
+
+            make_orphaned_if_host_left(room_id, &agent_id, &conn)?;
+
+            // `agent.leave` requests to Janus instances that host active streams in this room.
+            let streams = db::janus_rtc_stream::ListQuery::new()
+                .room_id(room_id)
+                .active(true)
+                .execute(&conn)?;
+
+            let mut maybe_stopped_rtc_id = None;
+
+            for stream in streams.iter() {
+                // If the agent is a publisher.
+                if stream.sent_by() == &agent_id {
+                    // Stop the stream.
+                    db::janus_rtc_stream::stop(stream.id(), &conn)?;
+                    maybe_stopped_rtc_id = Some(stream.rtc_id());
+                }
+            }
+
+            // Disconnect stream readers since the stream has gone.
+            if let Some(rtc_id) = maybe_stopped_rtc_id {
+                db::agent_connection::BulkDisconnectByRtcQuery::new(rtc_id).execute(&conn)?;
+            }
+
+            // Send agent.leave requests to those backends where the agent is connected to.
+            let mut backend_ids = streams
+                .iter()
+                .map(|stream| stream.backend_id())
+                .collect::<Vec<&AgentId>>();
+
+            backend_ids.dedup();
+
+            let backends = db::janus_backend::ListQuery::new()
+                .ids(&backend_ids[..])
+                .execute(&conn)?;
+            Ok::<_, AppError>(Some(backends))
+        }
+    })
+    .await?;
+
+    match backends {
+        Some(backends) => {
+            let mut leave_tasks = Vec::new();
+            for backend in backends {
+                let request = AgentLeaveRequest {
+                    body: AgentLeaveRequestBody::new(agent_id.to_owned()),
+                    handle_id: backend.handle_id(),
+                    session_id: backend.session_id(),
+                };
+                let client = context
+                    .janus_clients()
+                    .get_or_insert(&backend)
+                    .error(AppErrorKind::BackendClientCreationFailed)?;
+                leave_tasks.push(async move { client.agent_leave(request).await });
+            }
+            futures::future::try_join_all(leave_tasks)
+                .await
+                .error(AppErrorKind::BackendRequestFailed)?;
+
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+fn make_orphaned_if_host_left(
+    room_id: db::room::Id,
+    agent_left: &AgentId,
+    connection: &PgConnection,
+) -> StdResult<(), diesel::result::Error> {
+    let room = db::room::FindQuery::new(room_id).execute(connection)?;
+    if room.as_ref().and_then(|x| x.host()) == Some(agent_left) {
+        db::orphaned_room::upsert_room(room_id, Utc::now(), connection)?;
+    }
+    Ok(())
 }
 
 ///////////////////////////////////////////////////////////////////////////////

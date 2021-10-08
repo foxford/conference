@@ -24,12 +24,13 @@ use async_trait::async_trait;
 use chrono::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
+use serde_json::Value as JsonValue;
 use std::result::Result as StdResult;
 use svc_agent::{
     mqtt::{OutgoingResponse, ResponseStatus},
     Addressable,
 };
+use uuid::Uuid;
 
 use tracing::Span;
 use tracing_attributes::instrument;
@@ -79,7 +80,6 @@ impl RequestHandler for CreateHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let mqtt_params = reqp.as_mqtt_params()?;
         // Validate RTC and room presence.
         let conn = context.get_conn().await?;
         let (room, rtc, backend) =crate::util::spawn_blocking({
@@ -163,10 +163,7 @@ impl RequestHandler for CreateHandler {
                                 session_id: payload.handle_id.janus_session_id(),
                                 jsep: payload.jsep,
                             };
-                            let transaction = ReadStreamTransaction {
-                                reqp: mqtt_params.clone(),
-                                start_timestamp: context.start_timestamp(),
-                            };
+                            let transaction = ReadStreamTransaction;
                             context
                                 .janus_clients()
                                 .get_or_insert(&backend)
@@ -249,10 +246,7 @@ impl RequestHandler for CreateHandler {
                                 session_id: payload.handle_id.janus_session_id(),
                                 jsep: payload.jsep,
                             };
-                            let transaction = CreateStreamTransaction {
-                                reqp: mqtt_params.clone(),
-                                start_timestamp: context.start_timestamp(),
-                            };
+                            let transaction = CreateStreamTransaction;
                             context
                                 .janus_clients()
                                 .get_or_insert(&backend)
@@ -267,7 +261,6 @@ impl RequestHandler for CreateHandler {
                             .wait_key(payload.handle_id.rtc_stream_id().to_string())
                             .await
                             .error(AppErrorKind::InvalidSdpType)?;
-                        dbg!(&jsep);
                         Ok(Response::new(
                             ResponseStatus::OK,
                             endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),

@@ -30,6 +30,7 @@ use svc_agent::{
         Agent, AgentBuilder, AgentNotification, ConnectionMode, OutgoingRequest,
         OutgoingRequestProperties, QoS, ShortTermTimingProperties, SubscriptionTopic,
     },
+    request::Dispatcher,
     AccountId, AgentId, Authenticable, SharedGroup, Subscription,
 };
 use svc_authn::token::jws_compact;
@@ -102,6 +103,7 @@ pub async fn run(
     // Context
     let metrics = Arc::new(metrics);
     let wait = Wait::new(redis_pool.clone(), Duration::from_secs(5));
+    let dispatcher = Arc::new(Dispatcher::new(&agent));
     let context = AppContext::new(
         config.clone(),
         authz,
@@ -109,6 +111,7 @@ pub async fn run(
         clients.clone(),
         metrics.clone(),
         wait,
+        dispatcher,
     );
     let reg_handler = tokio::spawn(start_janus_reg_handler(
         config.janus_registry.clone(),
