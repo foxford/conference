@@ -267,7 +267,7 @@ impl RequestHandler for CreateHandler {
                             .wait_key(payload.handle_id.rtc_stream_id().to_string())
                             .await
                             .error(AppErrorKind::InvalidSdpType)?;
-                        dbg!(jsep);
+                        dbg!(&jsep);
                         Ok(Response::new(
                             ResponseStatus::OK,
                             endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),

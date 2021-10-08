@@ -192,7 +192,8 @@ async fn handle_event_impl<C: Context>(
                             // ShortTermTimingProperties::until_now(context.start_timestamp());
                             let wait = context.wait().clone();
                             tokio::spawn(async move {
-                                let _ = wait.put_value(k, jsep).await;
+                                let r = wait.put_value(k, jsep).await;
+                                dbg!(r);
                             });
                             // let resp = endpoint::rtc_signal::CreateResponse::unicast(
                             //     endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),

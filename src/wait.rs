@@ -27,8 +27,8 @@ impl Wait {
         let wait_timeout = self.wait_timeout;
         Ok(tokio::task::spawn_blocking(move || {
             let mut conn = client.get()?;
-            let bytes: Vec<u8> = conn.blpop(k, wait_timeout.as_secs() as usize)?;
-            Ok::<_, anyhow::Error>(serde_json::from_slice(&bytes)?)
+            let bytes: String = dbg!(conn.blpop(k, wait_timeout.as_secs() as usize)?);
+            Ok::<_, anyhow::Error>(serde_json::from_str(&bytes)?)
         })
         .await??)
     }
@@ -40,7 +40,7 @@ impl Wait {
     {
         let client = self.redis_client.clone();
         Ok(tokio::task::spawn_blocking(move || {
-            let serialized = serde_json::to_vec(&value)?;
+            let serialized = serde_json::to_string(&value)?;
             let mut conn = client.get()?;
             conn.lpush(k, serialized)?;
             Ok::<_, anyhow::Error>(())
