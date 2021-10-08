@@ -15,6 +15,7 @@ use crate::{
     backend::janus::{client::IncomingEvent, client_pool::Clients},
     config::Config,
     db::ConnectionPool as Db,
+    wait::Wait,
 };
 
 use super::{authz::TestAuthz, db::TestDb, SVC_AUDIENCE, USR_AUDIENCE};
@@ -154,6 +155,10 @@ impl GlobalContext for TestContext {
     fn metrics(&self) -> Arc<Metrics> {
         let registry = Registry::new();
         Arc::new(Metrics::new(&registry).unwrap())
+    }
+
+    fn wait(&self) -> &Wait {
+        todo!()
     }
 }
 

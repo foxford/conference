@@ -442,6 +442,7 @@ dependencies = [
  "openssl",
  "prometheus",
  "prometheus-static-metric",
+ "r2d2_redis",
  "rand 0.8.4",
  "reqwest",
  "sentry",

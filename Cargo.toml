@@ -55,6 +55,7 @@ hyper = { version = "0.14", features = [ "server" ]}
 axum = { version = "0.2", features = ["headers"] }
 headers = "0.3"
 tower = "0.4"
+r2d2_redis = "0.14"
 
 [dev-dependencies]
 diesel_migrations = "1"
