@@ -53,16 +53,18 @@ impl Response {
         >,
         error::Error,
     > {
-        let payload = self.payload.error(error::ErrorKind::InvalidPayload)?;
-        let response = helpers::build_response(
-            self.status,
-            payload,
-            reqp,
-            self.start_timestamp,
-            self.authz_time,
-        );
         let mut notifications = self.notifications;
-        notifications.push(response);
+        if self.status != StatusCode::NO_CONTENT {
+            let payload = self.payload.error(error::ErrorKind::InvalidPayload)?;
+            let response = helpers::build_response(
+                self.status,
+                payload,
+                reqp,
+                self.start_timestamp,
+                self.authz_time,
+            );
+            notifications.push(response);
+        }
         Ok(Box::new(stream::iter(notifications)))
     }
 
