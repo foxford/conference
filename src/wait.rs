@@ -27,7 +27,8 @@ impl Wait {
         let wait_timeout = self.wait_timeout;
         Ok(tokio::task::spawn_blocking(move || {
             let mut conn = client.get()?;
-            let bytes: String = dbg!(conn.blpop(k, wait_timeout.as_secs() as usize)?);
+            let (_, bytes): (String, String) =
+                dbg!(conn.blpop(k, wait_timeout.as_secs() as usize)?);
             Ok::<_, anyhow::Error>(serde_json::from_str(&bytes)?)
         })
         .await??)
