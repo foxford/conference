@@ -261,9 +261,15 @@ impl RequestHandler for CreateHandler {
                                 .await
                                 .error(AppErrorKind::BackendRequestFailed)?;
                         }
+                        let wait = context.wait();
+                        //todo
+                        let jsep: JsonValue = wait
+                            .wait_key(payload.handle_id.rtc_stream_id().to_string())
+                            .await
+                            .error(AppErrorKind::InvalidSdpType)?;
                         Ok(Response::new(
-                            ResponseStatus::NO_CONTENT,
-                            json!({}),
+                            ResponseStatus::OK,
+                            endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),
                             context.start_timestamp(),
                             None,
                         ))

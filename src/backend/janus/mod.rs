@@ -103,6 +103,12 @@ async fn handle_event_impl<C: Context>(
                 Some(TransactionKind::AgentLeave) => Ok(Box::new(stream::empty())),
                 Some(TransactionKind::CreateStream(tn)) => {
                     let jsep = resp.jsep;
+                    let k = resp
+                        .opaque_id
+                        .as_ref()
+                        .expect("Must be some")
+                        .stream_id
+                        .to_string();
                     resp.plugindata
                         .data
                         .as_ref()
@@ -124,31 +130,41 @@ async fn handle_event_impl<C: Context>(
                             let jsep = jsep
                                 .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
                                 .error(AppErrorKind::MessageParsingFailed)?;
+                            let wait = context.wait().clone();
+                            tokio::spawn(async move {
+                                let _ = wait.put_value(k, jsep).await;
+                            });
+                            // let timing =
+                            //     ShortTermTimingProperties::until_now(context.start_timestamp());
 
-                            let timing =
-                                ShortTermTimingProperties::until_now(context.start_timestamp());
+                            // let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                            //     endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),
+                            //     tn.reqp.to_response(ResponseStatus::OK, timing),
+                            //     tn.reqp.as_agent_id(),
+                            //     JANUS_API_VERSION,
+                            // );
 
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),
-                                tn.reqp.to_response(ResponseStatus::OK, timing),
-                                tn.reqp.as_agent_id(),
-                                JANUS_API_VERSION,
-                            );
-
-                            let boxed_resp = Box::new(resp)
-                                as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-                            context
-                                .metrics()
-                                .request_duration
-                                .rtc_signal_create
-                                .observe_timestamp(tn.start_timestamp);
-                            Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
-                                as MessageStream)
+                            // let boxed_resp = Box::new(resp)
+                            //     as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
+                            // context
+                            //     .metrics()
+                            //     .request_duration
+                            //     .rtc_signal_create
+                            //     .observe_timestamp(tn.start_timestamp);
+                            // Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
+                            //     as MessageStream)
+                            Ok(Box::new(stream::empty()) as MessageStream)
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
                 }
                 Some(TransactionKind::ReadStream(tn)) => {
                     let jsep = resp.jsep;
+                    let k = resp
+                        .opaque_id
+                        .as_ref()
+                        .expect("Must be some")
+                        .stream_id
+                        .to_string();
                     resp.plugindata
                         .data
                         .as_ref()
@@ -172,25 +188,29 @@ async fn handle_event_impl<C: Context>(
                                 .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
                                 .error(AppErrorKind::MessageParsingFailed)?;
 
-                            let timing =
-                                ShortTermTimingProperties::until_now(context.start_timestamp());
+                            // let timing =
+                            // ShortTermTimingProperties::until_now(context.start_timestamp());
+                            let wait = context.wait().clone();
+                            tokio::spawn(async move {
+                                let _ = wait.put_value(k, jsep).await;
+                            });
+                            // let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                            //     endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),
+                            //     tn.reqp.to_response(ResponseStatus::OK, timing),
+                            //     tn.reqp.as_agent_id(),
+                            //     JANUS_API_VERSION,
+                            // );
 
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),
-                                tn.reqp.to_response(ResponseStatus::OK, timing),
-                                tn.reqp.as_agent_id(),
-                                JANUS_API_VERSION,
-                            );
-
-                            let boxed_resp = Box::new(resp)
-                                as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-                            context
-                                .metrics()
-                                .request_duration
-                                .rtc_signal_read
-                                .observe_timestamp(tn.start_timestamp);
-                            Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
-                                as MessageStream)
+                            // let boxed_resp = Box::new(resp)
+                            //     as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
+                            // context
+                            //     .metrics()
+                            //     .request_duration
+                            //     .rtc_signal_read
+                            //     .observe_timestamp(tn.start_timestamp);
+                            // Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
+                            //     as MessageStream)
+                            Ok(Box::new(stream::empty()) as MessageStream)
                         })
                         .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
                 }

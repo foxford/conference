@@ -42,7 +42,7 @@ impl Wait {
         Ok(tokio::task::spawn_blocking(move || {
             let serialized = serde_json::to_vec(&value)?;
             let mut conn = client.get()?;
-            let bytes: Vec<u8> = conn.lpush(k, serialized)?;
+            conn.lpush(k, serialized)?;
             Ok::<_, anyhow::Error>(())
         })
         .await??)
