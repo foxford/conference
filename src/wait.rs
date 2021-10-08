@@ -41,6 +41,7 @@ impl Wait {
         let client = self.redis_client.clone();
         Ok(tokio::task::spawn_blocking(move || {
             let serialized = serde_json::to_string(&value)?;
+            dbg!(&serialized);
             let mut conn = client.get()?;
             conn.lpush(k, serialized)?;
             Ok::<_, anyhow::Error>(())
