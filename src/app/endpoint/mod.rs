@@ -113,7 +113,7 @@ macro_rules! response_routes {
                     warn!(
                         ?err,
                         %corr_data,
-                        "Failed to parse response correlation data"
+                        "f to parse response correlation data"
                     );
                     return Box::new(futures::stream::empty()) as MessageStream;
                 }
