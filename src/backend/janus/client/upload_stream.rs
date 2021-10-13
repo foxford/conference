@@ -2,8 +2,6 @@ use crate::db;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-
-
 #[derive(Debug, Serialize)]
 pub struct UploadStreamRequest {
     pub body: UploadStreamRequestBody,
@@ -32,4 +30,18 @@ impl UploadStreamRequestBody {
             bucket: bucket.to_owned(),
         }
     }
+}
+
+#[derive(Deserialize)]
+pub enum UploadResponse {
+    AlreadyRunning {
+        id: db::rtc::Id,
+    },
+    Missing {
+        id: db::rtc::Id,
+    },
+    Done {
+        id: db::rtc::Id,
+        mjr_dumps_uris: Vec<String>,
+    },
 }

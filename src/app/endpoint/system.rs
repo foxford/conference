@@ -1,21 +1,21 @@
 use crate::{
     app::{
         context::{AppContext, Context},
-        endpoint::prelude::*,
+        endpoint::{self, prelude::*, MessageStream},
         error::Error as AppError,
         http::AuthExtractor,
         service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
     backend::janus::client::upload_stream::{
-        UploadStreamRequest, UploadStreamRequestBody, UploadStreamTransaction,
+        UploadResponse, UploadStreamRequest, UploadStreamRequestBody, UploadStreamTransaction,
     },
     config::UploadConfig,
     db,
     db::{
-        recording::{Object as Recording, Status as RecordingStatus},
-        room::Object as Room,
-        rtc::SharingPolicy,
+        recording::{self, Object as Recording, Status as RecordingStatus},
+        room::{self, Object as Room},
+        rtc::{self, SharingPolicy},
     },
 };
 use anyhow::anyhow;
@@ -28,14 +28,14 @@ use serde_json::json;
 use std::{ops::Bound, result::Result as StdResult, sync::Arc};
 use svc_agent::{
     mqtt::{
-        IncomingEventProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
-        ResponseStatus, ShortTermTimingProperties,
+        IncomingEventProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
+        OutgoingMessage, ResponseStatus, ShortTermTimingProperties,
     },
     AgentId,
 };
 use svc_authn::Authenticable;
 
-use tracing::error;
+use tracing::{error, info};
 use tracing_attributes::instrument;
 
 use super::MqttResult;
@@ -97,6 +97,11 @@ impl RequestHandler for VacuumHandler {
         _payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
+        let t_imer = context
+            .metrics()
+            .request_duration
+            .upload_stream
+            .start_timer();
         // Authorization: only trusted subjects are allowed to perform operations with the system
         let audience = context.agent_id().as_account_id().audience();
 
@@ -146,11 +151,11 @@ impl RequestHandler for VacuumHandler {
                 start_timestamp: context.start_timestamp(),
             };
             // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
-            context
+            let janus_response = context
                 .janus_clients()
                 .get_or_insert(&backend)
                 .error(AppErrorKind::BackendClientCreationFailed)?
-                .upload_stream(request, transaction)
+                .upload_stream(request)
                 .await
                 .error(AppErrorKind::BackendRequestFailed)?;
 
@@ -161,6 +166,72 @@ impl RequestHandler for VacuumHandler {
                 room,
                 context.start_timestamp(),
             );
+            match janus_response {
+                UploadResponse::Missing { id } => {
+                    let conn = context.get_conn().await?;
+                    crate::util::spawn_blocking(move || {
+                        recording::UpdateQuery::new(id)
+                            .status(recording::Status::Missing)
+                            .execute(&conn)
+                    })
+                    .await?;
+                    error!(%id, "Janus is missing recording")
+                }
+                UploadResponse::AlreadyRunning { id } => {
+                    info!(%id, "Vacuum already started")
+                }
+                UploadResponse::Done { id, mjr_dumps_uris } => {
+                    let (room, rtcs_with_recs): (
+                        room::Object,
+                        Vec<(rtc::Object, Option<recording::Object>)>,
+                    ) = {
+                        let conn = context.get_conn().await?;
+                        crate::util::spawn_blocking(move || {
+                            recording::UpdateQuery::new(id)
+                                .status(recording::Status::Ready)
+                                .mjr_dumps_uris(mjr_dumps_uris)
+                                .execute(&conn)?;
+
+                            let rtc = rtc::FindQuery::new()
+                                .id(id)
+                                .execute(&conn)?
+                                .ok_or_else(|| anyhow!("RTC not found"))
+                                .error(AppErrorKind::RtcNotFound)?;
+
+                            let room = endpoint::helpers::find_room_by_rtc_id(
+                                rtc.id(),
+                                endpoint::helpers::RoomTimeRequirement::Any,
+                                &conn,
+                            )?;
+
+                            let rtcs_with_recs =
+                                rtc::ListWithReadyRecordingQuery::new(room.id()).execute(&conn)?;
+
+                            Ok::<_, AppError>((room, rtcs_with_recs))
+                        })
+                        .await?
+                    };
+                    // Ensure that all rtcs have a ready recording.
+                    let rtcs_total = rtcs_with_recs.len();
+
+                    let recs_with_rtcs = rtcs_with_recs
+                        .into_iter()
+                        .filter_map(|(rtc, maybe_recording)| {
+                            let recording = maybe_recording?;
+                            matches!(recording.status(), db::recording::Status::Ready)
+                                .then(|| (recording, rtc))
+                        })
+                        .collect::<Vec<_>>();
+
+                    if recs_with_rtcs.len() >= rtcs_total {
+                        let event = upload_event(context, &room, recs_with_rtcs.into_iter())?;
+
+                        let event_box = Box::new(event)
+                            as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
+                        response.add_message(event_box);
+                    }
+                }
+            }
         }
 
         Ok(response)

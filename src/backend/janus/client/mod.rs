@@ -1,5 +1,3 @@
-
-
 use self::{
     create_handle::{CreateHandleRequest, CreateHandleResponse, OpaqueId},
     create_stream::{CreateStreamRequest, CreateStreamResponse},
@@ -11,7 +9,9 @@ use self::{
     trickle::TrickleRequest,
     update_agent_reader_config::UpdateReaderConfigRequest,
     update_agent_writer_config::UpdateWriterConfigRequest,
-    upload_stream::{UploadStreamRequest, UploadStreamTransaction},
+    upload_stream::{
+        UploadResponse, UploadStreamRequest,
+    },
 };
 use anyhow::Context;
 use diesel_derive_newtype::DieselNewType;
@@ -74,10 +74,9 @@ impl JanusClient {
     pub async fn upload_stream(
         &self,
         request: UploadStreamRequest,
-        _transaction: UploadStreamTransaction,
-    ) -> anyhow::Result<()> {
-        let _response: AckResponse = self.send_request("stream-upload", request).await?;
-        Ok(())
+    ) -> anyhow::Result<UploadResponse> {
+        let response: UploadResponse = self.send_request("stream-upload", request).await?;
+        Ok(response)
     }
 
     pub async fn reader_update(&self, request: UpdateReaderConfigRequest) -> anyhow::Result<()> {
