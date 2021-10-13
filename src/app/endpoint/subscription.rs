@@ -305,26 +305,7 @@ async fn leave_room<C: Context>(
     .await?;
 
     match backends {
-        Some(backends) => {
-            let mut leave_tasks = Vec::new();
-            for backend in backends {
-                let request = AgentLeaveRequest {
-                    body: AgentLeaveRequestBody::new(agent_id.to_owned()),
-                    handle_id: backend.handle_id(),
-                    session_id: backend.session_id(),
-                };
-                let client = context
-                    .janus_clients()
-                    .get_or_insert(&backend)
-                    .error(AppErrorKind::BackendClientCreationFailed)?;
-                leave_tasks.push(async move { client.agent_leave(request).await });
-            }
-            futures::future::try_join_all(leave_tasks)
-                .await
-                .error(AppErrorKind::BackendRequestFailed)?;
-
-            Ok(true)
-        }
+        Some(backends) => Ok(true),
         None => Ok(false),
     }
 }

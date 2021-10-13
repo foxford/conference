@@ -10,7 +10,6 @@ use crate::{
     },
     config::{self, Config, KruonisConfig},
     db::ConnectionPool,
-    wait::Wait,
 };
 use anyhow::{Context as AnyhowContext, Result};
 
@@ -44,7 +43,7 @@ pub const API_VERSION: &str = "v1";
 
 pub async fn run(
     db: &ConnectionPool,
-    redis_pool: RedisConnectionPool,
+    redis_pool: Option<RedisConnectionPool>,
     authz_cache: Option<Box<RedisCache>>,
 ) -> Result<()> {
     // Config
@@ -102,7 +101,6 @@ pub async fn run(
     subscribe(&mut agent, &agent_id, &config)?;
     // Context
     let metrics = Arc::new(metrics);
-    let wait = Wait::new(redis_pool.clone(), Duration::from_secs(5));
     let dispatcher = Arc::new(Dispatcher::new(&agent));
     let context = AppContext::new(
         config.clone(),
@@ -110,7 +108,6 @@ pub async fn run(
         db.clone(),
         clients.clone(),
         metrics.clone(),
-        wait,
         dispatcher,
     );
     let reg_handler = tokio::spawn(start_janus_reg_handler(
@@ -118,8 +115,11 @@ pub async fn run(
         context.janus_clients(),
         context.db().clone(),
     ));
-
-    let context = context.add_redis_pool(redis_pool);
+    let context = if let Some(redis_pool) = redis_pool {
+        context.add_redis_pool(redis_pool)
+    } else {
+        context
+    };
 
     let (graceful_tx, graceful_rx) = tokio::sync::oneshot::channel();
     let _http_task = tokio::spawn(

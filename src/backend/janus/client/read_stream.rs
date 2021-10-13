@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use svc_agent::{mqtt::IncomingRequestProperties, AgentId};
 
 use crate::db;
 
-use super::{HandleId, Jsep, SessionId};
+use super::{create_handle::OpaqueId, HandleId, Jsep, SessionId};
 
 #[derive(Serialize, Debug)]
 pub struct ReadStreamRequest {
@@ -34,4 +35,9 @@ impl ReadStreamRequestBody {
     }
 }
 
-// pub type ReadStreamResponse = EventResponse;
+#[derive(Deserialize)]
+pub struct ReadStreamResponse {
+    pub session_id: SessionId,
+    pub opaque_id: OpaqueId,
+    pub jsep: Value,
+}

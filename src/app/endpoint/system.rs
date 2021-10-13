@@ -352,197 +352,197 @@ fn record_name(recording: &Recording, room: &Room) -> String {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#[cfg(test)]
-mod test {
-    mod orphaned {
-        use chrono::Utc;
+// #[cfg(test)]
+// mod test {
+//     mod orphaned {
+//         use chrono::Utc;
 
-        use crate::{
-            app::endpoint::system::{OrphanedRoomCloseEvent, OrphanedRoomCloseHandler},
-            db,
-            test_helpers::{
-                authz::TestAuthz,
-                context::TestContext,
-                db::TestDb,
-                handle_event,
-                prelude::{GlobalContext, TestAgent},
-                shared_helpers,
-                test_deps::LocalDeps,
-                SVC_AUDIENCE,
-            },
-        };
+//         use crate::{
+//             app::endpoint::system::{OrphanedRoomCloseEvent, OrphanedRoomCloseHandler},
+//             db,
+//             test_helpers::{
+//                 authz::TestAuthz,
+//                 context::TestContext,
+//                 db::TestDb,
+//                 handle_event,
+//                 prelude::{GlobalContext, TestAgent},
+//                 shared_helpers,
+//                 test_deps::LocalDeps,
+//                 SVC_AUDIENCE,
+//             },
+//         };
 
-        #[tokio::test]
-        async fn close_orphaned_rooms() -> anyhow::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let mut authz = TestAuthz::new();
-            authz.set_audience(SVC_AUDIENCE);
-            let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
-            authz.allow(agent.account_id(), vec!["system"], "update");
-            let mut context = TestContext::new(db, authz);
-            let connection = context.get_conn().await?;
-            let opened_room = shared_helpers::insert_room(&connection);
-            let opened_room2 = shared_helpers::insert_room(&connection);
-            let closed_room = shared_helpers::insert_closed_room(&connection);
-            db::orphaned_room::upsert_room(
-                opened_room.id(),
-                Utc::now() - chrono::Duration::seconds(10),
-                &connection,
-            )?;
-            db::orphaned_room::upsert_room(
-                closed_room.id(),
-                Utc::now() - chrono::Duration::seconds(10),
-                &connection,
-            )?;
-            db::orphaned_room::upsert_room(
-                opened_room2.id(),
-                Utc::now() + chrono::Duration::seconds(10),
-                &connection,
-            )?;
+//         #[tokio::test]
+//         async fn close_orphaned_rooms() -> anyhow::Result<()> {
+//             let local_deps = LocalDeps::new();
+//             let postgres = local_deps.run_postgres();
+//             let db = TestDb::with_local_postgres(&postgres);
+//             let mut authz = TestAuthz::new();
+//             authz.set_audience(SVC_AUDIENCE);
+//             let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
+//             authz.allow(agent.account_id(), vec!["system"], "update");
+//             let mut context = TestContext::new(db, authz);
+//             let connection = context.get_conn().await?;
+//             let opened_room = shared_helpers::insert_room(&connection);
+//             let opened_room2 = shared_helpers::insert_room(&connection);
+//             let closed_room = shared_helpers::insert_closed_room(&connection);
+//             db::orphaned_room::upsert_room(
+//                 opened_room.id(),
+//                 Utc::now() - chrono::Duration::seconds(10),
+//                 &connection,
+//             )?;
+//             db::orphaned_room::upsert_room(
+//                 closed_room.id(),
+//                 Utc::now() - chrono::Duration::seconds(10),
+//                 &connection,
+//             )?;
+//             db::orphaned_room::upsert_room(
+//                 opened_room2.id(),
+//                 Utc::now() + chrono::Duration::seconds(10),
+//                 &connection,
+//             )?;
 
-            let messages = handle_event::<OrphanedRoomCloseHandler>(
-                &mut context,
-                &agent,
-                OrphanedRoomCloseEvent {},
-            )
-            .await
-            .expect("System vacuum failed");
+//             let messages = handle_event::<OrphanedRoomCloseHandler>(
+//                 &mut context,
+//                 &agent,
+//                 OrphanedRoomCloseEvent {},
+//             )
+//             .await
+//             .expect("System vacuum failed");
 
-            let rooms: Vec<db::room::Object> =
-                messages.into_iter().map(|ev| ev.payload()).collect();
-            assert_eq!(rooms.len(), 2);
-            assert!(rooms[0].timed_out());
-            assert_eq!(rooms[0].id(), opened_room.id());
-            let orphaned = db::orphaned_room::get_timed_out(
-                Utc::now() + chrono::Duration::seconds(20),
-                &connection,
-            )?;
-            assert_eq!(orphaned.len(), 1);
-            assert_eq!(orphaned[0].0.id, opened_room2.id());
-            Ok(())
-        }
-    }
+//             let rooms: Vec<db::room::Object> =
+//                 messages.into_iter().map(|ev| ev.payload()).collect();
+//             assert_eq!(rooms.len(), 2);
+//             assert!(rooms[0].timed_out());
+//             assert_eq!(rooms[0].id(), opened_room.id());
+//             let orphaned = db::orphaned_room::get_timed_out(
+//                 Utc::now() + chrono::Duration::seconds(20),
+//                 &connection,
+//             )?;
+//             assert_eq!(orphaned.len(), 1);
+//             assert_eq!(orphaned[0].0.id, opened_room2.id());
+//             Ok(())
+//         }
+//     }
 
-    mod vacuum {
-        use svc_agent::mqtt::ResponseStatus;
+//     mod vacuum {
+//         use svc_agent::mqtt::ResponseStatus;
 
-        use crate::{
-            backend::janus::client::{
-                events::EventResponse,
-                transactions::{Transaction, TransactionKind},
-                IncomingEvent,
-            },
-            test_helpers::{prelude::*, test_deps::LocalDeps},
-        };
+//         use crate::{
+//             backend::janus::client::{
+//                 events::EventResponse,
+//                 transactions::{Transaction, TransactionKind},
+//                 IncomingEvent,
+//             },
+//             test_helpers::{prelude::*, test_deps::LocalDeps},
+//         };
 
-        use super::super::*;
+//         use super::super::*;
 
-        #[tokio::test]
-        async fn vacuum_system() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
-            let mut authz = TestAuthz::new();
-            authz.set_audience(SVC_AUDIENCE);
+//         #[tokio::test]
+//         async fn vacuum_system() {
+//             let local_deps = LocalDeps::new();
+//             let postgres = local_deps.run_postgres();
+//             let janus = local_deps.run_janus();
+//             let db = TestDb::with_local_postgres(&postgres);
+//             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+//             let mut authz = TestAuthz::new();
+//             authz.set_audience(SVC_AUDIENCE);
 
-            let (rtcs, backend) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    // Insert janus backend and rooms.
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
+//             let (rtcs, backend) = db
+//                 .connection_pool()
+//                 .get()
+//                 .map(|conn| {
+//                     // Insert janus backend and rooms.
+//                     let backend = shared_helpers::insert_janus_backend(
+//                         &conn, &janus.url, session_id, handle_id,
+//                     );
 
-                    let room1 =
-                        shared_helpers::insert_closed_room_with_backend_id(&conn, &backend.id());
+//                     let room1 =
+//                         shared_helpers::insert_closed_room_with_backend_id(&conn, &backend.id());
 
-                    let room2 =
-                        shared_helpers::insert_closed_room_with_backend_id(&conn, &backend.id());
+//                     let room2 =
+//                         shared_helpers::insert_closed_room_with_backend_id(&conn, &backend.id());
 
-                    // Insert rtcs.
-                    let rtcs = vec![
-                        shared_helpers::insert_rtc_with_room(&conn, &room1),
-                        shared_helpers::insert_rtc_with_room(&conn, &room2),
-                    ];
+//                     // Insert rtcs.
+//                     let rtcs = vec![
+//                         shared_helpers::insert_rtc_with_room(&conn, &room1),
+//                         shared_helpers::insert_rtc_with_room(&conn, &room2),
+//                     ];
 
-                    let _other_rtc = shared_helpers::insert_rtc(&conn);
+//                     let _other_rtc = shared_helpers::insert_rtc(&conn);
 
-                    // Insert active agents.
-                    let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+//                     // Insert active agents.
+//                     let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                    for rtc in rtcs.iter() {
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), rtc.room_id());
-                        shared_helpers::insert_recording(&conn, rtc);
-                    }
+//                     for rtc in rtcs.iter() {
+//                         shared_helpers::insert_agent(&conn, agent.agent_id(), rtc.room_id());
+//                         shared_helpers::insert_recording(&conn, rtc);
+//                     }
 
-                    (
-                        rtcs.into_iter().map(|x| x.id()).collect::<Vec<_>>(),
-                        backend,
-                    )
-                })
-                .unwrap();
+//                     (
+//                         rtcs.into_iter().map(|x| x.id()).collect::<Vec<_>>(),
+//                         backend,
+//                     )
+//                 })
+//                 .unwrap();
 
-            // Allow cron to perform vacuum.
-            let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
-            authz.allow(agent.account_id(), vec!["system"], "update");
+//             // Allow cron to perform vacuum.
+//             let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
+//             authz.allow(agent.account_id(), vec!["system"], "update");
 
-            // Make system.vacuum request.
-            let mut context = TestContext::new(db, authz);
-            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-            context.with_janus(tx.clone());
-            let payload = VacuumRequest {};
+//             // Make system.vacuum request.
+//             let mut context = TestContext::new(db, authz);
+//             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+//             context.with_janus(tx.clone());
+//             let payload = VacuumRequest {};
 
-            let messages = handle_request::<VacuumHandler>(&mut context, &agent, payload)
-                .await
-                .expect("System vacuum failed");
-            rx.recv().await.unwrap();
-            let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().await.unwrap(), rx.recv().await.unwrap()]
-                .iter()
-                .map(|resp| match resp {
-                    IncomingEvent::Event(EventResponse {
-                        transaction:
-                            Transaction {
-                                kind:
-                                    Some(TransactionKind::UploadStream(UploadStreamTransaction {
-                                        rtc_id,
-                                        start_timestamp: _start_timestamp,
-                                    })),
-                                ..
-                            },
-                        ..
-                    }) => *rtc_id,
-                    _ => panic!("Got wrong event"),
-                })
-                .collect();
-            context.janus_clients().remove_client(&backend);
-            assert!(messages.len() > 0);
-            assert_eq!(recv_rtcs, rtcs);
-        }
+//             let messages = handle_request::<VacuumHandler>(&mut context, &agent, payload)
+//                 .await
+//                 .expect("System vacuum failed");
+//             rx.recv().await.unwrap();
+//             let recv_rtcs: Vec<db::rtc::Id> = [rx.recv().await.unwrap(), rx.recv().await.unwrap()]
+//                 .iter()
+//                 .map(|resp| match resp {
+//                     IncomingEvent::Event(EventResponse {
+//                         transaction:
+//                             Transaction {
+//                                 kind:
+//                                     Some(TransactionKind::UploadStream(UploadStreamTransaction {
+//                                         rtc_id,
+//                                         start_timestamp: _start_timestamp,
+//                                     })),
+//                                 ..
+//                             },
+//                         ..
+//                     }) => *rtc_id,
+//                     _ => panic!("Got wrong event"),
+//                 })
+//                 .collect();
+//             context.janus_clients().remove_client(&backend);
+//             assert!(messages.len() > 0);
+//             assert_eq!(recv_rtcs, rtcs);
+//         }
 
-        #[tokio::test]
-        async fn vacuum_system_unauthorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let mut authz = TestAuthz::new();
-            authz.set_audience(SVC_AUDIENCE);
+//         #[tokio::test]
+//         async fn vacuum_system_unauthorized() {
+//             let local_deps = LocalDeps::new();
+//             let postgres = local_deps.run_postgres();
+//             let db = TestDb::with_local_postgres(&postgres);
+//             let mut authz = TestAuthz::new();
+//             authz.set_audience(SVC_AUDIENCE);
 
-            // Make system.vacuum request.
-            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, authz);
-            let payload = VacuumRequest {};
+//             // Make system.vacuum request.
+//             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+//             let mut context = TestContext::new(db, authz);
+//             let payload = VacuumRequest {};
 
-            let err = handle_request::<VacuumHandler>(&mut context, &agent, payload)
-                .await
-                .expect_err("Unexpected success on system vacuum");
+//             let err = handle_request::<VacuumHandler>(&mut context, &agent, payload)
+//                 .await
+//                 .expect_err("Unexpected success on system vacuum");
 
-            assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
-            assert_eq!(err.kind(), "access_denied");
-        }
-    }
-}
+//             assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
+//             assert_eq!(err.kind(), "access_denied");
+//         }
+//     }
+// }

@@ -36,12 +36,5 @@ impl Transaction {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum TransactionKind {
-    AgentLeave,
-    CreateStream(CreateStreamTransaction),
-    ReadStream(ReadStreamTransaction),
-    UpdateReaderConfig,
-    UpdateWriterConfig,
-    UploadStream(UploadStreamTransaction),
     AgentSpeaking,
-    ServicePing,
 }

@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use svc_agent::{mqtt::IncomingRequestProperties, AgentId};
 use uuid::Uuid;
 
 use crate::db;
 
-use super::{HandleId, Jsep, SessionId};
+use super::{create_handle::OpaqueId, events::EventResponsePluginData, HandleId, Jsep, SessionId};
 
 #[derive(Serialize, Debug)]
 pub struct CreateStreamRequest {
@@ -57,4 +58,11 @@ impl CreateStreamRequestBody {
             reader_configs,
         }
     }
+}
+
+#[derive(Deserialize)]
+pub struct CreateStreamResponse {
+    pub session_id: SessionId,
+    pub opaque_id: OpaqueId,
+    pub jsep: Value,
 }

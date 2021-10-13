@@ -100,256 +100,136 @@ async fn handle_event_impl<C: Context>(
         }
         IncomingEvent::Event(resp) => {
             match resp.transaction.kind {
-                Some(TransactionKind::AgentLeave) => Ok(Box::new(stream::empty())),
-                Some(TransactionKind::CreateStream(tn)) => {
-                    let jsep = resp.jsep;
-                    let k = resp
-                        .opaque_id
-                        .as_ref()
-                        .expect("Must be some")
-                        .stream_id
-                        .to_string();
-                    resp.plugindata
-                        .data
-                        .as_ref()
-                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
-                        .error(AppErrorKind::MessageParsingFailed)?
-                        .get("status")
-                        .ok_or_else(|| anyhow!("Missing 'status' in the response"))
-                        .error(AppErrorKind::MessageParsingFailed)
-                        .and_then(|status| {
-                            if status == "200" {
-                                Ok(())
-                            } else {
-                                Err(anyhow!("Received {} status", status))
-                                    .error(AppErrorKind::BackendRequestFailed)
-                            }
-                        })
-                        .and_then(|_| {
-                            // Getting answer (as JSEP)
-                            let jsep = jsep
-                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)?;
-                            let wait = context.wait().clone();
-                            tokio::spawn(async move {
-                                let _ = wait.put_value(k, jsep).await;
-                            });
-                            // let timing =
-                            //     ShortTermTimingProperties::until_now(context.start_timestamp());
+                // Some(TransactionKind::UploadStream(ref tn)) => {
+                //     Span::current().record("rtc_id", &tn.rtc_id.to_string().as_str());
 
-                            // let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                            //     endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),
-                            //     tn.reqp.to_response(ResponseStatus::OK, timing),
-                            //     tn.reqp.as_agent_id(),
-                            //     JANUS_API_VERSION,
-                            // );
+                //     // TODO: improve error handling
+                //     let plugin_data = resp
+                //         .plugindata
+                //         .data
+                //         .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                //         .error(AppErrorKind::MessageParsingFailed)?;
 
-                            // let boxed_resp = Box::new(resp)
-                            //     as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-                            // context
-                            //     .metrics()
-                            //     .request_duration
-                            //     .rtc_signal_create
-                            //     .observe_timestamp(tn.start_timestamp);
-                            // Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
-                            //     as MessageStream)
-                            Ok(Box::new(stream::empty()) as MessageStream)
-                        })
-                        //todo error
-                        .or_else(|err| Ok(Box::new(stream::empty()) as MessageStream))
-                }
-                Some(TransactionKind::ReadStream(tn)) => {
-                    let jsep = resp.jsep;
-                    let k = resp
-                        .opaque_id
-                        .as_ref()
-                        .expect("Must be some")
-                        .stream_id
-                        .to_string();
-                    resp.plugindata
-                        .data
-                        .as_ref()
-                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
-                        .error(AppErrorKind::MessageParsingFailed)?
-                        .get("status")
-                        .ok_or_else(|| anyhow!("Missing 'status' in the response"))
-                        .error(AppErrorKind::MessageParsingFailed)
-                        // We fail if the status isn't equal to 200
-                        .and_then(|status| {
-                            if status == "200" {
-                                Ok(())
-                            } else {
-                                Err(anyhow!("Received {} status", status))
-                                    .error(AppErrorKind::BackendRequestFailed)
-                            }
-                        })
-                        .and_then(|_| {
-                            // Getting answer (as JSEP)
-                            let jsep = jsep
-                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
-                                .error(AppErrorKind::MessageParsingFailed)?;
+                //     let upload_stream = async {
+                //         let status = plugin_data
+                //             .get("status")
+                //             .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                //             .error(AppErrorKind::MessageParsingFailed)?;
+                //         match status {
+                //             val if val == "200" => Ok(()),
+                //             val if val == "404" => {
+                //                 let conn = context.get_conn().await?;
+                //                 let rtc_id = tn.rtc_id;
+                //                 crate::util::spawn_blocking(move || {
+                //                     recording::UpdateQuery::new(rtc_id)
+                //                         .status(recording::Status::Missing)
+                //                         .execute(&conn)
+                //                 })
+                //                 .await?;
 
-                            // let timing =
-                            // ShortTermTimingProperties::until_now(context.start_timestamp());
-                            let wait = context.wait().clone();
-                            tokio::spawn(async move {
-                                let r = wait.put_value(k, jsep).await;
-                            });
-                            // let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                            //     endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),
-                            //     tn.reqp.to_response(ResponseStatus::OK, timing),
-                            //     tn.reqp.as_agent_id(),
-                            //     JANUS_API_VERSION,
-                            // );
+                //                 Err(anyhow!("Janus is missing recording"))
+                //                     .error(AppErrorKind::BackendRecordingMissing)
+                //             }
+                //             _ => Err(anyhow!("Received {} status", status))
+                //                 .error(AppErrorKind::BackendRequestFailed),
+                //         }?;
+                //         let rtc_id = plugin_data
+                //             .get("id")
+                //             .ok_or_else(|| anyhow!("Missing 'id' in response"))
+                //             .error(AppErrorKind::MessageParsingFailed)
+                //             .and_then(|val| {
+                //                 serde_json::from_value::<db::rtc::Id>(val.clone())
+                //                     .map_err(|err| anyhow!("Invalid value for 'id': {}", err))
+                //                     .error(AppErrorKind::MessageParsingFailed)
+                //             })?;
 
-                            // let boxed_resp = Box::new(resp)
-                            //     as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-                            // context
-                            //     .metrics()
-                            //     .request_duration
-                            //     .rtc_signal_read
-                            //     .observe_timestamp(tn.start_timestamp);
-                            // Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
-                            //     as MessageStream)
-                            Ok(Box::new(stream::empty()) as MessageStream)
-                        })
-                        //todo error
-                        .or_else(|err| Ok(Box::new(stream::empty()) as MessageStream))
-                }
-                Some(TransactionKind::UpdateReaderConfig) => Ok(Box::new(stream::empty())),
-                Some(TransactionKind::UpdateWriterConfig) => Ok(Box::new(stream::empty())),
-                Some(TransactionKind::ServicePing) => Ok(Box::new(stream::empty())),
-                // Conference Stream has been uploaded to a storage backend (a confirmation)
-                Some(TransactionKind::UploadStream(ref tn)) => {
-                    Span::current().record("rtc_id", &tn.rtc_id.to_string().as_str());
+                //         // if vacuuming was already started by previous request - just do nothing
+                //         let maybe_already_running =
+                //             plugin_data.get("state").and_then(|v| v.as_str())
+                //                 == Some(ALREADY_RUNNING_STATE);
+                //         if maybe_already_running {
+                //             return Ok(Box::new(stream::empty()) as MessageStream);
+                //         }
 
-                    // TODO: improve error handling
-                    let plugin_data = resp
-                        .plugindata
-                        .data
-                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
-                        .error(AppErrorKind::MessageParsingFailed)?;
+                //         let mjr_dumps_uris = plugin_data
+                //             .get("mjr_dumps_uris")
+                //             .ok_or_else(|| anyhow!("Missing 'mjr_dumps_uris' in response"))
+                //             .error(AppErrorKind::MessageParsingFailed)
+                //             .and_then(|dumps| {
+                //                 serde_json::from_value::<Vec<String>>(dumps.clone())
+                //                     .map_err(|err| {
+                //                         anyhow!("Invalid value for 'dumps_uris': {}", err)
+                //                     })
+                //                     .error(AppErrorKind::MessageParsingFailed)
+                //             })?;
 
-                    let upload_stream = async {
-                        let status = plugin_data
-                            .get("status")
-                            .ok_or_else(|| anyhow!("Missing 'status' in the response"))
-                            .error(AppErrorKind::MessageParsingFailed)?;
-                        match status {
-                            val if val == "200" => Ok(()),
-                            val if val == "404" => {
-                                let conn = context.get_conn().await?;
-                                let rtc_id = tn.rtc_id;
-                                crate::util::spawn_blocking(move || {
-                                    recording::UpdateQuery::new(rtc_id)
-                                        .status(recording::Status::Missing)
-                                        .execute(&conn)
-                                })
-                                .await?;
+                //         let (room, rtcs_with_recs): (
+                //             room::Object,
+                //             Vec<(rtc::Object, Option<recording::Object>)>,
+                //         ) = {
+                //             let conn = context.get_conn().await?;
+                //             crate::util::spawn_blocking(move || {
+                //                 recording::UpdateQuery::new(rtc_id)
+                //                     .status(recording::Status::Ready)
+                //                     .mjr_dumps_uris(mjr_dumps_uris)
+                //                     .execute(&conn)?;
 
-                                Err(anyhow!("Janus is missing recording"))
-                                    .error(AppErrorKind::BackendRecordingMissing)
-                            }
-                            _ => Err(anyhow!("Received {} status", status))
-                                .error(AppErrorKind::BackendRequestFailed),
-                        }?;
-                        let rtc_id = plugin_data
-                            .get("id")
-                            .ok_or_else(|| anyhow!("Missing 'id' in response"))
-                            .error(AppErrorKind::MessageParsingFailed)
-                            .and_then(|val| {
-                                serde_json::from_value::<db::rtc::Id>(val.clone())
-                                    .map_err(|err| anyhow!("Invalid value for 'id': {}", err))
-                                    .error(AppErrorKind::MessageParsingFailed)
-                            })?;
+                //                 let rtc = rtc::FindQuery::new()
+                //                     .id(rtc_id)
+                //                     .execute(&conn)?
+                //                     .ok_or_else(|| anyhow!("RTC not found"))
+                //                     .error(AppErrorKind::RtcNotFound)?;
 
-                        // if vacuuming was already started by previous request - just do nothing
-                        let maybe_already_running =
-                            plugin_data.get("state").and_then(|v| v.as_str())
-                                == Some(ALREADY_RUNNING_STATE);
-                        if maybe_already_running {
-                            return Ok(Box::new(stream::empty()) as MessageStream);
-                        }
+                //                 let room = endpoint::helpers::find_room_by_rtc_id(
+                //                     rtc.id(),
+                //                     endpoint::helpers::RoomTimeRequirement::Any,
+                //                     &conn,
+                //                 )?;
 
-                        let mjr_dumps_uris = plugin_data
-                            .get("mjr_dumps_uris")
-                            .ok_or_else(|| anyhow!("Missing 'mjr_dumps_uris' in response"))
-                            .error(AppErrorKind::MessageParsingFailed)
-                            .and_then(|dumps| {
-                                serde_json::from_value::<Vec<String>>(dumps.clone())
-                                    .map_err(|err| {
-                                        anyhow!("Invalid value for 'dumps_uris': {}", err)
-                                    })
-                                    .error(AppErrorKind::MessageParsingFailed)
-                            })?;
+                //                 let rtcs_with_recs =
+                //                     rtc::ListWithReadyRecordingQuery::new(room.id())
+                //                         .execute(&conn)?;
 
-                        let (room, rtcs_with_recs): (
-                            room::Object,
-                            Vec<(rtc::Object, Option<recording::Object>)>,
-                        ) = {
-                            let conn = context.get_conn().await?;
-                            crate::util::spawn_blocking(move || {
-                                recording::UpdateQuery::new(rtc_id)
-                                    .status(recording::Status::Ready)
-                                    .mjr_dumps_uris(mjr_dumps_uris)
-                                    .execute(&conn)?;
+                //                 Ok::<_, AppError>((room, rtcs_with_recs))
+                //             })
+                //             .await?
+                //         };
+                //         // Ensure that all rtcs have a ready recording.
+                //         let rtcs_total = rtcs_with_recs.len();
 
-                                let rtc = rtc::FindQuery::new()
-                                    .id(rtc_id)
-                                    .execute(&conn)?
-                                    .ok_or_else(|| anyhow!("RTC not found"))
-                                    .error(AppErrorKind::RtcNotFound)?;
+                //         let recs_with_rtcs = rtcs_with_recs
+                //             .into_iter()
+                //             .filter_map(|(rtc, maybe_recording)| {
+                //                 let recording = maybe_recording?;
+                //                 matches!(recording.status(), db::recording::Status::Ready)
+                //                     .then(|| (recording, rtc))
+                //             })
+                //             .collect::<Vec<_>>();
 
-                                let room = endpoint::helpers::find_room_by_rtc_id(
-                                    rtc.id(),
-                                    endpoint::helpers::RoomTimeRequirement::Any,
-                                    &conn,
-                                )?;
+                //         if recs_with_rtcs.len() < rtcs_total {
+                //             return Ok(Box::new(stream::empty()) as MessageStream);
+                //         }
 
-                                let rtcs_with_recs =
-                                    rtc::ListWithReadyRecordingQuery::new(room.id())
-                                        .execute(&conn)?;
+                //         // Send room.upload event.
+                //         let event = endpoint::system::upload_event(
+                //             context,
+                //             &room,
+                //             recs_with_rtcs.into_iter(),
+                //         )?;
 
-                                Ok::<_, AppError>((room, rtcs_with_recs))
-                            })
-                            .await?
-                        };
-                        // Ensure that all rtcs have a ready recording.
-                        let rtcs_total = rtcs_with_recs.len();
+                //         let event_box = Box::new(event)
+                //             as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
 
-                        let recs_with_rtcs = rtcs_with_recs
-                            .into_iter()
-                            .filter_map(|(rtc, maybe_recording)| {
-                                let recording = maybe_recording?;
-                                matches!(recording.status(), db::recording::Status::Ready)
-                                    .then(|| (recording, rtc))
-                            })
-                            .collect::<Vec<_>>();
-
-                        if recs_with_rtcs.len() < rtcs_total {
-                            return Ok(Box::new(stream::empty()) as MessageStream);
-                        }
-
-                        // Send room.upload event.
-                        let event = endpoint::system::upload_event(
-                            context,
-                            &room,
-                            recs_with_rtcs.into_iter(),
-                        )?;
-
-                        let event_box = Box::new(event)
-                            as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-
-                        Ok(Box::new(stream::once(std::future::ready(event_box))) as MessageStream)
-                    };
-                    let response = upload_stream.await;
-                    context
-                        .metrics()
-                        .request_duration
-                        .upload_stream
-                        .observe_timestamp(tn.start_timestamp);
-                    response
-                }
+                //         Ok(Box::new(stream::once(std::future::ready(event_box))) as MessageStream)
+                //     };
+                //     let response = upload_stream.await;
+                //     context
+                //         .metrics()
+                //         .request_duration
+                //         .upload_stream
+                //         .observe_timestamp(tn.start_timestamp);
+                //     response
+                // }
                 Some(TransactionKind::AgentSpeaking) => {
                     let data = resp
                         .plugindata

@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
         (None, None)
     };
 
-    app::run(&db, redis_pool.expect("cache must present"), authz_cache).await
+    app::run(&db, redis_pool, authz_cache).await
 }
 
 mod app;
@@ -97,4 +97,3 @@ mod serde;
 mod test_helpers;
 mod trace_id;
 mod util;
-mod wait;

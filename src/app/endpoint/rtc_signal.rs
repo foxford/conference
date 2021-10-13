@@ -147,7 +147,7 @@ impl RequestHandler for CreateHandler {
                             .context("Invalid JSEP format")
                             .error(AppErrorKind::InvalidJsepFormat)?;
 
-                        if is_recvonly {
+                        let jsep = if is_recvonly {
                             current_span.record("intent", &"read");
 
                             // Authorization
@@ -168,9 +168,10 @@ impl RequestHandler for CreateHandler {
                                 .janus_clients()
                                 .get_or_insert(&backend)
                                 .error(AppErrorKind::BackendClientCreationFailed)?
-                                .read_stream(request, transaction)
+                                .read_stream(request)
                                 .await
-                                .error(AppErrorKind::BackendRequestFailed)?;
+                                .error(AppErrorKind::BackendRequestFailed)?
+                                .jsep
                         } else {
                             current_span.record("intent", &"update");
 
@@ -251,16 +252,11 @@ impl RequestHandler for CreateHandler {
                                 .janus_clients()
                                 .get_or_insert(&backend)
                                 .error(AppErrorKind::BackendClientCreationFailed)?
-                                .create_stream(request, transaction)
+                                .create_stream(request)
                                 .await
-                                .error(AppErrorKind::BackendRequestFailed)?;
-                        }
-                        let wait = context.wait();
-                        //todo
-                        let jsep: JsonValue = wait
-                            .wait_key(payload.handle_id.rtc_stream_id().to_string())
-                            .await
-                            .error(AppErrorKind::InvalidSdpType)?;
+                                .error(AppErrorKind::BackendRequestFailed)?
+                                .jsep
+                        };
                         Ok(Response::new(
                             ResponseStatus::OK,
                             endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),
@@ -490,24 +486,24 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                 .expect("Rtc signal creation failed");
             rx.recv().await.unwrap();
             context.janus_clients().remove_client(&backend);
-            match rx.recv().await.unwrap() {
-                IncomingEvent::Event(EventResponse {
-                    transaction:
-                        Transaction {
-                            kind: Some(TransactionKind::CreateStream(_tn)),
-                            ..
-                        },
-                    jsep: Some(_jsep),
-                    session_id: s_id,
-                    plugindata: _,
-                    opaque_id: _,
-                }) => {
-                    assert_eq!(session_id, s_id);
-                }
-                _ => {
-                    panic!("Got wrong event")
-                }
-            }
+            // match rx.recv().await.unwrap() {
+            //     IncomingEvent::Event(EventResponse {
+            //         transaction:
+            //             Transaction {
+            //                 kind: Some(TransactionKind::CreateStream(_tn)),
+            //                 ..
+            //             },
+            //         jsep: Some(_jsep),
+            //         session_id: s_id,
+            //         plugindata: _,
+            //         opaque_id: _,
+            //     }) => {
+            //         assert_eq!(session_id, s_id);
+            //     }
+            //     _ => {
+            //         panic!("Got wrong event")
+            //     }
+            // }
             // Assert rtc stream presence in the DB.
             let conn = context.get_conn().await.unwrap();
             let query = crate::schema::janus_rtc_stream::table.find(rtc_stream_id);

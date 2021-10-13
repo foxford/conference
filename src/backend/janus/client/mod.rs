@@ -4,12 +4,12 @@ use self::{
     agent_leave::AgentLeaveRequest,
     create_handle::{CreateHandleRequest, CreateHandleResponse, OpaqueId},
     create_session::CreateSessionResponse,
-    create_stream::{CreateStreamRequest, CreateStreamTransaction},
+    create_stream::{CreateStreamRequest, CreateStreamResponse, CreateStreamTransaction},
     events::{
         DetachedEvent, EventResponse, HangUpEvent, MediaEvent, SlowLinkEvent, TimeoutEvent,
         WebRtcUpEvent,
     },
-    read_stream::{ReadStreamRequest, ReadStreamTransaction},
+    read_stream::{ReadStreamRequest, ReadStreamResponse, ReadStreamTransaction},
     service_ping::ServicePingRequest,
     transactions::{Transaction, TransactionKind},
     trickle::TrickleRequest,
@@ -57,7 +57,7 @@ impl JanusClient {
     pub async fn poll(&self, session_id: SessionId) -> anyhow::Result<PollResult> {
         let response = self
             .http
-            .get(format!("{}/{}?maxev=5", self.janus_url, session_id))
+            .get(format!("{}/poll?max_events=5", self.janus_url))
             .send()
             .await?;
         if response.status() == StatusCode::NOT_FOUND {
@@ -73,49 +73,36 @@ impl JanusClient {
         request: UploadStreamRequest,
         transaction: UploadStreamTransaction,
     ) -> anyhow::Result<()> {
-        let _response: AckResponse = self
-            .send_request(upload_stream(request, transaction))
-            .await?;
-        Ok(())
-    }
-
-    pub async fn agent_leave(&self, request: AgentLeaveRequest) -> anyhow::Result<()> {
-        let _response: AckResponse = self.send_request(agent_leave(request)).await?;
+        let _response: AckResponse = self.send_request(request).await?;
         Ok(())
     }
 
     pub async fn reader_update(&self, request: UpdateReaderConfigRequest) -> anyhow::Result<()> {
-        let _response: AckResponse = self.send_request(update_reader(request)).await?;
+        let _response: Value = self.send_request(request).await?;
         Ok(())
     }
 
     pub async fn writer_update(&self, request: UpdateWriterConfigRequest) -> anyhow::Result<()> {
-        let _response: AckResponse = self.send_request(update_writer(request)).await?;
+        self.send_request(request).await?;
         Ok(())
     }
 
     pub async fn create_stream(
         &self,
         request: CreateStreamRequest,
-        transaction: CreateStreamTransaction,
-    ) -> anyhow::Result<()> {
-        let _response: AckResponse = self
-            .send_request(create_stream(request, transaction))
-            .await?;
-        Ok(())
+    ) -> anyhow::Result<CreateStreamResponse> {
+        self.send_request(request).await
     }
 
     pub async fn read_stream(
         &self,
         request: ReadStreamRequest,
-        transaction: ReadStreamTransaction,
-    ) -> anyhow::Result<()> {
-        let _response: AckResponse = self.send_request(read_stream(request, transaction)).await?;
-        Ok(())
+    ) -> anyhow::Result<ReadStreamResponse> {
+        self.send_request(request).await
     }
 
     pub async fn trickle_request(&self, request: TrickleRequest) -> anyhow::Result<()> {
-        let _response: AckResponse = self.send_request(trickle(request)).await?;
+        let _response: Value = self.send_request(request).await?;
         Ok(())
     }
 
@@ -127,17 +114,6 @@ impl JanusClient {
         let response: JanusResponse<CreateHandleResponse> =
             self.send_request(create_handle(request)).await?;
         Ok(response.data)
-    }
-
-    pub async fn create_session(&self) -> anyhow::Result<CreateSessionResponse> {
-        let response: JanusResponse<CreateSessionResponse> =
-            self.send_request(create_session()).await?;
-        Ok(response.data)
-    }
-
-    pub async fn service_ping(&self, request: ServicePingRequest) -> anyhow::Result<()> {
-        let _response: AckResponse = self.send_request(service_ping(request)).await?;
-        Ok(())
     }
 
     async fn send_request<R: DeserializeOwned>(&self, body: impl Serialize) -> anyhow::Result<R> {
@@ -265,14 +241,7 @@ impl IncomingEvent {
             IncomingEvent::SlowLink(_) => "SlowLink",
             IncomingEvent::Detached(_) => "Detached",
             IncomingEvent::Event(e) => match e.transaction.kind.as_ref() {
-                Some(TransactionKind::AgentLeave) => "AgentLeave",
-                Some(TransactionKind::CreateStream(_)) => "CreateStream",
-                Some(TransactionKind::ReadStream(_)) => "ReadStream",
-                Some(TransactionKind::UpdateReaderConfig) => "UpdateReaderConfig",
-                Some(TransactionKind::UpdateWriterConfig) => "UpdateWriterConfig",
-                Some(TransactionKind::UploadStream(_)) => "UploadStream",
                 Some(TransactionKind::AgentSpeaking) => "AgentSpeaking",
-                Some(TransactionKind::ServicePing) => "ServicePing",
                 None => "EmptyTran",
             },
         }
@@ -324,7 +293,6 @@ struct JanusResponse<T> {
 
 #[derive(Serialize, Debug)]
 struct JanusRequest<T> {
-    #[serde(with = "serialize_as_str")]
     transaction: Transaction,
     janus: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -333,101 +301,11 @@ struct JanusRequest<T> {
     data: T,
 }
 
-fn create_session() -> JanusRequest<()> {
-    JanusRequest {
-        transaction: Transaction::only_id(),
-        plugin: None,
-        janus: "create",
-        data: (),
-    }
-}
-
 fn create_handle(request: CreateHandleRequest) -> JanusRequest<CreateHandleRequest> {
     JanusRequest {
         transaction: Transaction::only_id(),
         janus: "attach",
         plugin: Some("janus.plugin.conference"),
-        data: request,
-    }
-}
-
-fn trickle(request: TrickleRequest) -> JanusRequest<TrickleRequest> {
-    JanusRequest {
-        transaction: Transaction::only_id(),
-        janus: "trickle",
-        plugin: None,
-        data: request,
-    }
-}
-
-fn read_stream(
-    request: ReadStreamRequest,
-    transaction: ReadStreamTransaction,
-) -> JanusRequest<ReadStreamRequest> {
-    JanusRequest {
-        transaction: Transaction::new(TransactionKind::ReadStream(transaction)),
-        janus: "message",
-        plugin: None,
-        data: request,
-    }
-}
-
-fn create_stream(
-    request: CreateStreamRequest,
-    transaction: CreateStreamTransaction,
-) -> JanusRequest<CreateStreamRequest> {
-    JanusRequest {
-        transaction: Transaction::new(TransactionKind::CreateStream(transaction)),
-        janus: "message",
-        plugin: None,
-        data: request,
-    }
-}
-
-fn update_reader(request: UpdateReaderConfigRequest) -> JanusRequest<UpdateReaderConfigRequest> {
-    JanusRequest {
-        transaction: Transaction::new(TransactionKind::UpdateReaderConfig),
-        janus: "message",
-        plugin: None,
-        data: request,
-    }
-}
-
-fn update_writer(request: UpdateWriterConfigRequest) -> JanusRequest<UpdateWriterConfigRequest> {
-    JanusRequest {
-        transaction: Transaction::new(TransactionKind::UpdateWriterConfig),
-        janus: "message",
-        plugin: None,
-        data: request,
-    }
-}
-
-fn agent_leave(request: AgentLeaveRequest) -> JanusRequest<AgentLeaveRequest> {
-    JanusRequest {
-        transaction: Transaction::new(TransactionKind::AgentLeave),
-        janus: "message",
-        plugin: None,
-        data: request,
-    }
-}
-
-fn upload_stream(
-    request: UploadStreamRequest,
-    transaction: UploadStreamTransaction,
-) -> JanusRequest<UploadStreamRequest> {
-    JanusRequest {
-        transaction: Transaction::new(TransactionKind::UploadStream(transaction)),
-        janus: "message",
-        plugin: None,
-        data: request,
-    }
-}
-
-fn service_ping(request: ServicePingRequest) -> JanusRequest<ServicePingRequest> {
-    JanusRequest {
-        transaction: Transaction::new(TransactionKind::ServicePing),
-        janus: "message",
-        plugin: None,
         data: request,
     }
 }

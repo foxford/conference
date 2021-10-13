@@ -16,7 +16,6 @@ use crate::{
     backend::janus::client_pool::Clients,
     config::Config,
     db::ConnectionPool as Db,
-    wait::Wait,
 };
 
 use super::metrics::Metrics;
@@ -32,7 +31,6 @@ pub trait GlobalContext: Sync {
     fn agent_id(&self) -> &AgentId;
     fn janus_clients(&self) -> Clients;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
-    fn wait(&self) -> &Wait;
     fn dispatcher(&self) -> &Arc<Dispatcher>;
     fn metrics(&self) -> Arc<Metrics>;
     fn get_conn(
@@ -68,7 +66,6 @@ pub struct AppContext {
     redis_pool: Option<RedisConnectionPool>,
     clients: Clients,
     metrics: Arc<Metrics>,
-    wait: Wait,
     dispatcher: Arc<Dispatcher>,
 }
 
@@ -79,7 +76,6 @@ impl AppContext {
         db: Db,
         clients: Clients,
         metrics: Arc<Metrics>,
-        wait: Wait,
         dispatcher: Arc<Dispatcher>,
     ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
@@ -92,7 +88,6 @@ impl AppContext {
             redis_pool: None,
             clients,
             metrics,
-            wait,
             dispatcher,
         }
     }
@@ -136,10 +131,6 @@ impl GlobalContext for AppContext {
 
     fn metrics(&self) -> Arc<Metrics> {
         self.metrics.clone()
-    }
-
-    fn wait(&self) -> &Wait {
-        &self.wait
     }
 
     fn dispatcher(&self) -> &Arc<Dispatcher> {
@@ -190,10 +181,6 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 
     fn metrics(&self) -> Arc<Metrics> {
         self.global_context.metrics()
-    }
-
-    fn wait(&self) -> &Wait {
-        self.global_context.wait()
     }
 
     fn dispatcher(&self) -> &Arc<Dispatcher> {
