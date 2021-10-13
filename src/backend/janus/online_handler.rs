@@ -54,7 +54,6 @@ pub async fn start_janus_reg_handler(
             let token = token.clone();
             async move {
                 let handle = async {
-                    dbg!("ONLINEEE");
                     if req
                         .headers()
                         .get("Authorization")

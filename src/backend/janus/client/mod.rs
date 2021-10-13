@@ -70,17 +70,17 @@ impl JanusClient {
         request: UploadStreamRequest,
         _transaction: UploadStreamTransaction,
     ) -> anyhow::Result<()> {
-        let _response: AckResponse = self.send_request(request).await?;
+        let _response: AckResponse = self.send_request("stream-upload", request).await?;
         Ok(())
     }
 
     pub async fn reader_update(&self, request: UpdateReaderConfigRequest) -> anyhow::Result<()> {
-        let _response: Value = self.send_request(request).await?;
+        let _response: Value = self.send_request("reader-config-update", request).await?;
         Ok(())
     }
 
     pub async fn writer_update(&self, request: UpdateWriterConfigRequest) -> anyhow::Result<()> {
-        self.send_request(request).await?;
+        self.send_request("reader-config-update", request).await?;
         Ok(())
     }
 
@@ -88,18 +88,18 @@ impl JanusClient {
         &self,
         request: CreateStreamRequest,
     ) -> anyhow::Result<CreateStreamResponse> {
-        self.send_request(request).await
+        self.send_request("proxy", request).await
     }
 
     pub async fn read_stream(
         &self,
         request: ReadStreamRequest,
     ) -> anyhow::Result<ReadStreamResponse> {
-        self.send_request(request).await
+        self.send_request("proxy", request).await
     }
 
     pub async fn trickle_request(&self, request: TrickleRequest) -> anyhow::Result<()> {
-        let _response: Value = self.send_request(request).await?;
+        let _response: Value = self.send_request("proxy", request).await?;
         Ok(())
     }
 
@@ -108,16 +108,21 @@ impl JanusClient {
         request: CreateHandleRequest,
     ) -> anyhow::Result<CreateHandleResponse> {
         // let _timer = METRICS.create_handle_time.start_timer();
-        let response: JanusResponse<CreateHandleResponse> =
-            self.send_request(create_handle(request)).await?;
+        let response: JanusResponse<CreateHandleResponse> = self
+            .send_request("create-handle", create_handle(request))
+            .await?;
         Ok(response.data)
     }
 
-    async fn send_request<R: DeserializeOwned>(&self, body: impl Serialize) -> anyhow::Result<R> {
+    async fn send_request<R: DeserializeOwned>(
+        &self,
+        method: &str,
+        body: impl Serialize,
+    ) -> anyhow::Result<R> {
         let body = serde_json::to_vec(&body)?;
         let response = self
             .http
-            .post(self.janus_url.clone())
+            .post(format!("{}/{}", self.janus_url, method))
             .body(body)
             .send()
             .await?
