@@ -1,11 +1,10 @@
 use serde::Serialize;
 use svc_agent::AgentId;
 
-use super::{HandleId, SessionId};
+use super::HandleId;
 
 #[derive(Serialize, Debug)]
 pub struct AgentLeaveRequest {
-    pub session_id: SessionId,
     pub handle_id: HandleId,
     pub body: AgentLeaveRequestBody,
 }

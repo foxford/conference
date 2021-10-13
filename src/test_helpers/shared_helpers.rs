@@ -6,10 +6,7 @@ use rand::Rng;
 use svc_agent::AgentId;
 
 use crate::{
-    backend::janus::client::{
-        create_handle::CreateHandleRequest,
-        HandleId, JanusClient, SessionId,
-    },
+    backend::janus::client::{create_handle::CreateHandleRequest, HandleId, JanusClient},
     db::{
         self,
         agent::{Object as Agent, Status as AgentStatus},
@@ -113,20 +110,13 @@ pub fn insert_connected_agent(
     )
 }
 
-pub async fn create_handle(janus_url: &str, session_id: SessionId) -> HandleId {
+pub async fn create_handle(janus_url: &str) -> HandleId {
     JanusClient::new(janus_url)
         .unwrap()
-        .create_handle(CreateHandleRequest {
-            session_id,
-            opaque_id: None,
-        })
+        .create_handle(CreateHandleRequest { opaque_id: None })
         .await
         .unwrap()
         .id
-}
-
-pub async fn init_janus(_janus_url: &str) -> (SessionId, HandleId) {
-    todo!()
 }
 
 pub fn insert_connected_to_handle_agent(
@@ -142,12 +132,7 @@ pub fn insert_connected_to_handle_agent(
     (agent, agent_connection)
 }
 
-pub fn insert_janus_backend(
-    conn: &PgConnection,
-    url: &str,
-    session_id: SessionId,
-    handle_id: crate::backend::janus::client::HandleId,
-) -> JanusBackend {
+pub fn insert_janus_backend(conn: &PgConnection, url: &str) -> JanusBackend {
     let rng = rand::thread_rng();
 
     let label_suffix: String = rng
@@ -158,20 +143,12 @@ pub fn insert_janus_backend(
     let label = format!("janus-gateway-{}", label_suffix);
 
     let agent = TestAgent::new("alpha", &label, SVC_AUDIENCE);
-    factory::JanusBackend::new(
-        agent.agent_id().to_owned(),
-        handle_id,
-        session_id,
-        url.to_owned(),
-    )
-    .insert(conn)
+    factory::JanusBackend::new(agent.agent_id().to_owned(), url.to_owned()).insert(conn)
 }
 
 pub fn insert_janus_backend_with_group(
     conn: &PgConnection,
     url: &str,
-    session_id: SessionId,
-    handle_id: crate::backend::janus::client::HandleId,
     group: &str,
 ) -> JanusBackend {
     let rng = rand::thread_rng();
@@ -184,14 +161,9 @@ pub fn insert_janus_backend_with_group(
     let label = format!("janus-gateway-{}", label_suffix);
 
     let agent = TestAgent::new("alpha", &label, SVC_AUDIENCE);
-    factory::JanusBackend::new(
-        agent.agent_id().to_owned(),
-        handle_id,
-        session_id,
-        url.to_owned(),
-    )
-    .group(group)
-    .insert(conn)
+    factory::JanusBackend::new(agent.agent_id().to_owned(), url.to_owned())
+        .group(group)
+        .insert(conn)
 }
 
 pub fn insert_rtc(conn: &PgConnection) -> Rtc {

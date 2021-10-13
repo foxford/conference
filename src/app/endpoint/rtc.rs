@@ -561,7 +561,6 @@ impl RequestHandler for ConnectHandler {
             .get_or_insert(&backend)
             .error(AppErrorKind::BackendClientCreationFailed)?
             .create_handle(CreateHandleRequest {
-                session_id: backend.session_id(),
                 opaque_id: Some(OpaqueId {
                     room_id,
                     stream_id: rtc_stream_id,
@@ -605,7 +604,6 @@ impl RequestHandler for ConnectHandler {
                 rtc_stream_id,
                 payload_id,
                 handle.id,
-                backend.session_id(),
                 backend.id().clone(),
             )),
             context.start_timestamp(),
@@ -1139,7 +1137,6 @@ mod test {
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
             let mut authz = TestAuthz::new();
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
             // Insert an rtc and janus backend.
             let (rtc, backend, agent) = db
@@ -1147,12 +1144,8 @@ mod test {
                 .get()
                 .map(|conn| {
                     // Insert janus backends.
-                    let backend1 = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
-                    let backend2 = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
+                    let backend1 = shared_helpers::insert_janus_backend(&conn, &janus.url);
+                    let backend2 = shared_helpers::insert_janus_backend(&conn, &janus.url);
 
                     // The first backend has an active agent.
                     let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
@@ -1224,9 +1217,7 @@ mod test {
 
             assert_eq!(respp.status(), StatusCode::OK);
             assert_eq!(resp.handle_id.rtc_id(), rtc.id());
-            assert_eq!(resp.handle_id.janus_session_id(), session_id);
             assert_eq!(resp.handle_id.backend_id(), backend.id());
-            assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
         #[tokio::test]
@@ -1236,19 +1227,14 @@ mod test {
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
             let mut authz = TestAuthz::new();
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
             // Insert an rtc and janus backend.
             let (rtc, backend, agent) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let _backend1 = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
-                    let backend2 = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
+                    let _backend1 = shared_helpers::insert_janus_backend(&conn, &janus.url);
+                    let backend2 = shared_helpers::insert_janus_backend(&conn, &janus.url);
 
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
 
@@ -1283,9 +1269,7 @@ mod test {
 
             assert_eq!(respp.status(), StatusCode::OK);
             assert_eq!(resp.handle_id.rtc_id(), rtc.id());
-            assert_eq!(resp.handle_id.janus_session_id(), session_id);
             assert_eq!(resp.handle_id.backend_id(), backend.id());
-            assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
         #[tokio::test]
@@ -1294,7 +1278,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
             let mut authz = TestAuthz::new();
 
             let (rtc, backend, agent) = db
@@ -1307,14 +1291,9 @@ mod test {
                         agent.agent_id().to_owned()
                     };
 
-                    let backend1 = factory::JanusBackend::new(
-                        backend1_id,
-                        handle_id,
-                        session_id,
-                        janus.url.clone(),
-                    )
-                    .capacity(20)
-                    .insert(&conn);
+                    let backend1 = factory::JanusBackend::new(backend1_id, janus.url.clone())
+                        .capacity(20)
+                        .insert(&conn);
 
                     let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
 
@@ -1332,14 +1311,9 @@ mod test {
                         agent.agent_id().to_owned()
                     };
 
-                    factory::JanusBackend::new(
-                        backend2_id,
-                        handle_id,
-                        session_id,
-                        janus.url.clone(),
-                    )
-                    .capacity(5)
-                    .insert(&conn);
+                    factory::JanusBackend::new(backend2_id, janus.url.clone())
+                        .capacity(5)
+                        .insert(&conn);
 
                     // It should balance to the first one despite of the load.
                     let now = Utc::now();
@@ -1384,9 +1358,7 @@ mod test {
 
             assert_eq!(respp.status(), StatusCode::OK);
             assert_eq!(resp.handle_id.rtc_id(), rtc.id());
-            assert_eq!(resp.handle_id.janus_session_id(), session_id);
             assert_eq!(resp.handle_id.backend_id(), backend.id());
-            assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
         #[tokio::test]
@@ -1395,7 +1367,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
             let mut authz = TestAuthz::new();
             let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
             let reader2 = TestAgent::new("web", "reader2", USR_AUDIENCE);
@@ -1412,14 +1384,9 @@ mod test {
                         agent.agent_id().to_owned()
                     };
 
-                    let backend = factory::JanusBackend::new(
-                        backend_id,
-                        handle_id,
-                        session_id,
-                        janus.url.clone(),
-                    )
-                    .capacity(4)
-                    .insert(&conn);
+                    let backend = factory::JanusBackend::new(backend_id, janus.url.clone())
+                        .capacity(4)
+                        .insert(&conn);
 
                     // Insert rooms: 1 with reserve = 2 and the other without reserve.
                     let now = Utc::now();
@@ -1516,7 +1483,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
             let mut authz = TestAuthz::new();
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
@@ -1531,14 +1498,9 @@ mod test {
                         agent.agent_id().to_owned()
                     };
 
-                    let backend = factory::JanusBackend::new(
-                        backend_id,
-                        handle_id,
-                        session_id,
-                        janus.url.clone(),
-                    )
-                    .capacity(2)
-                    .insert(&conn);
+                    let backend = factory::JanusBackend::new(backend_id, janus.url.clone())
+                        .capacity(2)
+                        .insert(&conn);
 
                     // Insert room and rtc.
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
@@ -1585,7 +1547,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
             let mut authz = TestAuthz::new();
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
@@ -1601,14 +1563,9 @@ mod test {
                         agent.agent_id().to_owned()
                     };
 
-                    let backend = factory::JanusBackend::new(
-                        backend_id,
-                        handle_id,
-                        session_id,
-                        janus.url.clone(),
-                    )
-                    .capacity(2)
-                    .insert(&conn);
+                    let backend = factory::JanusBackend::new(backend_id, janus.url.clone())
+                        .capacity(2)
+                        .insert(&conn);
 
                     // Insert room and rtc.
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
@@ -1670,7 +1627,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
             let mut authz = TestAuthz::new();
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
@@ -1685,14 +1642,9 @@ mod test {
                         agent.agent_id().to_owned()
                     };
 
-                    let backend = factory::JanusBackend::new(
-                        backend_id,
-                        handle_id,
-                        session_id,
-                        janus.url.clone(),
-                    )
-                    .capacity(1)
-                    .insert(&conn);
+                    let backend = factory::JanusBackend::new(backend_id, janus.url.clone())
+                        .capacity(1)
+                        .insert(&conn);
 
                     // Insert rtc.
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
@@ -1739,7 +1691,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
             let mut authz = TestAuthz::new();
             let new_writer = TestAgent::new("web", "new-writer", USR_AUDIENCE);
 
@@ -1761,7 +1713,7 @@ mod test {
                     let backend1 = {
                         let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
                         let id = agent.agent_id().to_owned();
-                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
+                        factory::JanusBackend::new(id, janus.url.clone())
                             .balancer_capacity(700)
                             .capacity(800)
                             .insert(&conn)
@@ -1770,7 +1722,7 @@ mod test {
                     let backend2 = {
                         let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
                         let id = agent.agent_id().to_owned();
-                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
+                        factory::JanusBackend::new(id, janus.url.clone())
                             .balancer_capacity(700)
                             .capacity(800)
                             .insert(&conn)
@@ -1894,9 +1846,7 @@ mod test {
 
             assert_eq!(respp.status(), StatusCode::OK);
             assert_eq!(resp.handle_id.rtc_id(), rtc.id());
-            assert_eq!(resp.handle_id.janus_session_id(), session_id);
             assert_eq!(resp.handle_id.backend_id(), backend.id());
-            assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
         #[tokio::test]
@@ -1905,7 +1855,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
             let mut authz = TestAuthz::new();
             let new_reader = TestAgent::new("web", "new-reader", USR_AUDIENCE);
 
@@ -1924,7 +1874,7 @@ mod test {
                     let backend = {
                         let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
                         let id = agent.agent_id().to_owned();
-                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
+                        factory::JanusBackend::new(id, janus.url.clone())
                             .balancer_capacity(700)
                             .capacity(800)
                             .insert(&conn)
@@ -2046,9 +1996,7 @@ mod test {
 
                 assert_eq!(respp.status(), StatusCode::OK);
                 assert_eq!(resp.handle_id.rtc_id(), rtc.id());
-                assert_eq!(resp.handle_id.janus_session_id(), session_id);
                 assert_eq!(resp.handle_id.backend_id(), backend.id());
-                assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
             }
 
             let payload = ConnectRequest {
@@ -2074,7 +2022,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -2086,9 +2034,7 @@ mod test {
                     let now = Utc::now();
                     let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
 
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, &janus.url);
 
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
@@ -2134,7 +2080,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -2146,9 +2092,7 @@ mod test {
                     let now = Utc::now();
                     let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
 
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, &janus.url);
 
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
@@ -2196,7 +2140,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -2208,9 +2152,7 @@ mod test {
                     let now = Utc::now();
                     let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
 
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, &janus.url);
 
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
@@ -2256,7 +2198,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -2271,8 +2213,6 @@ mod test {
 
                 let backend1 = factory::JanusBackend::new(
                     backend1_agent.agent_id().to_owned(),
-                    handle_id,
-                    session_id,
                     janus.url.clone(),
                 )
                 .group("wrong")
@@ -2282,8 +2222,6 @@ mod test {
 
                 let backend2 = factory::JanusBackend::new(
                     backend2_agent.agent_id().to_owned(),
-                    handle_id,
-                    session_id,
                     janus.url.clone(),
                 )
                 .group("right")
@@ -2334,9 +2272,7 @@ mod test {
 
             assert_eq!(respp.status(), StatusCode::OK);
             assert_eq!(resp.handle_id.rtc_id(), rtc.id());
-            assert_eq!(resp.handle_id.janus_session_id(), session_id);
             assert_eq!(resp.handle_id.backend_id(), backend.id());
-            assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
         #[tokio::test]

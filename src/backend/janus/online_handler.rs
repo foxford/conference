@@ -12,25 +12,10 @@ use serde::Deserialize;
 use svc_agent::AgentId;
 use tracing::error;
 
-use super::{
-    client::{HandleId, SessionId},
-    client_pool::Clients,
-};
-
-#[derive(Debug, Deserialize)]
-struct Session {
-    session_id: SessionId,
-    handle_id: HandleId,
-}
+use super::{client::HandleId, client_pool::Clients};
 
 #[derive(Debug, Deserialize)]
 pub struct Online {
-    session: Session,
-    description: JanusDesc,
-}
-
-#[derive(Debug, Deserialize)]
-struct JanusDesc {
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     group: Option<String>,
@@ -89,22 +74,17 @@ pub async fn start_janus_reg_handler(
 async fn handle_online(event: Online, clients: Clients, db: ConnectionPool) -> Result<()> {
     let backend = crate::util::spawn_blocking(move || {
         let conn = db.get()?;
-        let mut q = db::janus_backend::UpsertQuery::new(
-            &event.description.agent_id,
-            event.session.handle_id,
-            event.session.session_id,
-            &event.description.janus_url,
-        );
+        let mut q = db::janus_backend::UpsertQuery::new(&event.agent_id, &event.janus_url);
 
-        if let Some(capacity) = event.description.capacity {
+        if let Some(capacity) = event.capacity {
             q = q.capacity(capacity);
         }
 
-        if let Some(balancer_capacity) = event.description.balancer_capacity {
+        if let Some(balancer_capacity) = event.balancer_capacity {
             q = q.balancer_capacity(balancer_capacity);
         }
 
-        if let Some(group) = event.description.group.as_deref() {
+        if let Some(group) = event.group.as_deref() {
             q = q.group(group);
         }
 

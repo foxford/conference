@@ -1,11 +1,10 @@
 use crate::db;
 
-use super::{HandleId, SessionId};
+use super::HandleId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
 pub struct CreateHandleRequest {
-    pub session_id: SessionId,
     #[serde(with = "super::serialize_as_base64")]
     pub opaque_id: Option<OpaqueId>,
 }

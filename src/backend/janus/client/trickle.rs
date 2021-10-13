@@ -1,10 +1,9 @@
 use serde::Serialize;
 
-use super::{HandleId, Jsep, SessionId};
+use super::{HandleId, Jsep};
 
 #[derive(Serialize, Debug)]
 pub struct TrickleRequest {
-    pub session_id: SessionId,
     pub handle_id: HandleId,
     pub candidate: Jsep,
 }

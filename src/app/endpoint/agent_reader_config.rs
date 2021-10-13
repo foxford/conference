@@ -219,8 +219,6 @@ impl RequestHandler for UpdateHandler {
                 .collect();
 
             let request = UpdateReaderConfigRequest {
-                session_id: backend.session_id(),
-                handle_id: backend.handle_id(),
                 body: UpdateReaderConfigRequestBody::new(items),
             };
             context
@@ -347,7 +345,6 @@ mod tests {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
@@ -358,9 +355,7 @@ mod tests {
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, &janus.url);
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
                         .time((Bound::Included(Utc::now()), Bound::Unbounded))

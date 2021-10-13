@@ -1,9 +1,6 @@
 use crate::db;
 use crate::{
-    backend::janus::{
-        client::{HandleId, SessionId},
-        JANUS_API_VERSION,
-    },
+    backend::janus::{client::HandleId, JANUS_API_VERSION},
     schema::janus_backend,
 };
 use chrono::{DateTime, Utc};
@@ -12,8 +9,6 @@ use svc_agent::AgentId;
 
 pub type AllColumns = (
     janus_backend::id,
-    janus_backend::handle_id,
-    janus_backend::session_id,
     janus_backend::created_at,
     janus_backend::capacity,
     janus_backend::balancer_capacity,
@@ -24,8 +19,6 @@ pub type AllColumns = (
 
 pub const ALL_COLUMNS: AllColumns = (
     janus_backend::id,
-    janus_backend::handle_id,
-    janus_backend::session_id,
     janus_backend::created_at,
     janus_backend::capacity,
     janus_backend::balancer_capacity,
@@ -42,8 +35,6 @@ pub const ALL_COLUMNS: AllColumns = (
 #[table_name = "janus_backend"]
 pub struct Object {
     id: AgentId,
-    handle_id: HandleId,
-    session_id: SessionId,
     created_at: DateTime<Utc>,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
@@ -55,14 +46,6 @@ pub struct Object {
 impl Object {
     pub fn id(&self) -> &AgentId {
         &self.id
-    }
-
-    pub fn handle_id(&self) -> HandleId {
-        self.handle_id
-    }
-
-    pub fn session_id(&self) -> SessionId {
-        self.session_id
     }
 
     pub fn janus_url(&self) -> &str {
@@ -149,8 +132,6 @@ impl<'a> FindQuery<'a> {
 #[table_name = "janus_backend"]
 pub struct UpsertQuery<'a> {
     id: &'a AgentId,
-    handle_id: HandleId,
-    session_id: SessionId,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     api_version: String,
@@ -159,16 +140,9 @@ pub struct UpsertQuery<'a> {
 }
 
 impl<'a> UpsertQuery<'a> {
-    pub fn new(
-        id: &'a AgentId,
-        handle_id: HandleId,
-        session_id: SessionId,
-        janus_url: &'a str,
-    ) -> Self {
+    pub fn new(id: &'a AgentId, janus_url: &'a str) -> Self {
         Self {
             id,
-            handle_id,
-            session_id,
             capacity: None,
             balancer_capacity: None,
             api_version: JANUS_API_VERSION.to_string(),
@@ -215,32 +189,17 @@ impl<'a> UpsertQuery<'a> {
 
 pub struct DeleteQuery<'a> {
     id: &'a AgentId,
-    session_id: SessionId,
-    handle_id: HandleId,
 }
 
 impl<'a> DeleteQuery<'a> {
-    pub fn new(id: &'a AgentId, session_id: SessionId, handle_id: HandleId) -> Self {
-        Self {
-            id,
-            session_id,
-            handle_id,
-        }
+    pub fn new(id: &'a AgentId) -> Self {
+        Self { id }
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
         use diesel::prelude::*;
 
-        diesel::delete(
-            janus_backend::table.filter(
-                janus_backend::id.eq(self.id).and(
-                    janus_backend::session_id
-                        .eq(self.session_id)
-                        .and(janus_backend::handle_id.eq(self.handle_id)),
-                ),
-            ),
-        )
-        .execute(conn)
+        diesel::delete(janus_backend::table.filter(janus_backend::id.eq(self.id))).execute(conn)
     }
 }
 
@@ -565,7 +524,7 @@ mod tests {
     use std::ops::Bound;
 
     use crate::{
-        backend::janus::client::{HandleId, SessionId},
+        backend::janus::client::HandleId,
         db::rtc::SharingPolicy as RtcSharingPolicy,
         test_helpers::{prelude::*, test_deps::LocalDeps},
     };
@@ -583,24 +542,9 @@ mod tests {
             .expect("Failed to get db conn");
 
         // Insert janus backends.
-        let backend1 = shared_helpers::insert_janus_backend(
-            &conn,
-            "test",
-            SessionId::random(),
-            HandleId::random(),
-        );
-        let backend2 = shared_helpers::insert_janus_backend(
-            &conn,
-            "test",
-            SessionId::random(),
-            HandleId::random(),
-        );
-        let backend3 = shared_helpers::insert_janus_backend(
-            &conn,
-            "test",
-            SessionId::random(),
-            HandleId::random(),
-        );
+        let backend1 = shared_helpers::insert_janus_backend(&conn, "test");
+        let backend2 = shared_helpers::insert_janus_backend(&conn, "test");
+        let backend3 = shared_helpers::insert_janus_backend(&conn, "test");
 
         let room1 = factory::Room::new()
             .audience(USR_AUDIENCE)

@@ -1,10 +1,9 @@
 use serde::Serialize;
 
-use super::{HandleId, SessionId};
+use super::HandleId;
 
 #[derive(Debug, Serialize)]
 pub struct ServicePingRequest {
-    pub session_id: SessionId,
     pub handle_id: HandleId,
     pub body: ServicePingRequestBody,
 }

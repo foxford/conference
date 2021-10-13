@@ -435,7 +435,7 @@ mod tests {
     mod finished_with_in_progress_recordings {
         use super::super::*;
         use crate::{
-            backend::janus::client::{HandleId, SessionId},
+            backend::janus::client::HandleId,
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
 
@@ -448,18 +448,8 @@ mod tests {
             let pool = db.connection_pool();
             let conn = pool.get().expect("Failed to get db connection");
 
-            let backend1 = shared_helpers::insert_janus_backend(
-                &conn,
-                "test",
-                SessionId::random(),
-                HandleId::random(),
-            );
-            let backend2 = shared_helpers::insert_janus_backend(
-                &conn,
-                "test",
-                SessionId::random(),
-                HandleId::random(),
-            );
+            let backend1 = shared_helpers::insert_janus_backend(&conn, "test");
+            let backend2 = shared_helpers::insert_janus_backend(&conn, "test");
 
             let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
             let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());
@@ -508,20 +498,10 @@ mod tests {
             let pool = db.connection_pool();
             let conn = pool.get().expect("Failed to get db connection");
 
-            let backend1 = shared_helpers::insert_janus_backend_with_group(
-                &conn,
-                "test",
-                SessionId::random(),
-                HandleId::random(),
-                "webinar",
-            );
-            let backend2 = shared_helpers::insert_janus_backend_with_group(
-                &conn,
-                "test",
-                SessionId::random(),
-                HandleId::random(),
-                "minigroup",
-            );
+            let backend1 =
+                shared_helpers::insert_janus_backend_with_group(&conn, "test", "webinar");
+            let backend2 =
+                shared_helpers::insert_janus_backend_with_group(&conn, "test", "minigroup");
 
             let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
             let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());

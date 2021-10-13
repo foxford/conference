@@ -31,7 +31,6 @@ use svc_agent::{
     Addressable,
 };
 
-
 use tracing::Span;
 use tracing_attributes::instrument;
 
@@ -70,7 +69,6 @@ impl RequestHandler for CreateHandler {
     #[instrument(skip(context, payload, reqp), fields(
         rtc_id = %payload.handle_id.rtc_id(),
         rtc_stream_id = %payload.handle_id.rtc_stream_id(),
-        janus_session_id = %payload.handle_id.janus_session_id(),
         janus_handle_id = %payload.handle_id.janus_handle_id(),
         backend_id = %payload.handle_id.backend_id().to_string()),
         rtc_stream_label = ?payload.label
@@ -117,11 +115,6 @@ impl RequestHandler for CreateHandler {
                 .ok_or_else(|| anyhow!("Backend not found"))
                 .error(AppErrorKind::BackendNotFound)?;
 
-            if handle_id.janus_session_id() != janus_backend.session_id() {
-                return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
-                    .error(AppErrorKind::InvalidHandleId)?;
-            }
-
             // Validate agent connection and handle id.
             let agent_connection =
                 db::agent_connection::FindQuery::new(&agent_id, rtc.id())
@@ -160,7 +153,6 @@ impl RequestHandler for CreateHandler {
                                     reqp.as_agent_id().clone(),
                                 ),
                                 handle_id: payload.handle_id.janus_handle_id(),
-                                session_id: payload.handle_id.janus_session_id(),
                                 jsep: payload.jsep,
                             };
                             let _transaction = ReadStreamTransaction;
@@ -244,7 +236,6 @@ impl RequestHandler for CreateHandler {
                                     }),
                                 ),
                                 handle_id: payload.handle_id.janus_handle_id(),
-                                session_id: payload.handle_id.janus_session_id(),
                                 jsep: payload.jsep,
                             };
                             let _transaction = CreateStreamTransaction;
@@ -278,7 +269,6 @@ impl RequestHandler for CreateHandler {
                 let request = TrickleRequest {
                     candidate: payload.jsep,
                     handle_id: payload.handle_id.janus_handle_id(),
-                    session_id: payload.handle_id.janus_session_id(),
                 };
                 context
                     .janus_clients()
@@ -365,9 +355,6 @@ mod test {
 
         use crate::{
             app::handle_id::HandleId,
-            backend::janus::client::{
-                SessionId,
-            },
             db::rtc::SharingPolicy as RtcSharingPolicy,
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
@@ -426,8 +413,8 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
-            let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
+
+            let user_handle = shared_helpers::create_handle(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -436,9 +423,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, &janus.url);
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -467,7 +452,6 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                 rtc_stream_id,
                 rtc.id(),
                 agent_connection.handle_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
             let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
@@ -529,12 +513,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, "test");
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -556,7 +535,6 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 
@@ -619,12 +597,7 @@ a=rtcp-fb:120 ccm fir
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, "test");
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -646,7 +619,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 
@@ -695,8 +667,8 @@ a=rtcp-fb:120 ccm fir
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
-            let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
+
+            let user_handle = shared_helpers::create_handle(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -705,9 +677,7 @@ a=rtcp-fb:120 ccm fir
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, &janus.url);
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -738,7 +708,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 
@@ -778,12 +747,7 @@ a=rtcp-fb:120 ccm fir
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, "test");
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -805,7 +769,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 
@@ -843,12 +806,7 @@ a=rtcp-fb:120 ccm fir
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, "test");
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
                     backend
@@ -862,7 +820,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 db::rtc::Id::random(),
                 crate::backend::janus::client::HandleId::stub_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 
@@ -896,12 +853,7 @@ a=rtcp-fb:120 ccm fir
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, "test");
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -924,7 +876,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 
@@ -958,12 +909,7 @@ a=rtcp-fb:120 ccm fir
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, "test");
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -974,12 +920,7 @@ a=rtcp-fb:120 ccm fir
                         rtc.id(),
                     );
 
-                    let other_backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
+                    let other_backend = shared_helpers::insert_janus_backend(&conn, "test");
                     (other_backend, rtc, agent_connection)
                 })
                 .unwrap();
@@ -991,7 +932,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 
@@ -1049,7 +989,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
-                crate::backend::janus::client::SessionId::random(),
                 backend.agent_id().to_owned(),
             );
 
@@ -1083,12 +1022,7 @@ a=rtcp-fb:120 ccm fir
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, "test");
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
                     (backend, rtc)
@@ -1102,7 +1036,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 crate::backend::janus::client::HandleId::stub_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 
@@ -1136,12 +1069,7 @@ a=rtcp-fb:120 ccm fir
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, "test");
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
@@ -1156,7 +1084,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 crate::backend::janus::client::HandleId::stub_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 
@@ -1190,12 +1117,7 @@ a=rtcp-fb:120 ccm fir
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, "test");
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -1217,7 +1139,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 crate::backend::janus::client::HandleId::random(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 
@@ -1252,12 +1173,7 @@ a=rtcp-fb:120 ccm fir
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::random(),
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, "test");
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -1288,7 +1204,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent2_connection.handle_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 
@@ -1322,12 +1237,7 @@ a=rtcp-fb:120 ccm fir
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, "test");
                     let room =
                         shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
 
@@ -1351,7 +1261,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 
@@ -1387,12 +1296,7 @@ a=rtcp-fb:120 ccm fir
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
+                    let backend = shared_helpers::insert_janus_backend(&conn, "test");
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
                         .time((Bound::Included(now), Bound::Unbounded))
@@ -1422,7 +1326,6 @@ a=rtcp-fb:120 ccm fir
                 db::janus_rtc_stream::Id::random(),
                 rtc.id(),
                 agent_connection.handle_id(),
-                backend.session_id(),
                 backend.id().to_owned(),
             );
 

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use svc_agent::AgentId;
 
-use super::{create_handle::OpaqueId, transactions::Transaction, HandleId, SessionId};
+use super::{create_handle::OpaqueId, transactions::Transaction, HandleId};
 
 // A response on a request sent to a plugin handle.
 #[derive(Debug, Deserialize)]
@@ -25,7 +25,6 @@ pub struct EventResponsePluginData {
 // Stream started or a viewer started to receive it.
 #[derive(Debug, Deserialize)]
 pub struct WebRtcUpEvent {
-    pub session_id: SessionId,
     pub sender: HandleId,
     #[serde(with = "super::serialize_as_base64")]
     pub opaque_id: OpaqueId,
@@ -35,7 +34,6 @@ pub struct WebRtcUpEvent {
 // With Firefox it's not being sent. There's only `DetachedEvent`.
 #[derive(Debug, Deserialize)]
 pub struct HangUpEvent {
-    pub session_id: SessionId,
     pub sender: HandleId,
     #[serde(with = "super::serialize_as_base64")]
     pub opaque_id: OpaqueId,
@@ -45,7 +43,6 @@ pub struct HangUpEvent {
 // Audio or video bytes being received by a plugin handle.
 #[derive(Debug, Deserialize)]
 pub struct MediaEvent {
-    pub session_id: SessionId,
     pub sender: HandleId,
     #[serde(with = "super::serialize_as_base64")]
     pub opaque_id: OpaqueId,
@@ -56,15 +53,12 @@ pub struct MediaEvent {
 
 // A session was torn down by the server because of timeout: 60 seconds (by default).
 #[derive(Debug, Deserialize)]
-pub struct TimeoutEvent {
-    pub session_id: SessionId,
-}
+pub struct TimeoutEvent {}
 
 // Janus reporting problems sending media to a user
 // (user sent many NACKs in the last second; uplink=true is from Janus' perspective).
 #[derive(Debug, Deserialize)]
 pub struct SlowLinkEvent {
-    pub session_id: SessionId,
     pub sender: HandleId,
     #[serde(with = "super::serialize_as_base64")]
     pub opaque_id: OpaqueId,
@@ -75,7 +69,6 @@ pub struct SlowLinkEvent {
 // This is being sent in case of abnormal shutdown or after `HangUpEvent` in Chrome.
 #[derive(Debug, Deserialize)]
 pub struct DetachedEvent {
-    pub session_id: SessionId,
     pub sender: HandleId,
     #[serde(with = "super::serialize_as_base64")]
     pub opaque_id: OpaqueId,

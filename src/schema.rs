@@ -29,8 +29,6 @@ table! {
 
     janus_backend (id) {
         id -> Agent_id,
-        handle_id -> Int8,
-        session_id -> Int8,
         created_at -> Timestamptz,
         capacity -> Nullable<Int4>,
         balancer_capacity -> Nullable<Int4>,

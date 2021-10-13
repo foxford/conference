@@ -2,12 +2,10 @@ use crate::db;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::{HandleId, SessionId};
+use super::HandleId;
 
 #[derive(Debug, Serialize)]
 pub struct UploadStreamRequest {
-    pub session_id: SessionId,
-    pub handle_id: HandleId,
     pub body: UploadStreamRequestBody,
 }
 

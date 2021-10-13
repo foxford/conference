@@ -3,7 +3,7 @@ use rand::Rng;
 use svc_agent::{AccountId, AgentId};
 
 use crate::{
-    backend::janus::client::{HandleId, SessionId},
+    backend::janus::client::HandleId,
     db::{self, agent},
 };
 
@@ -198,8 +198,6 @@ impl Rtc {
 
 pub struct JanusBackend {
     id: AgentId,
-    handle_id: HandleId,
-    session_id: SessionId,
     capacity: Option<i32>,
     balancer_capacity: Option<i32>,
     group: Option<String>,
@@ -207,11 +205,9 @@ pub struct JanusBackend {
 }
 
 impl JanusBackend {
-    pub fn new(id: AgentId, handle_id: HandleId, session_id: SessionId, janus_url: String) -> Self {
+    pub fn new(id: AgentId, janus_url: String) -> Self {
         Self {
             id,
-            handle_id,
-            session_id,
             capacity: None,
             balancer_capacity: None,
             group: None,
@@ -241,12 +237,7 @@ impl JanusBackend {
     }
 
     pub fn insert(&self, conn: &PgConnection) -> db::janus_backend::Object {
-        let mut q = db::janus_backend::UpsertQuery::new(
-            &self.id,
-            self.handle_id,
-            self.session_id,
-            &self.janus_url,
-        );
+        let mut q = db::janus_backend::UpsertQuery::new(&self.id, &self.janus_url);
 
         if let Some(capacity) = self.capacity {
             q = q.capacity(capacity);
@@ -289,8 +280,7 @@ impl<'a> JanusRtcStream<'a> {
         let backend = match self.backend {
             Some(value) => value,
             None => {
-                default_backend =
-                    insert_janus_backend(conn, "test", SessionId::random(), HandleId::random());
+                default_backend = insert_janus_backend(conn, "test");
                 &default_backend
             }
         };
@@ -317,7 +307,7 @@ impl<'a> JanusRtcStream<'a> {
 
         db::janus_rtc_stream::InsertQuery::new(
             db::janus_rtc_stream::Id::random(),
-            backend.handle_id(),
+            HandleId::random(),
             rtc.id(),
             backend.id(),
             "alpha",

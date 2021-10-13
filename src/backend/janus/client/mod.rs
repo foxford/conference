@@ -28,7 +28,6 @@ use uuid::Uuid;
 
 pub mod agent_leave;
 pub mod create_handle;
-pub mod create_session;
 pub mod create_stream;
 pub mod events;
 pub mod read_stream;
@@ -59,7 +58,7 @@ impl JanusClient {
         })
     }
 
-    pub async fn poll(&self, _session_id: SessionId) -> anyhow::Result<PollResult> {
+    pub async fn poll(&self) -> anyhow::Result<PollResult> {
         let response = self
             .http
             .get(dbg!(format!("{}poll?max_events=5", self.janus_url)))
@@ -209,17 +208,6 @@ impl HandleId {
         Self(123)
     }
 
-    pub fn random() -> Self {
-        Self(rand::thread_rng().gen())
-    }
-}
-
-#[derive(
-    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
-)]
-pub struct SessionId(i64);
-
-impl SessionId {
     pub fn random() -> Self {
         Self(rand::thread_rng().gen())
     }

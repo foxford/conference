@@ -140,8 +140,6 @@ impl RequestHandler for VacuumHandler {
                     &config.backend,
                     &config.bucket,
                 ),
-                handle_id: backend.handle_id(),
-                session_id: backend.session_id(),
             };
             let transaction = UploadStreamTransaction {
                 rtc_id: recording.rtc_id(),
@@ -445,7 +443,7 @@ fn record_name(recording: &Recording, room: &Room) -> String {
 //             let postgres = local_deps.run_postgres();
 //             let janus = local_deps.run_janus();
 //             let db = TestDb::with_local_postgres(&postgres);
-//             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+//
 //             let mut authz = TestAuthz::new();
 //             authz.set_audience(SVC_AUDIENCE);
 
@@ -455,7 +453,7 @@ fn record_name(recording: &Recording, room: &Room) -> String {
 //                 .map(|conn| {
 //                     // Insert janus backend and rooms.
 //                     let backend = shared_helpers::insert_janus_backend(
-//                         &conn, &janus.url, session_id, handle_id,
+//                         &conn, &janus.url,
 //                     );
 
 //                     let room1 =
