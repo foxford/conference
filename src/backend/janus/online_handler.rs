@@ -2,7 +2,7 @@ use crate::{
     config::JanusRegistry,
     db::{self, ConnectionPool},
 };
-use anyhow::{Result};
+use anyhow::Result;
 use http::Response;
 use hyper::{
     service::{make_service_fn, service_fn},
@@ -54,6 +54,7 @@ pub async fn start_janus_reg_handler(
             let token = token.clone();
             async move {
                 let handle = async {
+                    dbg!("ONLINEEE");
                     if req
                         .headers()
                         .get("Authorization")
