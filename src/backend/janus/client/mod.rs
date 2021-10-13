@@ -17,6 +17,7 @@ use self::{
 use anyhow::Context;
 use diesel_derive_newtype::DieselNewType;
 
+use http::HeaderMap;
 use rand::Rng;
 use reqwest::{Client, StatusCode, Url};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -46,7 +47,13 @@ pub struct JanusClient {
 impl JanusClient {
     pub fn new(janus_url: &str) -> anyhow::Result<Self> {
         Ok(Self {
-            http: Client::new(),
+            http: Client::builder()
+                .default_headers({
+                    let mut header_map = HeaderMap::new();
+                    header_map.insert("Content-type", "application/json".parse()?);
+                    header_map
+                })
+                .build()?,
             janus_url: janus_url.parse()?,
         })
     }
