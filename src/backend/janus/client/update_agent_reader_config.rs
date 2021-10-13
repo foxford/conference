@@ -3,7 +3,7 @@ use svc_agent::AgentId;
 
 use crate::db;
 
-use super::HandleId;
+
 
 #[derive(Serialize, Debug)]
 pub struct UpdateReaderConfigRequest {

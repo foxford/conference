@@ -4,7 +4,7 @@ use svc_agent::AgentId;
 
 use crate::db;
 
-use super::{create_handle::OpaqueId, HandleId, Jsep};
+use super::{HandleId, Jsep};
 
 #[derive(Serialize, Debug)]
 pub struct CreateStreamRequest {

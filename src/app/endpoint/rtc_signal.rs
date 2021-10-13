@@ -48,8 +48,6 @@ impl CreateResponseData {
     }
 }
 
-pub type CreateResponse = OutgoingResponse<CreateResponseData>;
-
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Deserialize)]

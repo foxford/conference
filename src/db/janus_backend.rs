@@ -1,6 +1,6 @@
 use crate::db;
 use crate::{
-    backend::janus::{client::HandleId, JANUS_API_VERSION},
+    backend::janus::{JANUS_API_VERSION},
     schema::janus_backend,
 };
 use chrono::{DateTime, Utc};
@@ -524,7 +524,6 @@ mod tests {
     use std::ops::Bound;
 
     use crate::{
-        backend::janus::client::HandleId,
         db::rtc::SharingPolicy as RtcSharingPolicy,
         test_helpers::{prelude::*, test_deps::LocalDeps},
     };

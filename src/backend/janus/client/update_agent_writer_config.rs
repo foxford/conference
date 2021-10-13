@@ -1,7 +1,7 @@
 use crate::db;
 use serde::Serialize;
 
-use super::HandleId;
+
 
 #[derive(Serialize, Debug)]
 pub struct UpdateWriterConfigRequest {

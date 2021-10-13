@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+
 use svc_agent::AgentId;
 
-use super::{create_handle::OpaqueId, transactions::Transaction, HandleId};
+use super::{create_handle::OpaqueId, HandleId};
 
 // A response on a request sent to a plugin handle.
 #[derive(Debug, Deserialize)]

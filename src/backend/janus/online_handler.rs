@@ -12,7 +12,7 @@ use serde::Deserialize;
 use svc_agent::AgentId;
 use tracing::error;
 
-use super::{client::HandleId, client_pool::Clients};
+use super::{client_pool::Clients};
 
 #[derive(Debug, Deserialize)]
 pub struct Online {

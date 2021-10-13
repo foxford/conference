@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result};
 
 use futures::stream;
 
@@ -7,7 +7,6 @@ use svc_agent::{
         IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
         OutgoingResponse, ShortTermTimingProperties,
     },
-    AgentId,
 };
 use svc_error::Error as SvcError;
 use tracing::error;
@@ -16,16 +15,16 @@ use crate::{
     app::{
         context::Context,
         endpoint,
-        error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
+        error::{Error as AppError},
         message_handler::MessageStream,
         API_VERSION,
     },
     db::{agent_connection, janus_rtc_stream},
 };
 
-use serde::{Deserialize, Serialize};
 
-use self::client::{create_handle::OpaqueId, transactions::TransactionKind, IncomingEvent};
+
+use self::client::{create_handle::OpaqueId, IncomingEvent};
 
 ////////////////////////////////////////////////////////////////////////////////
 

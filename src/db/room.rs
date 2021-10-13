@@ -435,7 +435,6 @@ mod tests {
     mod finished_with_in_progress_recordings {
         use super::super::*;
         use crate::{
-            backend::janus::client::HandleId,
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
 
