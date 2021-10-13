@@ -71,8 +71,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         rtc_id,
         event_kind = ?message.event_kind(),
         room_id,
-        rtc_stream_id,
-        request_id = message.trace_id().map_or("", |x| x.as_str())))]
+        rtc_stream_id))]
     pub async fn handle_events(&self, message: janus::client::IncomingEvent) {
         if let Some(opaque_id) = message.opaque_id() {
             Span::current()

@@ -1,24 +1,25 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use svc_agent::AgentId;
 
 use super::{create_handle::OpaqueId, transactions::Transaction, HandleId, SessionId};
 
 // A response on a request sent to a plugin handle.
 #[derive(Debug, Deserialize)]
 pub struct EventResponse {
-    #[serde(with = "super::serialize_as_str")]
-    pub transaction: Transaction,
-    pub session_id: SessionId,
-    #[serde(with = "super::serialize_as_base64")]
-    pub opaque_id: Option<OpaqueId>,
+    pub opaque_id: OpaqueId,
     pub plugindata: EventResponsePluginData,
-    pub jsep: Option<Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SpeakingNotification {
+    pub speaking: bool,
+    pub agent_id: AgentId,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct EventResponsePluginData {
-    pub data: Option<Value>,
-    pub plugin: String,
+    pub data: SpeakingNotification,
 }
 
 // Stream started or a viewer started to receive it.

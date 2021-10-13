@@ -250,18 +250,7 @@ impl IncomingEvent {
             IncomingEvent::HangUp(_) => "HangUp",
             IncomingEvent::SlowLink(_) => "SlowLink",
             IncomingEvent::Detached(_) => "Detached",
-            IncomingEvent::Event(e) => match e.transaction.kind.as_ref() {
-                Some(TransactionKind::AgentSpeaking) => "AgentSpeaking",
-                None => "EmptyTran",
-            },
-        }
-    }
-
-    pub fn trace_id(&self) -> Option<&TraceId> {
-        if let IncomingEvent::Event(x) = self {
-            x.transaction.trace_id()
-        } else {
-            None
+            IncomingEvent::Event(_) => "AgentSpeaking",
         }
     }
 
@@ -273,7 +262,7 @@ impl IncomingEvent {
             IncomingEvent::HangUp(x) => Some(&x.opaque_id),
             IncomingEvent::SlowLink(x) => Some(&x.opaque_id),
             IncomingEvent::Detached(x) => Some(&x.opaque_id),
-            IncomingEvent::Event(_) => None,
+            IncomingEvent::Event(x) => Some(&x.opaque_id),
         }
     }
 }
