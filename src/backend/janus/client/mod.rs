@@ -1,16 +1,13 @@
 use crate::trace_id::TraceId;
 
 use self::{
-    agent_leave::AgentLeaveRequest,
     create_handle::{CreateHandleRequest, CreateHandleResponse, OpaqueId},
-    create_session::CreateSessionResponse,
-    create_stream::{CreateStreamRequest, CreateStreamResponse, CreateStreamTransaction},
+    create_stream::{CreateStreamRequest, CreateStreamResponse},
     events::{
         DetachedEvent, EventResponse, HangUpEvent, MediaEvent, SlowLinkEvent, TimeoutEvent,
         WebRtcUpEvent,
     },
-    read_stream::{ReadStreamRequest, ReadStreamResponse, ReadStreamTransaction},
-    service_ping::ServicePingRequest,
+    read_stream::{ReadStreamRequest, ReadStreamResponse},
     transactions::{Transaction, TransactionKind},
     trickle::TrickleRequest,
     update_agent_reader_config::UpdateReaderConfigRequest,
@@ -54,7 +51,7 @@ impl JanusClient {
         })
     }
 
-    pub async fn poll(&self, session_id: SessionId) -> anyhow::Result<PollResult> {
+    pub async fn poll(&self, _session_id: SessionId) -> anyhow::Result<PollResult> {
         let response = self
             .http
             .get(format!("{}/poll?max_events=5", self.janus_url))
@@ -71,7 +68,7 @@ impl JanusClient {
     pub async fn upload_stream(
         &self,
         request: UploadStreamRequest,
-        transaction: UploadStreamTransaction,
+        _transaction: UploadStreamTransaction,
     ) -> anyhow::Result<()> {
         let _response: AckResponse = self.send_request(request).await?;
         Ok(())

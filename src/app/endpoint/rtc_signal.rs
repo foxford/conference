@@ -30,7 +30,7 @@ use svc_agent::{
     mqtt::{OutgoingResponse, ResponseStatus},
     Addressable,
 };
-use uuid::Uuid;
+
 
 use tracing::Span;
 use tracing_attributes::instrument;
@@ -163,7 +163,7 @@ impl RequestHandler for CreateHandler {
                                 session_id: payload.handle_id.janus_session_id(),
                                 jsep: payload.jsep,
                             };
-                            let transaction = ReadStreamTransaction;
+                            let _transaction = ReadStreamTransaction;
                             context
                                 .janus_clients()
                                 .get_or_insert(&backend)
@@ -247,7 +247,7 @@ impl RequestHandler for CreateHandler {
                                 session_id: payload.handle_id.janus_session_id(),
                                 jsep: payload.jsep,
                             };
-                            let transaction = CreateStreamTransaction;
+                            let _transaction = CreateStreamTransaction;
                             context
                                 .janus_clients()
                                 .get_or_insert(&backend)
@@ -366,9 +366,7 @@ mod test {
         use crate::{
             app::handle_id::HandleId,
             backend::janus::client::{
-                events::EventResponse,
-                transactions::{Transaction, TransactionKind},
-                IncomingEvent, SessionId,
+                SessionId,
             },
             db::rtc::SharingPolicy as RtcSharingPolicy,
             test_helpers::{prelude::*, test_deps::LocalDeps},

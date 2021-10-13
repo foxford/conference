@@ -18,7 +18,6 @@ use tracing::Span;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
-    backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
     db::{self, room::FindQueryable},
 };
 use tracing_attributes::instrument;
@@ -305,7 +304,7 @@ async fn leave_room<C: Context>(
     .await?;
 
     match backends {
-        Some(backends) => Ok(true),
+        Some(_backends) => Ok(true),
         None => Ok(false),
     }
 }

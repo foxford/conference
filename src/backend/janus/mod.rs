@@ -5,12 +5,11 @@ use futures::stream;
 use svc_agent::{
     mqtt::{
         IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
-        OutgoingResponse, ResponseStatus, ShortTermTimingProperties,
-    },
-    Addressable, AgentId,
+        OutgoingResponse, ShortTermTimingProperties,
+    }, AgentId,
 };
 use svc_error::Error as SvcError;
-use tracing::{error, Span};
+use tracing::{error};
 
 use crate::{
     app::{
@@ -18,10 +17,9 @@ use crate::{
         endpoint,
         error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
         message_handler::MessageStream,
-        metrics::HistogramExt,
         API_VERSION,
     },
-    db::{self, agent_connection, janus_rtc_stream, recording, room, rtc},
+    db::{agent_connection, janus_rtc_stream},
 };
 
 use serde::{Deserialize, Serialize};

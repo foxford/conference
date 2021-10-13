@@ -1250,7 +1250,7 @@ mod test {
                         &conn, &janus.url, session_id, handle_id,
                     );
 
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, &backend2.id());
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
 
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
                     let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -1431,11 +1431,11 @@ mod test {
                             Bound::Excluded(now + Duration::hours(1)),
                         ))
                         .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .backend_id(&backend.id())
+                        .backend_id(backend.id())
                         .reserve(2)
                         .insert(&conn);
 
-                    let room2 = shared_helpers::insert_room_with_backend_id(&conn, &backend.id());
+                    let room2 = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
 
                     // Insert rtcs.
                     let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
@@ -1489,7 +1489,7 @@ mod test {
             {
                 let conn = context.get_conn().await.expect("Failed to acquire db conn");
                 let row_count = db::agent::DeleteQuery::new()
-                    .agent_id(&reader1.agent_id())
+                    .agent_id(reader1.agent_id())
                     .room_id(rtc2.room_id())
                     .execute(&conn)
                     .expect("Failed to delete user from agents");
@@ -1611,7 +1611,7 @@ mod test {
                     .insert(&conn);
 
                     // Insert room and rtc.
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, &backend.id());
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
 
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 

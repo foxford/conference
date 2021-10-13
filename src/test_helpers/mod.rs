@@ -27,8 +27,8 @@ use self::{
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub const SVC_AUDIENCE: &'static str = "dev.svc.example.org";
-pub const USR_AUDIENCE: &'static str = "dev.usr.example.org";
+pub const SVC_AUDIENCE: &str = "dev.svc.example.org";
+pub const USR_AUDIENCE: &str = "dev.usr.example.org";
 
 pub async fn handle_request<H: RequestHandler>(
     context: &mut TestContext,
@@ -108,7 +108,7 @@ where
         }
     }
 
-    return None;
+    None
 }
 
 pub fn find_response<P>(messages: &[OutgoingEnvelope]) -> (P, &OutgoingResponseProperties, &str)

@@ -24,17 +24,13 @@ use uuid::Uuid;
 use crate::{
     app::{
         context::{AppContext, Context},
-        endpoint::{
-            prelude::*,
-            subscription::{CorrelationDataPayload, RoomEnterLeaveEvent},
-        },
+        endpoint::{prelude::*, subscription::RoomEnterLeaveEvent},
         http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
         API_VERSION,
     },
     authz::AuthzObject,
-    backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
     db,
     db::{
         room::{FindQueryable, RoomBackend},
@@ -602,7 +598,7 @@ impl RequestHandler for EnterHandler {
         } else {
             unreachable!()
         };
-        let dispatcher = context
+        let _dispatcher = context
             .dispatcher()
             .request::<_, CreateDeleteResponsePayload>(msg)
             .await;
@@ -711,7 +707,7 @@ impl RequestHandler for LeaveHandler {
         } else {
             unreachable!()
         };
-        let dispatcher = context
+        let _dispatcher = context
             .dispatcher()
             .request::<_, CreateDeleteResponsePayload>(msg)
             .await;
@@ -805,7 +801,7 @@ async fn leave_room<C: Context>(
     .await?;
 
     match backends {
-        Some(backends) => Ok(true),
+        Some(_backends) => Ok(true),
         None => Ok(false),
     }
 }
@@ -866,7 +862,7 @@ mod test {
             let classroom_id = Uuid::new_v4();
 
             let payload = CreateRequest {
-                time: time.clone(),
+                time,
                 audience: USR_AUDIENCE.to_owned(),
                 backend: None,
                 rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),

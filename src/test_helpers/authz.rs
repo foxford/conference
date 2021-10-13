@@ -32,14 +32,14 @@ impl TestAuthz {
     }
 }
 
-impl Into<ClientMap> for TestAuthz {
-    fn into(self) -> ClientMap {
-        let config = LocalWhitelistConfig::new(self.records);
+impl From<TestAuthz> for ClientMap {
+    fn from(val: TestAuthz) -> Self {
+        let config = LocalWhitelistConfig::new(val.records);
 
         let mut config_map = ConfigMap::new();
-        config_map.insert(self.audience.to_owned(), Config::LocalWhitelist(config));
+        config_map.insert(val.audience.to_owned(), Config::LocalWhitelist(config));
 
-        let account_id = AccountId::new("conference", &self.audience);
+        let account_id = AccountId::new("conference", &val.audience);
         ClientMap::new(&account_id, None, config_map, None).expect("Failed to build authz")
     }
 }

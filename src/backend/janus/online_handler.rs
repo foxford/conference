@@ -1,13 +1,8 @@
 use crate::{
-    backend::janus::client::{
-        create_handle::CreateHandleRequest,
-        service_ping::{ServicePingRequest, ServicePingRequestBody},
-        JanusClient,
-    },
     config::JanusRegistry,
     db::{self, ConnectionPool},
 };
-use anyhow::{Context, Result};
+use anyhow::{Result};
 use http::Response;
 use hyper::{
     service::{make_service_fn, service_fn},
