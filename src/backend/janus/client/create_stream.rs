@@ -1,8 +1,6 @@
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use svc_agent::{AgentId};
-
+use svc_agent::AgentId;
 
 use crate::db;
 
@@ -62,7 +60,5 @@ impl CreateStreamRequestBody {
 
 #[derive(Deserialize)]
 pub struct CreateStreamResponse {
-    pub session_id: SessionId,
-    pub opaque_id: OpaqueId,
     pub jsep: Value,
 }
