@@ -24,6 +24,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 
 use derive_more::{Display, FromStr};
+use uuid::Uuid;
 
 pub mod agent_leave;
 pub mod create_handle;
@@ -302,7 +303,7 @@ struct JanusResponse<T> {
 
 #[derive(Serialize, Debug)]
 struct JanusRequest<T> {
-    transaction: Transaction,
+    transaction: Uuid,
     janus: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     plugin: Option<&'static str>,
@@ -312,7 +313,7 @@ struct JanusRequest<T> {
 
 fn create_handle(request: CreateHandleRequest) -> JanusRequest<CreateHandleRequest> {
     JanusRequest {
-        transaction: Transaction::only_id(),
+        transaction: Uuid::new_v4(),
         janus: "attach",
         plugin: Some("janus.plugin.conference"),
         data: request,
