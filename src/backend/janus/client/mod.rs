@@ -54,7 +54,7 @@ impl JanusClient {
     pub async fn poll(&self, _session_id: SessionId) -> anyhow::Result<PollResult> {
         let response = self
             .http
-            .get(format!("{}/poll?max_events=5", self.janus_url))
+            .get(dbg!(format!("{}/poll?max_events=5", self.janus_url)))
             .send()
             .await?;
         if response.status() == StatusCode::NOT_FOUND {
