@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::result::Result as StdResult;
 use svc_agent::{
-    mqtt::{OutgoingResponse, ResponseStatus},
+    mqtt::{ResponseStatus},
     Addressable,
 };
 

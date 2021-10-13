@@ -1,7 +1,7 @@
 use crate::{
     app::{
         context::{AppContext, Context},
-        endpoint::{self, prelude::*, MessageStream},
+        endpoint::{self, prelude::*},
         error::Error as AppError,
         http::AuthExtractor,
         service_utils::{RequestParams, Response},
@@ -97,7 +97,7 @@ impl RequestHandler for VacuumHandler {
         _payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let t_imer = context
+        let _t_imer = context
             .metrics()
             .request_duration
             .upload_stream
@@ -146,7 +146,7 @@ impl RequestHandler for VacuumHandler {
                     &config.bucket,
                 ),
             };
-            let transaction = UploadStreamTransaction {
+            let _transaction = UploadStreamTransaction {
                 rtc_id: recording.rtc_id(),
                 start_timestamp: context.start_timestamp(),
             };
