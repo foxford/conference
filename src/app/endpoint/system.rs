@@ -7,9 +7,7 @@ use crate::{
         service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
-    backend::janus::client::upload_stream::{
-        UploadResponse, UploadStreamRequest, UploadStreamRequestBody, UploadStreamTransaction,
-    },
+    backend::janus::client::upload_stream::{UploadResponse, UploadStreamRequest},
     config::UploadConfig,
     db,
     db::{
@@ -140,15 +138,9 @@ impl RequestHandler for VacuumHandler {
 
             let config = upload_config(context, &room)?;
             let request = UploadStreamRequest {
-                body: UploadStreamRequestBody::new(
-                    recording.rtc_id(),
-                    &config.backend,
-                    &config.bucket,
-                ),
-            };
-            let _transaction = UploadStreamTransaction {
-                rtc_id: recording.rtc_id(),
-                start_timestamp: context.start_timestamp(),
+                id: recording.rtc_id(),
+                backend: config.backend.clone(),
+                bucket: config.bucket.clone(),
             };
             // TODO: Send the error as an event to "app/${APP}/audiences/${AUD}" topic
             let janus_response = context

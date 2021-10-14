@@ -1,30 +1,13 @@
 use crate::db;
 use serde::Serialize;
 
-
-
 #[derive(Serialize, Debug)]
 pub struct UpdateWriterConfigRequest {
-    pub body: UpdateWriterConfigRequestBody,
+    pub configs: Vec<UpdateWriterConfigItem>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct UpdateWriterConfigRequestBody {
-    method: &'static str,
-    configs: Vec<UpdateWriterConfigRequestBodyConfigItem>,
-}
-
-impl UpdateWriterConfigRequestBody {
-    pub fn new(configs: Vec<UpdateWriterConfigRequestBodyConfigItem>) -> Self {
-        Self {
-            method: "writer_config.update",
-            configs,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub struct UpdateWriterConfigRequestBodyConfigItem {
+pub struct UpdateWriterConfigItem {
     pub stream_id: db::rtc::Id,
     pub send_video: bool,
     pub send_audio: bool,

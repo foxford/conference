@@ -10,8 +10,8 @@ use crate::{
     },
     authz::AuthzObject,
     backend::janus::client::update_agent_writer_config::{
-        UpdateWriterConfigRequest, UpdateWriterConfigRequestBody,
-        UpdateWriterConfigRequestBodyConfigItem,
+        UpdateWriterConfigRequest, 
+        UpdateWriterConfigItem,
     },
     db,
     db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig},
@@ -299,17 +299,17 @@ impl RequestHandler for UpdateHandler {
             let items = rtc_writer_configs_with_rtcs
                 .iter()
                 .map(
-                    |(rtc_writer_config, rtc)| UpdateWriterConfigRequestBodyConfigItem {
+                    |(rtc_writer_config, rtc)| UpdateWriterConfigItem {
                         stream_id: rtc.id(),
                         send_video: rtc_writer_config.send_video(),
                         send_audio: rtc_writer_config.send_audio(),
                         video_remb: rtc_writer_config.video_remb().map(|x| x as u32),
                     },
                 )
-                .collect::<Vec<UpdateWriterConfigRequestBodyConfigItem>>();
+                .collect::<Vec<UpdateWriterConfigItem>>();
 
             let request = UpdateWriterConfigRequest {
-                body: UpdateWriterConfigRequestBody::new(items),
+                configs: items,
             };
             context
                 .janus_clients()

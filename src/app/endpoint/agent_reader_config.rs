@@ -9,8 +9,7 @@ use crate::{
         service_utils::{RequestParams, Response},
     },
     backend::janus::client::update_agent_reader_config::{
-        UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
-        UpdateReaderConfigRequestBodyConfigItem,
+        UpdateReaderConfigRequest, UpdateReaderConfigItem,
     },
     db,
     db::{rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},
@@ -209,7 +208,7 @@ impl RequestHandler for UpdateHandler {
             let items = rtc_reader_configs_with_rtcs
                 .iter()
                 .map(
-                    |(rtc_reader_config, rtc)| UpdateReaderConfigRequestBodyConfigItem {
+                    |(rtc_reader_config, rtc)| UpdateReaderConfigItem {
                         reader_id: rtc_reader_config.reader_id().to_owned(),
                         stream_id: rtc.id(),
                         receive_video: rtc_reader_config.receive_video(),
@@ -218,9 +217,7 @@ impl RequestHandler for UpdateHandler {
                 )
                 .collect();
 
-            let request = UpdateReaderConfigRequest {
-                body: UpdateReaderConfigRequestBody::new(items),
-            };
+            let request = UpdateReaderConfigRequest { configs: items };
             context
                 .janus_clients()
                 .get_or_insert(&backend)
