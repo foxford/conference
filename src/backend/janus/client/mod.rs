@@ -9,9 +9,7 @@ use self::{
     trickle::TrickleRequest,
     update_agent_reader_config::UpdateReaderConfigRequest,
     update_agent_writer_config::UpdateWriterConfigRequest,
-    upload_stream::{
-        UploadResponse, UploadStreamRequest,
-    },
+    upload_stream::{UploadResponse, UploadStreamRequest},
 };
 use anyhow::Context;
 use diesel_derive_newtype::DieselNewType;
@@ -68,6 +66,7 @@ impl JanusClient {
         }
         let body = response.text().await?;
         let body: Vec<Value> = serde_json::from_str(&body).context(body)?;
+        dbg!(&body);
         Ok(PollResult::Events(body))
     }
 
