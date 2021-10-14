@@ -66,7 +66,6 @@ impl JanusClient {
         }
         let body = response.text().await?;
         let body: Vec<Value> = serde_json::from_str(&body).context(body)?;
-        dbg!(&body);
         Ok(PollResult::Events(body))
     }
 
@@ -84,7 +83,7 @@ impl JanusClient {
     }
 
     pub async fn writer_update(&self, request: UpdateWriterConfigRequest) -> anyhow::Result<()> {
-        self.send_request("reader-config-update", request).await?;
+        self.send_request("writer-config-update", request).await?;
         Ok(())
     }
 
