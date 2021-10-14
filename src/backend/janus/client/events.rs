@@ -7,6 +7,7 @@ use super::{create_handle::OpaqueId, HandleId};
 // A response on a request sent to a plugin handle.
 #[derive(Debug, Deserialize)]
 pub struct EventResponse {
+    #[serde(with = "super::serialize_as_base64")]
     pub opaque_id: OpaqueId,
     pub plugindata: EventResponsePluginData,
 }
