@@ -65,7 +65,7 @@ impl JanusClient {
             return Ok(PollResult::SessionNotFound);
         }
         let body = response.text().await?;
-        let body: Vec<Value> = serde_json::from_str(&body).context(body)?;
+        let body: Vec<Value> = dbg!(serde_json::from_str(&body).context(body)?);
         Ok(PollResult::Events(body))
     }
 
