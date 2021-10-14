@@ -61,7 +61,7 @@ impl FromStr for HandleId {
     type Err = anyhow::Error;
 
     fn from_str(val: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = val.splitn(5, '.').collect();
+        let parts: Vec<&str> = val.splitn(4, '.').collect();
         match parts[..] {
             [rtc_stream_id, rtc_id, janus_handle_id, rest] => Ok(Self::new(
                 rtc_stream_id.parse()?,
