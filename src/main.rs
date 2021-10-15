@@ -95,5 +95,6 @@ mod schema;
 mod serde;
 #[cfg(test)]
 mod test_helpers;
-mod trace_id;
+//todo return it if needed
+// mod trace_id;
 mod util;

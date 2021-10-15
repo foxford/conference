@@ -23,13 +23,10 @@ use serde_json::Value;
 use derive_more::{Display, FromStr};
 use uuid::Uuid;
 
-pub mod agent_leave;
 pub mod create_handle;
 pub mod create_stream;
 pub mod events;
 pub mod read_stream;
-pub mod service_ping;
-pub mod transactions;
 pub mod trickle;
 pub mod update_agent_reader_config;
 pub mod update_agent_writer_config;
@@ -217,10 +214,7 @@ impl HandleId {
 #[allow(clippy::large_enum_variant)]
 pub enum IncomingEvent {
     WebRtcUp(WebRtcUpEvent),
-    Media(MediaEvent),
-    Timeout(TimeoutEvent),
     HangUp(HangUpEvent),
-    SlowLink(SlowLinkEvent),
     Detached(DetachedEvent),
     Event(EventResponse),
 }
@@ -229,10 +223,7 @@ impl IncomingEvent {
     pub fn event_kind(&self) -> &'static str {
         match self {
             IncomingEvent::WebRtcUp(_) => "WebRtcUp",
-            IncomingEvent::Media(_) => "Media",
-            IncomingEvent::Timeout(_) => "Media",
             IncomingEvent::HangUp(_) => "HangUp",
-            IncomingEvent::SlowLink(_) => "SlowLink",
             IncomingEvent::Detached(_) => "Detached",
             IncomingEvent::Event(_) => "AgentSpeaking",
         }
@@ -241,10 +232,7 @@ impl IncomingEvent {
     pub fn opaque_id(&self) -> Option<&OpaqueId> {
         match self {
             IncomingEvent::WebRtcUp(x) => Some(&x.opaque_id),
-            IncomingEvent::Media(x) => Some(&x.opaque_id),
-            IncomingEvent::Timeout(_) => None,
             IncomingEvent::HangUp(x) => Some(&x.opaque_id),
-            IncomingEvent::SlowLink(x) => Some(&x.opaque_id),
             IncomingEvent::Detached(x) => Some(&x.opaque_id),
             IncomingEvent::Event(x) => Some(&x.opaque_id),
         }
