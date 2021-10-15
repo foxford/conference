@@ -41,31 +41,6 @@ pub struct HangUpEvent {
     pub reason: String,
 }
 
-// Audio or video bytes being received by a plugin handle.
-#[derive(Debug, Deserialize)]
-pub struct MediaEvent {
-    pub sender: HandleId,
-    #[serde(with = "super::serialize_as_base64")]
-    pub opaque_id: OpaqueId,
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub receiving: bool,
-}
-
-// A session was torn down by the server because of timeout: 60 seconds (by default).
-#[derive(Debug, Deserialize)]
-pub struct TimeoutEvent {}
-
-// Janus reporting problems sending media to a user
-// (user sent many NACKs in the last second; uplink=true is from Janus' perspective).
-#[derive(Debug, Deserialize)]
-pub struct SlowLinkEvent {
-    pub sender: HandleId,
-    #[serde(with = "super::serialize_as_base64")]
-    pub opaque_id: OpaqueId,
-    pub uplink: bool,
-}
-
 // Janus handle detached.
 // This is being sent in case of abnormal shutdown or after `HangUpEvent` in Chrome.
 #[derive(Debug, Deserialize)]

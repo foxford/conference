@@ -3,17 +3,12 @@ use anyhow::Result;
 use futures::stream;
 
 use svc_agent::mqtt::{
-    IncomingRequestProperties, IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties,
-    OutgoingResponse, ShortTermTimingProperties,
+    IntoPublishableMessage, OutgoingEvent, OutgoingEventProperties, ShortTermTimingProperties,
 };
-use svc_error::Error as SvcError;
 use tracing::error;
 
 use crate::{
-    app::{
-        context::Context, endpoint, error::Error as AppError, message_handler::MessageStream,
-        API_VERSION,
-    },
+    app::{context::Context, endpoint, error::Error as AppError, message_handler::MessageStream},
     db::{agent_connection, janus_rtc_stream},
 };
 
@@ -22,24 +17,6 @@ use self::client::{create_handle::OpaqueId, IncomingEvent};
 ////////////////////////////////////////////////////////////////////////////////
 
 pub const JANUS_API_VERSION: &str = "v1";
-
-const ALREADY_RUNNING_STATE: &str = "already_running";
-
-fn handle_response_error<C: Context>(
-    context: &mut C,
-    reqp: &IncomingRequestProperties,
-    err: AppError,
-) -> MessageStream {
-    error!(?err, "Failed to handle a response from janus",);
-    let svc_error: SvcError = err.to_svc_error();
-    err.notify_sentry();
-
-    let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
-    let respp = reqp.to_response(svc_error.status_code(), timing);
-    let resp = OutgoingResponse::unicast(svc_error, respp, reqp, API_VERSION);
-    let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-    Box::new(stream::once(std::future::ready(boxed_resp)))
-}
 
 pub async fn handle_event<C: Context>(context: &mut C, event: IncomingEvent) -> MessageStream {
     handle_event_impl(context, event)

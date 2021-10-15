@@ -9,7 +9,7 @@ use svc_agent::{
 use uuid::Uuid;
 
 use crate::app::{
-    endpoint::{EventHandler, RequestHandler, ResponseHandler},
+    endpoint::{EventHandler, RequestHandler},
     error::Error as AppError,
     message_handler::MessageStream,
     service_utils::RequestParams,
@@ -38,17 +38,6 @@ pub async fn handle_request<H: RequestHandler>(
     let reqp = build_reqp(agent.agent_id(), "ignore");
     let messages = H::handle(context, payload, RequestParams::MqttParams(&reqp)).await?;
     Ok(parse_messages(messages.into_mqtt_messages(&reqp)?).await)
-}
-
-pub async fn handle_response<H: ResponseHandler>(
-    context: &mut TestContext,
-    agent: &TestAgent,
-    payload: H::Payload,
-    corr_data: &H::CorrelationData,
-) -> Result<Vec<OutgoingEnvelope>, AppError> {
-    let respp = build_respp(agent.agent_id());
-    let messages = H::handle(context, payload, &respp, corr_data).await?;
-    Ok(parse_messages(messages).await)
 }
 
 pub async fn handle_event<H: EventHandler>(
@@ -222,7 +211,7 @@ pub mod prelude {
     pub use super::{
         agent::TestAgent, authz::TestAuthz, build_evp, build_reqp, build_respp,
         context::TestContext, db::TestDb, factory, find_event, find_request, find_response,
-        handle_event, handle_request, handle_response, shared_helpers, SVC_AUDIENCE, USR_AUDIENCE,
+        handle_event, handle_request, shared_helpers, SVC_AUDIENCE, USR_AUDIENCE,
     };
 }
 

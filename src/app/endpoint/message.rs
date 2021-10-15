@@ -10,21 +10,21 @@ use crate::{
 };
 use anyhow::anyhow;
 use async_trait::async_trait;
-use futures::stream;
+use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use svc_agent::{
     mqtt::{
-        IncomingRequestProperties, IncomingResponseProperties, IntoPublishableMessage,
-        OutgoingRequest, OutgoingResponse, OutgoingResponseProperties, ResponseStatus,
-        ShortTermTimingProperties, SubscriptionTopic,
+        IncomingRequestProperties, IntoPublishableMessage,
+        OutgoingMessage, OutgoingRequest, OutgoingResponse, OutgoingResponseProperties,
+        ResponseStatus, ShortTermTimingProperties, SubscriptionTopic,
     },
     Addressable, AgentId, Subscription,
 };
 
 use tracing_attributes::instrument;
+use uuid::Uuid;
 
-use super::MqttResult;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -84,28 +84,30 @@ impl RequestHandler for UnicastHandler {
 
         let corr_data_payload = CorrelationDataPayload::new(mqtt_params.to_owned());
 
-        let corr_data = CorrelationData::MessageUnicast(corr_data_payload)
-            .dump()
-            .error(AppErrorKind::MessageBuildingFailed)?;
-
         let props = mqtt_params.to_request(
             mqtt_params.method(),
             &response_topic,
-            &corr_data,
+            &Uuid::new_v4().to_string(),
             ShortTermTimingProperties::until_now(context.start_timestamp()),
         );
-        let mut response = Response::new(
-            ResponseStatus::OK,
-            json!({}),
-            context.start_timestamp(),
-            None,
-        );
-        response.add_message(Box::new(OutgoingRequest::unicast(
+
+        let to = &context.config().broker_id;
+        let msg = if let OutgoingMessage::Request(msg) = OutgoingRequest::unicast(
             payload.data.to_owned(),
             props,
             &payload.agent_id,
             API_VERSION,
-        )));
+        ) {
+            msg
+        } else {
+            unreachable!()
+        };
+        let response = context
+            .dispatcher()
+            .request::<_, JsonValue>(msg)
+            .await
+            .error(AppErrorKind::MessageReceivingFailed)?
+            .extract_payload();
 
         context
             .metrics()
@@ -113,7 +115,12 @@ impl RequestHandler for UnicastHandler {
             .message_unicast_request
             .observe_timestamp(context.start_timestamp());
 
-        Ok(response)
+        Ok(Response::new(
+            StatusCode::OK,
+            response,
+            context.start_timestamp(),
+            None,
+        ))
     }
 }
 
@@ -174,49 +181,6 @@ impl RequestHandler for BroadcastHandler {
             .observe_timestamp(context.start_timestamp());
 
         Ok(response)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub struct UnicastResponseHandler;
-
-#[async_trait]
-impl ResponseHandler for UnicastResponseHandler {
-    type Payload = JsonValue;
-    type CorrelationData = CorrelationDataPayload;
-
-    #[instrument(skip(context, payload, respp, corr_data))]
-    async fn handle<C: Context>(
-        context: &mut C,
-        payload: Self::Payload,
-        respp: &IncomingResponseProperties,
-        corr_data: &Self::CorrelationData,
-    ) -> MqttResult {
-        let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
-
-        let long_term_timing = respp
-            .long_term_timing()
-            .clone()
-            .update_cumulative_timings(&short_term_timing);
-
-        let props = OutgoingResponseProperties::new(
-            respp.status(),
-            corr_data.reqp.correlation_data(),
-            long_term_timing,
-            short_term_timing,
-            respp.tracking().clone(),
-            respp.local_tracking_label().clone(),
-        );
-
-        let resp = OutgoingResponse::unicast(payload, props, &corr_data.reqp, API_VERSION);
-        let boxed_resp = Box::new(resp) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-        context
-            .metrics()
-            .request_duration
-            .message_unicast_response
-            .observe_timestamp(context.start_timestamp());
-        Ok(Box::new(stream::once(std::future::ready(boxed_resp))))
     }
 }
 

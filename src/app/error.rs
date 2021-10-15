@@ -328,15 +328,6 @@ impl Error {
         &self.source
     }
 
-    pub fn to_svc_error(&self) -> SvcError {
-        let properties: ErrorKindProperties = self.kind.into();
-        SvcError::builder()
-            .status(properties.status)
-            .kind(properties.kind, properties.title)
-            .detail(&format!("{:?}", self.source))
-            .build()
-    }
-
     pub fn notify_sentry(&self) {
         if !self.kind.is_notify_sentry() {
             return;

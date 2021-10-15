@@ -1,10 +1,7 @@
 use self::{
     create_handle::{CreateHandleRequest, CreateHandleResponse, OpaqueId},
     create_stream::{CreateStreamRequest, CreateStreamResponse},
-    events::{
-        DetachedEvent, EventResponse, HangUpEvent, MediaEvent, SlowLinkEvent, TimeoutEvent,
-        WebRtcUpEvent,
-    },
+    events::{DetachedEvent, EventResponse, HangUpEvent, WebRtcUpEvent},
     read_stream::{ReadStreamRequest, ReadStreamResponse},
     trickle::TrickleRequest,
     update_agent_reader_config::UpdateReaderConfigRequest,
@@ -301,28 +298,6 @@ mod serialize_as_base64 {
         T: serde::Serialize,
     {
         let s = to_base64(obj).map_err(ser::Error::custom)?;
-        serializer.serialize_str(&s)
-    }
-}
-
-mod serialize_as_str {
-    use serde::{de, ser};
-
-    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-    where
-        D: de::Deserializer<'de>,
-        T: serde::de::DeserializeOwned,
-    {
-        let s: String = de::Deserialize::deserialize(deserializer)?;
-        serde_json::from_str(&s).map_err(de::Error::custom)
-    }
-
-    pub fn serialize<S, T>(obj: &T, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: ser::Serializer,
-        T: serde::Serialize,
-    {
-        let s = serde_json::to_string(obj).map_err(ser::Error::custom)?;
         serializer.serialize_str(&s)
     }
 }

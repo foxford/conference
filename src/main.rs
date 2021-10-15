@@ -19,7 +19,6 @@ async fn main() -> Result<()> {
         .flatten_event(true);
     let subscriber = tracing_subscriber::registry()
         .with(ErrorLayer::default())
-        .with(trace_id::TraceIdLayer::new())
         .with(EnvFilter::from_default_env())
         .with(subscriber);
 

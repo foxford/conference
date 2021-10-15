@@ -4,15 +4,11 @@ pub(self) use crate::app::message_handler::MessageStream;
 use crate::app::{
     context::Context,
     error::Error as AppError,
-    message_handler::{EventEnvelopeHandler, RequestEnvelopeHandler, ResponseEnvelopeHandler},
+    message_handler::{EventEnvelopeHandler, RequestEnvelopeHandler},
 };
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
-use svc_agent::mqtt::{
-    IncomingEvent, IncomingEventProperties, IncomingRequest, IncomingResponse,
-    IncomingResponseProperties,
-};
-use tracing::warn;
+use svc_agent::mqtt::{IncomingEvent, IncomingEventProperties, IncomingRequest};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -60,7 +56,6 @@ request_routes!(
     "room.close" => room::CloseHandler,
     "room.create" => room::CreateHandler,
     "room.enter" => room::EnterHandler,
-    "room.leave" => room::LeaveHandler,
     "room.read" => room::ReadHandler,
     "room.update" => room::UpdateHandler,
     "rtc.connect" => rtc::ConnectHandler,
@@ -75,61 +70,9 @@ request_routes!(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use super::service_utils::{RequestParams, Response};
-
-#[derive(Debug, Deserialize, Serialize)]
-pub enum CorrelationData {
-    MessageUnicast(message::CorrelationDataPayload),
-}
-
-#[async_trait]
-pub trait ResponseHandler {
-    type Payload: Send + DeserializeOwned;
-    type CorrelationData: Sync;
-
-    async fn handle<C: Context>(
-        context: &mut C,
-        payload: Self::Payload,
-        respp: &IncomingResponseProperties,
-        corr_data: &Self::CorrelationData,
-    ) -> MqttResult;
-}
-
-macro_rules! response_routes {
-    ($($c: tt => $h: ty),*) => {
-        #[allow(unused_variables)]
-        pub async fn route_response<C: Context>(
-            context: &mut C,
-            response: &IncomingResponse<String>,
-            corr_data: &str,
-            topic: &str,
-        ) -> MessageStream {
-            let corr_data = match CorrelationData::parse(corr_data) {
-                Ok(corr_data) => corr_data,
-                Err(err) => {
-                    let _ = context.dispatcher().response(IncomingResponse::convert::<serde_json::Value>(response.clone()).unwrap());
-                    warn!(
-                        ?err,
-                        %corr_data,
-                        "f to parse response correlation data"
-                    );
-                    return Box::new(futures::stream::empty()) as MessageStream;
-                }
-            };
-            match corr_data {
-                $(
-                    CorrelationData::$c(cd) => <$h>::handle_envelope::<C>(context, response, &cd).await,
-                )*
-            }
-        }
-    }
-}
-
-response_routes!(
-    MessageUnicast => message::UnicastResponseHandler
-);
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -204,9 +147,6 @@ pub mod system;
 pub mod writer_config_snapshot;
 
 pub(self) mod prelude {
-    pub(super) use super::{helpers, EventHandler, RequestHandler, RequestResult, ResponseHandler};
-    pub(super) use crate::app::{
-        endpoint::CorrelationData,
-        error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
-    };
+    pub(super) use super::{helpers, EventHandler, RequestHandler, RequestResult};
+    pub(super) use crate::app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind};
 }

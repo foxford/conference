@@ -55,7 +55,7 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         let mut msg_context = AppMessageContext::new(&self.global_context, Utc::now());
 
         match message {
-            Ok(ref msg) => {
+            Ok(msg) => {
                 self.handle_message(&mut msg_context, msg, topic).await;
             }
             Err(err_msg) => {
@@ -90,13 +90,13 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
     async fn handle_message(
         &self,
         msg_context: &mut AppMessageContext<'_, C>,
-        message: &IncomingMessage<String>,
+        message: IncomingMessage<String>,
         topic: &str,
     ) {
         match message {
-            IncomingMessage::Request(req) => self.handle_request(msg_context, req, topic).await,
-            IncomingMessage::Response(resp) => self.handle_response(msg_context, resp, topic).await,
-            IncomingMessage::Event(event) => self.handle_event(msg_context, event, topic).await,
+            IncomingMessage::Request(req) => self.handle_request(msg_context, &req, topic).await,
+            IncomingMessage::Response(resp) => self.handle_response(msg_context, resp).await,
+            IncomingMessage::Event(event) => self.handle_event(msg_context, &event, topic).await,
         }
     }
 
@@ -130,25 +130,17 @@ impl<C: GlobalContext + Sync> MessageHandler<C> {
         info!("Response sent");
     }
 
-    #[instrument(skip(self, msg_context, response), fields(
-        agent_id = %response.properties().as_agent_id(),
-        account_id = %response.properties().as_account_id(),
-    ))]
     async fn handle_response(
         &self,
         msg_context: &mut AppMessageContext<'_, C>,
-        response: &IncomingResponse<String>,
-        topic: &str,
+        response: IncomingResponse<String>,
     ) {
         info!("Response received");
-        let raw_corr_data = response.properties().correlation_data();
-
-        let outgoing_message_stream =
-            endpoint::route_response(msg_context, response, raw_corr_data, topic).await;
-
-        self.publish_outgoing_messages(outgoing_message_stream)
-            .await;
-        info!("Notification sent");
+        let send_response = IncomingResponse::convert::<serde_json::Value>(response)
+            .and_then(|response| msg_context.dispatcher().response(response));
+        if let Err(err) = send_response {
+            error!(?err, "Response handling error")
+        }
     }
 
     #[instrument(skip(self, msg_context, event), fields(
@@ -285,55 +277,6 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
     }
 }
 
-pub trait ResponseEnvelopeHandler<'async_trait, CD> {
-    fn handle_envelope<C: Context>(
-        context: &'async_trait mut C,
-        envelope: &'async_trait IncomingResponse<String>,
-        corr_data: &'async_trait CD,
-    ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>>;
-}
-
-// This is the same as with the above.
-impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
-    ResponseEnvelopeHandler<'async_trait, H::CorrelationData> for H
-{
-    fn handle_envelope<C: Context>(
-        context: &'async_trait mut C,
-        response: &'async_trait IncomingResponse<String>,
-        corr_data: &'async_trait H::CorrelationData,
-    ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>> {
-        // The actual implementation.
-        async fn handle_envelope<H: endpoint::ResponseHandler, C: Context>(
-            context: &mut C,
-            response: &IncomingResponse<String>,
-            corr_data: &H::CorrelationData,
-        ) -> MessageStream {
-            // Parse response envelope with the payload from the handler.
-            let payload = IncomingResponse::convert_payload::<H::Payload>(response);
-            let respp = response.properties();
-
-            match payload {
-                // Call handler.
-                Ok(payload) => H::handle(context, payload, respp, corr_data)
-                    .await
-                    .unwrap_or_else(|err| {
-                        error!(?err, "Failed to handle response");
-
-                        err.notify_sentry();
-                        Box::new(stream::empty())
-                    }),
-                Err(err) => {
-                    // Bad envelope or payload format.
-                    error!(?err, "Failed to parse response");
-                    Box::new(stream::empty())
-                }
-            }
-        }
-
-        Box::pin(handle_envelope::<H, C>(context, response, corr_data))
-    }
-}
-
 pub trait EventEnvelopeHandler<'async_trait> {
     fn handle_envelope<C: Context>(
         context: &'async_trait mut C,
@@ -376,17 +319,5 @@ impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandle
         }
 
         Box::pin(handle_envelope::<H, C>(context, event))
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-impl endpoint::CorrelationData {
-    pub fn dump(&self) -> anyhow::Result<String> {
-        serde_json::to_string(self).context("Failed to dump correlation data")
-    }
-
-    pub fn parse(raw_corr_data: &str) -> anyhow::Result<Self> {
-        serde_json::from_str::<Self>(raw_corr_data).context("Failed to parse correlation data")
     }
 }
