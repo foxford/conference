@@ -60,47 +60,6 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub struct ListQuery<'a> {
-    ids: Option<&'a [&'a AgentId]>,
-    offset: Option<i64>,
-    limit: Option<i64>,
-}
-
-impl<'a> ListQuery<'a> {
-    pub fn new() -> Self {
-        Self {
-            ids: None,
-            offset: None,
-            limit: None,
-        }
-    }
-
-    pub fn ids(self, ids: &'a [&'a AgentId]) -> Self {
-        Self {
-            ids: Some(ids),
-            ..self
-        }
-    }
-
-    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use diesel::prelude::*;
-
-        let mut q = janus_backend::table.into_boxed();
-        if let Some(ids) = self.ids {
-            q = q.filter(janus_backend::id.eq_any(ids))
-        }
-        if let Some(offset) = self.offset {
-            q = q.offset(offset);
-        }
-        if let Some(limit) = self.limit {
-            q = q.limit(limit);
-        }
-        q.order_by(janus_backend::created_at).get_results(conn)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 pub struct FindQuery<'a> {
     id: Option<&'a AgentId>,
 }
