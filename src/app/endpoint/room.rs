@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
+use svc_utils::extractors::AuthnExtractor;
 use std::{ops::Bound, sync::Arc};
 use svc_agent::{
     mqtt::{
@@ -23,7 +24,6 @@ use crate::{
     app::{
         context::{AppContext, Context},
         endpoint::{prelude::*, subscription::RoomEnterLeaveEvent},
-        http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
         API_VERSION,
@@ -67,7 +67,7 @@ pub struct CreateRequest {
 
 pub async fn create(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Json(request): Json<CreateRequest>,
 ) -> RequestResult {
     CreateHandler::handle(
@@ -164,7 +164,7 @@ pub struct ReadRequest {
 
 pub async fn read(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = ReadRequest { id: room_id };
@@ -248,7 +248,7 @@ pub struct UpdateFields {
 
 pub async fn update(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
     Json(request): Json<UpdateFields>,
 ) -> RequestResult {
@@ -417,7 +417,7 @@ pub struct CloseRequest {
 
 pub async fn close(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = CloseRequest { id: room_id };

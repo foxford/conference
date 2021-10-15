@@ -4,14 +4,12 @@ use crate::{
     app::{
         context::{AppContext, Context},
         endpoint::prelude::*,
-        http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
     backend::janus::client::update_agent_writer_config::{
-        UpdateWriterConfigRequest, 
-        UpdateWriterConfigItem,
+        UpdateWriterConfigItem, UpdateWriterConfigRequest,
     },
     db,
     db::{rtc::Object as Rtc, rtc_writer_config::Object as RtcWriterConfig},
@@ -27,6 +25,7 @@ use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId};
 
+use svc_utils::extractors::AuthnExtractor;
 use tracing_attributes::instrument;
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
@@ -141,7 +140,7 @@ pub struct StateConfigs {
 
 pub async fn update(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
     Json(configs): Json<StateConfigs>,
 ) -> RequestResult {
@@ -298,19 +297,15 @@ impl RequestHandler for UpdateHandler {
         if let Some(backend) = maybe_backend {
             let items = rtc_writer_configs_with_rtcs
                 .iter()
-                .map(
-                    |(rtc_writer_config, rtc)| UpdateWriterConfigItem {
-                        stream_id: rtc.id(),
-                        send_video: rtc_writer_config.send_video(),
-                        send_audio: rtc_writer_config.send_audio(),
-                        video_remb: rtc_writer_config.video_remb().map(|x| x as u32),
-                    },
-                )
+                .map(|(rtc_writer_config, rtc)| UpdateWriterConfigItem {
+                    stream_id: rtc.id(),
+                    send_video: rtc_writer_config.send_video(),
+                    send_audio: rtc_writer_config.send_audio(),
+                    video_remb: rtc_writer_config.video_remb().map(|x| x as u32),
+                })
                 .collect::<Vec<UpdateWriterConfigItem>>();
 
-            let request = UpdateWriterConfigRequest {
-                configs: items,
-            };
+            let request = UpdateWriterConfigRequest { configs: items };
             context
                 .janus_clients()
                 .get_or_insert(&backend)
@@ -354,7 +349,7 @@ pub struct ReadRequest {
 
 pub async fn read(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = ReadRequest { room_id };

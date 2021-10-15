@@ -3,10 +3,8 @@ use std::{
     task::{Context, Poll},
 };
 
-use crate::app::{error::ErrorExt, message_handler::publish_message};
-use async_trait::async_trait;
+use crate::app::message_handler::publish_message;
 use axum::{
-    extract::{FromRequest, RequestParts},
     handler::{get, post},
     response::IntoResponse,
     routing::BoxRoute,
@@ -16,17 +14,10 @@ use axum::{
 use futures::future::BoxFuture;
 use http::{Request, Response};
 
-use svc_agent::{
-    mqtt::{Agent, IntoPublishableMessage},
-    AccountId, AgentId,
-};
-use svc_authn::token::jws_compact::extract::decode_jws_compact_with_config;
+use svc_agent::mqtt::{Agent, IntoPublishableMessage};
 use tower::{layer::layer_fn, Service};
 
-use super::{
-    context::{AppContext, GlobalContext},
-    endpoint, error,
-};
+use super::{context::AppContext, endpoint, error};
 
 pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router<BoxRoute> {
     let router = Router::new()
@@ -42,7 +33,6 @@ pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router<BoxRoute> 
         .route("/rooms/:id/close", post(endpoint::room::close))
         .route("/rooms", post(endpoint::room::create))
         // .route("/rooms/:id/enter", post(endpoint::room::enter))
-        // .route("/rooms/:id/leave", post(endpoint::room::leave))
         .route(
             "/rooms/:id",
             get(endpoint::room::read).patch(endpoint::room::update),
@@ -126,34 +116,5 @@ where
 
             Ok(res)
         })
-    }
-}
-
-pub struct AuthExtractor(pub AgentId);
-
-#[async_trait]
-impl FromRequest for AuthExtractor {
-    type Rejection = super::error::Error;
-
-    async fn from_request(req: &mut RequestParts) -> Result<Self, Self::Rejection> {
-        let ctx = req
-            .extensions()
-            .and_then(|x| x.get::<Arc<AppContext>>())
-            .ok_or_else(|| anyhow::anyhow!("Missing context"))
-            .expect("Context must present");
-
-        let auth_header = req
-            .headers()
-            .and_then(|x| x.get("Authorization"))
-            .and_then(|x| x.to_str().ok())
-            .and_then(|x| x.get("Bearer ".len()..))
-            .ok_or_else(|| anyhow::anyhow!("Something is wrong with authorization header"))
-            .error(super::error::ErrorKind::AuthenticationFailed)?;
-        let claims = decode_jws_compact_with_config::<String>(auth_header, &ctx.config().authn)
-            .error(super::error::ErrorKind::AuthorizationFailed)?
-            .claims;
-        let account = AccountId::new(claims.subject(), claims.audience());
-        let agent_id = AgentId::new("http", account);
-        Ok(AuthExtractor(agent_id))
     }
 }

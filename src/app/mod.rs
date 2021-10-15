@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, thread, time::Duration};
+use std::{sync::Arc, thread, time::Duration};
 
 use crate::{
     app::{
@@ -16,12 +16,8 @@ use anyhow::{Context as AnyhowContext, Result};
 use chrono::Utc;
 use context::{AppContext, GlobalContext};
 use futures::StreamExt;
-use hyper::{
-    service::{make_service_fn, service_fn},
-    Body, Response, Server, StatusCode,
-};
 use message_handler::MessageHandler;
-use prometheus::{Encoder, Registry, TextEncoder};
+use prometheus::Registry;
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use svc_agent::{
@@ -34,8 +30,9 @@ use svc_agent::{
 };
 use svc_authn::token::jws_compact;
 use svc_authz::cache::{AuthzCache, ConnectionPool as RedisConnectionPool, RedisCache};
+use svc_utils::metrics::MetricsServer;
 use tokio::{select, task};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 pub const API_VERSION: &str = "v1";
 
@@ -92,10 +89,7 @@ pub async fn run(
         let clients = clients.clone();
         move || janus_metrics.start_collector(db, clients, collect_interval)
     });
-    task::spawn(start_metrics_collector(
-        metrics_registry,
-        config.metrics.http.bind_address,
-    ));
+    MetricsServer::new_with_registry(metrics_registry, config.metrics.http.bind_address);
 
     // Subscribe to topics
     subscribe(&mut agent, &agent_id, &config)?;
@@ -310,37 +304,6 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
         let app_error = AppError::new(AppErrorKind::ResubscriptionFailed, err);
         app_error.notify_sentry();
     }
-}
-
-async fn start_metrics_collector(registry: Registry, bind_addr: SocketAddr) -> anyhow::Result<()> {
-    let service = make_service_fn(move |_| {
-        let registry = registry.clone();
-        std::future::ready::<Result<_, hyper::Error>>(Ok(service_fn(move |_| {
-            let registry = registry.clone();
-            async move {
-                let mut buffer = vec![];
-                let encoder = TextEncoder::new();
-                let metric_families = registry.gather();
-                match encoder.encode(&metric_families, &mut buffer) {
-                    Ok(_) => {
-                        let response = Response::new(Body::from(buffer));
-                        Ok::<_, hyper::Error>(response)
-                    }
-                    Err(err) => {
-                        warn!(?err, "Metrics not gathered");
-                        let mut response = Response::default();
-                        *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                        Ok(response)
-                    }
-                }
-            }
-        })))
-    });
-    let server = Server::bind(&bind_addr).serve(service);
-
-    server.await?;
-
-    Ok(())
 }
 
 pub mod context;

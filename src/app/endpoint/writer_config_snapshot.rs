@@ -6,12 +6,13 @@ use axum::extract::{Extension, Path};
 
 use serde::Deserialize;
 use svc_agent::{mqtt::ResponseStatus, Authenticable};
+use svc_utils::extractors::AuthnExtractor;
 
 use crate::app::{
     context::{AppContext, Context},
     service_utils::{RequestParams, Response},
 };
-use crate::app::{endpoint::prelude::*, http::AuthExtractor};
+use crate::app::{endpoint::prelude::*};
 use crate::db;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -23,7 +24,7 @@ pub struct ReadRequest {
 
 pub async fn read(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = ReadRequest { room_id };

@@ -7,6 +7,7 @@ use axum::{
 use chrono::{Duration, Utc};
 
 use serde::{Deserialize, Serialize};
+use svc_utils::extractors::AuthnExtractor;
 use std::{fmt, ops::Bound, sync::Arc};
 use svc_agent::{mqtt::ResponseStatus, Addressable};
 
@@ -18,7 +19,6 @@ use crate::{
         endpoint,
         endpoint::prelude::*,
         handle_id::HandleId,
-        http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
     },
@@ -51,7 +51,7 @@ pub struct CreateRequest {
 
 pub async fn create(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = CreateRequest { room_id };
@@ -154,7 +154,7 @@ pub struct ReadRequest {
 
 pub async fn read(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(rtc_id): Path<db::rtc::Id>,
 ) -> RequestResult {
     let request = ReadRequest { id: rtc_id };
@@ -245,7 +245,7 @@ pub struct ListParams {
 
 pub async fn list(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<ListParams>>,
 ) -> RequestResult {
@@ -371,7 +371,7 @@ pub struct Intent {
 
 pub async fn connect(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(rtc_id): Path<db::rtc::Id>,
     Json(intent): Json<Intent>,
 ) -> RequestResult {

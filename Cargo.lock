@@ -265,6 +265,7 @@ dependencies = [
  "svc-authn",
  "svc-authz",
  "svc-error",
+ "svc-utils",
  "testcontainers",
  "tokio",
  "tower",
@@ -1399,9 +1400,9 @@ dependencies = [
 
 [[package]]
 name = "prometheus"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5986aa8d62380092d2f50f8b1cdba9cb9b6731ffd4b25b51fd126b6c3e05b99c"
+checksum = "b7f64969ffd5dd8f39bd57a68ac53c163a095ed9d0fb707146da1b27025a3504"
 dependencies = [
  "cfg-if 1.0.0",
  "fnv",
@@ -2169,6 +2170,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "svc-utils"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6454bb41ed00152eb9564cf34467975ec05ea27b76cff6a24cd34db513944ab"
+dependencies = [
+ "axum",
+ "futures",
+ "http",
+ "hyper",
+ "prometheus",
+ "svc-agent",
+ "svc-authn",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+]
+
+[[package]]
 name = "syn"
 version = "0.14.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2398,6 +2418,7 @@ dependencies = [
  "pin-project 1.0.8",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]

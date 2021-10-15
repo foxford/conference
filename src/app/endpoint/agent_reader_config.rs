@@ -4,12 +4,11 @@ use crate::{
     app::{
         context::{AppContext, Context},
         endpoint::prelude::*,
-        http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
     },
     backend::janus::client::update_agent_reader_config::{
-        UpdateReaderConfigRequest, UpdateReaderConfigItem,
+        UpdateReaderConfigItem, UpdateReaderConfigRequest,
     },
     db,
     db::{rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},
@@ -24,6 +23,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId};
 
+use svc_utils::extractors::AuthnExtractor;
 use tracing_attributes::instrument;
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
@@ -89,7 +89,7 @@ pub struct StateConfigs {
 
 pub async fn update(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
     Json(configs): Json<StateConfigs>,
 ) -> RequestResult {
@@ -207,14 +207,12 @@ impl RequestHandler for UpdateHandler {
         if let Some(backend) = maybe_backend {
             let items = rtc_reader_configs_with_rtcs
                 .iter()
-                .map(
-                    |(rtc_reader_config, rtc)| UpdateReaderConfigItem {
-                        reader_id: rtc_reader_config.reader_id().to_owned(),
-                        stream_id: rtc.id(),
-                        receive_video: rtc_reader_config.receive_video(),
-                        receive_audio: rtc_reader_config.receive_audio(),
-                    },
-                )
+                .map(|(rtc_reader_config, rtc)| UpdateReaderConfigItem {
+                    reader_id: rtc_reader_config.reader_id().to_owned(),
+                    stream_id: rtc.id(),
+                    receive_video: rtc_reader_config.receive_video(),
+                    receive_audio: rtc_reader_config.receive_audio(),
+                })
                 .collect();
 
             let request = UpdateReaderConfigRequest { configs: items };
@@ -251,7 +249,7 @@ pub struct ReadRequest {
 
 pub async fn read(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = ReadRequest { room_id };
