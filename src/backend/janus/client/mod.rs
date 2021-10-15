@@ -1,7 +1,6 @@
 use crate::trace_id::TraceId;
 
 use self::{
-    agent_leave::AgentLeaveRequest,
     create_handle::{CreateHandleRequest, CreateHandleResponse, OpaqueId},
     create_session::CreateSessionResponse,
     create_stream::{CreateStreamRequest, CreateStreamTransaction},
@@ -27,7 +26,6 @@ use serde_json::Value;
 
 use derive_more::{Display, FromStr};
 
-pub mod agent_leave;
 pub mod create_handle;
 pub mod create_session;
 pub mod create_stream;
@@ -76,11 +74,6 @@ impl JanusClient {
         let _response: AckResponse = self
             .send_request(upload_stream(request, transaction))
             .await?;
-        Ok(())
-    }
-
-    pub async fn agent_leave(&self, request: AgentLeaveRequest) -> anyhow::Result<()> {
-        let _response: AckResponse = self.send_request(agent_leave(request)).await?;
         Ok(())
     }
 
@@ -396,15 +389,6 @@ fn update_reader(request: UpdateReaderConfigRequest) -> JanusRequest<UpdateReade
 fn update_writer(request: UpdateWriterConfigRequest) -> JanusRequest<UpdateWriterConfigRequest> {
     JanusRequest {
         transaction: Transaction::new(TransactionKind::UpdateWriterConfig),
-        janus: "message",
-        plugin: None,
-        data: request,
-    }
-}
-
-fn agent_leave(request: AgentLeaveRequest) -> JanusRequest<AgentLeaveRequest> {
-    JanusRequest {
-        transaction: Transaction::new(TransactionKind::AgentLeave),
         janus: "message",
         plugin: None,
         data: request,

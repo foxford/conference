@@ -18,7 +18,6 @@ use tracing::Span;
 
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
-    backend::janus::client::agent_leave::{AgentLeaveRequest, AgentLeaveRequestBody},
     db::{self, room::FindQueryable},
 };
 use tracing_attributes::instrument;
@@ -248,9 +247,8 @@ async fn leave_room<C: Context>(
     room_id: db::room::Id,
 ) -> StdResult<bool, AppError> {
     let conn = context.get_conn().await?;
-    let backends = crate::util::spawn_blocking({
+    let left = crate::util::spawn_blocking({
         let agent_id = agent_id.clone();
-
         move || {
             let row_count = db::agent::DeleteQuery::new()
                 .agent_id(&agent_id)
@@ -258,72 +256,15 @@ async fn leave_room<C: Context>(
                 .execute(&conn)?;
 
             if row_count != 1 {
-                return Ok::<_, AppError>(None);
+                return Ok::<_, AppError>(false);
             }
 
             make_orphaned_if_host_left(room_id, &agent_id, &conn)?;
-
-            // `agent.leave` requests to Janus instances that host active streams in this room.
-            let streams = db::janus_rtc_stream::ListQuery::new()
-                .room_id(room_id)
-                .active(true)
-                .execute(&conn)?;
-
-            let mut maybe_stopped_rtc_id = None;
-
-            for stream in streams.iter() {
-                // If the agent is a publisher.
-                if stream.sent_by() == &agent_id {
-                    // Stop the stream.
-                    db::janus_rtc_stream::stop(stream.id(), &conn)?;
-                    maybe_stopped_rtc_id = Some(stream.rtc_id());
-                }
-            }
-
-            // Disconnect stream readers since the stream has gone.
-            if let Some(rtc_id) = maybe_stopped_rtc_id {
-                db::agent_connection::BulkDisconnectByRtcQuery::new(rtc_id).execute(&conn)?;
-            }
-
-            // Send agent.leave requests to those backends where the agent is connected to.
-            let mut backend_ids = streams
-                .iter()
-                .map(|stream| stream.backend_id())
-                .collect::<Vec<&AgentId>>();
-
-            backend_ids.dedup();
-
-            let backends = db::janus_backend::ListQuery::new()
-                .ids(&backend_ids[..])
-                .execute(&conn)?;
-            Ok::<_, AppError>(Some(backends))
+            Ok::<_, AppError>(true)
         }
     })
     .await?;
-
-    match backends {
-        Some(backends) => {
-            let mut leave_tasks = Vec::new();
-            for backend in backends {
-                let request = AgentLeaveRequest {
-                    body: AgentLeaveRequestBody::new(agent_id.to_owned()),
-                    handle_id: backend.handle_id(),
-                    session_id: backend.session_id(),
-                };
-                let client = context
-                    .janus_clients()
-                    .get_or_insert(&backend)
-                    .error(AppErrorKind::BackendClientCreationFailed)?;
-                leave_tasks.push(async move { client.agent_leave(request).await });
-            }
-            futures::future::try_join_all(leave_tasks)
-                .await
-                .error(AppErrorKind::BackendRequestFailed)?;
-
-            Ok(true)
-        }
-        None => Ok(false),
-    }
+    Ok(left)
 }
 
 fn make_orphaned_if_host_left(

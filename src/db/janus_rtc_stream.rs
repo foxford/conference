@@ -153,13 +153,6 @@ impl ListQuery {
         }
     }
 
-    pub fn active(self, active: bool) -> Self {
-        Self {
-            active: Some(active),
-            ..self
-        }
-    }
-
     pub fn offset(self, offset: i64) -> Self {
         Self {
             offset: Some(offset),
