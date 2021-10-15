@@ -57,10 +57,6 @@ impl OutgoingResponseProperties {
     pub fn status(&self) -> ResponseStatus {
         ResponseStatus::from_bytes(self.status.as_bytes()).expect("Invalid status code")
     }
-
-    pub fn correlation_data(&self) -> &str {
-        &self.correlation_data
-    }
 }
 
 #[derive(Debug, Deserialize)]

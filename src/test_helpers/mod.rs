@@ -3,7 +3,7 @@ use futures::StreamExt;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use svc_agent::{
-    mqtt::{IncomingEventProperties, IncomingRequestProperties, IncomingResponseProperties},
+    mqtt::{IncomingEventProperties, IncomingRequestProperties},
     AgentId,
 };
 use uuid::Uuid;
@@ -154,30 +154,6 @@ pub fn build_reqp(agent_id: &AgentId, method: &str) -> IncomingRequestProperties
     serde_json::from_value::<IncomingRequestProperties>(reqp_json).expect("Failed to parse reqp")
 }
 
-pub fn build_respp(agent_id: &AgentId) -> IncomingResponseProperties {
-    let now = Utc::now().timestamp_millis().to_string();
-
-    let respp_json = json!({
-        "type": "response",
-        "status": "200",
-        "correlation_data": "ignore",
-        "agent_id": agent_id,
-        "connection_mode": "default",
-        "connection_version": "v2",
-        "broker_agent_id": format!("alpha.mqtt-gateway.{}", SVC_AUDIENCE),
-        "broker_timestamp": now,
-        "broker_processing_timestamp": now,
-        "broker_initial_processing_timestamp": now,
-        "tracking_id": format!("{}.{}.{}", Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()),
-        "session_tracking_label": format!(
-            "{}.{} {}.{}",
-            Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()
-        ),
-    });
-
-    serde_json::from_value::<IncomingResponseProperties>(respp_json).expect("Failed to parse respp")
-}
-
 pub fn build_evp(agent_id: &AgentId, label: &str) -> IncomingEventProperties {
     let now = Utc::now().timestamp_millis().to_string();
 
@@ -209,9 +185,9 @@ pub mod prelude {
 
     #[allow(unused_imports)]
     pub use super::{
-        agent::TestAgent, authz::TestAuthz, build_evp, build_reqp, build_respp,
-        context::TestContext, db::TestDb, factory, find_event, find_request, find_response,
-        handle_event, handle_request, shared_helpers, SVC_AUDIENCE, USR_AUDIENCE,
+        agent::TestAgent, authz::TestAuthz, build_evp, build_reqp, context::TestContext,
+        db::TestDb, factory, find_event, find_request, find_response, handle_event, handle_request,
+        shared_helpers, SVC_AUDIENCE, USR_AUDIENCE,
     };
 }
 

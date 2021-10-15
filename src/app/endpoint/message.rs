@@ -11,13 +11,12 @@ use crate::{
 use anyhow::anyhow;
 use async_trait::async_trait;
 use http::StatusCode;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use svc_agent::{
     mqtt::{
-        IncomingRequestProperties, IntoPublishableMessage,
-        OutgoingMessage, OutgoingRequest, OutgoingResponse, OutgoingResponseProperties,
-        ResponseStatus, ShortTermTimingProperties, SubscriptionTopic,
+        OutgoingMessage, OutgoingRequest, ResponseStatus, ShortTermTimingProperties,
+        SubscriptionTopic,
     },
     Addressable, AgentId, Subscription,
 };
@@ -25,19 +24,7 @@ use svc_agent::{
 use tracing_attributes::instrument;
 use uuid::Uuid;
 
-
 ////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CorrelationDataPayload {
-    reqp: IncomingRequestProperties,
-}
-
-impl CorrelationDataPayload {
-    pub fn new(reqp: IncomingRequestProperties) -> Self {
-        Self { reqp }
-    }
-}
 
 #[derive(Debug, Deserialize)]
 pub struct UnicastRequest {
@@ -82,8 +69,6 @@ impl RequestHandler for UnicastHandler {
                 .map_err(|err| anyhow!("Error building responses subscription topic: {}", err))
                 .error(AppErrorKind::MessageBuildingFailed)?;
 
-        let corr_data_payload = CorrelationDataPayload::new(mqtt_params.to_owned());
-
         let props = mqtt_params.to_request(
             mqtt_params.method(),
             &response_topic,
@@ -91,7 +76,6 @@ impl RequestHandler for UnicastHandler {
             ShortTermTimingProperties::until_now(context.start_timestamp()),
         );
 
-        let to = &context.config().broker_id;
         let msg = if let OutgoingMessage::Request(msg) = OutgoingRequest::unicast(
             payload.data.to_owned(),
             props,
