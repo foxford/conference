@@ -223,7 +223,7 @@ impl RequestHandler for VacuumHandler {
                                         .then(|| (recording, rtc))
                                 });
 
-                        let event = upload_event(context, &room, recs_with_rtcs.into_iter())?;
+                        let event = upload_event(context, &room, recs_with_rtcs)?;
 
                         let event_box = Box::new(event)
                             as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;

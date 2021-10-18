@@ -97,7 +97,7 @@ impl IntoResponse for Response {
     fn into_response(self) -> http::Response<Self::Body> {
         let body = self
             .payload
-            .and_then(|payload| Ok(serde_json::to_string(&payload)?))
+            .and_then(|payload| serde_json::to_string(&payload))
             .unwrap_or_else(|_| "Bad body".to_string());
         http::Response::builder()
             .status(self.status)
