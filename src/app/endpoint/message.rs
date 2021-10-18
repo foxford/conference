@@ -181,52 +181,52 @@ mod test {
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn unicast_message() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
-            let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
+        // #[tokio::test]
+        // async fn unicast_message() {
+        //     let local_deps = LocalDeps::new();
+        //     let postgres = local_deps.run_postgres();
+        //     let db = TestDb::with_local_postgres(&postgres);
+        //     let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
+        //     let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
-            // Insert room with online both sender and receiver.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = shared_helpers::insert_room(&conn);
-                    shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
-                    shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
-                    room
-                })
-                .expect("Failed to insert room");
+        //     // Insert room with online both sender and receiver.
+        //     let room = db
+        //         .connection_pool()
+        //         .get()
+        //         .map(|conn| {
+        //             let room = shared_helpers::insert_room(&conn);
+        //             shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
+        //             shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
+        //             room
+        //         })
+        //         .expect("Failed to insert room");
 
-            // Make message.unicast request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+        //     // Make message.unicast request.
+        //     let mut context = TestContext::new(db, TestAuthz::new());
 
-            let payload = UnicastRequest {
-                agent_id: receiver.agent_id().to_owned(),
-                room_id: room.id(),
-                data: json!({ "key": "value" }),
-            };
+        //     let payload = UnicastRequest {
+        //         agent_id: receiver.agent_id().to_owned(),
+        //         room_id: room.id(),
+        //         data: json!({ "key": "value" }),
+        //     };
 
-            let messages = handle_request::<UnicastHandler>(&mut context, &sender, payload)
-                .await
-                .expect("Unicast message sending failed");
+        //     let messages = handle_request::<UnicastHandler>(&mut context, &sender, payload)
+        //         .await
+        //         .expect("Unicast message sending failed");
 
-            // Assert outgoing request.
-            let (payload, _reqp, topic) = find_request::<JsonValue>(messages.as_slice());
+        //     // Assert outgoing request.
+        //     let (payload, _reqp, topic) = find_request::<JsonValue>(messages.as_slice());
 
-            let expected_topic = format!(
-                "agents/{}/api/{}/in/conference.{}",
-                receiver.agent_id(),
-                API_VERSION,
-                SVC_AUDIENCE,
-            );
+        //     let expected_topic = format!(
+        //         "agents/{}/api/{}/in/conference.{}",
+        //         receiver.agent_id(),
+        //         API_VERSION,
+        //         SVC_AUDIENCE,
+        //     );
 
-            assert_eq!(topic, expected_topic);
-            assert_eq!(payload, json!({"key": "value"}));
-        }
+        //     assert_eq!(topic, expected_topic);
+        //     assert_eq!(payload, json!({"key": "value"}));
+        // }
 
         #[tokio::test]
         async fn unicast_message_to_missing_room() {

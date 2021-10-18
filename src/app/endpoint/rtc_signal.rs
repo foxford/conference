@@ -457,7 +457,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
 
             // Make rtc_signal.create request.
             let mut context = TestContext::new(db, authz);
-            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            let (tx, mut _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             let rtc_stream_id = db::janus_rtc_stream::Id::random();
             let handle_id = HandleId::new(
@@ -478,27 +478,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             handle_request::<CreateHandler>(&mut context, &agent, payload)
                 .await
                 .expect("Rtc signal creation failed");
-            rx.recv().await.unwrap();
             context.janus_clients().remove_client(&backend);
-            // match rx.recv().await.unwrap() {
-            //     IncomingEvent::Event(EventResponse {
-            //         transaction:
-            //             Transaction {
-            //                 kind: Some(TransactionKind::CreateStream(_tn)),
-            //                 ..
-            //             },
-            //         jsep: Some(_jsep),
-            //         session_id: s_id,
-            //         plugindata: _,
-            //         opaque_id: _,
-            //     }) => {
-            //         assert_eq!(session_id, s_id);
-            //     }
-            //     _ => {
-            //         panic!("Got wrong event")
-            //     }
-            // }
-            // Assert rtc stream presence in the DB.
             let conn = context.get_conn().await.unwrap();
             let query = crate::schema::janus_rtc_stream::table.find(rtc_stream_id);
 
