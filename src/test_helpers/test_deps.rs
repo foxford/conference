@@ -36,13 +36,13 @@ impl LocalDeps {
 
     pub fn run_janus(&self) -> JanusHandle {
         let base_dir = env!("CARGO_MANIFEST_DIR");
-        let image = images::generic::GenericImage::new("foxford/janus-gateway", "4aee743")
+        let image = images::generic::GenericImage::new("foxford/janus-gateway", "0618fd6")
             .with_volume(
                 format!("{}/{}", base_dir, "src/test_helpers/janus_confs/"),
                 "/opt/janus/etc/janus/",
             )
             .with_entrypoint("/opt/janus/bin/janus")
-            .with_wait_for(WaitFor::message_on_stdout("HTTP webserver started"));
+            .with_wait_for(WaitFor::message_on_stdout("Plugin runtime started"));
         let node = self.docker.run(image);
         JanusHandle {
             url: format!("http://localhost:{}/", node.get_host_port(8083)),
