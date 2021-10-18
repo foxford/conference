@@ -434,9 +434,7 @@ pub fn set_closed_by(room_id: Id, agent: &AgentId, conn: &PgConnection) -> Resul
 mod tests {
     mod finished_with_in_progress_recordings {
         use super::super::*;
-        use crate::{
-            test_helpers::{prelude::*, test_deps::LocalDeps},
-        };
+        use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
 
         #[test]
         fn selects_appropriate_backend() {

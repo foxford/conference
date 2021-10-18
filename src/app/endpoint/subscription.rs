@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::result::Result as StdResult;
 use svc_agent::{
     mqtt::{
-        IncomingEventProperties, IntoPublishableMessage, OutgoingEvent,
-        ShortTermTimingProperties,
+        IncomingEventProperties, IntoPublishableMessage, OutgoingEvent, ShortTermTimingProperties,
     },
     Addressable, AgentId,
 };

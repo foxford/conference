@@ -4,12 +4,12 @@ use axum::extract::{Extension, Path, Query};
 use chrono::{DateTime, Utc};
 
 use serde::Deserialize;
-use svc_utils::extractors::AuthnExtractor;
 use std::{result::Result as StdResult, sync::Arc};
 use svc_agent::mqtt::{
     OutgoingEvent, OutgoingEventProperties, OutgoingMessage, ResponseStatus,
     ShortTermTimingProperties,
 };
+use svc_utils::extractors::AuthnExtractor;
 
 use crate::{
     app::{

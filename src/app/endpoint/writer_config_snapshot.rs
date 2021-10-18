@@ -8,11 +8,11 @@ use serde::Deserialize;
 use svc_agent::{mqtt::ResponseStatus, Authenticable};
 use svc_utils::extractors::AuthnExtractor;
 
+use crate::app::endpoint::prelude::*;
 use crate::app::{
     context::{AppContext, Context},
     service_utils::{RequestParams, Response},
 };
-use crate::app::{endpoint::prelude::*};
 use crate::db;
 
 ////////////////////////////////////////////////////////////////////////////////

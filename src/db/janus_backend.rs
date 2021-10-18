@@ -1,8 +1,5 @@
 use crate::db;
-use crate::{
-    backend::janus::{JANUS_API_VERSION},
-    schema::janus_backend,
-};
+use crate::{backend::janus::JANUS_API_VERSION, schema::janus_backend};
 use chrono::{DateTime, Utc};
 use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
