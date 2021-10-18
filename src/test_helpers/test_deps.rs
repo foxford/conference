@@ -45,7 +45,7 @@ impl LocalDeps {
             .with_wait_for(WaitFor::message_on_stdout("HTTP webserver started"));
         let node = self.docker.run(image);
         JanusHandle {
-            url: format!("http://localhost:{}/janus", node.get_host_port(8088)),
+            url: format!("http://localhost:{}/", node.get_host_port(8083)),
             _container: node,
         }
     }
