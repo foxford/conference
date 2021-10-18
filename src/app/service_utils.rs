@@ -95,12 +95,14 @@ impl IntoResponse for Response {
     type BodyError = <Self::Body as axum::body::HttpBody>::Error;
 
     fn into_response(self) -> http::Response<Self::Body> {
+        let body = self
+            .payload
+            .and_then(|payload| Ok(serde_json::to_string(&payload)?))
+            .unwrap_or_else(|_| "Bad body".to_string());
         http::Response::builder()
             .status(self.status)
             .extension(self.notifications)
-            .body(axum::body::Body::from(
-                serde_json::to_string(&self.payload.expect("Todo")).expect("todo"),
-            ))
+            .body(axum::body::Body::from(body))
             .expect("Must be valid response")
     }
 }
