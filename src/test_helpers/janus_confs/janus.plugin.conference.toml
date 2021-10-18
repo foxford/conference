@@ -27,7 +27,7 @@ recorders_metrics_load_interval = "10 seconds"
 switchboard_metrics_load_interval = "10 seconds"
 
 [registry]
-conference_url = "127.0.0.1:1236"
+conference_url = "http://127.0.0.1:1236"
 token = "0FB8338E-1173-4973-A1BF-72C1E75DD990"
 
 
