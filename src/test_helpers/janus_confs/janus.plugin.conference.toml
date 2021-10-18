@@ -3,6 +3,10 @@ vacuum_interval = "1 seconds"
 fir_interval = "15 minutes"
 sessions_ttl = "1 seconds"
 health_check_addr = "0.0.0.0:8082"
+bind_addr = "0.0.0.0:8083"
+skip_events = ["media", "slowlink", "timeout", "keepalive"]
+janus_url = "http://127.0.0.1:8088/janus"
+
 
 [recordings]
 delete_records = true
@@ -21,3 +25,10 @@ backends = []
 bind_addr = "0.0.0.0:8081"
 recorders_metrics_load_interval = "10 seconds"
 switchboard_metrics_load_interval = "10 seconds"
+
+[registry.description]
+capacity = 100
+balancer_capacity = 100
+group = ""
+janus_url = "http://127.0.0.1:8083"
+agent_id = "alpha.janus-gateway.svc.netology-group.services"
