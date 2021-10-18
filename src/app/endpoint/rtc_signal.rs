@@ -1,6 +1,6 @@
 use crate::{
     app::{
-        context::Context,
+        context::{AppContext, Context},
         endpoint,
         endpoint::prelude::*,
         handle_id::HandleId,
@@ -21,15 +21,14 @@ use crate::{
 };
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
+use axum::{extract::Extension, Json};
 use chrono::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use std::result::Result as StdResult;
-use svc_agent::{
-    mqtt::{ResponseStatus},
-    Addressable,
-};
+use std::{result::Result as StdResult, sync::Arc};
+use svc_agent::{mqtt::ResponseStatus, Addressable};
+use svc_utils::extractors::AuthnExtractor;
 
 use tracing::Span;
 use tracing_attributes::instrument;
@@ -55,6 +54,21 @@ pub struct CreateRequest {
     handle_id: HandleId,
     jsep: Jsep,
     label: Option<String>,
+}
+
+pub async fn signal(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthnExtractor(agent_id): AuthnExtractor,
+    Json(payload): Json<CreateRequest>,
+) -> RequestResult {
+    CreateHandler::handle(
+        &mut ctx.start_message(),
+        payload,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
 }
 
 pub struct CreateHandler;

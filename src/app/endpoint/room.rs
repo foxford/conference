@@ -8,15 +8,15 @@ use chrono::{DateTime, Utc};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use svc_utils::extractors::AuthnExtractor;
 use std::{ops::Bound, sync::Arc};
 use svc_agent::{
     mqtt::{
         OutgoingMessage, OutgoingRequest, OutgoingRequestProperties, ResponseStatus,
         ShortTermTimingProperties, SubscriptionTopic,
     },
-    Addressable, AgentId, Subscription,
+    Addressable, AgentId, Authenticable, Subscription,
 };
+use svc_utils::extractors::AuthnExtractor;
 
 use uuid::Uuid;
 
@@ -521,6 +521,29 @@ impl RequestHandler for CloseHandler {
 pub type EnterRequest = ReadRequest;
 #[derive(Debug, Deserialize)]
 pub struct CreateDeleteResponsePayload {}
+
+#[derive(Deserialize)]
+pub struct EnterPayload {
+    agent_label: String,
+}
+
+pub async fn enter(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthnExtractor(agent_id): AuthnExtractor,
+    Path(room_id): Path<db::room::Id>,
+    Json(payload): Json<EnterPayload>,
+) -> RequestResult {
+    let agent_id = AgentId::new(&payload.agent_label, agent_id.as_account_id().to_owned());
+    EnterHandler::handle(
+        &mut ctx.start_message(),
+        EnterRequest { id: room_id },
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
+
 pub struct EnterHandler;
 
 #[async_trait]

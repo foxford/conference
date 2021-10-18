@@ -32,7 +32,7 @@ pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router<BoxRoute> 
         )
         .route("/rooms/:id/close", post(endpoint::room::close))
         .route("/rooms", post(endpoint::room::create))
-        // .route("/rooms/:id/enter", post(endpoint::room::enter))
+        .route("/rooms/:id/enter", post(endpoint::room::enter))
         .route(
             "/rooms/:id",
             get(endpoint::room::read).patch(endpoint::room::update),
@@ -44,6 +44,7 @@ pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router<BoxRoute> 
         .route("/rtcs/:id", get(endpoint::rtc::read))
         .route("/rtcs/:id/streams", post(endpoint::rtc::connect))
         .route("/rooms/:id/streams", get(endpoint::rtc_stream::list))
+        .route("/streams/signal", get(endpoint::rtc_signal::signal))
         .route("/system/vacuum", post(endpoint::system::vacuum))
         .route(
             "/rooms/:id/configs/writer/snapshot",
