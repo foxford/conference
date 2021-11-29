@@ -1,9 +1,9 @@
 use std::{
     sync::Arc,
     task::{Context, Poll},
+    time::Duration,
 };
 
-use crate::app::{error::ErrorExt, message_handler::publish_message};
 use async_trait::async_trait;
 use axum::{
     extract::{FromRequest, RequestParts},
@@ -11,21 +11,27 @@ use axum::{
     routing::{get, post},
     AddExtensionLayer, Router,
 };
-
 use futures::future::BoxFuture;
-use http::{Request, Response};
-
+use http::{Method, Request, Response};
+use hyper::{body::HttpBody, Body};
 use svc_agent::{
     mqtt::{Agent, IntoPublishableMessage},
     AccountId, AgentId,
 };
 use svc_authn::token::jws_compact::extract::decode_jws_compact_with_config;
 use tower::{layer::layer_fn, Service};
+use tower_http::trace::TraceLayer;
+use tracing::{
+    error,
+    field::{self, Empty},
+    info, Span,
+};
 
 use super::{
     context::{AppContext, GlobalContext},
-    endpoint, error,
+    endpoint,
 };
+use crate::app::{error::ErrorExt, message_handler::publish_message};
 
 pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router {
     let router = Router::new()
@@ -60,10 +66,46 @@ pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router {
         .layer(AddExtensionLayer::new(context))
         .layer(AddExtensionLayer::new(agent));
     let router = Router::new().nest("/api/v1", router);
-    router
+
+    let pingz_router = Router::new().route(
+        "/healthz",
+        get(|| async { Response::builder().body(Body::from("pong")).unwrap() }),
+    );
+
+    let router = router.merge(pingz_router);
+
+    router.layer(
+        TraceLayer::new_for_http()
+            .make_span_with(|request: &Request<Body>| {
+                let span = tracing::error_span!(
+                    "http-api-request",
+                    status_code = Empty,
+                    path = request.uri().path(),
+                    query = request.uri().query(),
+                    method = %request.method(),
+                );
+
+                if request.method() != Method::GET && request.method() != Method::OPTIONS {
+                    span.record(
+                        "body_size",
+                        &field::debug(request.body().size_hint().upper()),
+                    );
+                }
+
+                span
+            })
+            .on_response(|response: &Response<_>, latency: Duration, span: &Span| {
+                span.record("status_code", &field::debug(response.status()));
+                if response.status().is_success() {
+                    info!("response generated in {:?}", latency)
+                } else {
+                    error!("response generated in {:?}", latency)
+                }
+            }),
+    )
 }
 
-impl IntoResponse for error::Error {
+impl IntoResponse for super::error::Error {
     type Body = axum::body::Body;
 
     type BodyError = <Self::Body as axum::body::HttpBody>::Error;
