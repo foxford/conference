@@ -47,6 +47,7 @@ svc-error = { version = "0.2", features = [
 ] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
+tower-http = { version = "0.1", features = ["trace"] }
 tracing = "0.1"
 tracing-appender = "0.1"
 tracing-attributes  = "0.1"
