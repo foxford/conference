@@ -352,6 +352,13 @@ fn record_name(recording: &Recording, room: &Room) -> String {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+mod agent_cleanup;
+
+pub use agent_cleanup::agent_cleanup;
+pub use agent_cleanup::Handler as AgentCleanupHandler;
+
+///////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod test {
     mod orphaned {

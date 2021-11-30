@@ -70,6 +70,7 @@ request_routes!(
     "rtc_signal.create" => rtc_signal::CreateHandler,
     "rtc_stream.list" => rtc_stream::ListHandler,
     "system.vacuum" => system::VacuumHandler,
+    "system.agent_cleanup" => system::AgentCleanupHandler,
     "writer_config_snapshot.read" => writer_config_snapshot::ReadHandler
 );
 

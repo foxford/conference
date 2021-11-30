@@ -142,6 +142,8 @@ pub struct InsertQuery<'a> {
     agent_id: &'a AgentId,
     room_id: db::room::Id,
     status: Status,
+    #[cfg(test)]
+    created_at: Option<DateTime<Utc>>,
 }
 
 impl<'a> InsertQuery<'a> {
@@ -151,12 +153,22 @@ impl<'a> InsertQuery<'a> {
             agent_id,
             room_id,
             status: Status::InProgress,
+            #[cfg(test)]
+            created_at: None,
         }
     }
 
     #[cfg(test)]
     pub fn status(self, status: Status) -> Self {
         Self { status, ..self }
+    }
+
+    #[cfg(test)]
+    pub fn created_at(self, created_at: DateTime<Utc>) -> Self {
+        Self {
+            created_at: Some(created_at),
+            ..self
+        }
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
@@ -252,5 +264,71 @@ impl<'a> DeleteQuery<'a> {
         }
 
         query.execute(conn)
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub struct CleanupQuery {
+    created_at: DateTime<Utc>,
+}
+
+impl CleanupQuery {
+    pub fn new(created_at: DateTime<Utc>) -> Self {
+        Self { created_at }
+    }
+
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+        use diesel::prelude::*;
+
+        diesel::delete(agent::table.filter(agent::created_at.lt(self.created_at))).execute(conn)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CleanupQuery, ListQuery, Status};
+    use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn test_cleanup_query() {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let db = TestDb::with_local_postgres(&postgres);
+        let old = TestAgent::new("web", "old_agent", USR_AUDIENCE);
+        let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);
+
+        let room = db
+            .connection_pool()
+            .get()
+            .map(|conn| {
+                let room = shared_helpers::insert_room(&conn);
+                factory::Agent::new()
+                    .agent_id(old.agent_id())
+                    .room_id(room.id())
+                    .status(Status::Ready)
+                    .created_at(Utc::now() - Duration::weeks(7))
+                    .insert(&conn);
+                factory::Agent::new()
+                    .agent_id(new.agent_id())
+                    .room_id(room.id())
+                    .status(Status::Ready)
+                    .insert(&conn);
+
+                let r = ListQuery::new().room_id(room.id()).execute(&conn).unwrap();
+                assert_eq!(r.len(), 2);
+                room
+            })
+            .expect("Failed to insert room");
+
+        let conn = db.connection_pool().get().unwrap();
+        let r = CleanupQuery::new(Utc::now() - Duration::days(1))
+            .execute(&conn)
+            .expect("Failed to run query");
+
+        assert_eq!(r, 1);
+        let r = ListQuery::new().room_id(room.id()).execute(&conn).unwrap();
+        assert_eq!(r.len(), 1);
     }
 }
