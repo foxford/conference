@@ -59,6 +59,10 @@ pub fn build_router(context: Arc<AppContext>, agent: Agent) -> Router {
         .route("/rooms/:id/streams", get(endpoint::rtc_stream::list))
         .route("/system/vacuum", post(endpoint::system::vacuum))
         .route(
+            "/system/agent_cleanup",
+            post(endpoint::system::agent_cleanup),
+        )
+        .route(
             "/rooms/:id/configs/writer/snapshot",
             get(endpoint::writer_config_snapshot::read),
         )

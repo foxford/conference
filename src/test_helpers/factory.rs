@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use rand::Rng;
 use svc_agent::{AccountId, AgentId};
@@ -93,6 +94,7 @@ pub struct Agent<'a> {
     agent_id: Option<&'a AgentId>,
     room_id: Option<db::room::Id>,
     status: db::agent::Status,
+    created_at: Option<DateTime<Utc>>,
 }
 
 impl<'a> Agent<'a> {
@@ -102,6 +104,7 @@ impl<'a> Agent<'a> {
             agent_id: None,
             room_id: None,
             status: db::agent::Status::Ready,
+            created_at: None,
         }
     }
 
@@ -123,6 +126,13 @@ impl<'a> Agent<'a> {
         Self { status, ..self }
     }
 
+    pub fn created_at(self, created_at: DateTime<Utc>) -> Self {
+        Self {
+            created_at: Some(created_at),
+            ..self
+        }
+    }
+
     pub fn insert(&self, conn: &PgConnection) -> db::agent::Object {
         let agent_id = match (self.agent_id, self.audience) {
             (Some(agent_id), _) => agent_id.to_owned(),
@@ -137,10 +147,11 @@ impl<'a> Agent<'a> {
 
         let room_id = self.room_id.unwrap_or_else(|| insert_room(conn).id());
 
-        db::agent::InsertQuery::new(&agent_id, room_id)
-            .status(self.status)
-            .execute(conn)
-            .expect("Failed to insert agent")
+        let mut q = db::agent::InsertQuery::new(&agent_id, room_id).status(self.status);
+        if let Some(created_at) = self.created_at {
+            q = q.created_at(created_at);
+        }
+        q.execute(conn).expect("Failed to insert agent")
     }
 }
 
