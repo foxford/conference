@@ -1,7 +1,7 @@
 ## -----------------------------------------------------------------------------
 ## Build
 ## -----------------------------------------------------------------------------
-FROM rust:slim-buster as build-stage
+FROM rust:1.56.1-slim-buster as build-stage
 
 RUN apt update && apt install -y --no-install-recommends \
   pkg-config \
