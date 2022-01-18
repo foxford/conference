@@ -2,7 +2,7 @@
 authors = ["Andrei Nesterov <ae.nesterov@gmail.com>"]
 edition = "2018"
 name = "conference"
-version = "0.6.37"
+version = "0.6.38"
 
 [dependencies]
 anyhow = "1"
