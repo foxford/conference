@@ -255,10 +255,23 @@ async fn leave_room<C: Context>(
         move || {
             let row_count = db::agent::DeleteQuery::new()
                 .agent_id(&agent_id)
-                .room_id(room_id)
+                // in theory we should delete agent row only for this room id
+                //
+                // but right now broker doesnt send a subscription.delete event when
+                // someone connects kicking out previous connection
+                // (for example when you enter one p2p room and then another,
+                //      you will get session_taken_over in old tab, but `agent` row for the first room remains intact)
+                // this leads to non existent subscriptions still present in agent table
+                //
+                // this fix isnt correct since we have multiple brokers
+                // and connecting to one broker doesnt interrupt connection to another
+                // so we need to delete only those `agent` rows that have rooms subscriptions on the same broker
+                // but we cant differentiate between room types here
+                //
+                // .room_id(room_id)
                 .execute(&conn)?;
 
-            if row_count != 1 {
+            if row_count < 1 {
                 return Ok::<_, AppError>(false);
             }
 
@@ -639,6 +652,19 @@ mod tests {
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let old_room = {
+                // First room, we were online in it but then session was taken over and we disconnected (not in the db tho).
+                // By the end of this test subscription for this room should be absent.
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                let old_room = shared_helpers::insert_room(&conn);
+                shared_helpers::insert_agent(&conn, agent.agent_id(), old_room.id());
+                old_room
+            };
+
             let room = {
                 // Create room and put the agent online.
                 let conn = db
@@ -683,6 +709,14 @@ mod tests {
             let db_agents = AgentListQuery::new()
                 .agent_id(agent.agent_id())
                 .room_id(room.id())
+                .execute(&conn)
+                .expect("Failed to execute agent list query");
+
+            assert_eq!(db_agents.len(), 0);
+
+            let db_agents = AgentListQuery::new()
+                .agent_id(agent.agent_id())
+                .room_id(old_room.id())
                 .execute(&conn)
                 .expect("Failed to execute agent list query");
 
