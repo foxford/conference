@@ -48,6 +48,7 @@ if [[ -n ${NAMESPACE} ]]; then
     FILE_FROM_GITHUB "deploy/k8s/base/patches" "${SOURCE}/apps/deploy/${PROJECT}/base/patches/environments.yaml"
     FILE_FROM_GITHUB "deploy/k8s/base/patches" "${SOURCE}/apps/deploy/${PROJECT}/base/patches/tenant-credentials.yaml"
     FILE_FROM_GITHUB "deploy/k8s/overlays/ns" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/kustomization.yaml"
+    FILE_FROM_GITHUB "deploy/k8s/overlays/ns" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/conference-ingress.yaml"
     FILE_FROM_GITHUB "deploy/k8s/overlays/ns/configs" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/configs/App.toml"
     FILE_FROM_GITHUB "deploy/k8s/overlays/ns/configs" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/configs/env.ini"
     FILE_FROM_GITHUB "deploy/k8s/overlays/ns/patches" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/patches/update-replica-resources.yaml" "optional"
