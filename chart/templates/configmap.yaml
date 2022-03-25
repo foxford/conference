@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+  name: {{ include "conference.name" . }}-config
+data:
+  App.toml: |
+    {{- $id := list (include "conference.name" . ) (include "conference.shortNamespace" .) "svc.netology-group.services" | compact | join "." }}
+    id = {{ $id | quote }}
+
+    {{- $broker_id := list "mqtt-gateway" (include "conference.shortNamespace" .) "svc.netology-group.services" | compact | join "." }}
+    broker_id = {{ $broker_id | quote }}
+
+    http_addr = "0.0.0.0:{{ get .Values.service.ports "http" }}"
+
+    max_room_duration = 7
+    janus_group = {{ get .Values.config "janus_group" | default "" | quote }}
+    orphaned_room_timeout = "10 minutes"
+
+    [mqtt]
+    uri = "tcp://mqtt-gateway-loadbalancer:51883"
+    incoming_message_queue_size = 1000000
+    outgoing_message_queue_size = 1000000
+    clean_session = false
+    reconnect_interval = 3
+    keep_alive = 15
+    max_message_size = 5000000
+
+    [backend]
+    {{- $backend_id := list "janus-gateway" (include "conference.shortNamespace" .) "svc.netology-group.services" | compact | join "." }}
+    id = {{ $id | quote }}
+    default_timeout = 5
+    stream_upload_timeout = 600
+    transaction_watchdog_check_period = 1
+
+    [sentry]
+    dsn = {{ .Values.sentry.dsn | quote }}
+    environment = {{ .Release.Namespace | quote }}
+
+    [telemetry]
+    {{- $telemetry_id := list "telemetry" (include "conference.shortNamespace" .) "svc.netology-group.services" | compact | join "." }}
+    id = {{ $telemetry_id | quote }}
+
+    [kruonis]
+    {{- $kruonis_id := list "kruonis" (include "conference.shortNamespace" .) "svc.netology-group.services" | compact | join "." }}
+    id = {{ $kruonis_id | quote }}
+
+    [metrics.http]
+    bind_address = "0.0.0.0:{{ get .Values.service.ports "metrics" }}"
+
+    [metrics]
+    janus_metrics_collect_interval = "15 seconds"
+
+    [cache_configs]
+    rtc_by_id = { capacity = 10000, ttl = "60 seconds" }
+
+    [janus_registry]
+    token = "0FB8338E-1173-4973-A1BF-72C1E75DD990"
+    bind_addr = "0.0.0.0:8081"
+
+    ##
+    ## ULMS
+    ##
+    [id_token]
+    algorithm = "ES256"
+    key = "data/keys/svc.private_key.p8.der"
+
+    {{- println "" }}
+
+    {{- range $audience, $opts := .Values.audiences }}
+    ##
+    ## {{ $audience }}
+    ##
+    {{- $svc_audience := list (include "conference.shortNamespace" $) "svc" $audience | compact | join "." }}
+    {{- $usr_audience := list (include "conference.shortNamespace" $) "usr" $audience | compact | join "." }}
+    {{- with "authn" | get $opts }}
+    [authn.{{ list "iam" $svc_audience | join "." | quote }}]
+    audience = [{{ $svc_audience | quote }}, {{ $usr_audience | quote }}]
+    algorithm = "ES256"
+    key = {{ "key" | get . | quote }}
+    {{- end }}
+
+    {{- $ns_audience := list (include "conference.shortNamespace" $) $audience | compact | join "."  }}
+    {{- println "" }}
+
+    {{- with "authz" | get $opts }}
+    [authz.{{ $ns_audience | quote }}]
+    type = {{ .type | quote }}
+    {{- if eq "http" .type }}
+    uri = {{ $ns_audience | list "http://dispatcher-service:8080/api/v1/authz/" | join "" | default .uri | quote }}
+    algorithm = {{ default "ES256" .algorithm | quote }}
+    key = {{ default "data/keys/svc.private_key.p8.der" .key | quote }}
+    user_agent = {{ default $id .user_agent | quote }}
+    max_retries = {{ default 3 .max_retries }}
+    {{- end }}
+    {{- if eq "local" .type }}
+    trusted = [
+      {{- range $account_label := .trusted }}
+        {{ $ns_audience | list $account_label | join "." | quote }},
+      {{- end }}
+    ]
+    {{- end }}
+    {{- end }}
+
+    {{- println "" }}
+
+    {{- if hasKey $opts "upload" }}
+    {{- with default (dict "" "") (get $opts "upload") }}
+    [upload.owned.{{ $ns_audience | quote }}]
+    backend = {{ get . "backend" | default "yandex" | quote }}
+    bucket = "origin.minigroup.{{ $ns_audience }}"
+
+    [upload.shared.{{ $ns_audience | quote }}]
+    backend = {{ get . "backend" | default "yandex" | quote }}
+    bucket = "origin.minigroup.{{ $ns_audience }}"
+    {{- end }}
+    {{- end }}
+
+    {{- println "" }}
+    {{- end }}

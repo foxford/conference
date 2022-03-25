@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "conference.fullname" . }}-test-connection"
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['http://{{ include "conference.name" . }}-service:{{ get .Values.service.ports "http" }}/healthz']
+  restartPolicy: Never
