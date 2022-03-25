@@ -1,0 +1,86 @@
+# Default values for conference.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 2
+
+container:
+  image:
+    repository: foxford/conference
+    tag: ""
+
+  volumes:
+    - name: config
+      configMap:
+        name: conference-config
+    - name: svc
+      secret:
+        secretName: svc-secret
+    - name: tenant
+      secret:
+        secretName: tenant-secret
+
+  volumeMounts:
+    - name: config
+      mountPath: /app/App.toml
+      subPath: App.toml
+    - name: tenant
+      mountPath: /path/to/key
+      subPath: tenant.public_key
+    - mountPath: /path/to/key
+      name: svc
+      subPath: svc.private_key
+
+  resources:
+    limits:
+      cpu: 0.5
+      memory: 500Mi
+    requests:
+      cpu: 0.1
+      memory: 50Mi
+
+audiences:
+  services:
+    authz:
+      type: local
+      trusted:
+        - cron
+        - kruonis
+  tenant:
+    authn:
+      key: /path/to/key
+    authz:
+      type: http
+    upload:
+  tenantless:
+    authn:
+      key: /path/to/key
+    authz:
+      type: none
+    upload:
+
+env:
+  RUST_LOG: warn,conference=info,svc_utils=info,svc_utils::metrics=warn
+  CACHE_ENABLED: 1
+  CACHE_POOL_SIZE: 50
+  CACHE_POOL_IDLE_SIZE: 5
+  CACHE_POOL_TIMEOUT: 5
+  CACHE_EXPIRATION_TIME: 300
+  DATABASE_POOL_SIZE: 15
+  DATABASE_POOL_IDLE_SIZE: 15
+  DATABASE_POOL_TIMEOUT: 5
+  DATABASE_POOL_MAX_LIFETIME: 43200
+
+service:
+  type: ClusterIP
+  ports:
+    http: 8082
+    metrics: 8080
+
+config:
+  janus_group:
+
+ingress:
+  host: example.org
+  tls:
+    secretName: tls-certificates

@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "conference.name" . }}-headless
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "conference.selectorLabels" . | nindent 4 }}
+  clusterIP: None
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "conference.serviceName" . }}
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    {{- range $name, $port := .Values.service.ports }}
+    - port: {{ $port }}
+      protocol: TCP
+      name: {{ $name }}
+    {{- end }}
+  selector:
+    {{- include "conference.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "conference.name" . }}-loadbalancer-internal
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "conference.selectorLabels" . | nindent 4 }}
+  externalTrafficPolicy: Cluster
+  sessionAffinity: None
+  type: LoadBalancer
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 8081
+      name: janus-reg

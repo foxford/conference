@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "conference.name" . }}
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount | default 2 }}
+  serviceName: {{ include "conference.name" . }}-headless
+  selector:
+    matchLabels:
+      {{- include "conference.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "conference.selectorLabels" . | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      initContainers:
+        - name: init-{{ .Chart.Name }}-migration
+          image: "{{ .Values.container.image.migration_repository | default (printf "%v-migration" .Values.container.image.repository) }}:{{ .Values.container.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-{{ include "conference.name" . }}-credentials
+                  key: database_url
+          resources:
+            {{- toYaml .Values.container.resources | nindent 12 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.container.image.repository }}:{{ .Values.container.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUST_LOG
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "conference.name" . }}-environment
+                  key: RUST_LOG
+            - name: "CACHE_ENABLED"
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "conference.name" . }}-environment
+                  key: CACHE_ENABLED
+            - name: "CACHE_POOL_SIZE"
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "conference.name" . }}-environment
+                  key: CACHE_POOL_SIZE
+            - name: "CACHE_POOL_IDLE_SIZE"
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "conference.name" . }}-environment
+                  key: CACHE_POOL_IDLE_SIZE
+            - name: "CACHE_POOL_TIMEOUT"
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "conference.name" . }}-environment
+                  key: CACHE_POOL_TIMEOUT
+            - name: "CACHE_EXPIRATION_TIME"
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "conference.name" . }}-environment
+                  key: CACHE_EXPIRATION_TIME
+            - name: "CACHE_URL"
+              valueFrom:
+                secretKeyRef:
+                  name: redis-{{ include "conference.name" . }}-credentials
+                  key: CACHE_URL
+            - name: DATABASE_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "conference.name" . }}-environment
+                  key: DATABASE_POOL_SIZE
+            - name: DATABASE_POOL_IDLE_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "conference.name" . }}-environment
+                  key: DATABASE_POOL_IDLE_SIZE
+            - name: DATABASE_POOL_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "conference.name" . }}-environment
+                  key: DATABASE_POOL_TIMEOUT
+            - name: DATABASE_POOL_MAX_LIFETIME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "conference.name" . }}-environment
+                  key: DATABASE_POOL_MAX_LIFETIME
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-{{ include "conference.name" . }}-credentials
+                  key: database_url
+            - name: APP_AGENT_LABEL
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: "AWS_ACCESS_KEY_ID"
+              valueFrom:
+                secretKeyRef:
+                  name: yandex-storage-credentials
+                  key: key
+            - name: "AWS_SECRET_ACCESS_KEY"
+              valueFrom:
+                secretKeyRef:
+                  name: yandex-storage-credentials
+                  key: secret
+            - name: "AWS_ENDPOINT"
+              valueFrom:
+                secretKeyRef:
+                  name: yandex-storage-credentials
+                  key: endpoint
+            - name: "AWS_REGION"
+              valueFrom:
+                secretKeyRef:
+                  name: yandex-storage-credentials
+                  key: region
+          volumeMounts:
+            {{- toYaml .Values.container.volumeMounts | nindent 12}}
+          resources:
+            {{- toYaml .Values.container.resources | nindent 12 }}
+      volumes:
+        {{- toYaml .Values.container.volumes | nindent 8}}
