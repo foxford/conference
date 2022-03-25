@@ -1,0 +1,33 @@
+{{- if .Values.internalService }}
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "conference.fullname" . }}-internal
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.internalService.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  sessionAffinity: None
+  ports:
+    {{- if .Values.clusterService.ports.http }}
+    - name: http
+      port: {{ .Values.clusterService.ports.http }}
+      targetPort: 8080
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.clusterService.ports.internal_http }}
+    - name: internal-http
+      port: {{ .Values.clusterService.ports.internal_http }}
+      targetPort: 8081
+      protocol: TCP
+    {{- end }}
+  selector:
+    {{- include "conference.selectorLabels" . | nindent 4 }}
+
+{{- end }}
