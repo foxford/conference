@@ -115,4 +115,13 @@ data:
     {{- end }}
     {{- end }}
     {{- println "" }}
+
+    [upload.shared.{{ $ns_audience | quote }}]
+    backend = "yandex"
+    bucket = "origin.webinar.{{ $ns_audience }}"
+
+    [upload.owned.{{ $ns_audience | quote }}]
+    backend = "yandex"
+    bucket = "origin.minigroup.{{ $ns_audience }}"
+    {{- println "" }}
     {{- end }}
