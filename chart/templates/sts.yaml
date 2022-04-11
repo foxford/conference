@@ -127,6 +127,16 @@ spec:
             - name: config
               mountPath: /app/App.toml
               subPath: App.toml
+            {{- with .Values.svc }}
+            {{- $audience := .audience }}
+            {{- range $secret, $mounts := .credentials }}
+            {{- range $mounts }}
+            - name: {{ include "conference.volumeMountName" (list $audience $secret) }}
+              mountPath: {{ .mountPath }}
+              subPath: {{ .subPath }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- range .Values.audiences }}
             {{- $audience := .audience }}
             {{- range $secret, $mounts := .credentials }}
@@ -143,6 +153,14 @@ spec:
         - name: config
           configMap:
             name: conference-config
+        {{- with .Values.svc }}
+        {{- $audience := .audience }}
+        {{- range $secret, $mounts := .credentials }}
+        - name: {{ include "conference.volumeMountName" (list $audience $secret) }}
+          secret:
+            secretName: {{ $secret }}
+        {{- end }}
+        {{- end }}
         {{- range .Values.audiences }}
         {{- $audience := .audience }}
         {{- range $secret, $mounts := .credentials }}
