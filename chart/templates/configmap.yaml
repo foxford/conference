@@ -6,10 +6,10 @@ metadata:
   name: {{ include "conference.name" . }}-config
 data:
   App.toml: |
-    {{- $id := list (include "conference.name" . ) (include "conference.shortNamespace" .) "svc.netology-group.services" | compact | join "." }}
+    {{- $id := list (include "conference.name" . ) (include "conference.shortNamespace" .) .Values.svc.audience | compact | join "." }}
     id = {{ $id | quote }}
 
-    {{- $broker_id := list "mqtt-gateway" (include "conference.shortNamespace" .) "svc.netology-group.services" | compact | join "." }}
+    {{- $broker_id := list "mqtt-gateway" (include "conference.shortNamespace" .) .Values.svc.audience | compact | join "." }}
     broker_id = {{ $broker_id | quote }}
 
     http_addr = "0.0.0.0:{{ get .Values.service.ports "http" }}"
@@ -28,7 +28,7 @@ data:
     max_message_size = 5000000
 
     [backend]
-    {{- $backend_id := list "janus-gateway" (include "conference.shortNamespace" .) "svc.netology-group.services" | compact | join "." }}
+    {{- $backend_id := list "janus-gateway" (include "conference.shortNamespace" .) .Values.svc.audience | compact | join "." }}
     id = {{ $id | quote }}
     default_timeout = 5
     stream_upload_timeout = 600
@@ -39,11 +39,11 @@ data:
     environment = {{ .Release.Namespace | quote }}
 
     [telemetry]
-    {{- $telemetry_id := list "telemetry" (include "conference.shortNamespace" .) "svc.netology-group.services" | compact | join "." }}
+    {{- $telemetry_id := list "telemetry" (include "conference.shortNamespace" .) .Values.svc.audience | compact | join "." }}
     id = {{ $telemetry_id | quote }}
 
     [kruonis]
-    {{- $kruonis_id := list "kruonis" (include "conference.shortNamespace" .) "svc.netology-group.services" | compact | join "." }}
+    {{- $kruonis_id := list "kruonis" (include "conference.shortNamespace" .) .Values.svc.audience | compact | join "." }}
     id = {{ $kruonis_id | quote }}
 
     [metrics.http]
@@ -68,23 +68,23 @@ data:
 
     {{- println "" }}
 
-    {{- range $audience, $opts := .Values.audiences }}
+    {{- range .Values.audiences }}
     ##
-    ## {{ $audience }}
+    ## {{ .audience }}
     ##
-    {{- $svc_audience := list (include "conference.shortNamespace" $) "svc" $audience | compact | join "." }}
-    {{- $usr_audience := list (include "conference.shortNamespace" $) "usr" $audience | compact | join "." }}
-    {{- with "authn" | get $opts }}
+    {{- $svc_audience := list (include "conference.shortNamespace" $) "svc" .audience | compact | join "." }}
+    {{- $usr_audience := list (include "conference.shortNamespace" $) "usr" .audience | compact | join "." }}
+    {{- with "authn" | get . }}
     [authn.{{ list "iam" $svc_audience | join "." | quote }}]
     audience = [{{ $svc_audience | quote }}, {{ $usr_audience | quote }}]
     algorithm = "ES256"
     key = {{ "key" | get . | quote }}
     {{- end }}
 
-    {{- $ns_audience := list (include "conference.shortNamespace" $) $audience | compact | join "."  }}
+    {{- $ns_audience := list (include "conference.shortNamespace" $) .audience | compact | join "."  }}
     {{- println "" }}
 
-    {{- with "authz" | get $opts }}
+    {{- with "authz" | get . }}
     [authz.{{ $ns_audience | quote }}]
     type = {{ .type | quote }}
     {{- if eq "http" .type }}
@@ -101,21 +101,18 @@ data:
       {{- end }}
     ]
     {{- end }}
-    {{- end }}
-
-    {{- println "" }}
-
-    {{- if hasKey $opts "upload" }}
-    {{- with default (dict "" "") (get $opts "upload") }}
-    [upload.owned.{{ $ns_audience | quote }}]
-    backend = {{ get . "backend" | default "yandex" | quote }}
-    bucket = "origin.minigroup.{{ $ns_audience }}"
-
-    [upload.shared.{{ $ns_audience | quote }}]
-    backend = {{ get . "backend" | default "yandex" | quote }}
-    bucket = "origin.minigroup.{{ $ns_audience }}"
+    {{- if eq "localwhitelist" .type }}
+    [[authz.{{ $ns_audience | quote }}.records]]
+    {{- range $record := .records }}
+    subject_account_id = {{ get $record "subject_account_id" | quote }}
+    object = [
+      {{- range $o := get $record "object" }}
+      {{ $o | quote }},
+      {{- end}}
+    ]
+    action = {{ get $record "action" | quote }}
     {{- end }}
     {{- end }}
-
+    {{- end }}
     {{- println "" }}
     {{- end }}

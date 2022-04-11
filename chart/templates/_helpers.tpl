@@ -18,7 +18,7 @@ Short namespace.
 */}}
 {{- define "conference.shortNamespace" -}}
 {{- $shortns := regexSplit "-" .Release.Namespace -1 | first }}
-{{- if eq $shortns "production" }}
+{{- if has $shortns (list "production" "p") }}
 {{- else }}
 {{- $shortns }}
 {{- end }}
@@ -107,4 +107,13 @@ Create the name of the service account to use
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
+{{- end }}
+
+{{/*
+Create volumeMount name from audience and secret name
+*/}}
+{{- define "conference.volumeMountName" -}}
+{{- $audience := index . 0 -}}
+{{- $secret := index . 1 -}}
+{{- printf "%s-%s-secret" $audience $secret | replace "." "-" }}
 {{- end }}
