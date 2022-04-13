@@ -12,10 +12,10 @@ data:
     {{- $broker_id := list "mqtt-gateway" (include "conference.shortNamespace" .) .Values.svc.audience | compact | join "." }}
     broker_id = {{ $broker_id | quote }}
 
-    http_addr = "0.0.0.0:{{ get .Values.service.ports "http" }}"
+    http_addr = "0.0.0.0:{{ .Values.service.ports.http }}"
 
     max_room_duration = 7
-    janus_group = {{ get .Values.config "janus_group" | default "" | quote }}
+    janus_group = {{ .Values.config.janus_group | default "" | quote }}
     orphaned_room_timeout = "10 minutes"
 
     [mqtt]
@@ -47,7 +47,7 @@ data:
     id = {{ $kruonis_id | quote }}
 
     [metrics.http]
-    bind_address = "0.0.0.0:{{ get .Values.service.ports "metrics" }}"
+    bind_address = "0.0.0.0:{{ .Values.service.ports.metrics }}"
 
     [metrics]
     janus_metrics_collect_interval = "15 seconds"
@@ -74,17 +74,17 @@ data:
     ##
     {{- $svc_audience := list (include "conference.shortNamespace" $) "svc" .audience | compact | join "." }}
     {{- $usr_audience := list (include "conference.shortNamespace" $) "usr" .audience | compact | join "." }}
-    {{- with "authn" | get . }}
+    {{- with .authn }}
     [authn.{{ list "iam" $svc_audience | join "." | quote }}]
     audience = [{{ $svc_audience | quote }}, {{ $usr_audience | quote }}]
     algorithm = "ES256"
-    key = {{ "key" | get . | quote }}
+    key = {{ .key | quote }}
     {{- end }}
 
     {{- $ns_audience := list (include "conference.shortNamespace" $) .audience | compact | join "."  }}
     {{- println "" }}
 
-    {{- with "authz" | get . }}
+    {{- with .authz }}
     [authz.{{ $ns_audience | quote }}]
     type = {{ .type | quote }}
     {{- if eq "http" .type }}

@@ -38,6 +38,18 @@ spec:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.container.image.repository }}:{{ .Values.container.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.service.ports.http }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.service.ports.http }}
+            failureThreshold: 10
+            periodSeconds: 3
           env:
             - name: RUST_LOG
               valueFrom:
