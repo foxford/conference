@@ -95,7 +95,7 @@ data:
     max_retries = {{ default 3 .max_retries }}
     trusted = [
       {{- range $account_label := .trusted }}
-        {{ (list $account_label (include "conference.shortNamespace" $) $.Values.svc.audience) | join "." | quote }},
+        {{ (list $account_label (include "conference.shortNamespace" $) $.Values.svc.audience) | compact | join "." | quote }},
       {{- end }}
     ]
     {{- end }}
