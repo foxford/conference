@@ -34,7 +34,7 @@ converts as follows:
 {{- define "conference.ingressPathNamespace" -}}
 {{- $ns_head := regexSplit "-" .Release.Namespace -1 | first }}
 {{- $ns_tail := regexSplit "-" .Release.Namespace -1 | rest | join "-" }}
-{{- if eq $ns_head "production" }}
+{{- if has $ns_head (list "production" "p") }}
 {{- regexReplaceAll "(.*)-ng(.*)" $ns_tail "${1}-foxford${2}" }}
 {{- else }}
 {{- $v := list (regexReplaceAll "(.)[^\\d]*(.+)" $ns_head "${1}${2}") $ns_tail | compact | join "/" }}
