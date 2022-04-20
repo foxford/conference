@@ -19,7 +19,7 @@ data:
     orphaned_room_timeout = "10 minutes"
 
     [mqtt]
-    uri = "tcp://mqtt-gateway-loadbalancer:51883"
+    uri = "tcp://mqtt-gateway-loadbalancer-internal:51883"
     incoming_message_queue_size = 1000000
     outgoing_message_queue_size = 1000000
     clean_session = false
@@ -93,6 +93,11 @@ data:
     key = {{ default "data/keys/svc.private_key.p8.der" .key | quote }}
     user_agent = {{ default $id .user_agent | quote }}
     max_retries = {{ default 3 .max_retries }}
+    trusted = [
+      {{- range $account_label := .trusted }}
+        {{ (list $account_label (include "conference.shortNamespace" $) $.Values.svc.audience) | join "." | quote }},
+      {{- end }}
+    ]
     {{- end }}
     {{- if eq "local" .type }}
     trusted = [
