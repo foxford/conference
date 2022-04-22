@@ -170,6 +170,7 @@ pub(crate) struct PullHandler;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct PullPayload {
+    #[allow(dead_code)]
     duration: Option<u64>,
 }
 

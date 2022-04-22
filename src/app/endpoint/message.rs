@@ -123,6 +123,7 @@ impl RequestHandler for UnicastHandler {
 pub struct BroadcastRequest {
     room_id: db::room::Id,
     data: JsonValue,
+    #[allow(dead_code)]
     label: Option<String>,
 }
 

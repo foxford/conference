@@ -300,6 +300,7 @@ enum Ack {
 
 #[derive(Deserialize, Debug)]
 struct AckResponse {
+    #[allow(dead_code)]
     janus: Ack,
 }
 
@@ -312,6 +313,7 @@ enum Success {
 #[derive(Deserialize, Debug)]
 struct JanusResponse<T> {
     data: T,
+    #[allow(dead_code)]
     janus: Success,
 }
 
