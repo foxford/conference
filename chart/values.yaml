@@ -9,6 +9,10 @@ container:
     repository: foxford/conference
     tag: ""
 
+  migrations:
+    repository: foxford/conference-migration
+    tag: ""
+
   resources:
     limits:
       cpu: 0.5
