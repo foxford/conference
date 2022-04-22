@@ -143,7 +143,7 @@ impl JanusClient {
             .await?
             .text()
             .await?;
-        Ok(serde_json::from_str(&response).context(response)?)
+        serde_json::from_str(&response).context(response)
     }
 }
 
