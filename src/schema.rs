@@ -97,6 +97,7 @@ table! {
         host -> Nullable<Agent_id>,
         timed_out -> Bool,
         closed_by -> Nullable<Agent_id>,
+        infinite -> Bool,
     }
 }
 

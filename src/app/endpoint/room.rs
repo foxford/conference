@@ -455,6 +455,11 @@ impl RequestHandler for CloseHandler {
         })
         .await?;
 
+        if room.infinite() {
+            return Err(anyhow!("Not closing this room because its infinite"))
+                .error(AppErrorKind::RoomTimeChangingForbidden);
+        }
+
         // Authorize room updating on the tenant.
         let room_id = room.id().to_string();
         let object = AuthzObject::new(&["rooms", &room_id]).into();
@@ -1268,6 +1273,43 @@ mod test {
                 resp_room.rtc_sharing_policy(),
                 db::rtc::SharingPolicy::Shared
             );
+        }
+
+        #[tokio::test]
+        async fn close_infinite_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                // Create room.
+                factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((Bound::Unbounded, Bound::Unbounded))
+                    .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
+                    .infinite()
+                    .insert(&conn)
+            };
+
+            // Allow agent to update the room.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let room_id = room.id().to_string();
+            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+
+            // Make room.update request.
+            let mut context = TestContext::new(db, authz);
+
+            let payload = CloseRequest { id: room.id() };
+
+            handle_request::<CloseHandler>(&mut context, &agent, payload)
+                .await
+                .expect_err("Room close succeeded even though it shouldn't");
         }
 
         #[tokio::test]
