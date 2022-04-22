@@ -34,7 +34,9 @@ const ALL_COLUMNS: AllColumns = (
 pub struct Object {
     agent_id: super::agent::Id,
     handle_id: HandleId,
+    #[allow(dead_code)]
     created_at: DateTime<Utc>,
+    #[allow(dead_code)]
     rtc_id: db::rtc::Id,
 }
 

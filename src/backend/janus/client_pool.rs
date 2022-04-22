@@ -113,6 +113,7 @@ impl Clients {
 struct ClientHandle {
     client: JanusClient,
     is_cancelled: Arc<AtomicBool>,
+    #[allow(dead_code)]
     janus_url: String,
 }
 
