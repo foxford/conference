@@ -39,6 +39,7 @@ type AllColumns = (
     room::host,
     room::timed_out,
     room::closed_by,
+    room::infinite,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -55,6 +56,7 @@ const ALL_COLUMNS: AllColumns = (
     room::host,
     room::timed_out,
     room::closed_by,
+    room::infinite,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -130,6 +132,8 @@ pub struct Object {
     host: Option<AgentId>,
     timed_out: bool,
     closed_by: Option<AgentId>,
+    #[serde(skip)]
+    infinite: bool,
 }
 
 impl Object {
@@ -179,6 +183,10 @@ impl Object {
 
     pub fn timed_out(&self) -> bool {
         self.timed_out
+    }
+
+    pub fn infinite(&self) -> bool {
+        self.infinite
     }
 }
 
@@ -291,6 +299,7 @@ pub struct InsertQuery<'a> {
     backend_id: Option<&'a AgentId>,
     rtc_sharing_policy: RtcSharingPolicy,
     classroom_id: Option<Uuid>,
+    infinite: bool,
 }
 
 impl<'a> InsertQuery<'a> {
@@ -304,6 +313,7 @@ impl<'a> InsertQuery<'a> {
             backend_id: None,
             rtc_sharing_policy,
             classroom_id: None,
+            infinite: false,
         }
     }
 
@@ -327,6 +337,11 @@ impl<'a> InsertQuery<'a> {
             backend_id: Some(backend_id),
             ..self
         }
+    }
+
+    #[cfg(test)]
+    pub fn infinite(self, infinite: bool) -> Self {
+        Self { infinite, ..self }
     }
 
     pub fn classroom_id(self, classroom_id: Uuid) -> Self {
