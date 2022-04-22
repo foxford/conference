@@ -21,6 +21,7 @@ pub struct Room<'a> {
     rtc_sharing_policy: db::rtc::SharingPolicy,
     backend_id: Option<&'a AgentId>,
     reserve: Option<i32>,
+    infinite: bool,
 }
 
 impl<'a> Room<'a> {
@@ -31,6 +32,7 @@ impl<'a> Room<'a> {
             rtc_sharing_policy: db::rtc::SharingPolicy::None,
             backend_id: None,
             reserve: None,
+            infinite: false,
         }
     }
 
@@ -69,6 +71,13 @@ impl<'a> Room<'a> {
         }
     }
 
+    pub fn infinite(self) -> Self {
+        Self {
+            infinite: true,
+            ..self
+        }
+    }
+
     pub fn insert(self, conn: &PgConnection) -> db::room::Object {
         let audience = self.audience.expect("Audience not set");
         let time = self.time.expect("Time not set");
@@ -81,6 +90,10 @@ impl<'a> Room<'a> {
 
         if let Some(reserve) = self.reserve {
             q = q.reserve(reserve);
+        }
+
+        if self.infinite {
+            q = q.infinite(true);
         }
 
         q.execute(conn).expect("Failed to insert room")
