@@ -32,6 +32,7 @@ metadata:
   name: {{ include "conference.name" . }}-loadbalancer-internal
   labels:
     {{- include "conference.labels" . | nindent 4 }}
+  {{- include "conference.serviceAnnotations" . }}
 spec:
   selector:
     {{- include "conference.selectorLabels" . | nindent 4 }}

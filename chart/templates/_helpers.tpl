@@ -12,6 +12,16 @@ Service name.
 {{- list (default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-") "service" | join "-" }}
 {{- end }}
 
+{{/*
+Define service annotations
+*/}}
+{{- define "conference.serviceAnnotations" -}}
+{{- if .Values.loadBalancer.annotations -}}
+{{- "annotations:" | nindent 2 -}}
+{{- toYaml .Values.loadBalancer.annotations | nindent 4 -}}
+{{- end -}}
+{{- end -}}
+
 
 {{/*
 Short namespace.

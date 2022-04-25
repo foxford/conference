@@ -64,3 +64,6 @@ ingress:
   host: example.org
   tls:
     secretName: tls-certificates
+
+loadBalancer:
+  annotations:
