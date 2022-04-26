@@ -24,7 +24,7 @@ spec:
         - name: regcred
       initContainers:
         - name: init-{{ .Chart.Name }}-migration
-          {- with .Values.container }}
+          {{- with .Values.container }}
           image: "{{ .migrations.repository }}:{{ .migrations.tag | default .image.tag | default $.Chart.AppVersion }}"
           {{- end }}
           imagePullPolicy: IfNotPresent
