@@ -61,12 +61,43 @@ data:
     token = "0FB8338E-1173-4973-A1BF-72C1E75DD990"
     bind_addr = "0.0.0.0:8081"
 
+    {{- println "" }}
+
+    {{- with .Values.svc }}
     ##
-    ## ULMS
+    ## SVC
     ##
     [id_token]
     algorithm = "ES256"
     key = "data/keys/svc.private_key.p8.der"
+
+    {{- println "" }}
+
+    {{- $svc_audience := list (include "conference.shortNamespace" $) .audience | compact | join "." }}
+    {{- with .authz }}
+    [authz.{{ $svc_audience | quote }}]
+    type = {{ .type | quote }}
+    {{- if eq "local" .type }}
+    trusted = [
+      {{- range $account_label := .trusted }}
+        {{ list $account_label | join "." | quote }},
+      {{- end }}
+    ]
+    {{- end }}
+    {{- if eq "localwhitelist" .type }}
+    [[authz.{{ $svc_audience | quote }}.records]]
+    {{- range $record := .records }}
+    subject_account_id = {{ get $record "subject_account_id" | quote }}
+    object = [
+      {{- range $o := get $record "object" }}
+      {{ $o | quote }},
+      {{- end}}
+    ]
+    action = {{ get $record "action" | quote }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
 
     {{- println "" }}
 
