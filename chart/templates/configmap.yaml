@@ -155,12 +155,14 @@ data:
     {{- end }}
     {{- println "" }}
 
+    {{- with .storage }}
     [upload.shared.{{ $ns_audience | quote }}]
-    backend = "yandex"
+    backend = {{ .backend | quote }}
     bucket = "origin.webinar.{{ $ns_audience }}"
 
     [upload.owned.{{ $ns_audience | quote }}]
-    backend = "yandex"
+    backend = {{ .backend | quote }}
     bucket = "origin.minigroup.{{ $ns_audience }}"
     {{- println "" }}
+    {{- end }}
     {{- end }}
