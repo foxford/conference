@@ -42,6 +42,8 @@ audiences:
     authz:
       type: http
       url: "https://authz.example.org/api/v1/authz"
+    storage:
+      backend: yandex
 
 env:
   RUST_LOG: warn,conference=info,svc_utils=info,svc_utils::metrics=warn
