@@ -34,7 +34,7 @@ data:
     stream_upload_timeout = 600
     transaction_watchdog_check_period = 1
 
-    {{- if .Values.sentry.dsn }}
+    {{ if .Values.sentry.dsn -}}
     [sentry]
     dsn = {{ .Values.sentry.dsn | quote }}
     environment = {{ .Release.Namespace | quote }}
@@ -121,7 +121,7 @@ data:
     [authz.{{ $ns_audience | quote }}]
     type = {{ .type | quote }}
     {{- if eq "http" .type }}
-    {{ $default_authz_url := $ns_audience | list "http://dispatcher-service:8080/api/v1/authz/" | join "" }}
+    {{- $default_authz_url := $ns_audience | list "http://dispatcher-service:8080/api/v1/authz/" | join "" }}
     uri = {{ default $default_authz_url .uri | quote }}
     algorithm = {{ default "ES256" .algorithm | quote }}
     key = {{ default "data/keys/svc.private_key.p8.der" .key | quote }}
