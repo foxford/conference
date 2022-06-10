@@ -32,6 +32,10 @@ metadata:
   name: {{ include "conference.name" . }}-loadbalancer-internal
   labels:
     {{- include "conference.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.service.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   selector:
     {{- include "conference.selectorLabels" . | nindent 4 }}
