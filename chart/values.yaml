@@ -63,8 +63,9 @@ config:
 service:
   type: ClusterIP
   ports:
-    http: 8082
-    metrics: 8080
+    http: 8080
+    internal_http: 8081  # Janus registry
+    metrics: 8888
 
 ingress:
   host: example.org

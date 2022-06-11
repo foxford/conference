@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "conference.serviceName" . }}
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.service.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    {{- if .Values.service.ports.http }}
+    - name: http
+      port: {{ .Values.service.ports.http }}
+      targetPort: 8080
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.service.ports.internal_http }}
+    - name: internal-http
+      port: {{ .Values.service.ports.internal_http }}
+      targetPort: 8081
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.service.ports.metrics }}
+    - name: metrics
+      port: {{ .Values.service.ports.metrics }}
+      targetPort: 8888
+      protocol: TCP
+    {{- end }}
+  selector:
+    {{- include "conference.selectorLabels" . | nindent 4 }}
+
+---
+
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: {{ include "conference.name" . }}-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ include "conference.ingressPath" . }}(/|$)(.*)
+            pathType: Prefix
+            backend:
+              serviceName: {{ include "conference.serviceName" $ }}
+              servicePort: {{ .Values.service.ports.http }}

@@ -6,14 +6,14 @@ metadata:
     {{- include "conference.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount | default 2 }}
-  serviceName: {{ include "conference.name" . }}-headless
+  serviceName: {{ include "conference.name" . }}-headless-service
   selector:
     matchLabels:
       {{- include "conference.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
       {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -183,3 +183,30 @@ spec:
             secretName: {{ $secret }}
         {{- end }}
         {{- end }}
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "conference.name" . }}-headless-service
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "conference.selectorLabels" . | nindent 4 }}
+  clusterIP: None
+
+---
+
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "conference.name" . }}-pdb
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "conference.selectorLabels" . | nindent 6 }}

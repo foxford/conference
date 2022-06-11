@@ -12,14 +12,14 @@ data:
     {{- $broker_id := list "mqtt-gateway" (include "conference.shortNamespace" .) .Values.svc.audience | compact | join "." }}
     broker_id = {{ $broker_id | quote }}
 
-    http_addr = "0.0.0.0:{{ .Values.service.ports.http }}"
+    http_addr = "0.0.0.0:8080"
 
     max_room_duration = 7
     janus_group = {{ .Values.config.janus_group | default "" | quote }}
     orphaned_room_timeout = "10 minutes"
 
     [mqtt]
-    uri = "tcp://mqtt-gateway-loadbalancer-internal:51883"
+    uri = "tcp://mqtt-gateway-service:1883"
     incoming_message_queue_size = 1000000
     outgoing_message_queue_size = 1000000
     clean_session = false
@@ -49,7 +49,7 @@ data:
     id = {{ $kruonis_id | quote }}
 
     [metrics.http]
-    bind_address = "0.0.0.0:{{ .Values.service.ports.metrics }}"
+    bind_address = "0.0.0.0:8888"
 
     [metrics]
     janus_metrics_collect_interval = "15 seconds"
@@ -166,3 +166,17 @@ data:
     {{- println "" }}
     {{- end }}
     {{- end }}
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  annotations: {}
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+  name: {{ include "conference.name" . }}-environment
+data:
+  {{- range $key, $value := .Values.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
