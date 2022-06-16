@@ -8,11 +8,10 @@ use crate::{
     backend::janus::{
         client_pool::Clients, online_handler::start_janus_reg_handler, JANUS_API_VERSION,
     },
-    config::{self, Config, KruonisConfig},
+    config::{self, Config},
     db::ConnectionPool,
 };
 use anyhow::{Context as AnyhowContext, Result};
-use chrono::Utc;
 use context::{AppContext, GlobalContext};
 use futures::StreamExt;
 use hyper::{
@@ -21,14 +20,10 @@ use hyper::{
 };
 use message_handler::MessageHandler;
 use prometheus::{Encoder, Registry, TextEncoder};
-use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use svc_agent::{
-    mqtt::{
-        Agent, AgentBuilder, AgentNotification, ConnectionMode, OutgoingRequest,
-        OutgoingRequestProperties, QoS, ShortTermTimingProperties, SubscriptionTopic,
-    },
-    AccountId, AgentId, Authenticable, SharedGroup, Subscription,
+    mqtt::{Agent, AgentBuilder, AgentNotification, ConnectionMode, QoS},
+    AgentId, Authenticable, SharedGroup, Subscription,
 };
 use svc_authn::token::jws_compact;
 use svc_authz::cache::{AuthzCache, ConnectionPool as RedisConnectionPool, RedisCache};
@@ -240,14 +235,6 @@ fn subscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> Result<(
         .subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
         .context("Error subscribing to backend events topic")?;
 
-    // Kruonis
-    if let KruonisConfig {
-        id: Some(ref kruonis_id),
-    } = config.kruonis
-    {
-        subscribe_to_kruonis(kruonis_id, agent)?;
-    }
-
     // Return Janus subscription topics
     Ok(())
 }
@@ -278,21 +265,6 @@ fn unsubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) -> anyhow
     agent
         .unsubscribe(&subscription, Some(&group))
         .context("Error unsubscribing to backend events topic")?;
-
-    Ok(())
-}
-
-fn subscribe_to_kruonis(kruonis_id: &AccountId, agent: &mut Agent) -> Result<()> {
-    let timing = ShortTermTimingProperties::new(Utc::now());
-
-    let topic = Subscription::unicast_requests_from(kruonis_id)
-        .subscription_topic(agent.id(), API_VERSION)
-        .context("Failed to build subscription topic")?;
-
-    let props = OutgoingRequestProperties::new("kruonis.subscribe", &topic, "", timing);
-    let event = OutgoingRequest::multicast(json!({}), props, kruonis_id, API_VERSION);
-
-    agent.publish(event).context("Failed to publish message")?;
 
     Ok(())
 }
