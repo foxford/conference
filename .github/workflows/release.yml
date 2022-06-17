@@ -1,0 +1,26 @@
+name: Release
+on:
+  push:
+    tags:
+      - '*.*.*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        ref: ${{ github.event.inputs.version }}
+        fetch-depth: 0
+    - uses: satackey/action-docker-layer-caching@46d2c640b1d8ef50d185452ad6fb324e6bd1d052
+      continue-on-error: true
+    - name: Build and push docker image
+      run: |
+        curl -fsSLo skaffold "https://storage.googleapis.com/skaffold/releases/v1.24.1/skaffold-$(uname | tr '[:upper:]' '[:lower:]')-amd64"
+        chmod +x skaffold
+        echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
+        ./skaffold build --file-output=$HOME/tags.json
+      env:
+        GITHUB_TOKEN: ${{ secrets._GITHUB_TOKEN }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}

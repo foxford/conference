@@ -166,30 +166,9 @@ macro_rules! event_routes {
     }
 }
 
-pub(crate) struct PullHandler;
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct PullPayload {
-    #[allow(dead_code)]
-    duration: Option<u64>,
-}
-
-#[async_trait]
-impl EventHandler for PullHandler {
-    type Payload = PullPayload;
-
-    async fn handle<C: Context>(
-        _context: &mut C,
-        _payload: Self::Payload,
-        _evp: &IncomingEventProperties,
-    ) -> MqttResult {
-        Ok(Box::new(futures::stream::empty()))
-    }
-}
 // Event routes configuration: label => EventHandler
 event_routes!(
     "subscription.delete" => subscription::DeleteEventHandler,
-    "metric.pull" => PullHandler,
     "system.close_orphaned_rooms" => system::OrphanedRoomCloseHandler
 );
 

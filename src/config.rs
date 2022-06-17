@@ -20,8 +20,6 @@ pub struct Config {
     pub upload: UploadConfigs,
     #[serde(default)]
     pub telemetry: TelemetryConfig,
-    #[serde(default)]
-    pub kruonis: KruonisConfig,
     pub metrics: MetricsConfig,
     pub max_room_duration: Option<i64>,
     pub janus_group: Option<String>,
@@ -76,11 +74,6 @@ pub struct UploadConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct TelemetryConfig {
-    pub id: Option<AccountId>,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct KruonisConfig {
     pub id: Option<AccountId>,
 }
 
