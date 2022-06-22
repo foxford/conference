@@ -13,6 +13,7 @@ use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Subscription,
 };
+use svc_utils::extractors::AuthnExtractor;
 
 use uuid::Uuid;
 
@@ -20,7 +21,6 @@ use crate::{
     app::{
         context::{AppContext, Context},
         endpoint::{prelude::*, subscription::CorrelationDataPayload},
-        http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
         API_VERSION,
@@ -64,7 +64,7 @@ pub struct CreateRequest {
 
 pub async fn create(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Json(request): Json<CreateRequest>,
 ) -> RequestResult {
     CreateHandler::handle(
@@ -161,7 +161,7 @@ pub struct ReadRequest {
 
 pub async fn read(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = ReadRequest { id: room_id };
@@ -245,7 +245,7 @@ pub struct UpdateFields {
 
 pub async fn update(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
     Json(request): Json<UpdateFields>,
 ) -> RequestResult {
@@ -414,7 +414,7 @@ pub struct CloseRequest {
 
 pub async fn close(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = CloseRequest { id: room_id };

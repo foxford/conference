@@ -3,7 +3,6 @@ use crate::{
         context::{AppContext, Context},
         endpoint::prelude::*,
         error::Error as AppError,
-        http::AuthExtractor,
         service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
@@ -34,6 +33,7 @@ use svc_agent::{
     AgentId,
 };
 use svc_authn::Authenticable;
+use svc_utils::extractors::AuthnExtractor;
 
 use tracing::error;
 use tracing_attributes::instrument;
@@ -71,7 +71,7 @@ struct ClosedRoomNotification {
 pub struct VacuumRequest {}
 pub async fn vacuum(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
 ) -> RequestResult {
     let request = VacuumRequest {};
     VacuumHandler::handle(

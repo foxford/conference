@@ -7,13 +7,13 @@ use serde::Deserialize;
 use serde_json::json;
 use svc_agent::mqtt::ResponseStatus;
 use svc_authn::Authenticable;
+use svc_utils::extractors::AuthnExtractor;
 use tracing_attributes::instrument;
 
 use crate::{
     app::{
         context::{AppContext, Context},
         endpoint::prelude::*,
-        http::AuthExtractor,
         service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
@@ -25,7 +25,7 @@ pub struct Request {}
 
 pub async fn agent_cleanup(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
 ) -> RequestResult {
     let request = Request {};
     Handler::handle(

@@ -4,7 +4,6 @@ use crate::{
     app::{
         context::{AppContext, Context},
         endpoint::prelude::*,
-        http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
     },
@@ -25,6 +24,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId};
 
+use svc_utils::extractors::AuthnExtractor;
 use tracing_attributes::instrument;
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
@@ -90,7 +90,7 @@ pub struct StateConfigs {
 
 pub async fn update(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
     Json(configs): Json<StateConfigs>,
 ) -> RequestResult {
@@ -256,7 +256,7 @@ pub struct ReadRequest {
 
 pub async fn read(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = ReadRequest { room_id };

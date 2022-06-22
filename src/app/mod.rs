@@ -114,7 +114,14 @@ pub async fn run(
     let (graceful_tx, graceful_rx) = tokio::sync::oneshot::channel();
     let _http_task = tokio::spawn(
         axum::Server::bind(&config.http_addr)
-            .serve(build_router(Arc::new(context.clone()), agent.clone()).into_make_service())
+            .serve(
+                build_router(
+                    Arc::new(context.clone()),
+                    agent.clone(),
+                    config.authn.clone(),
+                )
+                .into_make_service(),
+            )
             .with_graceful_shutdown(async move {
                 let _ = graceful_rx.await;
             }),
