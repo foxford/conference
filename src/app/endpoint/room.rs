@@ -520,6 +520,22 @@ impl RequestHandler for CloseHandler {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+pub async fn enter(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthnExtractor(agent_id): AuthnExtractor,
+    Path(room_id): Path<db::room::Id>,
+) -> RequestResult {
+    let request = EnterRequest { id: room_id };
+    EnterHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
+
 pub type EnterRequest = ReadRequest;
 pub struct EnterHandler;
 
@@ -608,6 +624,22 @@ impl RequestHandler for EnterHandler {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+
+pub async fn leave(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthnExtractor(agent_id): AuthnExtractor,
+    Path(room_id): Path<db::room::Id>,
+) -> RequestResult {
+    let request = LeaveRequest { id: room_id };
+    LeaveHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
 
 pub type LeaveRequest = ReadRequest;
 pub struct LeaveHandler;
