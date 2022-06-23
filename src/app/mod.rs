@@ -289,21 +289,31 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
 async fn start_metrics_collector(registry: Registry, bind_addr: SocketAddr) -> anyhow::Result<()> {
     let service = make_service_fn(move |_| {
         let registry = registry.clone();
-        std::future::ready::<Result<_, hyper::Error>>(Ok(service_fn(move |_| {
+        std::future::ready::<Result<_, hyper::Error>>(Ok(service_fn(move |req| {
             let registry = registry.clone();
             async move {
-                let mut buffer = vec![];
-                let encoder = TextEncoder::new();
-                let metric_families = registry.gather();
-                match encoder.encode(&metric_families, &mut buffer) {
-                    Ok(_) => {
-                        let response = Response::new(Body::from(buffer));
-                        Ok::<_, hyper::Error>(response)
+                match req.uri().path() {
+                    "/metrics" => {
+                        let mut buffer = vec![];
+                        let encoder = TextEncoder::new();
+                        let metric_families = registry.gather();
+                        match encoder.encode(&metric_families, &mut buffer) {
+                            Ok(_) => {
+                                let response = Response::new(Body::from(buffer));
+                                Ok::<_, hyper::Error>(response)
+                            }
+                            Err(err) => {
+                                warn!(?err, "Metrics not gathered");
+                                let mut response = Response::default();
+                                *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                                Ok(response)
+                            }
+                        }
                     }
-                    Err(err) => {
-                        warn!(?err, "Metrics not gathered");
+                    path => {
+                        warn!(?path, "Not found");
                         let mut response = Response::default();
-                        *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                        *response.status_mut() = StatusCode::NOT_FOUND;
                         Ok(response)
                     }
                 }
