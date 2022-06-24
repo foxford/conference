@@ -6,7 +6,7 @@ use std::{
 
 use axum::{
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, options, post},
     Extension, Router,
 };
 use futures::future::BoxFuture;
@@ -30,39 +30,77 @@ pub fn build_router(
     authn: svc_authn::jose::ConfigMap,
 ) -> Router {
     let router = Router::new()
-        .route("/rooms/:id/agents", get(endpoint::agent::list))
+        .route(
+            "/rooms/:id/agents",
+            options(endpoint::options).get(endpoint::agent::list),
+        )
         .route(
             "/rooms/:id/configs/reader",
-            get(endpoint::agent_reader_config::read).post(endpoint::agent_reader_config::update),
+            options(endpoint::options)
+                .get(endpoint::agent_reader_config::read)
+                .post(endpoint::agent_reader_config::update),
         )
         .route(
             "/rooms/:id/configs/writer",
-            get(endpoint::agent_writer_config::read).post(endpoint::agent_writer_config::update),
+            options(endpoint::options)
+                .get(endpoint::agent_writer_config::read)
+                .post(endpoint::agent_writer_config::update),
         )
-        .route("/rooms/:id/enter", post(endpoint::room::enter))
-        .route("/rooms/:id/leave", post(endpoint::room::leave))
-        .route("/rooms/:id/close", post(endpoint::room::close))
-        .route("/rooms", post(endpoint::room::create))
+        .route(
+            "/rooms/:id/enter",
+            options(endpoint::options).post(endpoint::room::enter),
+        )
+        .route(
+            "/rooms/:id/leave",
+            options(endpoint::options).post(endpoint::room::leave),
+        )
+        .route(
+            "/rooms/:id/close",
+            options(endpoint::options).post(endpoint::room::close),
+        )
+        .route(
+            "/rooms",
+            options(endpoint::options).post(endpoint::room::create),
+        )
         .route(
             "/rooms/:id",
-            get(endpoint::room::read).patch(endpoint::room::update),
+            options(endpoint::options)
+                .get(endpoint::room::read)
+                .patch(endpoint::room::update),
         )
         .route(
             "/rooms/:id/rtcs",
-            get(endpoint::rtc::list).post(endpoint::rtc::create),
+            options(endpoint::options)
+                .get(endpoint::rtc::list)
+                .post(endpoint::rtc::create),
         )
-        .route("/rtcs/:id", get(endpoint::rtc::read))
-        .route("/rtcs/:id/streams", post(endpoint::rtc::connect))
-        .route("/rooms/:id/streams", get(endpoint::rtc_stream::list))
-        .route("/streams/signal", post(endpoint::rtc_signal::create))
-        .route("/system/vacuum", post(endpoint::system::vacuum))
+        .route(
+            "/rtcs/:id",
+            options(endpoint::options).get(endpoint::rtc::read),
+        )
+        .route(
+            "/rtcs/:id/streams",
+            options(endpoint::options).post(endpoint::rtc::connect),
+        )
+        .route(
+            "/rooms/:id/streams",
+            options(endpoint::options).get(endpoint::rtc_stream::list),
+        )
+        .route(
+            "/streams/signal",
+            options(endpoint::options).post(endpoint::rtc_signal::create),
+        )
+        .route(
+            "/system/vacuum",
+            options(endpoint::options).post(endpoint::system::vacuum),
+        )
         .route(
             "/system/agent_cleanup",
-            post(endpoint::system::agent_cleanup),
+            options(endpoint::options).post(endpoint::system::agent_cleanup),
         )
         .route(
             "/rooms/:id/configs/writer/snapshot",
-            get(endpoint::writer_config_snapshot::read),
+            options(endpoint::options).get(endpoint::writer_config_snapshot::read),
         )
         .layer(layer_fn(|inner| NotificationsMiddleware { inner }))
         .layer(Extension(context))
