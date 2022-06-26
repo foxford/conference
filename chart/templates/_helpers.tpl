@@ -35,13 +35,11 @@ Common labels
 */}}
 {{- define "conference.labels" -}}
 helm.sh/chart: {{ include "conference.chart" . }}
-app.kubernetes.io/name: {{ include "conference.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{ include "conference.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-k8s-app: {{ include "conference.name" . }}
 {{- end }}
 
 {{/*
@@ -50,7 +48,6 @@ Selector labels
 {{- define "conference.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "conference.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-app: {{ include "conference.name" . }}
 {{- end }}
 
 {{/*
