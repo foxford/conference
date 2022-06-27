@@ -39,7 +39,7 @@ fn build_config(mock: &MockServer) -> Config {
         },
         "authz": {},
         "authn": {},
-        "mqtt_api_host_uri": format!("http://{}:{}", mock.address(), mock.port()),
+        "mqtt_api_host_uri": mock.base_url(),
         "mqtt": {
             "uri": "mqtt://0.0.0.0:1883",
             "clean_session": false,
