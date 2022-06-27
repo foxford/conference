@@ -107,7 +107,7 @@ impl TestContext {
             start_timestamp: Utc::now(),
             clients: None,
             mqtt_gateway_client: MqttGatewayHttpClient::new(
-                "test",
+                "test".to_owned(),
                 config.mqtt_api_host_uri.clone(),
             ),
         }
