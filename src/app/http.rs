@@ -6,7 +6,7 @@ use std::{
 
 use axum::{
     response::{IntoResponse, Response},
-    routing::{get, options, post},
+    routing::{get, options},
     Extension, Router,
 };
 use futures::future::BoxFuture;
