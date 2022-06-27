@@ -13,6 +13,7 @@ use crate::{
         metrics::Metrics,
     },
     backend::janus::{client::IncomingEvent, client_pool::Clients},
+    clients::mqtt_gateway::MqttGatewayHttpClient,
     config::Config,
     db::ConnectionPool as Db,
 };
@@ -37,6 +38,7 @@ fn build_config() -> Config {
         },
         "authz": {},
         "authn": {},
+        "mqtt_api_host_uri": "http://0.0.0.0:3030",
         "mqtt": {
             "uri": "mqtt://0.0.0.0:1883",
             "clean_session": false,
@@ -89,6 +91,7 @@ pub struct TestContext {
     agent_id: AgentId,
     start_timestamp: DateTime<Utc>,
     clients: Option<Clients>,
+    mqtt_gateway_client: MqttGatewayHttpClient,
 }
 
 impl TestContext {
@@ -103,6 +106,10 @@ impl TestContext {
             agent_id,
             start_timestamp: Utc::now(),
             clients: None,
+            mqtt_gateway_client: MqttGatewayHttpClient::new(
+                "test",
+                config.mqtt_api_host_uri.clone(),
+            ),
         }
     }
 
@@ -154,6 +161,10 @@ impl GlobalContext for TestContext {
     fn metrics(&self) -> Arc<Metrics> {
         let registry = Registry::new();
         Arc::new(Metrics::new(&registry).unwrap())
+    }
+
+    fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient {
+        &self.mqtt_gateway_client
     }
 }
 
