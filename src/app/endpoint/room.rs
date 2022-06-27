@@ -1448,21 +1448,11 @@ mod test {
                 .await
                 .expect("Room entrance failed");
 
-            // Assert dynamic subscription request.
-            let (payload, reqp, topic) = find_request::<DynSubRequest>(messages.as_slice());
-
-            let expected_topic = format!(
-                "agents/{}.{}/api/{}/out/{}",
-                context.config().agent_label,
-                context.config().id,
-                API_VERSION,
-                context.config().broker_id,
-            );
-
-            assert_eq!(topic, expected_topic);
-            assert_eq!(reqp.method(), "subscription.create");
-            assert_eq!(payload.subject, agent.agent_id().to_owned());
-            assert_eq!(payload.object, vec!["rooms", &room_id, "events"]);
+            context
+                .mocks()
+                .get("/api/v1/subscriptions")
+                .unwrap()
+                .assert()
         }
 
         #[tokio::test]
