@@ -16,8 +16,6 @@
 
 "room.enter" => POST /api/v1/rooms/{id}/enter,
 
-"room.leave" => POST /api/v1/rooms/{id}/leave,
-
 "room.read" => GET /api/v1/rooms/{id},
 
 "room.update" => PATCH /api/v1/rooms/{id},
