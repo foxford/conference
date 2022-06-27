@@ -86,6 +86,7 @@ async fn main() -> Result<()> {
 mod app;
 mod authz;
 mod backend;
+mod clients;
 mod config;
 mod db;
 #[allow(unused_imports)]

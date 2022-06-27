@@ -1,5 +1,6 @@
 use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
+use reqwest::Url;
 use serde::Deserialize;
 use svc_agent::{mqtt::AgentConfig, AccountId};
 use svc_authn::jose::Algorithm;
@@ -15,6 +16,7 @@ pub struct Config {
     pub broker_id: AccountId,
     pub authz: Authz,
     pub mqtt: AgentConfig,
+    pub mqtt_api_host_uri: Url,
     pub sentry: Option<SentryConfig>,
     pub backend: BackendConfig,
     pub upload: UploadConfigs,

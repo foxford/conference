@@ -26,6 +26,7 @@ use crate::{
         API_VERSION,
     },
     authz::AuthzObject,
+    clients::mqtt_gateway::MqttGatewayClient,
     db,
     db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
 };
@@ -550,7 +551,6 @@ impl RequestHandler for EnterHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let mqtt_params = reqp.as_mqtt_params()?;
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking(move || {
             helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::NotClosed, &conn)
@@ -577,42 +577,20 @@ impl RequestHandler for EnterHandler {
 
         // Send dynamic subscription creation request to the broker.
         let subject = reqp.as_agent_id().to_owned();
-        let object = vec!["rooms", &room_id, "events"];
-        let object = object
-            .into_iter()
-            .map(|s| s.to_owned())
-            .collect::<Vec<String>>();
-        let payload = SubscriptionRequest::new(subject.clone(), object.clone());
+        let object = ["rooms", &room_id, "events"];
 
-        let broker_id = AgentId::new("nevermind", context.config().broker_id.to_owned());
+        context
+            .mqtt_gateway_client()
+            .create_subscription(subject, &object)
+            .await
+            .map_err(|err| AppError::new(AppErrorKind::BrokerRequestFailed, err))?;
 
-        let response_topic = Subscription::unicast_responses_from(&broker_id)
-            .subscription_topic(context.agent_id(), API_VERSION)
-            .context("Failed to build response topic")
-            .error(AppErrorKind::BrokerRequestFailed)?;
-
-        let corr_data_payload =
-            CorrelationDataPayload::new(mqtt_params.to_owned(), subject, object);
-
-        let corr_data = CorrelationData::SubscriptionCreate(corr_data_payload)
-            .dump()
-            .context("Failed to dump correlation data")
-            .error(AppErrorKind::BrokerRequestFailed)?;
-
-        let mut timing = ShortTermTimingProperties::until_now(context.start_timestamp());
-        timing.set_authorization_time(authz_time);
-
-        let props =
-            mqtt_params.to_request("subscription.create", &response_topic, &corr_data, timing);
-        let to = &context.config().broker_id;
-        let outgoing_request = OutgoingRequest::multicast(payload, props, to, API_VERSION);
-        let mut response = Response::new(
+        let response = Response::new(
             ResponseStatus::OK,
             json!({}),
             context.start_timestamp(),
             None,
         );
-        response.add_message(Box::new(outgoing_request));
         context
             .metrics()
             .request_duration
@@ -624,22 +602,6 @@ impl RequestHandler for EnterHandler {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-
-pub async fn leave(
-    Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
-    Path(room_id): Path<db::room::Id>,
-) -> RequestResult {
-    let request = LeaveRequest { id: room_id };
-    LeaveHandler::handle(
-        &mut ctx.start_message(),
-        request,
-        RequestParams::Http {
-            agent_id: &agent_id,
-        },
-    )
-    .await
-}
 
 pub type LeaveRequest = ReadRequest;
 pub struct LeaveHandler;

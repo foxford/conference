@@ -51,10 +51,6 @@ pub fn build_router(
             options(endpoint::options).post(endpoint::room::enter),
         )
         .route(
-            "/rooms/:id/leave",
-            options(endpoint::options).post(endpoint::room::leave),
-        )
-        .route(
             "/rooms/:id/close",
             options(endpoint::options).post(endpoint::room::close),
         )

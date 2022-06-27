@@ -14,6 +14,7 @@ use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz
 use crate::{
     app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
     backend::janus::client_pool::Clients,
+    clients::mqtt_gateway::MqttGatewayHttpClient,
     config::Config,
     db::ConnectionPool as Db,
 };
@@ -32,6 +33,7 @@ pub trait GlobalContext: Sync {
     fn janus_clients(&self) -> Clients;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
     fn metrics(&self) -> Arc<Metrics>;
+    fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient;
     fn get_conn(
         &self,
     ) -> BoxFuture<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
@@ -65,6 +67,7 @@ pub struct AppContext {
     redis_pool: Option<RedisConnectionPool>,
     clients: Clients,
     metrics: Arc<Metrics>,
+    mqtt_gateway_client: MqttGatewayHttpClient,
 }
 
 impl AppContext {
@@ -74,6 +77,7 @@ impl AppContext {
         db: Db,
         clients: Clients,
         metrics: Arc<Metrics>,
+        mqtt_gateway_client: MqttGatewayHttpClient,
     ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
 
@@ -85,6 +89,7 @@ impl AppContext {
             redis_pool: None,
             clients,
             metrics,
+            mqtt_gateway_client,
         }
     }
 
@@ -127,6 +132,10 @@ impl GlobalContext for AppContext {
 
     fn metrics(&self) -> Arc<Metrics> {
         self.metrics.clone()
+    }
+
+    fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient {
+        &self.mqtt_gateway_client
     }
 }
 
@@ -173,6 +182,10 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 
     fn metrics(&self) -> Arc<Metrics> {
         self.global_context.metrics()
+    }
+
+    fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient {
+        self.global_context.mqtt_gateway_client()
     }
 }
 

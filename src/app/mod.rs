@@ -8,6 +8,7 @@ use crate::{
     backend::janus::{
         client_pool::Clients, online_handler::start_janus_reg_handler, JANUS_API_VERSION,
     },
+    clients::mqtt_gateway::MqttGatewayHttpClient,
     config::{self, Config},
     db::ConnectionPool,
 };
@@ -94,12 +95,15 @@ pub async fn run(
     subscribe(&mut agent, &agent_id, &config)?;
     // Context
     let metrics = Arc::new(metrics);
+    let mqtt_gateway_client =
+        MqttGatewayHttpClient::new(token.clone(), config.mqtt_api_host_uri.clone());
     let context = AppContext::new(
         config.clone(),
         authz,
         db.clone(),
         clients.clone(),
         metrics.clone(),
+        mqtt_gateway_client,
     );
     let reg_handler = tokio::spawn(start_janus_reg_handler(
         config.janus_registry.clone(),
