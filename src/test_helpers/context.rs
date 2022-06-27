@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use httpmock::MockServer;
 use prometheus::Registry;
 use serde_json::json;
 use svc_agent::AgentId;
@@ -22,7 +23,7 @@ use super::{authz::TestAuthz, db::TestDb, SVC_AUDIENCE, USR_AUDIENCE};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-fn build_config() -> Config {
+fn build_config(mock: &MockServer) -> Config {
     let id = format!("conference.{}", SVC_AUDIENCE);
     let broker_id = format!("mqtt-gateway.{}", SVC_AUDIENCE);
     let backend_id = format!("janus-gateway.{}", SVC_AUDIENCE);
@@ -38,7 +39,7 @@ fn build_config() -> Config {
         },
         "authz": {},
         "authn": {},
-        "mqtt_api_host_uri": "http://0.0.0.0:3030",
+        "mqtt_api_host_uri": format!("http://{}:{}", mock.address(), mock.port()),
         "mqtt": {
             "uri": "mqtt://0.0.0.0:1883",
             "clean_session": false,
@@ -96,7 +97,14 @@ pub struct TestContext {
 
 impl TestContext {
     pub fn new(db: TestDb, authz: TestAuthz) -> Self {
-        let config = build_config();
+        let mock_server = MockServer::start();
+        mock_server.mock(|when, then| {
+            when.path("/api/v1/subscriptions")
+                .method(httpmock::Method::POST);
+            then.status(200);
+        });
+
+        let config = build_config(&mock_server);
         let agent_id = AgentId::new(&config.agent_label, config.id.clone());
         let mqtt_api_host_uri = config.mqtt_api_host_uri.clone();
 
