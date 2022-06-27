@@ -98,6 +98,7 @@ impl TestContext {
     pub fn new(db: TestDb, authz: TestAuthz) -> Self {
         let config = build_config();
         let agent_id = AgentId::new(&config.agent_label, config.id.clone());
+        let mqtt_api_host_uri = config.mqtt_api_host_uri.clone();
 
         Self {
             config,
@@ -106,10 +107,7 @@ impl TestContext {
             agent_id,
             start_timestamp: Utc::now(),
             clients: None,
-            mqtt_gateway_client: MqttGatewayHttpClient::new(
-                "test".to_owned(),
-                config.mqtt_api_host_uri.clone(),
-            ),
+            mqtt_gateway_client: MqttGatewayHttpClient::new("test".to_owned(), mqtt_api_host_uri),
         }
     }
 
