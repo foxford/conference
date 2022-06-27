@@ -98,8 +98,7 @@ pub struct TestContext {
 impl TestContext {
     pub fn new(db: TestDb, authz: TestAuthz) -> Self {
         // can be safely dropped
-        let _mock_server = MockServer::start();
-        // it could be saved for the future assert
+        let mock_server = MockServer::start();
         let _subscriptions_mock = mock_server.mock(|when, then| {
             when.path("/api/v1/subscriptions")
                 .method(httpmock::Method::POST);
