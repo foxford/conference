@@ -18,25 +18,24 @@ app:
       memory: 50Mi
 
   svc:
-    audience: svc.services
+    audience: foobar
     credentials:
-      # svc-secret:
+      # foobar:
       #   - subPath: private-key
-      #     mountPath: /path/to/svc/private/key
+      #     mountPath: /path/to/foobar/private/key
 
   audiences:
-    - audience: foo.bar
+    - audience: foobar
       credentials:
-        foobar-der-credentials:
-          - subPath: foobar-public-key
-            mountPath: /path/to/foobar/public/key
+        # foobar-der-credentials:
+        #   - subPath: foobar-public-key
+        #     mountPath: /path/to/foobar/public/key
       authn:
-        key: path/to/public_key.p8.der
+        # key: path/to/public_key.p8.der
       authz:
-        type: http
-        url: "https://authz.example.org/api/v1/authz"
-      storage:
-        backend: yandex
+        # type: http
+        # url: "https://authz.example.org/api/v1/authz"
+      s3: yandex
 
   janusGroup:
 
@@ -60,8 +59,8 @@ env:
   CACHE_POOL_IDLE_SIZE: 5
   CACHE_POOL_TIMEOUT: 5
   CACHE_EXPIRATION_TIME: 300
-  DATABASE_POOL_SIZE: 15
-  DATABASE_POOL_IDLE_SIZE: 15
+  DATABASE_POOL_SIZE: 10
+  DATABASE_POOL_IDLE_SIZE: 10
   DATABASE_POOL_TIMEOUT: 5
   DATABASE_POOL_MAX_LIFETIME: 43200
 
@@ -77,8 +76,9 @@ internalService:
 
 ingress:
   host: example.org
-  tls:
-    secretName: tls-certificates
+
+tls:
+  secretName: tls-certificates
 
 sentry:
   dsn: "https://foobar.example.org/"

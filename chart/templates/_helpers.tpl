@@ -66,7 +66,7 @@ Namespace in ingress path.
 converts as follows:
 - testing01 -> t01
 - staging01-classroom-ng -> s01/classroom-foxford
-- producion-webinar-ng -> webinar-foxford
+- production-webinar-ng -> webinar-foxford
 */}}
 {{- define "conference.ingressPathNamespace" -}}
 {{- $ns_head := regexSplit "-" .Release.Namespace -1 | first }}

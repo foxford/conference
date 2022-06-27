@@ -44,10 +44,6 @@ data:
     {{- $telemetry_id := list "telemetry" (include "conference.shortNamespace" .) .Values.app.svc.audience | compact | join "." }}
     id = {{ $telemetry_id | quote }}
 
-    [kruonis]
-    {{- $kruonis_id := list "kruonis" (include "conference.shortNamespace" .) .Values.app.svc.audience | compact | join "." }}
-    id = {{ $kruonis_id | quote }}
-
     [metrics.http]
     bind_address = "0.0.0.0:8888"
 
@@ -155,14 +151,12 @@ data:
     {{- end }}
     {{- println "" }}
 
-    {{- with .storage }}
     [upload.shared.{{ $ns_audience | quote }}]
-    backend = {{ .backend | quote }}
+    backend = {{ .s3 | quote }}
     bucket = "origin.webinar.{{ $ns_audience }}"
 
     [upload.owned.{{ $ns_audience | quote }}]
-    backend = {{ .backend | quote }}
+    backend = {{ .s3 | quote }}
     bucket = "origin.minigroup.{{ $ns_audience }}"
     {{- println "" }}
-    {{- end }}
     {{- end }}
