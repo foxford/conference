@@ -1,7 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use httpmock::{Mock, MockServer};
+use httpmock::MockServer;
 use prometheus::Registry;
 use serde_json::json;
 use svc_agent::AgentId;
@@ -93,12 +93,12 @@ pub struct TestContext {
     start_timestamp: DateTime<Utc>,
     clients: Option<Clients>,
     mqtt_gateway_client: MqttGatewayHttpClient,
-    mock_server: MockServer,
 }
 
 impl TestContext {
     pub fn new(db: TestDb, authz: TestAuthz) -> Self {
-        let mock_server = MockServer::start();
+        // can be safely dropped
+        let _mock_server = MockServer::start();
         // it could be saved for the future assert
         let _subscriptions_mock = mock_server.mock(|when, then| {
             when.path("/api/v1/subscriptions")
@@ -118,7 +118,6 @@ impl TestContext {
             start_timestamp: Utc::now(),
             clients: None,
             mqtt_gateway_client: MqttGatewayHttpClient::new("test".to_owned(), mqtt_api_host_uri),
-            mock_server,
         }
     }
 
