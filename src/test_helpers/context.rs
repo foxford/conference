@@ -94,19 +94,17 @@ pub struct TestContext {
     clients: Option<Clients>,
     mqtt_gateway_client: MqttGatewayHttpClient,
     mock_server: MockServer,
-    mocks: HashMap<String, Mock>,
 }
 
 impl TestContext {
     pub fn new(db: TestDb, authz: TestAuthz) -> Self {
         let mock_server = MockServer::start();
-        let mut mocks = HashMap::new();
-        let subscriptions_mock = mock_server.mock(|when, then| {
+        // it could be saved for the future assert
+        let _subscriptions_mock = mock_server.mock(|when, then| {
             when.path("/api/v1/subscriptions")
                 .method(httpmock::Method::POST);
             then.status(200);
         });
-        mocks.insert("/api/v1/subscriptions".to_owned(), subscriptions_mock);
 
         let config = build_config(&mock_server);
         let agent_id = AgentId::new(&config.agent_label, config.id.clone());
@@ -121,7 +119,6 @@ impl TestContext {
             clients: None,
             mqtt_gateway_client: MqttGatewayHttpClient::new("test".to_owned(), mqtt_api_host_uri),
             mock_server,
-            mocks,
         }
     }
 
@@ -139,10 +136,6 @@ impl TestContext {
 
     pub fn config_mut(&mut self) -> &mut Config {
         &mut self.config
-    }
-
-    pub fn mocks(&self) -> &HashMap<String, Mock> {
-        &self.mocks
     }
 }
 

@@ -1415,7 +1415,7 @@ mod test {
 
         use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
 
-        use super::{super::*, DynSubRequest};
+        use super::super::*;
 
         #[tokio::test]
         async fn enter_room() {
@@ -1447,12 +1447,6 @@ mod test {
             let messages = handle_request::<EnterHandler>(&mut context, &agent, payload)
                 .await
                 .expect("Room entrance failed");
-
-            context
-                .mocks()
-                .get("/api/v1/subscriptions")
-                .unwrap()
-                .assert()
         }
 
         #[tokio::test]
