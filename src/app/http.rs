@@ -87,10 +87,6 @@ pub fn build_router(
             options(endpoint::options).post(endpoint::rtc_signal::create),
         )
         .route(
-            "/system/vacuum",
-            options(endpoint::options).post(endpoint::system::vacuum),
-        )
-        .route(
             "/system/agent_cleanup",
             options(endpoint::options).post(endpoint::system::agent_cleanup),
         )
