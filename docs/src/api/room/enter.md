@@ -4,15 +4,11 @@ Subscribe to the room's events.
 
 
 
-## Multicast request
+## Request
+
+POST /api/v1/rooms/{id}/enter
 
 **Properties**
-
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ------------------
-method           | String | _required_ | Always `room.enter`.
-
-**Payload**
 
 Name     | Type       | Default    | Description
 -------- | ---------- | ---------- | ------------------
@@ -20,6 +16,6 @@ id       | Uuid       | _required_ | The room identifier. The room must be opene
 
 
 
-## Unicast response
+## Response
 
 If successful, the response contain status only.

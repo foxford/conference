@@ -7,13 +7,9 @@ The method isn't available for `none` backend.
 
 
 
-## Multicast request
+## Request
 
-**Properties**
-
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ------------------
-method           | String | _required_ | Always `rtc_signal.create`.
+POST /api/v1/streams/signal
 
 **Payload**
 
@@ -25,6 +21,6 @@ label             | String     | _optional_ | Required only for **offers** with 
 
 
 
-## Unicast response
+## Response
 
 If successful, the response payload contains an **answer** in **jsep** property for **offer** requests. For all other request types — an empty object.

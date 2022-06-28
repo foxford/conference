@@ -5,15 +5,11 @@ The method isn't available for `none` backend.
 
 
 
-## Multicast request
+## Request
+
+GET /api/v1/rooms/{room_id}/streams?{rtc_id}&{time}&{offset}&{limit}
 
 **Properties**
-
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ------------------
-method           | String | _required_ | Always `rtc_stream.list`.
-
-**Payload**
 
 Name       | Type       | Default    | Description
 ---------- | ---------- | ---------- | ------------------
@@ -25,6 +21,6 @@ limit      | i32        |         25 | Limits the number of objects in the respo
 
 
 
-## Unicast response
+## Response
 
 If successful, the response payload contains the list of **Real-Time Connection Stream** objects.

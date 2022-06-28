@@ -5,22 +5,23 @@ Configs get merged into the current state so one may send only diffs.
 
 One must enter the room first and the room must be opened.
 
-## Multicast request
+## Request
+
+POST /api/v1/rooms/{room_id}/configs/writer
 
 **Properties**
 
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ----------------------------------------
-method           | String | _required_ | Always `agent_writer_connection.update`.
+Name    | Type     | Default    | Description
+------- | -------- | ---------- | ----------------------------------------------
+room_id |     uuid | _required_ | The **Room** identifier.
 
 **Payload**
 
 Name    | Type     | Default    | Description
 ------- | -------- | ---------- | ----------------------------------------------
-room_id |     uuid | _required_ | The **Room** identifier.
 configs | [object] | []         | Array of **[Agent Writer Config Item](../agent_writer_config.md#agent-writer-config-item)** objects.
 
-## Unicast response
+## Response
 
 If successful, the response payload contains current 
 **[Agent Writer Config](../agent_writer_config.md#agent-writer-config)** state for all RTCs in the room.

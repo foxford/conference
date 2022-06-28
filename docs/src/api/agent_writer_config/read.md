@@ -2,17 +2,11 @@
 
 Retrieve **Agent Writer Config** state.
 
+## Request
 
-
-## Multicast request
+GET /api/v1/rooms/{room_id}/configs/writer
 
 **Properties**
-
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ----------------------------------
-method           | String | _required_ | Always `agent_writer_config.read`.
-
-**Payload**
 
 Name    | Type | Default    | Description
 ------- | ---- | ---------- | --------------------
@@ -20,6 +14,6 @@ room_id | Uuid | _required_ | The room identifier.
 
 
 
-## Unicast response
+## Response
 
 If successful, the response payload contains a requested **Agent Writer Config** state.

@@ -2,26 +2,27 @@
 
 Update a Room which holds Real-Time Connections.
 
-## Multicast request
+## Request
+
+PATCH /api/v1/rooms/{id}
 
 **Properties**
 
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ------------------
-method           | String | _required_ | Always `room.update`.
+Name         | Type       | Default    | Description
+------------ | ---------- | ---------- | ------------------
+id           | String     | _required_ | The room identifier. The room must not be expired.
 
 **Payload**
 
 Name         | Type       | Default    | Description
 ------------ | ---------- | ---------- | ------------------
-id           | String     | _required_ | The room identifier. The room must not be expired.
 time         | [i64, i64) | _optional_ | A [lt, rt) range of unix time (seconds) or null (unbounded).
 reserve      | i32        | _optional_ | The number of slots for subscribers to reserve on the server.
 tags         | json       | {}         | Arbitrary tags object associated with the room.
 classroom_id | uuid       | _optional_ | Related classroom id.
 
 
-## Unicast response
+## Response
 
 If successful, the response payload contains an updated **Room** object.
 

@@ -13,23 +13,24 @@ of active RTC streams.
 
 
 
-## Multicast request
+## Request
+
+POST /api/v1/rtcs/{id}/streams
 
 **Properties**
 
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ------------------
-method           | String | _required_ | Always `rtc.connect`.
+Name   | Type   | Default    | Description
+------ | ------ | ---------- | ------------------
+id     | String | _required_ | A real-time connection identifier.
 
 **Payload**
 
 Name   | Type   | Default    | Description
 ------ | ------ | ---------- | ------------------
-id     | String | _required_ | A real-time connection identifier.
 intent | String | read       | `write` or `read`.
 
 
 
-## Unicast response
+## Response
 
 If successful, the response payload contains a **Real-Time Connection Handle Identifier**.
