@@ -589,14 +589,16 @@ impl RequestHandler for EnterHandler {
             .await
             .map_err(|err| AppError::new(AppErrorKind::BrokerRequestFailed, err))?;
 
-        let subject_cp = subject.clone();
-        let conn = context.get_conn().await?;
-        let room = crate::util::spawn_blocking(move || {
-            // Update agent state to `ready`.
-            db::agent::UpdateQuery::new(&subject_cp, room.id())
-                .status(db::agent::Status::Ready)
-                .execute(&conn)?;
-            Ok::<_, AppError>(room)
+        let room = crate::util::spawn_blocking({
+            let subject = subject.clone();
+            let conn = context.get_conn().await?;
+            move || {
+                // Update agent state to `ready`.
+                db::agent::UpdateQuery::new(&subject, room.id())
+                    .status(db::agent::Status::Ready)
+                    .execute(&conn)?;
+                Ok::<_, AppError>(room)
+            }
         })
         .await?;
         Span::current().record("room_id", &room.id().to_string().as_str());
