@@ -593,6 +593,9 @@ impl RequestHandler for EnterHandler {
             let subject = subject.clone();
             let conn = context.get_conn().await?;
             move || {
+                if room.host() == Some(&subject) {
+                    db::orphaned_room::remove_room(room.id(), &conn)?;
+                }
                 // Update agent state to `ready`.
                 db::agent::UpdateQuery::new(&subject, room.id())
                     .status(db::agent::Status::Ready)

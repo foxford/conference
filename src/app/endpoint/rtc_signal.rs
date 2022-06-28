@@ -96,10 +96,11 @@ impl RequestHandler for CreateHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
+        // TODO
         let mqtt_params = reqp.as_mqtt_params()?;
         // Validate RTC and room presence.
         let conn = context.get_conn().await?;
-        let (room, rtc, backend) =crate::util::spawn_blocking({
+        let (room, rtc, backend) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let handle_id = payload.handle_id.clone();
             move ||{
