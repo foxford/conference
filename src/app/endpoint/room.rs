@@ -14,6 +14,7 @@ use svc_agent::{
     Addressable, AgentId, Subscription,
 };
 use svc_utils::extractors::AuthnExtractor;
+use tracing::Span;
 
 use uuid::Uuid;
 
@@ -31,6 +32,8 @@ use crate::{
     db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
 };
 use tracing_attributes::instrument;
+
+use super::subscription::RoomEnterLeaveEvent;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -571,7 +574,8 @@ impl RequestHandler for EnterHandler {
         let conn = context.get_conn().await?;
         crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
-            move || db::agent::InsertQuery::new(&agent_id, room.id()).execute(&conn)
+            let room_id = room.id();
+            move || db::agent::InsertQuery::new(&agent_id, room_id).execute(&conn)
         })
         .await?;
 
@@ -581,15 +585,33 @@ impl RequestHandler for EnterHandler {
 
         context
             .mqtt_gateway_client()
-            .create_subscription(subject, &object)
+            .create_subscription(subject.clone(), &object)
             .await
             .map_err(|err| AppError::new(AppErrorKind::BrokerRequestFailed, err))?;
 
-        let response = Response::new(
+        let subject_cp = subject.clone();
+        let conn = context.get_conn().await?;
+        let room = crate::util::spawn_blocking(move || {
+            // Update agent state to `ready`.
+            db::agent::UpdateQuery::new(&subject_cp, room.id())
+                .status(db::agent::Status::Ready)
+                .execute(&conn)?;
+            Ok::<_, AppError>(room)
+        })
+        .await?;
+        Span::current().record("room_id", &room.id().to_string().as_str());
+
+        let mut response = Response::new(
             ResponseStatus::OK,
             json!({}),
             context.start_timestamp(),
             None,
+        );
+        response.add_notification(
+            "room.enter",
+            &format!("rooms/{}/events", room_id),
+            RoomEnterLeaveEvent::new(room.id(), subject),
+            context.start_timestamp(),
         );
         context
             .metrics()
