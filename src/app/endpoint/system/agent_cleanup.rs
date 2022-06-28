@@ -1,18 +1,14 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
-use axum::extract::Extension;
 use chrono::Utc;
 use serde::Deserialize;
 use serde_json::json;
 use svc_agent::mqtt::ResponseStatus;
 use svc_authn::Authenticable;
-use svc_utils::extractors::AuthnExtractor;
 use tracing_attributes::instrument;
 
 use crate::{
     app::{
-        context::{AppContext, Context},
+        context::Context,
         endpoint::prelude::*,
         service_utils::{RequestParams, Response},
     },
@@ -22,21 +18,6 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 pub struct Request {}
-
-pub async fn agent_cleanup(
-    Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
-) -> RequestResult {
-    let request = Request {};
-    Handler::handle(
-        &mut ctx.start_message(),
-        request,
-        RequestParams::Http {
-            agent_id: &agent_id,
-        },
-    )
-    .await
-}
 
 pub struct Handler;
 
