@@ -14,7 +14,7 @@ use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz
 use crate::{
     app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
     backend::janus::client_pool::Clients,
-    clients::mqtt_gateway::MqttGatewayHttpClient,
+    client::mqtt_gateway::MqttGatewayHttpClient,
     config::Config,
     db::ConnectionPool as Db,
 };

@@ -14,7 +14,7 @@ use crate::{
         metrics::Metrics,
     },
     backend::janus::{client::IncomingEvent, client_pool::Clients},
-    clients::mqtt_gateway::MqttGatewayHttpClient,
+    client::mqtt_gateway::MqttGatewayHttpClient,
     config::Config,
     db::ConnectionPool as Db,
 };

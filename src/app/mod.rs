@@ -8,7 +8,7 @@ use crate::{
     backend::janus::{
         client_pool::Clients, online_handler::start_janus_reg_handler, JANUS_API_VERSION,
     },
-    clients::mqtt_gateway::MqttGatewayHttpClient,
+    client::mqtt_gateway::MqttGatewayHttpClient,
     config::{self, Config},
     db::ConnectionPool,
 };

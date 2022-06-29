@@ -27,7 +27,7 @@ use crate::{
         API_VERSION,
     },
     authz::AuthzObject,
-    clients::mqtt_gateway::MqttGatewayClient,
+    client::mqtt_gateway::MqttGatewayClient,
     db,
     db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
 };
