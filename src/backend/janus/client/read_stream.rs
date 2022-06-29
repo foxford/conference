@@ -15,6 +15,7 @@ pub struct ReadStreamRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum ReadStreamTransaction {
     Mqtt {
         reqp: IncomingRequestProperties,
