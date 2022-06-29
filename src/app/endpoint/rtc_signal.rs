@@ -38,7 +38,7 @@ use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CreateResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
     jsep: Option<JsonValue>,
@@ -96,8 +96,6 @@ impl RequestHandler for CreateHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        // TODO
-        let mqtt_params = reqp.as_mqtt_params()?;
         // Validate RTC and room presence.
         let conn = context.get_conn().await?;
         let (room, rtc, backend) = crate::util::spawn_blocking({
@@ -181,17 +179,52 @@ impl RequestHandler for CreateHandler {
                                 session_id: payload.handle_id.janus_session_id(),
                                 jsep: payload.jsep,
                             };
-                            let transaction = ReadStreamTransaction {
-                                reqp: mqtt_params.clone(),
-                                start_timestamp: context.start_timestamp(),
-                            };
-                            context
-                                .janus_clients()
-                                .get_or_insert(&backend)
-                                .error(AppErrorKind::BackendClientCreationFailed)?
-                                .read_stream(request, transaction)
-                                .await
-                                .error(AppErrorKind::BackendRequestFailed)?;
+
+                            match reqp.as_mqtt_params() {
+                                Ok(mqtt_params) => {
+                                    let transaction = ReadStreamTransaction::Mqtt {
+                                        reqp: mqtt_params.clone(),
+                                        start_timestamp: context.start_timestamp(),
+                                    };
+                                    context
+                                        .janus_clients()
+                                        .get_or_insert(&backend)
+                                        .error(AppErrorKind::BackendClientCreationFailed)?
+                                        .read_stream(request, transaction)
+                                        .await
+                                        .error(AppErrorKind::BackendRequestFailed)?;
+
+                                    Ok(Response::new(
+                                        ResponseStatus::NO_CONTENT,
+                                        json!({}),
+                                        context.start_timestamp(),
+                                        None,
+                                    ))
+                                }
+                                Err(_err) => {
+                                    let handle =
+                                        context.janus_clients().stream_waitlist().register();
+
+                                    let transaction =
+                                        ReadStreamTransaction::Http { id: handle.id() };
+                                    context
+                                        .janus_clients()
+                                        .get_or_insert(&backend)
+                                        .error(AppErrorKind::BackendClientCreationFailed)?
+                                        .read_stream(request, transaction)
+                                        .await
+                                        .error(AppErrorKind::BackendRequestFailed)?;
+
+                                    let resp = handle.wait().await.expect("waitlist")?;
+
+                                    Ok(Response::new(
+                                        ResponseStatus::OK,
+                                        resp,
+                                        context.start_timestamp(),
+                                        None,
+                                    ))
+                                }
+                            }
                         } else {
                             current_span.record("intent", &"update");
 
@@ -267,24 +300,53 @@ impl RequestHandler for CreateHandler {
                                 session_id: payload.handle_id.janus_session_id(),
                                 jsep: payload.jsep,
                             };
-                            let transaction = CreateStreamTransaction {
-                                reqp: mqtt_params.clone(),
-                                start_timestamp: context.start_timestamp(),
-                            };
-                            context
-                                .janus_clients()
-                                .get_or_insert(&backend)
-                                .error(AppErrorKind::BackendClientCreationFailed)?
-                                .create_stream(request, transaction)
-                                .await
-                                .error(AppErrorKind::BackendRequestFailed)?;
+
+                            match reqp.as_mqtt_params() {
+                                Ok(mqtt_params) => {
+                                    let transaction = CreateStreamTransaction::Mqtt {
+                                        reqp: mqtt_params.clone(),
+                                        start_timestamp: context.start_timestamp(),
+                                    };
+                                    context
+                                        .janus_clients()
+                                        .get_or_insert(&backend)
+                                        .error(AppErrorKind::BackendClientCreationFailed)?
+                                        .create_stream(request, transaction)
+                                        .await
+                                        .error(AppErrorKind::BackendRequestFailed)?;
+
+                                    Ok(Response::new(
+                                        ResponseStatus::NO_CONTENT,
+                                        json!({}),
+                                        context.start_timestamp(),
+                                        None,
+                                    ))
+                                }
+                                Err(_err) => {
+                                    let handle =
+                                        context.janus_clients().stream_waitlist().register();
+
+                                    let transaction =
+                                        CreateStreamTransaction::Http { id: handle.id() };
+                                    context
+                                        .janus_clients()
+                                        .get_or_insert(&backend)
+                                        .error(AppErrorKind::BackendClientCreationFailed)?
+                                        .create_stream(request, transaction)
+                                        .await
+                                        .error(AppErrorKind::BackendRequestFailed)?;
+
+                                    let resp = handle.wait().await.expect("waitlist")?;
+
+                                    Ok(Response::new(
+                                        ResponseStatus::OK,
+                                        resp,
+                                        context.start_timestamp(),
+                                        None,
+                                    ))
+                                }
+                            }
                         }
-                        Ok(Response::new(
-                            ResponseStatus::NO_CONTENT,
-                            json!({}),
-                            context.start_timestamp(),
-                            None,
-                        ))
                     }
                     JsepType::Answer => Err(anyhow!("sdp_type = 'answer' is not allowed"))
                         .error(AppErrorKind::InvalidSdpType)?,

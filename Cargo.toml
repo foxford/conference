@@ -60,5 +60,5 @@ webrtc-sdp = "0.3"
 
 [dev-dependencies]
 diesel_migrations = "1"
-testcontainers = { git = "https://github.com/testcontainers/testcontainers-rs" }
 httpmock = "0.6"
+testcontainers = { git = "https://github.com/testcontainers/testcontainers-rs" }

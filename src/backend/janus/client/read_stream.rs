@@ -15,9 +15,14 @@ pub struct ReadStreamRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ReadStreamTransaction {
-    pub reqp: IncomingRequestProperties,
-    pub start_timestamp: DateTime<Utc>,
+pub enum ReadStreamTransaction {
+    Mqtt {
+        reqp: IncomingRequestProperties,
+        start_timestamp: DateTime<Utc>,
+    },
+    Http {
+        id: usize,
+    },
 }
 
 #[derive(Serialize, Debug)]

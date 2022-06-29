@@ -1,20 +1,23 @@
-use super::client::{IncomingEvent, JanusClient, PollResult, SessionId};
-use crate::{
-    db::{agent_connection, janus_backend, ConnectionPool},
-    util::spawn_blocking,
-};
 use anyhow::anyhow;
 use diesel::Connection;
 use std::{
     collections::{hash_map::Entry, HashMap},
     sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, PoisonError, RwLock,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, Mutex, PoisonError, RwLock,
     },
     time::Duration,
 };
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use tracing::{error, warn};
+
+use crate::{
+    app::{endpoint::rtc_signal::CreateResponseData, error::Error},
+    db::{agent_connection, janus_backend, ConnectionPool},
+    util::spawn_blocking,
+};
+
+use super::client::{IncomingEvent, JanusClient, PollResult, SessionId};
 
 #[derive(Clone)]
 pub struct Clients {
@@ -22,6 +25,7 @@ pub struct Clients {
     events_sink: UnboundedSender<IncomingEvent>,
     group: Option<String>,
     db: ConnectionPool,
+    stream_waitlist: WaitList<Result<CreateResponseData, Error>>,
 }
 
 impl Clients {
@@ -35,6 +39,7 @@ impl Clients {
             events_sink,
             group,
             db,
+            stream_waitlist: WaitList::new(),
         }
     }
 
@@ -106,6 +111,82 @@ impl Clients {
         for (_, handle) in guard.iter() {
             handle.is_cancelled.store(true, Ordering::SeqCst)
         }
+    }
+
+    pub fn stream_waitlist(&self) -> &WaitList<Result<CreateResponseData, Error>> {
+        &self.stream_waitlist
+    }
+}
+
+#[derive(Debug)]
+pub enum WaitListError {
+    OtherSideDropped,
+    UnknownId,
+}
+
+pub struct WaitList<T> {
+    counter: Arc<AtomicUsize>,
+    // Mutex b/c we always need write access to hashmap
+    waiters: Arc<Mutex<HashMap<usize, oneshot::Sender<T>>>>,
+}
+
+// Not deriving Clone because T maybe not Cloneable but
+// WaitList is always possible to clone.
+impl<T> Clone for WaitList<T> {
+    fn clone(&self) -> Self {
+        Self {
+            counter: self.counter.clone(),
+            waiters: self.waiters.clone(),
+        }
+    }
+}
+
+impl<T> WaitList<T> {
+    pub fn new() -> Self {
+        Self {
+            counter: Arc::new(AtomicUsize::new(0)),
+            waiters: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub fn register(&self) -> WaitEventHandle<T> {
+        let id = self.counter.fetch_add(1, Ordering::SeqCst);
+        let (sender, receiver) = oneshot::channel();
+
+        self.waiters
+            .lock()
+            .expect("waitlist lock")
+            .insert(id, sender);
+
+        WaitEventHandle { id, receiver }
+    }
+
+    pub fn fire(&self, id: usize, evt: T) -> Result<(), WaitListError> {
+        let mut waiters = self.waiters.lock().expect("waitlist lock");
+
+        match waiters.remove(&id) {
+            Some(sender) => sender
+                .send(evt)
+                .map_err(|_| WaitListError::OtherSideDropped),
+            None => Err(WaitListError::UnknownId),
+        }
+    }
+}
+
+pub struct WaitEventHandle<T> {
+    id: usize,
+    receiver: oneshot::Receiver<T>,
+}
+
+impl<T> WaitEventHandle<T> {
+    pub async fn wait(self) -> Result<T, WaitListError> {
+        self.receiver
+            .await
+            .map_err(|_| WaitListError::OtherSideDropped)
+    }
+
+    pub fn id(&self) -> usize {
+        self.id
     }
 }
 
