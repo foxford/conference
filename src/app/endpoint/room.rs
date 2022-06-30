@@ -583,6 +583,8 @@ impl RequestHandler for EnterHandler {
         let subject = reqp.as_agent_id().to_owned();
         let object = ["rooms", &room_id, "events"];
 
+        tracing::info!("send dynsub request to mqtt gateway {} {}", subject, object);
+
         context
             .mqtt_gateway_client()
             .create_subscription(subject.clone(), &object)
