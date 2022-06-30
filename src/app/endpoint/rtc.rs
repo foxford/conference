@@ -364,7 +364,7 @@ impl ConnectRequest {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Intent {
+pub struct ConnectPayload {
     #[serde(default = "ConnectRequest::default_intent")]
     intent: ConnectIntent,
     agent_label: String,
@@ -374,7 +374,7 @@ pub async fn connect(
     Extension(ctx): Extension<Arc<AppContext>>,
     AuthnExtractor(agent_id): AuthnExtractor,
     Path(rtc_id): Path<db::rtc::Id>,
-    Json(intent): Json<Intent>,
+    Json(intent): Json<ConnectPayload>,
 ) -> RequestResult {
     let request = ConnectRequest {
         id: rtc_id,
