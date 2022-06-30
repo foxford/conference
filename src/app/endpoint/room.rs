@@ -525,7 +525,7 @@ impl RequestHandler for CloseHandler {
 
 #[derive(Deserialize)]
 pub struct EnterPayload {
-    agent_id: AgentId,
+    agent_label: String,
 }
 
 pub async fn enter(
@@ -536,19 +536,13 @@ pub async fn enter(
 ) -> RequestResult {
     let request = EnterRequest { id: room_id };
 
-    // We need to use agent id from frontend but account ids should match anyway.
-    if agent_id.as_account_id() != payload.agent_id.as_account_id() {
-        return Err(AppError::new(
-            AppErrorKind::AccessDenied,
-            anyhow!("account id mismatch"),
-        ));
-    }
+    let agent_id = AgentId::new(&payload.agent_label, agent_id.as_account_id().to_owned());
 
     EnterHandler::handle(
         &mut ctx.start_message(),
         request,
         RequestParams::Http {
-            agent_id: &payload.agent_id,
+            agent_id: &agent_id,
         },
     )
     .await
