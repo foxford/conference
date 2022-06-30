@@ -8,7 +8,7 @@ use chrono::{Duration, Utc};
 
 use serde::{Deserialize, Serialize};
 use std::{fmt, ops::Bound, sync::Arc};
-use svc_agent::{mqtt::ResponseStatus, Addressable};
+use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId, Authenticable};
 use svc_utils::extractors::AuthnExtractor;
 
 use tracing::{warn, Span};
@@ -367,6 +367,7 @@ impl ConnectRequest {
 pub struct Intent {
     #[serde(default = "ConnectRequest::default_intent")]
     intent: ConnectIntent,
+    agent_label: String,
 }
 
 pub async fn connect(
@@ -379,6 +380,8 @@ pub async fn connect(
         id: rtc_id,
         intent: intent.intent,
     };
+    let agent_id = AgentId::new(&intent.agent_label, agent_id.as_account_id().to_owned());
+
     ConnectHandler::handle(
         &mut ctx.start_message(),
         request,

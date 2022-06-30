@@ -1484,7 +1484,7 @@ mod test {
             let mut context = TestContext::new(db, authz);
             let payload = EnterRequest { id: room.id() };
 
-            let messages = handle_request::<EnterHandler>(&mut context, &agent, payload)
+            handle_request::<EnterHandler>(&mut context, &agent, payload)
                 .await
                 .expect("Room entrance failed");
         }

@@ -25,9 +25,10 @@ id     | String | _required_ | A real-time connection identifier.
 
 **Payload**
 
-Name   | Type   | Default    | Description
------- | ------ | ---------- | ------------------
-intent | String | read       | `write` or `read`.
+Name        | Type   | Default    | Description
+----------- | ------ | ---------- | ------------------
+intent      | String | read       | `write` or `read`.
+agent_label | String | _required_ | Agent label which is used for MQTT Gateway.
 
 
 
