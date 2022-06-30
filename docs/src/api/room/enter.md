@@ -14,6 +14,11 @@ Name     | Type       | Default    | Description
 -------- | ---------- | ---------- | ------------------
 id       | Uuid       | _required_ | The room identifier. The room must be opened.
 
+**Payload**
+
+Name     | Type       | Default    | Description
+-------- | ---------- | ---------- | ------------------
+agent_id | agent_id   | _required_ | Agent ID which is used for MQTT Gateway.
 
 
 ## Response
