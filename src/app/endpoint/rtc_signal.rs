@@ -757,7 +757,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: Some(String::from("whatever")),
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -853,7 +853,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -921,7 +921,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -975,7 +975,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1038,7 +1038,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1106,7 +1106,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1165,7 +1165,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1219,7 +1219,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1274,7 +1274,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1336,7 +1336,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1408,7 +1408,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_id: agent.agent_id(),
+                agent_id: agent1.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent1, payload)
@@ -1472,7 +1472,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1544,7 +1544,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_id: agent.agent_id(),
+                agent_id: agent1.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent1, payload)
