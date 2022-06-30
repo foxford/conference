@@ -14,8 +14,6 @@ use svc_agent::{
     Addressable, AgentId,
 };
 
-use tracing::Span;
-
 use crate::{
     app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
     db::{self, room::FindQueryable},
@@ -67,57 +65,14 @@ impl ResponseHandler for CreateResponseHandler {
     type Payload = CreateDeleteResponsePayload;
     type CorrelationData = CorrelationDataPayload;
 
-    #[instrument(skip(context, _payload, respp, corr_data), fields(room_id))]
+    #[instrument(skip(_context, _payload, _respp, _corr_data), fields(room_id))]
     async fn handle<C: Context>(
-        context: &mut C,
+        _context: &mut C,
         _payload: Self::Payload,
-        respp: &IncomingResponseProperties,
-        corr_data: &Self::CorrelationData,
+        _respp: &IncomingResponseProperties,
+        _corr_data: &Self::CorrelationData,
     ) -> MqttResult {
-        ensure_broker(context, respp)?;
-
-        // Find room.
-        let room_id = try_room_id(&corr_data.object)?;
-        let conn = context.get_conn().await?;
-        let subject = corr_data.subject.clone();
-        let room = crate::util::spawn_blocking(move || {
-            let room =
-                helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)?;
-            if room.host() == Some(&subject) {
-                db::orphaned_room::remove_room(room_id, &conn)?;
-            }
-            // Update agent state to `ready`.
-            db::agent::UpdateQuery::new(&subject, room_id)
-                .status(db::agent::Status::Ready)
-                .execute(&conn)?;
-            Ok::<_, AppError>(room)
-        })
-        .await?;
-        Span::current().record("room_id", &room.id().to_string().as_str());
-
-        // Send a response to the original `room.enter` request and a room-wide notification.
-        let response = helpers::build_response(
-            ResponseStatus::OK,
-            json!({}),
-            &corr_data.reqp,
-            context.start_timestamp(),
-            None,
-        );
-
-        let notification = helpers::build_notification(
-            "room.enter",
-            &format!("rooms/{}/events", room_id),
-            RoomEnterLeaveEvent::new(room_id, corr_data.subject.to_owned()),
-            corr_data.reqp.tracking(),
-            context.start_timestamp(),
-        );
-        context
-            .metrics()
-            .request_duration
-            .subscription_create
-            .observe_timestamp(context.start_timestamp());
-
-        Ok(Box::new(stream::iter(vec![response, notification])))
+        Ok(Box::new(stream::empty()))
     }
 }
 
