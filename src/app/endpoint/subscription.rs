@@ -57,7 +57,7 @@ impl RoomEnterLeaveEvent {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateDeleteResponsePayload {}
-
+// TODO: remove everything
 pub struct CreateResponseHandler;
 
 #[async_trait]
