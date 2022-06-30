@@ -14,7 +14,6 @@ use svc_agent::{
     Addressable, AgentId, Authenticable, Subscription,
 };
 use svc_utils::extractors::AuthnExtractor;
-use tracing::Span;
 
 use uuid::Uuid;
 
@@ -625,7 +624,6 @@ impl RequestHandler for EnterHandler {
             }
         })
         .await?;
-        Span::current().record("room_id", &room.id().to_string().as_str());
 
         let mut response = Response::new(
             ResponseStatus::OK,
