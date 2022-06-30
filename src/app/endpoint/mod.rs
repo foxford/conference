@@ -81,7 +81,6 @@ use super::service_utils::{RequestParams, Response};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CorrelationData {
-    SubscriptionCreate(subscription::CorrelationDataPayload),
     SubscriptionDelete(subscription::CorrelationDataPayload),
     MessageUnicast(message::CorrelationDataPayload),
 }
@@ -129,7 +128,6 @@ macro_rules! response_routes {
 }
 
 response_routes!(
-    SubscriptionCreate => subscription::CreateResponseHandler,
     SubscriptionDelete => subscription::DeleteResponseHandler,
     MessageUnicast => message::UnicastResponseHandler
 );
