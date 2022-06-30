@@ -29,7 +29,7 @@ use serde_json::{json, Value as JsonValue};
 use std::{result::Result as StdResult, sync::Arc};
 use svc_agent::{
     mqtt::{OutgoingResponse, ResponseStatus},
-    Addressable,
+    Addressable, AgentId, Authenticable,
 };
 use svc_utils::extractors::AuthnExtractor;
 
@@ -59,6 +59,16 @@ pub async fn create(
     AuthnExtractor(agent_id): AuthnExtractor,
     Json(payload): Json<CreateRequest>,
 ) -> RequestResult {
+    // We need to use agent id from frontend but account ids should match anyway.
+    if agent_id.as_account_id() != payload.agent_id.as_account_id() {
+        return Err(AppError::new(
+            AppErrorKind::AccessDenied,
+            anyhow!("account id mismatch"),
+        ));
+    }
+
+    let agent_id = payload.agent_id.clone();
+
     CreateHandler::handle(
         &mut ctx.start_message(),
         payload,
@@ -74,6 +84,7 @@ pub struct CreateRequest {
     handle_id: HandleId,
     jsep: Jsep,
     label: Option<String>,
+    agent_id: AgentId,
 }
 
 pub struct CreateHandler;
