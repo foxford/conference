@@ -574,7 +574,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                 handle_id: handle_id.clone(),
                 jsep,
                 label: Some(String::from("whatever")),
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -665,7 +665,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                 handle_id,
                 jsep,
                 label: Some(String::from("whatever")),
-                agent_id: agent.agent_id(),
+                agent_id: agent.agent_id().clone(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
