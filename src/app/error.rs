@@ -51,6 +51,7 @@ pub enum ErrorKind {
     RoomTimeChangingForbidden,
     RtcNotFound,
     MethodNotSupported,
+    WaitListFailure,
 }
 
 impl ErrorKind {
@@ -287,6 +288,12 @@ impl From<ErrorKind> for ErrorKindProperties {
                 status: ResponseStatus::UNAUTHORIZED,
                 kind: "authentication_failed",
                 title: "Authentication failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::WaitListFailure => ErrorKindProperties {
+                status: ResponseStatus::INTERNAL_SERVER_ERROR,
+                kind: "waitlist_failure",
+                title: "Waitlist failure",
                 is_notify_sentry: true,
             },
         }

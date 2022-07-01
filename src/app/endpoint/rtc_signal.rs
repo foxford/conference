@@ -205,8 +205,11 @@ impl RequestHandler for CreateHandler {
                                     ))
                                 }
                                 Err(_err) => {
-                                    let handle =
-                                        context.janus_clients().stream_waitlist().register();
+                                    let handle = context
+                                        .janus_clients()
+                                        .stream_waitlist()
+                                        .register()
+                                        .error(AppErrorKind::WaitListFailure)?;
 
                                     let transaction =
                                         ReadStreamTransaction::Http { id: handle.id() };
@@ -326,8 +329,11 @@ impl RequestHandler for CreateHandler {
                                     ))
                                 }
                                 Err(_err) => {
-                                    let handle =
-                                        context.janus_clients().stream_waitlist().register();
+                                    let handle = context
+                                        .janus_clients()
+                                        .stream_waitlist()
+                                        .register()
+                                        .error(AppErrorKind::WaitListFailure)?;
 
                                     let transaction =
                                         CreateStreamTransaction::Http { id: handle.id() };

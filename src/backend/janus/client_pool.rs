@@ -4,11 +4,14 @@ use std::{
     collections::{hash_map::Entry, HashMap},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc, Mutex, PoisonError, RwLock,
+        Arc, PoisonError, RwLock,
     },
     time::Duration,
 };
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::sync::{
+    mpsc::{self, UnboundedSender},
+    oneshot,
+};
 use tracing::{error, warn};
 
 use crate::{
@@ -121,13 +124,20 @@ impl Clients {
 #[derive(Debug)]
 pub enum WaitListError {
     OtherSideDropped,
-    UnknownId,
+    InternalTaskStopped,
 }
+
+impl std::fmt::Display for WaitListError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for WaitListError {}
 
 pub struct WaitList<T> {
     counter: Arc<AtomicUsize>,
-    // Mutex b/c we always need write access to hashmap
-    waiters: Arc<Mutex<HashMap<usize, oneshot::Sender<T>>>>,
+    sender: UnboundedSender<WaitListCmd<T>>,
 }
 
 // Not deriving Clone because T maybe not Cloneable but
@@ -136,40 +146,69 @@ impl<T> Clone for WaitList<T> {
     fn clone(&self) -> Self {
         Self {
             counter: self.counter.clone(),
-            waiters: self.waiters.clone(),
+            sender: self.sender.clone(),
         }
     }
 }
 
-impl<T> WaitList<T> {
+enum WaitListCmd<T> {
+    Register {
+        id: usize,
+        sender: oneshot::Sender<T>,
+    },
+    Fire {
+        id: usize,
+        evt: T,
+    },
+}
+
+impl<T: Send + 'static> WaitList<T> {
     pub fn new() -> Self {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+
+        tokio::task::spawn(async move {
+            let mut waiters = HashMap::new();
+
+            while let Some(cmd) = receiver.recv().await {
+                match cmd {
+                    WaitListCmd::Register { id, sender } => {
+                        waiters.insert(id, sender);
+                    }
+                    WaitListCmd::Fire { id, evt } => match waiters.remove(&id) {
+                        Some(sender) => {
+                            if let Err(_err) = sender.send(evt) {
+                                warn!("no one is waiting for event anymore, id: {}", id);
+                            };
+                        }
+                        None => {
+                            warn!("unknown event id in waitlist: {}", id);
+                        }
+                    },
+                }
+            }
+        });
+
         Self {
             counter: Arc::new(AtomicUsize::new(0)),
-            waiters: Arc::new(Mutex::new(HashMap::new())),
+            sender,
         }
     }
 
-    pub fn register(&self) -> WaitEventHandle<T> {
+    pub fn register(&self) -> Result<WaitEventHandle<T>, WaitListError> {
         let id = self.counter.fetch_add(1, Ordering::SeqCst);
         let (sender, receiver) = oneshot::channel();
 
-        self.waiters
-            .lock()
-            .expect("waitlist lock")
-            .insert(id, sender);
+        self.sender
+            .send(WaitListCmd::Register { id, sender })
+            .map_err(|_| WaitListError::InternalTaskStopped)?;
 
-        WaitEventHandle { id, receiver }
+        Ok(WaitEventHandle { id, receiver })
     }
 
     pub fn fire(&self, id: usize, evt: T) -> Result<(), WaitListError> {
-        let mut waiters = self.waiters.lock().expect("waitlist lock");
-
-        match waiters.remove(&id) {
-            Some(sender) => sender
-                .send(evt)
-                .map_err(|_| WaitListError::OtherSideDropped),
-            None => Err(WaitListError::UnknownId),
-        }
+        self.sender
+            .send(WaitListCmd::Fire { id, evt })
+            .map_err(|_| WaitListError::InternalTaskStopped)
     }
 }
 
