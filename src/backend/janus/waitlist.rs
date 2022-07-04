@@ -57,7 +57,7 @@ impl<T: Send + 'static> WaitList<T> {
                     if let Err(_err) = sender.send(Cmd::Tick) {
                         break;
                     }
-                    tokio::time::sleep(epoch_duration * 2).await;
+                    tokio::time::sleep(epoch_duration).await;
                 }
             }
         });
