@@ -42,72 +42,94 @@ enum Cmd<T> {
         id: usize,
         evt: T,
     },
-    Tick,
+}
+
+struct WaitListInner<T> {
+    epochs: [HashMap<usize, oneshot::Sender<T>>; 2],
+    epoch_start: std::time::Instant,
+    current_epoch: usize,
+    epoch_duration: std::time::Duration,
+}
+
+impl<T> WaitListInner<T> {
+    pub fn new(epoch_duration: std::time::Duration) -> Self {
+        Self {
+            epochs: [HashMap::new(), HashMap::new()],
+            epoch_start: std::time::Instant::now(),
+            current_epoch: 0,
+            epoch_duration,
+        }
+    }
+
+    pub fn insert(&mut self, id: usize, sender: oneshot::Sender<T>) {
+        self.advance();
+        self.epochs[self.current_epoch].insert(id, sender);
+    }
+
+    pub fn lookup(&mut self, id: usize) -> Option<oneshot::Sender<T>> {
+        self.advance();
+
+        for epoch in self.epochs.iter_mut() {
+            if let Some(entry) = epoch.remove(&id) {
+                return Some(entry);
+            }
+        }
+
+        None
+    }
+
+    pub fn advance(&mut self) {
+        // advance epochs
+        if self.epoch_start.elapsed() > self.epoch_duration {
+            self.current_epoch = (self.current_epoch + 1) % self.epochs.len();
+            // dropping the old events
+            self.epochs[self.current_epoch] = HashMap::new();
+            // we don't care about precise epochs here
+            self.epoch_start = std::time::Instant::now();
+        }
+    }
 }
 
 impl<T: Send + 'static> WaitList<T> {
     pub fn new(epoch_duration: std::time::Duration) -> Self {
         let (sender, mut receiver) = mpsc::unbounded_channel();
 
-        // Asking main task to advance epochs if there were no other requests.
-        tokio::task::spawn({
-            let sender = sender.clone();
-            async move {
-                loop {
-                    if let Err(_err) = sender.send(Cmd::Tick) {
-                        break;
-                    }
-                    tokio::time::sleep(epoch_duration).await;
-                }
-            }
-        });
+        // Asking to advance epochs if there were no other requests.
+        let mut tick_interval = tokio::time::interval(epoch_duration);
+        tick_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         tokio::task::spawn(async move {
-            let mut epochs = [HashMap::new(), HashMap::new()];
-            let mut start = std::time::Instant::now();
-            let mut current_epoch = 0;
+            let mut state = WaitListInner::new(epoch_duration);
 
-            while let Some(cmd) = receiver.recv().await {
-                // advance epochs
-                if start.elapsed() > epoch_duration {
-                    current_epoch = (current_epoch + 1) % epochs.len();
-                    // dropping the old events
-                    epochs[current_epoch] = HashMap::new();
-                    // we don't care about precise epochs here
-                    start = std::time::Instant::now();
-                }
-
-                match cmd {
-                    Cmd::Register { id, sender } => {
-                        epochs[current_epoch].insert(id, sender);
-                    }
-                    Cmd::Fire { id, evt } => {
-                        let mut maybe_entry = None;
-
-                        for epoch in epochs.iter_mut() {
-                            if let Some(entry) = epoch.remove(&id) {
-                                maybe_entry = Some(entry);
-                                break;
+            loop {
+                tokio::select! {
+                    Some(cmd) = receiver.recv() => {
+                        match cmd {
+                            Cmd::Register { id, sender } => {
+                                state.insert(id, sender);
                             }
-                        }
-
-                        match maybe_entry {
-                            Some(entry) => {
-                                if let Err(_err) = entry.send(evt) {
-                                    tracing::warn!(
-                                        "no one is waiting for event anymore, id: {}",
-                                        id
-                                    );
-                                };
-                            }
-                            None => {
-                                tracing::warn!("unknown event id in waitlist: {}", id);
+                            Cmd::Fire { id, evt } => {
+                                match state.lookup(id) {
+                                    Some(entry) => {
+                                        if let Err(_err) = entry.send(evt) {
+                                            tracing::warn!(
+                                                "no one is waiting for event anymore, id: {}",
+                                                id
+                                            );
+                                        };
+                                    }
+                                    None => {
+                                        tracing::warn!("unknown event id in waitlist: {}", id);
+                                    }
+                                }
                             }
                         }
                     }
-                    Cmd::Tick => {
-                        // all is done above, just wanted to advance the epoch and drop
-                        // all expired event senders
+                    _ = tick_interval.tick() => {
+                        state.advance();
+                    }
+                    else => {
+                        break;
                     }
                 }
             }
