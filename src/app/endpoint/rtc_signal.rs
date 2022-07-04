@@ -221,7 +221,10 @@ impl RequestHandler for CreateHandler {
                                         .await
                                         .error(AppErrorKind::BackendRequestFailed)?;
 
-                                    let resp = handle.wait().await.expect("waitlist")?;
+                                    let resp = handle
+                                        .wait()
+                                        .await
+                                        .error(AppErrorKind::WaitListFailure)??;
 
                                     Ok(Response::new(
                                         ResponseStatus::OK,
@@ -345,7 +348,10 @@ impl RequestHandler for CreateHandler {
                                         .await
                                         .error(AppErrorKind::BackendRequestFailed)?;
 
-                                    let resp = handle.wait().await.expect("waitlist")?;
+                                    let resp = handle
+                                        .wait()
+                                        .await
+                                        .error(AppErrorKind::WaitListFailure)??;
 
                                     Ok(Response::new(
                                         ResponseStatus::OK,
