@@ -106,13 +106,13 @@ impl<T: Send + 'static> WaitList<T> {
                                     Some(entry) => {
                                         if let Err(_err) = entry.send(evt) {
                                             tracing::warn!(
-                                                "no one is waiting for event anymore, id: {}",
+                                                "requester is not waiting for response anymore, id: {}",
                                                 id
                                             );
                                         };
                                     }
                                     None => {
-                                        tracing::warn!("unknown event id in waitlist: {}", id);
+                                        tracing::warn!("unknown response id in waitlist: {}", id);
                                     }
                                 }
                             }
