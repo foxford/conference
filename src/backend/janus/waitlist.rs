@@ -42,19 +42,19 @@ enum Cmd<T> {
         id: usize,
         evt: T,
     },
-    Cleanup,
+    Tick,
 }
 
 impl<T: Send + 'static> WaitList<T> {
     pub fn new(epoch_duration: std::time::Duration) -> Self {
         let (sender, mut receiver) = mpsc::unbounded_channel();
 
-        // Asking main task to remove events that are waited for too much.
+        // Asking main task to advance epochs if there were no other requests.
         tokio::task::spawn({
             let sender = sender.clone();
             async move {
                 loop {
-                    if let Err(_err) = sender.send(Cmd::Cleanup) {
+                    if let Err(_err) = sender.send(Cmd::Tick) {
                         break;
                     }
                     tokio::time::sleep(epoch_duration * 2).await;
@@ -105,8 +105,9 @@ impl<T: Send + 'static> WaitList<T> {
                             }
                         }
                     }
-                    Cmd::Cleanup => {
-                        // all is done above, just wanted to advance
+                    Cmd::Tick => {
+                        // all is done above, just wanted to advance the epoch and drop
+                        // all expired event senders
                     }
                 }
             }
