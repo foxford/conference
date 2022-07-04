@@ -106,7 +106,7 @@ impl<T: Send + 'static> WaitList<T> {
                                     Some(entry) => {
                                         if let Err(_err) = entry.send(evt) {
                                             tracing::warn!(
-                                                "requester is not waiting for response anymore, id: {}",
+                                                "requester is not waiting for response from waitlist anymore, id: {}",
                                                 id
                                             );
                                         };
