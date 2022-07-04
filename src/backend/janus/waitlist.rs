@@ -1,34 +1,25 @@
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-};
+use std::{collections::HashMap, sync::atomic};
 
-use tokio::sync::{
-    mpsc::{self, UnboundedSender},
-    oneshot,
-};
-use tracing::warn;
+use tokio::sync::{mpsc, oneshot};
 
-#[derive(Debug)]
-pub enum WaitListError {
+#[derive(Debug, PartialEq)]
+pub enum Error {
     OtherSideDropped,
     InternalTaskStopped,
 }
 
-impl std::fmt::Display for WaitListError {
+impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
-impl std::error::Error for WaitListError {}
+impl std::error::Error for Error {}
 
+/// Usable if you want to wait for some external events.
 pub struct WaitList<T> {
-    counter: Arc<AtomicUsize>,
-    sender: UnboundedSender<WaitListCmd<T>>,
+    counter: std::sync::Arc<atomic::AtomicUsize>,
+    sender: mpsc::UnboundedSender<Cmd<T>>,
 }
 
 // Not deriving Clone because T may be not Cloneable but
@@ -42,7 +33,7 @@ impl<T> Clone for WaitList<T> {
     }
 }
 
-enum WaitListCmd<T> {
+enum Cmd<T> {
     Register {
         id: usize,
         sender: oneshot::Sender<T>,
@@ -63,10 +54,10 @@ impl<T: Send + 'static> WaitList<T> {
             let sender = sender.clone();
             async move {
                 loop {
-                    if let Err(_err) = sender.send(WaitListCmd::Cleanup) {
+                    if let Err(_err) = sender.send(Cmd::Cleanup) {
                         break;
                     }
-                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    tokio::time::sleep(epoch_duration * 2).await;
                 }
             }
         });
@@ -87,10 +78,10 @@ impl<T: Send + 'static> WaitList<T> {
                 }
 
                 match cmd {
-                    WaitListCmd::Register { id, sender } => {
+                    Cmd::Register { id, sender } => {
                         epochs[current_epoch].insert(id, sender);
                     }
-                    WaitListCmd::Fire { id, evt } => {
+                    Cmd::Fire { id, evt } => {
                         let mut maybe_entry = None;
 
                         for epoch in epochs.iter_mut() {
@@ -103,15 +94,18 @@ impl<T: Send + 'static> WaitList<T> {
                         match maybe_entry {
                             Some(entry) => {
                                 if let Err(_err) = entry.send(evt) {
-                                    warn!("no one is waiting for event anymore, id: {}", id);
+                                    tracing::warn!(
+                                        "no one is waiting for event anymore, id: {}",
+                                        id
+                                    );
                                 };
                             }
                             None => {
-                                warn!("unknown event id in waitlist: {}", id);
+                                tracing::warn!("unknown event id in waitlist: {}", id);
                             }
                         }
                     }
-                    WaitListCmd::Cleanup => {
+                    Cmd::Cleanup => {
                         // all is done above, just wanted to advance
                     }
                 }
@@ -119,42 +113,106 @@ impl<T: Send + 'static> WaitList<T> {
         });
 
         Self {
-            counter: Arc::new(AtomicUsize::new(0)),
+            counter: std::sync::Arc::new(atomic::AtomicUsize::new(0)),
             sender,
         }
     }
 
-    pub fn register(&self) -> Result<WaitEventHandle<T>, WaitListError> {
-        let id = self.counter.fetch_add(1, Ordering::SeqCst);
+    /// Register an upcoming event. Make sure handle id will be known to
+    /// some external event stream so you can look for it.
+    pub fn register(&self) -> Result<Handle<T>, Error> {
+        let id = self.counter.fetch_add(1, atomic::Ordering::SeqCst);
         let (sender, receiver) = oneshot::channel();
 
         self.sender
-            .send(WaitListCmd::Register { id, sender })
-            .map_err(|_| WaitListError::InternalTaskStopped)?;
+            .send(Cmd::Register { id, sender })
+            .map_err(|_| Error::InternalTaskStopped)?;
 
-        Ok(WaitEventHandle { id, receiver })
+        Ok(Handle { id, receiver })
     }
 
-    pub fn fire(&self, id: usize, evt: T) -> Result<(), WaitListError> {
+    /// The event is here, let's proceed.
+    pub fn fire(&self, id: usize, evt: T) -> Result<(), Error> {
         self.sender
-            .send(WaitListCmd::Fire { id, evt })
-            .map_err(|_| WaitListError::InternalTaskStopped)
+            .send(Cmd::Fire { id, evt })
+            .map_err(|_| Error::InternalTaskStopped)
     }
 }
 
-pub struct WaitEventHandle<T> {
+pub struct Handle<T> {
     id: usize,
     receiver: oneshot::Receiver<T>,
 }
 
-impl<T> WaitEventHandle<T> {
-    pub async fn wait(self) -> Result<T, WaitListError> {
-        self.receiver
-            .await
-            .map_err(|_| WaitListError::OtherSideDropped)
+impl<T> Handle<T> {
+    pub async fn wait(self) -> Result<T, Error> {
+        self.receiver.await.map_err(|_| Error::OtherSideDropped)
     }
 
     pub fn id(&self) -> usize {
         self.id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GOOD_ENOUGH: std::time::Duration = std::time::Duration::from_micros(10);
+
+    #[tokio::test]
+    async fn simple() {
+        let waitlist = WaitList::new(GOOD_ENOUGH);
+        let handle = waitlist.register().unwrap();
+        waitlist.fire(handle.id(), ()).unwrap();
+        assert_eq!(handle.wait().await, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn wrong_id() {
+        let waitlist: WaitList<()> = WaitList::new(GOOD_ENOUGH);
+        let handle = waitlist.register().unwrap();
+        waitlist.fire(handle.id() + 1, ()).unwrap();
+        assert_eq!(handle.wait().await, Err(Error::OtherSideDropped));
+    }
+
+    #[tokio::test]
+    async fn event_expired() {
+        let waitlist: WaitList<usize> = WaitList::new(GOOD_ENOUGH);
+
+        let handle1 = waitlist.register().unwrap();
+        let handle2 = waitlist.register().unwrap();
+
+        waitlist.fire(handle2.id(), 1000).unwrap();
+
+        assert_eq!(handle1.wait().await, Err(Error::OtherSideDropped));
+        assert_eq!(handle2.wait().await, Ok(1000));
+    }
+
+    #[tokio::test]
+    async fn drop_one_of_the_handles() {
+        let waitlist: WaitList<()> = WaitList::new(GOOD_ENOUGH);
+
+        let handle1 = waitlist.register().unwrap();
+        let handle2 = waitlist.register().unwrap();
+
+        drop(handle1);
+        waitlist.fire(handle2.id(), ()).unwrap();
+
+        assert_eq!(handle2.wait().await, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn correct_data() {
+        let waitlist: WaitList<usize> = WaitList::new(GOOD_ENOUGH);
+
+        let handle1 = waitlist.register().unwrap();
+        let handle2 = waitlist.register().unwrap();
+
+        waitlist.fire(handle1.id(), 10).unwrap();
+        waitlist.fire(handle2.id(), 1000).unwrap();
+
+        assert_eq!(handle2.wait().await, Ok(1000));
+        assert_eq!(handle1.wait().await, Ok(10));
     }
 }
