@@ -209,7 +209,7 @@ impl RequestHandler for CreateHandler {
                                         .janus_clients()
                                         .stream_waitlist()
                                         .register()
-                                        .error(AppErrorKind::WaitListFailure)?;
+                                        .error(AppErrorKind::JanusResponseTimeout)?;
 
                                     let transaction =
                                         ReadStreamTransaction::Http { id: handle.id() };
@@ -224,7 +224,7 @@ impl RequestHandler for CreateHandler {
                                     let resp = handle
                                         .wait()
                                         .await
-                                        .error(AppErrorKind::WaitListFailure)??;
+                                        .error(AppErrorKind::JanusResponseTimeout)??;
 
                                     Ok(Response::new(
                                         ResponseStatus::OK,
@@ -336,7 +336,7 @@ impl RequestHandler for CreateHandler {
                                         .janus_clients()
                                         .stream_waitlist()
                                         .register()
-                                        .error(AppErrorKind::WaitListFailure)?;
+                                        .error(AppErrorKind::JanusResponseTimeout)?;
 
                                     let transaction =
                                         CreateStreamTransaction::Http { id: handle.id() };
@@ -351,7 +351,7 @@ impl RequestHandler for CreateHandler {
                                     let resp = handle
                                         .wait()
                                         .await
-                                        .error(AppErrorKind::WaitListFailure)??;
+                                        .error(AppErrorKind::JanusResponseTimeout)??;
 
                                     Ok(Response::new(
                                         ResponseStatus::OK,

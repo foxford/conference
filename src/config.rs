@@ -32,7 +32,7 @@ pub struct Config {
 }
 
 fn default_waitlist_epoch_duration() -> Duration {
-    std::time::Duration::from_secs(60 * 10)
+    std::time::Duration::from_secs(60)
 }
 
 #[derive(Clone, Debug, Deserialize)]

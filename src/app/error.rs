@@ -51,7 +51,7 @@ pub enum ErrorKind {
     RoomTimeChangingForbidden,
     RtcNotFound,
     MethodNotSupported,
-    WaitListFailure,
+    JanusResponseTimeout,
 }
 
 impl ErrorKind {
@@ -290,10 +290,10 @@ impl From<ErrorKind> for ErrorKindProperties {
                 title: "Authentication failed",
                 is_notify_sentry: true,
             },
-            ErrorKind::WaitListFailure => ErrorKindProperties {
+            ErrorKind::JanusResponseTimeout => ErrorKindProperties {
                 status: ResponseStatus::INTERNAL_SERVER_ERROR,
-                kind: "waitlist_failure",
-                title: "Waitlist failure",
+                kind: "janus_response_timeout",
+                title: "Janus response timeout",
                 is_notify_sentry: true,
             },
         }
