@@ -59,7 +59,11 @@ pub async fn create(
     AuthnExtractor(agent_id): AuthnExtractor,
     Json(payload): Json<CreateRequest>,
 ) -> RequestResult {
-    let agent_id = AgentId::new(&payload.agent_label, agent_id.as_account_id().to_owned());
+    let agent_id = payload
+        .agent_label
+        .as_ref()
+        .map(|label| AgentId::new(label, agent_id.as_account_id().to_owned()))
+        .unwrap_or(agent_id);
 
     CreateHandler::handle(
         &mut ctx.start_message(),
@@ -76,7 +80,8 @@ pub struct CreateRequest {
     handle_id: HandleId,
     jsep: Jsep,
     label: Option<String>,
-    agent_label: String,
+    #[serde(default)]
+    agent_label: Option<String>,
 }
 
 pub struct CreateHandler;
@@ -578,7 +583,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                 handle_id: handle_id.clone(),
                 jsep,
                 label: Some(String::from("whatever")),
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -669,7 +674,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                 handle_id,
                 jsep,
                 label: Some(String::from("whatever")),
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -761,7 +766,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: Some(String::from("whatever")),
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -857,7 +862,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -925,7 +930,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -979,7 +984,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1042,7 +1047,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1110,7 +1115,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1169,7 +1174,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1223,7 +1228,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1278,7 +1283,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1340,7 +1345,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1412,7 +1417,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_label: agent1.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent1, payload)
@@ -1476,7 +1481,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_label: agent.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1548,7 +1553,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
-                agent_label: agent1.agent_id().label().to_owned(),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent1, payload)

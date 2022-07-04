@@ -48,27 +48,22 @@ struct WaitListInner<T> {
     epochs: [HashMap<usize, oneshot::Sender<T>>; 2],
     epoch_start: std::time::Instant,
     current_epoch: usize,
-    epoch_duration: std::time::Duration,
 }
 
 impl<T> WaitListInner<T> {
-    pub fn new(epoch_duration: std::time::Duration) -> Self {
+    pub fn new() -> Self {
         Self {
             epochs: [HashMap::new(), HashMap::new()],
             epoch_start: std::time::Instant::now(),
             current_epoch: 0,
-            epoch_duration,
         }
     }
 
     pub fn insert(&mut self, id: usize, sender: oneshot::Sender<T>) {
-        self.advance();
         self.epochs[self.current_epoch].insert(id, sender);
     }
 
     pub fn lookup(&mut self, id: usize) -> Option<oneshot::Sender<T>> {
-        self.advance();
-
         for epoch in self.epochs.iter_mut() {
             if let Some(entry) = epoch.remove(&id) {
                 return Some(entry);
@@ -79,14 +74,11 @@ impl<T> WaitListInner<T> {
     }
 
     pub fn advance(&mut self) {
-        // advance epochs
-        if self.epoch_start.elapsed() > self.epoch_duration {
-            self.current_epoch = (self.current_epoch + 1) % self.epochs.len();
-            // dropping the old events
-            self.epochs[self.current_epoch] = HashMap::new();
-            // we don't care about precise epochs here
-            self.epoch_start = std::time::Instant::now();
-        }
+        self.current_epoch = (self.current_epoch + 1) % self.epochs.len();
+        // dropping the old events
+        self.epochs[self.current_epoch] = HashMap::new();
+        // we don't care about precise epochs here
+        self.epoch_start = std::time::Instant::now();
     }
 }
 
@@ -94,12 +86,13 @@ impl<T: Send + 'static> WaitList<T> {
     pub fn new(epoch_duration: std::time::Duration) -> Self {
         let (sender, mut receiver) = mpsc::unbounded_channel();
 
-        // Asking to advance epochs if there were no other requests.
+        // Asking to advance epochs.
         let mut tick_interval = tokio::time::interval(epoch_duration);
+        // It's ok to miss some ticks.
         tick_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         tokio::task::spawn(async move {
-            let mut state = WaitListInner::new(epoch_duration);
+            let mut state = WaitListInner::new();
 
             loop {
                 tokio::select! {

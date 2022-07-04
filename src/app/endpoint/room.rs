@@ -525,7 +525,8 @@ impl RequestHandler for CloseHandler {
 
 #[derive(Deserialize)]
 pub struct EnterPayload {
-    agent_label: String,
+    #[serde(default)]
+    agent_label: Option<String>,
 }
 
 pub async fn enter(
@@ -536,7 +537,11 @@ pub async fn enter(
 ) -> RequestResult {
     let request = EnterRequest { id: room_id };
 
-    let agent_id = AgentId::new(&payload.agent_label, agent_id.as_account_id().to_owned());
+    let agent_id = payload
+        .agent_label
+        .as_ref()
+        .map(|label| AgentId::new(label, agent_id.as_account_id().to_owned()))
+        .unwrap_or(agent_id);
 
     EnterHandler::handle(
         &mut ctx.start_message(),

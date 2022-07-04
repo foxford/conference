@@ -367,7 +367,8 @@ impl ConnectRequest {
 pub struct ConnectPayload {
     #[serde(default = "ConnectRequest::default_intent")]
     intent: ConnectIntent,
-    agent_label: String,
+    #[serde(default)]
+    agent_label: Option<String>,
 }
 
 pub async fn connect(
@@ -380,7 +381,11 @@ pub async fn connect(
         id: rtc_id,
         intent: intent.intent,
     };
-    let agent_id = AgentId::new(&intent.agent_label, agent_id.as_account_id().to_owned());
+    let agent_id = intent
+        .agent_label
+        .as_ref()
+        .map(|label| AgentId::new(label, agent_id.as_account_id().to_owned()))
+        .unwrap_or(agent_id);
 
     ConnectHandler::handle(
         &mut ctx.start_message(),
