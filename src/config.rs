@@ -27,6 +27,12 @@ pub struct Config {
     pub orphaned_room_timeout: Duration,
     pub janus_registry: JanusRegistry,
     pub authn: svc_authn::jose::ConfigMap,
+    #[serde(with = "humantime_serde", default = "default_waitlist_epoch_duration")]
+    pub waitlist_epoch_duration: Duration,
+}
+
+fn default_waitlist_epoch_duration() -> Duration {
+    std::time::Duration::from_secs(60 * 10)
 }
 
 #[derive(Clone, Debug, Deserialize)]

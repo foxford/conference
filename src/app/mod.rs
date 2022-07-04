@@ -79,7 +79,12 @@ pub async fn run(
     let metrics = crate::app::metrics::Metrics::new(&metrics_registry)?;
     let janus_metrics = crate::backend::janus::metrics::Metrics::new(&metrics_registry)?;
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::unbounded_channel();
-    let clients = Clients::new(ev_tx, config.janus_group.clone(), db.clone());
+    let clients = Clients::new(
+        ev_tx,
+        config.janus_group.clone(),
+        db.clone(),
+        config.waitlist_epoch_duration,
+    );
     thread::spawn({
         let db = db.clone();
         let collect_interval = config.metrics.janus_metrics_collect_interval;

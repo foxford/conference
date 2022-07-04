@@ -447,3 +447,4 @@ pub mod client;
 pub mod client_pool;
 pub mod metrics;
 pub mod online_handler;
+mod waitlist;

@@ -95,6 +95,8 @@ pub struct TestContext {
     mqtt_gateway_client: MqttGatewayHttpClient,
 }
 
+const WAITLIST_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
+
 impl TestContext {
     pub fn new(db: TestDb, authz: TestAuthz) -> Self {
         // can be safely dropped
@@ -121,7 +123,12 @@ impl TestContext {
     }
 
     pub fn with_janus(&mut self, events_sink: UnboundedSender<IncomingEvent>) {
-        self.clients = Some(Clients::new(events_sink, None, self.db().clone()));
+        self.clients = Some(Clients::new(
+            events_sink,
+            None,
+            self.db().clone(),
+            WAITLIST_DURATION,
+        ));
     }
 
     pub fn with_grouped_janus(&mut self, group: &str, events_sink: UnboundedSender<IncomingEvent>) {
@@ -129,6 +136,7 @@ impl TestContext {
             events_sink,
             Some(group.to_string()),
             self.db().clone(),
+            WAITLIST_DURATION,
         ));
     }
 

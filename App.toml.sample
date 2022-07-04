@@ -1,6 +1,8 @@
 id = "conference.svc.example.org"
 agent_label = "alpha"
 broker_id = "mqtt-gateway.svc.example.org"
+mqtt_api_host_uri = "http://mqtt-gateway:8081"
+waitlist_epoch_duration = "10 minutes"
 
 [id_token]
 algorithm = "ES256"
