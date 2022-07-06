@@ -76,7 +76,7 @@ data:
     {{- if eq "local" .type }}
     trusted = [
       {{- range $account_label := .trusted }}
-        {{ list $account_label | join "." | quote }},
+        {{ (list $account_label (include "conference.shortNamespace" $) $.Values.app.svc.audience) | compact | join "." | quote }},
       {{- end }}
     ]
     {{- end }}
