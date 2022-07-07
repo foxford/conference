@@ -10,7 +10,7 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Install awscli
       run: sudo apt update && sudo apt install -y awscli
     - name: Install mdbook
