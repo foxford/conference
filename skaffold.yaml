@@ -15,6 +15,14 @@ build:
     useDockerCLI: true
     tryImportMissing: true
 deploy:
-  kustomize:
-    paths:
-    - deploy/k8s/overlays/ns
+  helm:
+    releases:
+    - name: conference
+      chartPath: chart
+      artifactOverrides:
+        app.image: foxford/conference
+        migrations.image: foxford/conference-migration
+      imageStrategy:
+        helm: {}
+      valuesFiles:
+        - deploy/values.yaml

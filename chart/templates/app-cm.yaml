@@ -1,0 +1,162 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+  name: {{ include "conference.fullname" . }}-app
+data:
+  App.toml: |
+    {{- $id := list (include "conference.name" . ) (include "conference.shortNamespace" .) .Values.app.svc.audience | compact | join "." }}
+    id = {{ $id | quote }}
+
+    {{- $broker_id := list "mqtt-gateway" (include "conference.shortNamespace" .) .Values.app.svc.audience | compact | join "." }}
+    broker_id = {{ $broker_id | quote }}
+
+    http_addr = "0.0.0.0:8080"
+
+    max_room_duration = 7
+    janus_group = {{ .Values.app.janusGroup | default "" | quote }}
+    orphaned_room_timeout = "10 minutes"
+
+    [mqtt]
+    uri = "tcp://mqtt-gateway-cluster:51883"
+    incoming_message_queue_size = 1000000
+    outgoing_message_queue_size = 1000000
+    clean_session = false
+    reconnect_interval = 3
+    keep_alive = 15
+    max_message_size = 5000000
+
+    [backend]
+    {{- $backend_id := list "janus-gateway" (include "conference.shortNamespace" .) .Values.app.svc.audience | compact | join "." }}
+    id = {{ $backend_id | quote }}
+    default_timeout = 5
+    stream_upload_timeout = 600
+    transaction_watchdog_check_period = 1
+
+    {{ if .Values.sentry.dsn -}}
+    [sentry]
+    dsn = {{ .Values.sentry.dsn | quote }}
+    environment = {{ .Release.Namespace | quote }}
+    {{- end }}
+
+    [telemetry]
+    {{- $telemetry_id := list "telemetry" (include "conference.shortNamespace" .) .Values.app.svc.audience | compact | join "." }}
+    id = {{ $telemetry_id | quote }}
+
+    [metrics.http]
+    bind_address = "0.0.0.0:8888"
+
+    [metrics]
+    janus_metrics_collect_interval = "15 seconds"
+
+    [cache_configs]
+    rtc_by_id = { capacity = 10000, ttl = "60 seconds" }
+
+    [janus_registry]
+    token = "0FB8338E-1173-4973-A1BF-72C1E75DD990"
+    bind_addr = "0.0.0.0:8081"
+
+    {{- println "" }}
+
+    {{- with .Values.app.svc }}
+    ##
+    ## SVC
+    ##
+    [id_token]
+    algorithm = "ES256"
+    key = "data/keys/svc.private_key.p8.der"
+
+    {{- println "" }}
+
+    {{- $svc_audience := list (include "conference.shortNamespace" $) .audience | compact | join "." }}
+    {{- with .authz }}
+    [authz.{{ $svc_audience | quote }}]
+    type = {{ .type | quote }}
+    {{- if eq "local" .type }}
+    trusted = [
+      {{- range $account_label := .trusted }}
+        {{ (list $account_label (include "conference.shortNamespace" $) $.Values.app.svc.audience) | compact | join "." | quote }},
+      {{- end }}
+    ]
+    {{- end }}
+    {{- if eq "localwhitelist" .type }}
+    [[authz.{{ $svc_audience | quote }}.records]]
+    {{- range $record := .records }}
+    subject_account_id = {{ get $record "subject_account_id" | quote }}
+    object = [
+      {{- range $o := get $record "object" }}
+      {{ $o | quote }},
+      {{- end}}
+    ]
+    action = {{ get $record "action" | quote }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+
+    {{- println "" }}
+
+    {{- range .Values.app.audiences }}
+    ##
+    ## {{ .audience }}
+    ##
+    {{- $svc_audience := list (include "conference.shortNamespace" $) "svc" .audience | compact | join "." }}
+    {{- $usr_audience := list (include "conference.shortNamespace" $) "usr" .audience | compact | join "." }}
+    {{- with .authn }}
+    [authn.{{ list "iam" $svc_audience | join "." | quote }}]
+    audience = [{{ $svc_audience | quote }}, {{ $usr_audience | quote }}]
+    algorithm = "ES256"
+    key = {{ .key | quote }}
+    {{- end }}
+
+    {{- $ns_audience := list (include "conference.shortNamespace" $) .audience | compact | join "."  }}
+    {{- println "" }}
+
+    {{- with .authz }}
+    [authz.{{ $ns_audience | quote }}]
+    type = {{ .type | quote }}
+    {{- if eq "http" .type }}
+    {{- $default_authz_url := $ns_audience | list "http://dispatcher-cluster:8080/api/v1/authz/" | join "" }}
+    uri = {{ default $default_authz_url .uri | quote }}
+    algorithm = {{ default "ES256" .algorithm | quote }}
+    key = {{ default "data/keys/svc.private_key.p8.der" .key | quote }}
+    user_agent = {{ default $id .user_agent | quote }}
+    max_retries = {{ default 3 .max_retries }}
+    trusted = [
+      {{- range $account_label := .trusted }}
+        {{ (list $account_label (include "conference.shortNamespace" $) $.Values.app.svc.audience) | compact | join "." | quote }},
+      {{- end }}
+    ]
+    {{- end }}
+    {{- if eq "local" .type }}
+    trusted = [
+      {{- range $account_label := .trusted }}
+        {{ $ns_audience | list $account_label | join "." | quote }},
+      {{- end }}
+    ]
+    {{- end }}
+    {{- if eq "localwhitelist" .type }}
+    [[authz.{{ $ns_audience | quote }}.records]]
+    {{- range $record := .records }}
+    subject_account_id = {{ get $record "subject_account_id" | quote }}
+    object = [
+      {{- range $o := get $record "object" }}
+      {{ $o | quote }},
+      {{- end}}
+    ]
+    action = {{ get $record "action" | quote }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- println "" }}
+
+    [upload.shared.{{ $ns_audience | quote }}]
+    backend = {{ .s3 | quote }}
+    bucket = "origin.webinar.{{ $ns_audience }}"
+
+    [upload.owned.{{ $ns_audience | quote }}]
+    backend = {{ .s3 | quote }}
+    bucket = "origin.minigroup.{{ $ns_audience }}"
+    {{- println "" }}
+    {{- end }}

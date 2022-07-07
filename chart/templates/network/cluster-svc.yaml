@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "conference.fullname" . }}-cluster
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.clusterService.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    {{- if .Values.clusterService.ports.http }}
+    - name: http
+      port: {{ .Values.clusterService.ports.http }}
+      targetPort: 8080
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.clusterService.ports.internal_http }}
+    - name: internal-http
+      port: {{ .Values.clusterService.ports.internal_http }}
+      targetPort: 8081
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.clusterService.ports.metrics }}
+    - name: metrics
+      port: {{ .Values.clusterService.ports.metrics }}
+      targetPort: 8888
+      protocol: TCP
+    {{- end }}
+  selector:
+    {{- include "conference.selectorLabels" . | nindent 4 }}

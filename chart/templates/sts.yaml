@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "conference.fullname" . }}
+  labels:
+    {{- include "conference.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount | default 2 }}
+  serviceName: {{ include "conference.fullname" . }}-headless
+  selector:
+    matchLabels:
+      {{- include "conference.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/app-cm: {{ include (print $.Template.BasePath "/app-cm.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "conference.selectorLabels" . | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      initContainers:
+        - name: init-{{ .Chart.Name }}-migration
+          image: "{{ .Values.migrations.image.repository }}:{{ .Values.migrations.image.tag | default .Values.app.image.tag | default $.Chart.AppVersion }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-{{ include "conference.name" . }}-credentials
+                  key: database_url
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.app.image.repository }}:{{ .Values.app.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.clusterService.ports.http }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.clusterService.ports.http }}
+            failureThreshold: 10
+            periodSeconds: 3
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: "CACHE_URL"
+              valueFrom:
+                secretKeyRef:
+                  name: redis-{{ include "conference.name" . }}-credentials
+                  key: CACHE_URL
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-{{ include "conference.name" . }}-credentials
+                  key: database_url
+            - name: APP_AGENT_LABEL
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: config
+              mountPath: /app/App.toml
+              subPath: App.toml
+            {{- with .Values.app.svc }}
+            {{- $audience := .audience }}
+            {{- range $secret, $mounts := .credentials }}
+            {{- range $mounts }}
+            - name: {{ include "conference.volumeMountName" (list $audience $secret) }}
+              mountPath: {{ .mountPath }}
+              subPath: {{ .subPath }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- range .Values.app.audiences }}
+            {{- $audience := .audience }}
+            {{- range $secret, $mounts := .credentials }}
+            {{- range $mounts }}
+            - name: {{ include "conference.volumeMountName" (list $audience $secret) }}
+              mountPath: {{ .mountPath }}
+              subPath: {{ .subPath }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.app.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "conference.fullname" . }}-app
+        {{- with .Values.app.svc }}
+        {{- $audience := .audience }}
+        {{- range $secret, $mounts := .credentials }}
+        - name: {{ include "conference.volumeMountName" (list $audience $secret) }}
+          secret:
+            secretName: {{ $secret }}
+        {{- end }}
+        {{- end }}
+        {{- range .Values.app.audiences }}
+        {{- $audience := .audience }}
+        {{- range $secret, $mounts := .credentials }}
+        - name: {{ include "conference.volumeMountName" (list $audience $secret) }}
+          secret:
+            secretName: {{ $secret }}
+        {{- end }}
+        {{- end }}
