@@ -17,6 +17,7 @@ data:
     max_room_duration = 7
     janus_group = {{ .Values.app.janusGroup | default "" | quote }}
     orphaned_room_timeout = "10 minutes"
+    mqtt_api_host_uri = "http://mqtt-gateway-cluster:8081"
 
     [mqtt]
     uri = "tcp://mqtt-gateway-cluster:51883"
