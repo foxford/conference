@@ -70,9 +70,9 @@ clusterService:
     internal_http: 8081  # Janus registry
     metrics: 8888
 
-internalService:
-  ports:
-    internal_http: 8081  # Janus registry
+# internalService:
+#   ports:
+#     internal_http: 8081  # Janus registry
 
 ingress:
   host: example.org
