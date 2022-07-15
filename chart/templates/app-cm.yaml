@@ -40,10 +40,6 @@ data:
     environment = {{ .Release.Namespace | quote }}
     {{- end }}
 
-    [telemetry]
-    {{- $telemetry_id := list "telemetry" (include "conference.shortNamespace" .) .Values.app.svc.audience | compact | join "." }}
-    id = {{ $telemetry_id | quote }}
-
     [metrics.http]
     bind_address = "0.0.0.0:8888"
 

@@ -18,8 +18,6 @@ pub struct Config {
     pub sentry: Option<SentryConfig>,
     pub backend: BackendConfig,
     pub upload: UploadConfigs,
-    #[serde(default)]
-    pub telemetry: TelemetryConfig,
     pub metrics: MetricsConfig,
     pub max_room_duration: Option<i64>,
     pub janus_group: Option<String>,
@@ -70,11 +68,6 @@ pub type UploadConfigMap = HashMap<String, UploadConfig>;
 pub struct UploadConfig {
     pub backend: String,
     pub bucket: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct TelemetryConfig {
-    pub id: Option<AccountId>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
