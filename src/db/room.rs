@@ -132,7 +132,7 @@ pub struct Object {
     #[serde(skip_serializing_if = "Option::is_none")]
     backend_id: Option<AgentId>,
     rtc_sharing_policy: RtcSharingPolicy,
-    classroom_id: Option<Uuid>,
+    classroom_id: Uuid,
     host: Option<AgentId>,
     timed_out: bool,
     closed_by: Option<AgentId>,
@@ -177,7 +177,7 @@ impl Object {
         self.rtc_sharing_policy
     }
 
-    pub fn classroom_id(&self) -> Option<Uuid> {
+    pub fn classroom_id(&self) -> Uuid {
         self.classroom_id
     }
 
@@ -302,12 +302,17 @@ pub struct InsertQuery<'a> {
     tags: Option<&'a JsonValue>,
     backend_id: Option<&'a AgentId>,
     rtc_sharing_policy: RtcSharingPolicy,
-    classroom_id: Option<Uuid>,
+    classroom_id: Uuid,
     infinite: bool,
 }
 
 impl<'a> InsertQuery<'a> {
-    pub fn new(time: Time, audience: &'a str, rtc_sharing_policy: RtcSharingPolicy) -> Self {
+    pub fn new(
+        time: Time,
+        audience: &'a str,
+        rtc_sharing_policy: RtcSharingPolicy,
+        classroom_id: Uuid,
+    ) -> Self {
         Self {
             time,
             audience,
@@ -316,7 +321,7 @@ impl<'a> InsertQuery<'a> {
             tags: None,
             backend_id: None,
             rtc_sharing_policy,
-            classroom_id: None,
+            classroom_id,
             infinite: false,
         }
     }
@@ -350,7 +355,7 @@ impl<'a> InsertQuery<'a> {
 
     pub fn classroom_id(self, classroom_id: Uuid) -> Self {
         Self {
-            classroom_id: Some(classroom_id),
+            classroom_id,
             ..self
         }
     }

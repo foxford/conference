@@ -59,7 +59,7 @@ pub struct CreateRequest {
     rtc_sharing_policy: Option<RtcSharingPolicy>,
     reserve: Option<i32>,
     tags: Option<JsonValue>,
-    classroom_id: Option<Uuid>,
+    classroom_id: Uuid,
 }
 
 pub async fn create(
@@ -112,8 +112,12 @@ impl RequestHandler for CreateHandler {
         let audience = payload.audience.clone();
         let room = crate::util::spawn_blocking({
             move || {
-                let mut q =
-                    db::room::InsertQuery::new(payload.time, &payload.audience, rtc_sharing_policy);
+                let mut q = db::room::InsertQuery::new(
+                    payload.time,
+                    &payload.audience,
+                    rtc_sharing_policy,
+                    payload.classroom_id,
+                );
 
                 if let Some(reserve) = payload.reserve {
                     q = q.reserve(reserve);
@@ -121,10 +125,6 @@ impl RequestHandler for CreateHandler {
 
                 if let Some(ref tags) = payload.tags {
                     q = q.tags(tags);
-                }
-
-                if let Some(classroom_id) = payload.classroom_id {
-                    q = q.classroom_id(classroom_id);
                 }
 
                 q.execute(&conn)
@@ -741,7 +741,7 @@ mod test {
                 rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
                 reserve: Some(123),
                 tags: Some(json!({ "foo": "bar" })),
-                classroom_id: Some(classroom_id),
+                classroom_id: classroom_id,
             };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -756,7 +756,7 @@ mod test {
             assert_eq!(room.rtc_sharing_policy(), db::rtc::SharingPolicy::Shared);
             assert_eq!(room.reserve(), Some(123));
             assert_eq!(room.tags(), &json!({ "foo": "bar" }));
-            assert_eq!(room.classroom_id(), Some(classroom_id));
+            assert_eq!(room.classroom_id(), classroom_id);
 
             // Assert notification.
             let (room, evp, topic) = find_event::<Room>(messages.as_slice());
@@ -767,7 +767,7 @@ mod test {
             assert_eq!(room.rtc_sharing_policy(), db::rtc::SharingPolicy::Shared);
             assert_eq!(room.reserve(), Some(123));
             assert_eq!(room.tags(), &json!({ "foo": "bar" }));
-            assert_eq!(room.classroom_id(), Some(classroom_id));
+            assert_eq!(room.classroom_id(), classroom_id);
         }
 
         #[tokio::test]
@@ -787,7 +787,7 @@ mod test {
                 rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
                 reserve: None,
                 tags: None,
-                classroom_id: None,
+                classroom_id: uuid::Uuid::new_v4(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -968,7 +968,7 @@ mod test {
             );
             assert_eq!(resp_room.reserve(), Some(123));
             assert_eq!(resp_room.tags(), &json!({"foo": "bar"}));
-            assert_eq!(resp_room.classroom_id(), Some(classroom_id));
+            assert_eq!(resp_room.classroom_id(), classroom_id);
             assert_eq!(resp_room.host(), Some(agent.agent_id()));
         }
 
