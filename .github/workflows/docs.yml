@@ -1,4 +1,4 @@
-name: mdbook
+name: Docs
 
 on:
   push:
@@ -23,3 +23,4 @@ jobs:
         AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
         AWS_REGION: ${{ secrets.AWS_REGION }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        MDBOOK_BUCKET: docs.netology-group.services.website.yandexcloud.net
