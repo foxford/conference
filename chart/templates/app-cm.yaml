@@ -64,6 +64,7 @@ data:
     algorithm = "ES256"
     key = "data/keys/svc.private_key.p8.der"
 
+    {{- $svc_audience := list (include "conference.shortNamespace" $) .audience | compact | join "." }}
     {{- with .authn }}
     [authn.{{ $svc_audience | quote }}]
     audience = [{{ $svc_audience | quote }}]
