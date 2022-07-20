@@ -75,6 +75,7 @@ pub async fn start_internal_api(
                                 .and_then(|x| x.to_str().ok())
                                 .map_or(true, |h| h != token)
                             {
+                                error!("Invalid token, path = {}", req.uri().path());
                                 return Ok::<_, anyhow::Error>(
                                     Response::builder().status(401).body(Body::empty())?,
                                 );
@@ -112,6 +113,11 @@ pub async fn start_internal_api(
                             match account_id {
                                 Some(account_id) if account_id.label() == "conference" => {}
                                 _ => {
+                                    error!(
+                                        ?account_id,
+                                        "Invalid token, path = {}",
+                                        req.uri().path()
+                                    );
                                     return Ok::<_, anyhow::Error>(
                                         Response::builder().status(401).body(Body::empty())?,
                                     );
