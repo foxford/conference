@@ -23,6 +23,7 @@ pub enum CreateStreamTransaction {
     },
     Http {
         id: usize,
+        replica_addr: std::net::IpAddr,
     },
 }
 

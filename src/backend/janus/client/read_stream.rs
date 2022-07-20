@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use svc_agent::{mqtt::IncomingRequestProperties, AgentId};
@@ -23,6 +25,7 @@ pub enum ReadStreamTransaction {
     },
     Http {
         id: usize,
+        replica_addr: IpAddr,
     },
 }
 

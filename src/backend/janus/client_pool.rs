@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use diesel::Connection;
 use std::{
     collections::{hash_map::Entry, HashMap},
+    net::IpAddr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, PoisonError, RwLock,
@@ -29,6 +30,7 @@ pub struct Clients {
     group: Option<String>,
     db: ConnectionPool,
     stream_waitlist: WaitList<Result<CreateResponseData, Error>>,
+    ip_addr: IpAddr,
 }
 
 impl Clients {
@@ -37,6 +39,7 @@ impl Clients {
         group: Option<String>,
         db: ConnectionPool,
         waitlist_epoch_duration: std::time::Duration,
+        ip_addr: IpAddr,
     ) -> Self {
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
@@ -44,6 +47,7 @@ impl Clients {
             group,
             db,
             stream_waitlist: WaitList::new(waitlist_epoch_duration),
+            ip_addr,
         }
     }
 
@@ -119,6 +123,10 @@ impl Clients {
 
     pub fn stream_waitlist(&self) -> &WaitList<Result<CreateResponseData, Error>> {
         &self.stream_waitlist
+    }
+
+    pub fn own_ip_addr(&self) -> IpAddr {
+        self.ip_addr
     }
 }
 

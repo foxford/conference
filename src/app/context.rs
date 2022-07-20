@@ -14,7 +14,7 @@ use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz
 use crate::{
     app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
     backend::janus::client_pool::Clients,
-    client::mqtt_gateway::MqttGatewayHttpClient,
+    client::{conference::ConferenceHttpClient, mqtt_gateway::MqttGatewayHttpClient},
     config::Config,
     db::ConnectionPool as Db,
 };
@@ -34,6 +34,7 @@ pub trait GlobalContext: Sync {
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
     fn metrics(&self) -> Arc<Metrics>;
     fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient;
+    fn conference_client(&self) -> &ConferenceHttpClient;
     fn get_conn(
         &self,
     ) -> BoxFuture<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
@@ -68,6 +69,7 @@ pub struct AppContext {
     clients: Clients,
     metrics: Arc<Metrics>,
     mqtt_gateway_client: MqttGatewayHttpClient,
+    conference_client: ConferenceHttpClient,
 }
 
 impl AppContext {
@@ -78,6 +80,7 @@ impl AppContext {
         clients: Clients,
         metrics: Arc<Metrics>,
         mqtt_gateway_client: MqttGatewayHttpClient,
+        conference_client: ConferenceHttpClient,
     ) -> Self {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
 
@@ -90,6 +93,7 @@ impl AppContext {
             clients,
             metrics,
             mqtt_gateway_client,
+            conference_client,
         }
     }
 
@@ -136,6 +140,10 @@ impl GlobalContext for AppContext {
 
     fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient {
         &self.mqtt_gateway_client
+    }
+
+    fn conference_client(&self) -> &ConferenceHttpClient {
+        &self.conference_client
     }
 }
 
@@ -186,6 +194,10 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 
     fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient {
         self.global_context.mqtt_gateway_client()
+    }
+
+    fn conference_client(&self) -> &ConferenceHttpClient {
+        self.global_context.conference_client()
     }
 }
 

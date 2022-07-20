@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    sync::Arc,
+};
 
 use chrono::{DateTime, Utc};
 use httpmock::MockServer;
@@ -14,7 +17,7 @@ use crate::{
         metrics::Metrics,
     },
     backend::janus::{client::IncomingEvent, client_pool::Clients},
-    client::mqtt_gateway::MqttGatewayHttpClient,
+    client::{conference::ConferenceHttpClient, mqtt_gateway::MqttGatewayHttpClient},
     config::Config,
     db::ConnectionPool as Db,
 };
@@ -93,6 +96,7 @@ pub struct TestContext {
     start_timestamp: DateTime<Utc>,
     clients: Option<Clients>,
     mqtt_gateway_client: MqttGatewayHttpClient,
+    conference_client: ConferenceHttpClient,
 }
 
 const WAITLIST_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
@@ -119,6 +123,7 @@ impl TestContext {
             start_timestamp: Utc::now(),
             clients: None,
             mqtt_gateway_client: MqttGatewayHttpClient::new("test".to_owned(), mqtt_api_host_uri),
+            conference_client: ConferenceHttpClient::new("test".to_owned()),
         }
     }
 
@@ -128,6 +133,7 @@ impl TestContext {
             None,
             self.db().clone(),
             WAITLIST_DURATION,
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
         ));
     }
 
@@ -137,6 +143,7 @@ impl TestContext {
             Some(group.to_string()),
             self.db().clone(),
             WAITLIST_DURATION,
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
         ));
     }
 
@@ -180,6 +187,10 @@ impl GlobalContext for TestContext {
 
     fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient {
         &self.mqtt_gateway_client
+    }
+
+    fn conference_client(&self) -> &crate::client::conference::ConferenceHttpClient {
+        &self.conference_client
     }
 }
 

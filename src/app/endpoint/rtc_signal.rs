@@ -216,8 +216,10 @@ impl RequestHandler for CreateHandler {
                                         .register()
                                         .error(AppErrorKind::JanusResponseTimeout)?;
 
-                                    let transaction =
-                                        ReadStreamTransaction::Http { id: handle.id() };
+                                    let transaction = ReadStreamTransaction::Http {
+                                        id: handle.id(),
+                                        replica_addr: context.janus_clients().own_ip_addr(),
+                                    };
                                     context
                                         .janus_clients()
                                         .get_or_insert(&backend)
@@ -343,8 +345,10 @@ impl RequestHandler for CreateHandler {
                                         .register()
                                         .error(AppErrorKind::JanusResponseTimeout)?;
 
-                                    let transaction =
-                                        CreateStreamTransaction::Http { id: handle.id() };
+                                    let transaction = CreateStreamTransaction::Http {
+                                        id: handle.id(),
+                                        replica_addr: context.janus_clients().own_ip_addr(),
+                                    };
                                     context
                                         .janus_clients()
                                         .get_or_insert(&backend)

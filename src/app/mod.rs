@@ -8,7 +8,7 @@ use crate::{
     backend::janus::{
         client_pool::Clients, online_handler::start_janus_reg_handler, JANUS_API_VERSION,
     },
-    client::mqtt_gateway::MqttGatewayHttpClient,
+    client::{conference::ConferenceHttpClient, mqtt_gateway::MqttGatewayHttpClient},
     config::{self, Config},
     db::ConnectionPool,
 };
@@ -78,13 +78,19 @@ pub async fn run(
     let metrics_registry = Registry::new();
     let metrics = crate::app::metrics::Metrics::new(&metrics_registry)?;
     let janus_metrics = crate::backend::janus::metrics::Metrics::new(&metrics_registry)?;
+
+    let replica_label =
+        std::env::var("APP_AGENT_LABEL").expect("APP_AGENT_LABEL must be specified");
+    let own_ip_addr = cluster_ip::get_ip(&replica_label).await?;
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::unbounded_channel();
     let clients = Clients::new(
         ev_tx,
         config.janus_group.clone(),
         db.clone(),
         config.waitlist_epoch_duration,
+        own_ip_addr,
     );
+
     thread::spawn({
         let db = db.clone();
         let collect_interval = config.metrics.janus_metrics_collect_interval;
@@ -100,8 +106,11 @@ pub async fn run(
     subscribe(&mut agent, &agent_id, &config)?;
     // Context
     let metrics = Arc::new(metrics);
+
     let mqtt_gateway_client =
         MqttGatewayHttpClient::new(token.clone(), config.mqtt_api_host_uri.clone());
+    let conference_client = ConferenceHttpClient::new(token.clone());
+
     let context = AppContext::new(
         config.clone(),
         authz,
@@ -109,6 +118,7 @@ pub async fn run(
         clients.clone(),
         metrics.clone(),
         mqtt_gateway_client,
+        conference_client,
     );
     let reg_handler = tokio::spawn(start_janus_reg_handler(
         config.janus_registry.clone(),
@@ -336,6 +346,7 @@ async fn start_metrics_collector(registry: Registry, bind_addr: SocketAddr) -> a
     Ok(())
 }
 
+pub mod cluster_ip;
 pub mod context;
 pub mod endpoint;
 pub mod error;

@@ -21,6 +21,7 @@ use crate::{
         metrics::HistogramExt,
         API_VERSION,
     },
+    client::conference::ConferenceClient,
     db::{self, agent_connection, janus_rtc_stream, recording, room, rtc},
 };
 
@@ -153,13 +154,42 @@ async fn handle_event_impl<C: Context>(
                             }
                             Err(err) => Ok(handle_response_error(context, &reqp, err)),
                         },
-                        client::create_stream::CreateStreamTransaction::Http { id } => {
-                            if let Err(err) = context
-                                .janus_clients()
-                                .stream_waitlist()
-                                .fire(id, response_data)
-                            {
-                                error!(?err, "waitlist failure");
+                        client::create_stream::CreateStreamTransaction::Http {
+                            id,
+                            replica_addr,
+                        } => {
+                            let own_ip_addr = context.janus_clients().own_ip_addr();
+
+                            if own_ip_addr == replica_addr {
+                                if let Err(err) = context
+                                    .janus_clients()
+                                    .stream_waitlist()
+                                    .fire(id, response_data)
+                                {
+                                    error!(?err, "failed to fire the response to waitlist");
+                                }
+                            } else {
+                                match response_data {
+                                    Ok(response) => {
+                                        if let Err(err) = context
+                                            .conference_client()
+                                            .stream_callback(replica_addr, response, id)
+                                            .await
+                                        {
+                                            error!(
+                                                ?err,
+                                                "failed to callback replica {}", replica_addr,
+                                            );
+                                        }
+                                    }
+                                    Err(err) => {
+                                        error!(
+                                            ?err,
+                                            "failed to parse create stream event for replica {}",
+                                            replica_addr,
+                                        );
+                                    }
+                                }
                             }
 
                             Ok(Box::new(stream::empty()))
@@ -223,13 +253,39 @@ async fn handle_event_impl<C: Context>(
                             }
                             Err(err) => Ok(handle_response_error(context, &reqp, err)),
                         },
-                        client::read_stream::ReadStreamTransaction::Http { id } => {
-                            if let Err(err) = context
-                                .janus_clients()
-                                .stream_waitlist()
-                                .fire(id, response_data)
-                            {
-                                error!(?err, "waitlist failure");
+                        client::read_stream::ReadStreamTransaction::Http { id, replica_addr } => {
+                            let own_ip_addr = context.janus_clients().own_ip_addr();
+
+                            if own_ip_addr == replica_addr {
+                                if let Err(err) = context
+                                    .janus_clients()
+                                    .stream_waitlist()
+                                    .fire(id, response_data)
+                                {
+                                    error!(?err, "failed to fire the response to waitlist");
+                                }
+                            } else {
+                                match response_data {
+                                    Ok(response) => {
+                                        if let Err(err) = context
+                                            .conference_client()
+                                            .stream_callback(replica_addr, response, id)
+                                            .await
+                                        {
+                                            error!(
+                                                ?err,
+                                                "failed to callback replica {}", replica_addr,
+                                            );
+                                        }
+                                    }
+                                    Err(err) => {
+                                        error!(
+                                            ?err,
+                                            "failed to parse create stream event for replica {}",
+                                            replica_addr,
+                                        );
+                                    }
+                                }
                             }
 
                             Ok(Box::new(stream::empty()))
