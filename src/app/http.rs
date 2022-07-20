@@ -6,7 +6,7 @@ use std::{
 
 use axum::{
     response::{IntoResponse, Response},
-    routing::{get, options, post},
+    routing::{get, options},
     Extension, Router,
 };
 use futures::future::BoxFuture;
@@ -90,7 +90,6 @@ pub fn build_router(
             "/rooms/:id/configs/writer/snapshot",
             options(endpoint::options).get(endpoint::writer_config_snapshot::read),
         )
-        .route("/callbacks/stream", post(endpoint::event_callback::stream))
         .layer(layer_fn(|inner| NotificationsMiddleware { inner }))
         .layer(Extension(context))
         .layer(Extension(agent))

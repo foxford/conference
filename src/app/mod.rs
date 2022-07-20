@@ -5,9 +5,7 @@ use crate::{
         error::{Error as AppError, ErrorKind as AppErrorKind},
         http::build_router,
     },
-    backend::janus::{
-        client_pool::Clients, online_handler::start_janus_reg_handler, JANUS_API_VERSION,
-    },
+    backend::janus::{client_pool::Clients, online_handler::start_internal_api, JANUS_API_VERSION},
     client::{conference::ConferenceHttpClient, mqtt_gateway::MqttGatewayHttpClient},
     config::{self, Config},
     db::ConnectionPool,
@@ -120,10 +118,11 @@ pub async fn run(
         mqtt_gateway_client,
         conference_client,
     );
-    let reg_handler = tokio::spawn(start_janus_reg_handler(
+    let reg_handler = tokio::spawn(start_internal_api(
         config.janus_registry.clone(),
         context.janus_clients(),
         context.db().clone(),
+        config.authn.clone(),
     ));
 
     let context = match redis_pool {

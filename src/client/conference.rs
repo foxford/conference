@@ -3,7 +3,9 @@ use std::net::IpAddr;
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 
-use crate::app::endpoint::{event_callback::CallbackRequest, rtc_signal::CreateResponseData};
+use crate::{
+    app::endpoint::rtc_signal::CreateResponseData, backend::janus::online_handler::StreamCallback,
+};
 
 #[derive(Debug)]
 pub enum Error {
@@ -68,7 +70,7 @@ impl ConferenceClient for ConferenceHttpClient {
         let r = self
             .http
             .post(uri)
-            .json(&CallbackRequest::new(response, id))
+            .json(&StreamCallback::new(response, id))
             .header("Authorization", format!("Bearer {}", self.token))
             .send()
             .await?;
