@@ -96,22 +96,20 @@ pub async fn start_internal_api(
                     }
                     "/callbacks/stream" => {
                         let handle = async {
-                            let account_id = req
+                            let token = req
                                 .headers()
                                 .get("Authorization")
                                 .and_then(|x| x.to_str().ok())
                                 .and_then(|x| x.get("Bearer ".len()..))
-                                .and_then(|x| {
-                                    let claims =
-                                        decode_jws_compact_with_config::<String>(x, &authn)
-                                            .ok()?
-                                            .claims;
+                                .unwrap_or_default();
 
-                                    Some(AccountId::new(claims.subject(), claims.audience()))
-                                });
+                            let account_id = decode_jws_compact_with_config::<String>(
+                                token, &authn,
+                            )
+                            .map(|jws| AccountId::new(jws.claims.subject(), jws.claims.audience()));
 
                             match account_id {
-                                Some(account_id) if account_id.label() == "conference" => {}
+                                Ok(account_id) if account_id.label() == "conference" => {}
                                 _ => {
                                     error!(
                                         ?account_id,
