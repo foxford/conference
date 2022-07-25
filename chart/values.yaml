@@ -6,7 +6,7 @@ replicaCount: 2
 
 app:
   image:
-    repository: foxford/conference
+    repository: cr.yandex/crp1of6bddata8ain3q5/conference
     tag: ""
 
   resources:
@@ -41,7 +41,7 @@ app:
 
 migrations:
   image:
-    repository: foxford/conference-migration
+    repository: cr.yandex/crp1of6bddata8ain3q5/conference-migration
     tag: ""
 
   resources:

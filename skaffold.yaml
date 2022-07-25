@@ -2,10 +2,10 @@ apiVersion: skaffold/v2beta11
 kind: Config
 build:
   artifacts:
-  - image: foxford/conference-migration
+  - image: cr.yandex/crp1of6bddata8ain3q5/conference-migration
     docker:
       dockerfile: docker/migration.dockerfile
-  - image: foxford/conference
+  - image: cr.yandex/crp1of6bddata8ain3q5/conference
     docker:
       dockerfile: docker/Dockerfile
   tagPolicy:
@@ -20,8 +20,8 @@ deploy:
     - name: conference
       chartPath: chart
       artifactOverrides:
-        app.image: foxford/conference
-        migrations.image: foxford/conference-migration
+        app.image: cr.yandex/crp1of6bddata8ain3q5/conference
+        migrations.image: cr.yandex/crp1of6bddata8ain3q5/conference-migration
       imageStrategy:
         helm: {}
       valuesFiles:

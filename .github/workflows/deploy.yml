@@ -10,6 +10,10 @@ on:
       version:
         description: 'Commit/tag/branch'
         required: false
+      configuration_branch:
+        description: 'Configuration branch to use'
+        required: true
+        default: 'master'
 
 jobs:
   deploy:
@@ -25,10 +29,11 @@ jobs:
     - name: Deploy
       run: |
         for NAMESPACE in $NAMESPACES; do
-          NAMESPACE=$NAMESPACE ./deploy.init.sh && NAMESPACE=$NAMESPACE ./deploy/github-actions-run.sh
+          NAMESPACE=$NAMESPACE BRANCH=$BRANCH ./deploy.init.sh && NAMESPACE=$NAMESPACE ./deploy/github-actions-run.sh
         done
       env:
         NAMESPACES: ${{ github.event.inputs.namespace }}
+        BRANCH: ${{ github.event.inputs.configuration_branch }}
         KUBE_TOKEN_TESTING: ${{ secrets.KUBE_TOKEN_TESTING }}
         KUBE_SERVER_TESTING: ${{ secrets.KUBE_SERVER_TESTING }}
         OVPN_CONFIG: ${{ secrets.OVPN_CONFIG }}
@@ -36,6 +41,6 @@ jobs:
         OVPN_CERT: ${{ secrets.OVPN_CERT }}
         OVPN_KEY: ${{ secrets.OVPN_KEY }}
         GITHUB_TOKEN: ${{ secrets._GITHUB_TOKEN }}
-        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        DOCKER_PASSWORD: ${{ secrets.YANDEX_DOCKER_PASSWORD }}
+        DOCKER_USERNAME: ${{ secrets.YANDEX_DOCKER_USERNAME }}
 
