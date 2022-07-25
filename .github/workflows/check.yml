@@ -1,4 +1,4 @@
-name: CI
+name: Check
 
 on:
   push:
@@ -21,6 +21,11 @@ jobs:
           toolchain: stable
           override: true
           components: rustfmt, clippy
+    - name: Login in private registry
+      run: printf "%s" "${DOCKER_PASSWORD}" | docker login -u ${DOCKER_USERNAME} --password-stdin cr.yandex
+      env:
+        DOCKER_PASSWORD: ${{ secrets.YANDEX_DOCKER_PASSWORD }}
+        DOCKER_USERNAME: ${{ secrets.YANDEX_DOCKER_USERNAME }}
     - uses: Swatinem/rust-cache@v1
     - name: clippy
       run: cargo clippy -- -D warnings
