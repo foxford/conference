@@ -1,5 +1,5 @@
-FROM foxford/mqtt-gateway:v0.11.1 as mqtt-gateway-plugin
-FROM foxford/janus-gateway:cbf60fa as janus-conference-plugin
+FROM cr.yandex/crp1of6bddata8ain3q5:v0.11.1 as mqtt-gateway-plugin
+FROM cr.yandex/crp1of6bddata8ain3q5:cbf60fa as janus-conference-plugin
 FROM debian:stretch
 
 ENV DEBIAN_FRONTEND noninteractive

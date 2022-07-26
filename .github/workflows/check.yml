@@ -26,6 +26,12 @@ jobs:
       run: cargo clippy -- -D warnings
     - name: fmt
       run: cargo fmt -- --check
+    - name: Login into private registry
+      run: |
+        printf "%s" "${DOCKER_PASSWORD}" | docker login -u ${DOCKER_USERNAME} --password-stdin cr.yandex
+      env:
+        DOCKER_PASSWORD: ${{ secrets.YANDEX_DOCKER_PASSWORD }}
+        DOCKER_USERNAME: ${{ secrets.YANDEX_DOCKER_USERNAME }}
     - name: Run tests
       run: cargo test --verbose 
       env:
