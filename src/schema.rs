@@ -93,7 +93,7 @@ table! {
         tags -> Json,
         backend_id -> Nullable<Agent_id>,
         rtc_sharing_policy -> Rtc_sharing_policy,
-        classroom_id -> Nullable<Uuid>,
+        classroom_id -> Uuid,
         host -> Nullable<Agent_id>,
         timed_out -> Bool,
         closed_by -> Nullable<Agent_id>,

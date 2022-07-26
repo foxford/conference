@@ -82,7 +82,12 @@ impl<'a> Room<'a> {
         let audience = self.audience.expect("Audience not set");
         let time = self.time.expect("Time not set");
 
-        let mut q = db::room::InsertQuery::new(time, &audience, self.rtc_sharing_policy);
+        let mut q = db::room::InsertQuery::new(
+            time,
+            &audience,
+            self.rtc_sharing_policy,
+            uuid::Uuid::new_v4(),
+        );
 
         if let Some(backend_id) = self.backend_id {
             q = q.backend_id(backend_id);

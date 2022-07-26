@@ -23,7 +23,7 @@ backend            | String     | none       | [DEPRECATED] The room backend. Av
 rtc_sharing_policy | String     | none       | RTC sharing mode. Available values: none, shared, owned.
 reserve            | i32        | _optional_ | The number of slots for subscribers to reserve on the server.
 tags               | json       | {}         | Arbitrary tags object associated with the room.
-classroom_id       | uuid       | _optional_ | Related classroom id.
+classroom_id       | uuid       | _required_ | Related classroom id.
 
 **Deprecation warning**
 

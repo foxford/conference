@@ -1,0 +1,1 @@
+ALTER TABLE room ALTER COLUMN classroom_id DROP NOT NULL;

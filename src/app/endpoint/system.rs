@@ -338,11 +338,7 @@ fn upload_config<'a, C: Context>(
 fn record_name(recording: &Recording, room: &Room) -> String {
     let prefix = match room.rtc_sharing_policy() {
         SharingPolicy::Owned => {
-            if let Some(classroom_id) = room.classroom_id() {
-                format!("{}/", classroom_id)
-            } else {
-                String::from("")
-            }
+            format!("{}/", room.classroom_id())
         }
         _ => String::from(""),
     };
