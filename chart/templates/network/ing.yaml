@@ -4,7 +4,6 @@ metadata:
   name: {{ include "conference.fullname" . }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
     nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
   tls:
