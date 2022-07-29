@@ -1,7 +1,4 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
-use axum::extract::Extension;
 use chrono::Utc;
 use serde::Deserialize;
 use serde_json::json;
@@ -11,9 +8,8 @@ use tracing_attributes::instrument;
 
 use crate::{
     app::{
-        context::{AppContext, Context},
+        context::Context,
         endpoint::prelude::*,
-        http::AuthExtractor,
         service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
@@ -22,21 +18,6 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 pub struct Request {}
-
-pub async fn agent_cleanup(
-    Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
-) -> RequestResult {
-    let request = Request {};
-    Handler::handle(
-        &mut ctx.start_message(),
-        request,
-        RequestParams::Http {
-            agent_id: &agent_id,
-        },
-    )
-    .await
-}
 
 pub struct Handler;
 

@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use svc_agent::{mqtt::IncomingRequestProperties, AgentId};
@@ -15,9 +17,16 @@ pub struct ReadStreamRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ReadStreamTransaction {
-    pub reqp: IncomingRequestProperties,
-    pub start_timestamp: DateTime<Utc>,
+#[allow(clippy::large_enum_variant)]
+pub enum ReadStreamTransaction {
+    Mqtt {
+        reqp: IncomingRequestProperties,
+        start_timestamp: DateTime<Utc>,
+    },
+    Http {
+        id: usize,
+        replica_addr: IpAddr,
+    },
 }
 
 #[derive(Serialize, Debug)]

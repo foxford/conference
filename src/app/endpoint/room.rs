@@ -11,8 +11,9 @@ use serde_json::{json, Value as JsonValue};
 use std::{ops::Bound, sync::Arc};
 use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
-    Addressable, AgentId, Subscription,
+    Addressable, AgentId, Authenticable, Subscription,
 };
+use svc_utils::extractors::AuthnExtractor;
 
 use uuid::Uuid;
 
@@ -20,16 +21,18 @@ use crate::{
     app::{
         context::{AppContext, Context},
         endpoint::{prelude::*, subscription::CorrelationDataPayload},
-        http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
         API_VERSION,
     },
     authz::AuthzObject,
+    client::mqtt_gateway::MqttGatewayClient,
     db,
     db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
 };
 use tracing_attributes::instrument;
+
+use super::subscription::RoomEnterLeaveEvent;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -64,7 +67,7 @@ pub struct CreateRequest {
 
 pub async fn create(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Json(request): Json<CreateRequest>,
 ) -> RequestResult {
     CreateHandler::handle(
@@ -161,7 +164,7 @@ pub struct ReadRequest {
 
 pub async fn read(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = ReadRequest { id: room_id };
@@ -245,7 +248,7 @@ pub struct UpdateFields {
 
 pub async fn update(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
     Json(request): Json<UpdateFields>,
 ) -> RequestResult {
@@ -414,7 +417,7 @@ pub struct CloseRequest {
 
 pub async fn close(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = CloseRequest { id: room_id };
@@ -520,6 +523,36 @@ impl RequestHandler for CloseHandler {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+#[derive(Deserialize)]
+pub struct EnterPayload {
+    #[serde(default)]
+    agent_label: Option<String>,
+}
+
+pub async fn enter(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthnExtractor(agent_id): AuthnExtractor,
+    Path(room_id): Path<db::room::Id>,
+    Json(payload): Json<EnterPayload>,
+) -> RequestResult {
+    let request = EnterRequest { id: room_id };
+
+    let agent_id = payload
+        .agent_label
+        .as_ref()
+        .map(|label| AgentId::new(label, agent_id.as_account_id().to_owned()))
+        .unwrap_or(agent_id);
+
+    EnterHandler::handle(
+        &mut ctx.start_message(),
+        request,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
+
 pub type EnterRequest = ReadRequest;
 pub struct EnterHandler;
 
@@ -534,7 +567,6 @@ impl RequestHandler for EnterHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let mqtt_params = reqp.as_mqtt_params()?;
         let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking(move || {
             helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::NotClosed, &conn)
@@ -555,48 +587,55 @@ impl RequestHandler for EnterHandler {
         let conn = context.get_conn().await?;
         crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
-            move || db::agent::InsertQuery::new(&agent_id, room.id()).execute(&conn)
+            let room_id = room.id();
+            move || db::agent::InsertQuery::new(&agent_id, room_id).execute(&conn)
         })
         .await?;
 
         // Send dynamic subscription creation request to the broker.
         let subject = reqp.as_agent_id().to_owned();
-        let object = vec!["rooms", &room_id, "events"];
-        let object = object
-            .into_iter()
-            .map(|s| s.to_owned())
-            .collect::<Vec<String>>();
-        let payload = SubscriptionRequest::new(subject.clone(), object.clone());
+        let object = ["rooms", &room_id, "events"];
 
-        let broker_id = AgentId::new("nevermind", context.config().broker_id.to_owned());
+        tracing::info!(
+            "send dynsub request to mqtt gateway {} {:?}",
+            subject,
+            object
+        );
 
-        let response_topic = Subscription::unicast_responses_from(&broker_id)
-            .subscription_topic(context.agent_id(), API_VERSION)
-            .context("Failed to build response topic")
-            .error(AppErrorKind::BrokerRequestFailed)?;
+        context
+            .mqtt_gateway_client()
+            .create_subscription(subject.clone(), &object)
+            .await
+            .map_err(|err| AppError::new(AppErrorKind::BrokerRequestFailed, err))?;
 
-        let corr_data_payload =
-            CorrelationDataPayload::new(mqtt_params.to_owned(), subject, object);
+        let room = crate::util::spawn_blocking({
+            let subject = subject.clone();
+            let conn = context.get_conn().await?;
+            move || {
+                if room.host() == Some(&subject) {
+                    db::orphaned_room::remove_room(room.id(), &conn)?;
+                }
+                // Update agent state to `ready`.
+                db::agent::UpdateQuery::new(&subject, room.id())
+                    .status(db::agent::Status::Ready)
+                    .execute(&conn)?;
+                Ok::<_, AppError>(room)
+            }
+        })
+        .await?;
 
-        let corr_data = CorrelationData::SubscriptionCreate(corr_data_payload)
-            .dump()
-            .context("Failed to dump correlation data")
-            .error(AppErrorKind::BrokerRequestFailed)?;
-
-        let mut timing = ShortTermTimingProperties::until_now(context.start_timestamp());
-        timing.set_authorization_time(authz_time);
-
-        let props =
-            mqtt_params.to_request("subscription.create", &response_topic, &corr_data, timing);
-        let to = &context.config().broker_id;
-        let outgoing_request = OutgoingRequest::multicast(payload, props, to, API_VERSION);
         let mut response = Response::new(
             ResponseStatus::OK,
             json!({}),
             context.start_timestamp(),
             None,
         );
-        response.add_message(Box::new(outgoing_request));
+        response.add_notification(
+            "room.enter",
+            &format!("rooms/{}/events", room_id),
+            RoomEnterLeaveEvent::new(room.id(), subject),
+            context.start_timestamp(),
+        );
         context
             .metrics()
             .request_duration
@@ -1421,7 +1460,7 @@ mod test {
 
         use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
 
-        use super::{super::*, DynSubRequest};
+        use super::super::*;
 
         #[tokio::test]
         async fn enter_room() {
@@ -1450,25 +1489,9 @@ mod test {
             let mut context = TestContext::new(db, authz);
             let payload = EnterRequest { id: room.id() };
 
-            let messages = handle_request::<EnterHandler>(&mut context, &agent, payload)
+            handle_request::<EnterHandler>(&mut context, &agent, payload)
                 .await
                 .expect("Room entrance failed");
-
-            // Assert dynamic subscription request.
-            let (payload, reqp, topic) = find_request::<DynSubRequest>(messages.as_slice());
-
-            let expected_topic = format!(
-                "agents/{}.{}/api/{}/out/{}",
-                context.config().agent_label,
-                context.config().id,
-                API_VERSION,
-                context.config().broker_id,
-            );
-
-            assert_eq!(topic, expected_topic);
-            assert_eq!(reqp.method(), "subscription.create");
-            assert_eq!(payload.subject, agent.agent_id().to_owned());
-            assert_eq!(payload.object, vec!["rooms", &room_id, "events"]);
         }
 
         #[tokio::test]

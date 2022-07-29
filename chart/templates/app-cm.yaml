@@ -17,6 +17,7 @@ data:
     max_room_duration = 7
     janus_group = {{ .Values.app.janusGroup | default "" | quote }}
     orphaned_room_timeout = "10 minutes"
+    mqtt_api_host_uri = "http://mqtt-gateway-cluster:8081"
 
     [mqtt]
     uri = "tcp://mqtt-gateway-cluster:51883"
@@ -62,6 +63,14 @@ data:
     [id_token]
     algorithm = "ES256"
     key = "data/keys/svc.private_key.p8.der"
+
+    {{- $svc_audience := list (include "conference.shortNamespace" $) .audience | compact | join "." }}
+    {{- with .authn }}
+    [authn.{{ $svc_audience | quote }}]
+    audience = [{{ $svc_audience | quote }}]
+    algorithm = "ES256"
+    key = {{ "key" | get . | quote }}
+    {{- end }}
 
     {{- println "" }}
 

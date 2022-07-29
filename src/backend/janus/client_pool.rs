@@ -1,12 +1,8 @@
-use super::client::{IncomingEvent, JanusClient, PollResult, SessionId};
-use crate::{
-    db::{agent_connection, janus_backend, ConnectionPool},
-    util::spawn_blocking,
-};
 use anyhow::anyhow;
 use diesel::Connection;
 use std::{
     collections::{hash_map::Entry, HashMap},
+    net::IpAddr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, PoisonError, RwLock,
@@ -16,12 +12,25 @@ use std::{
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{error, warn};
 
+use crate::{
+    app::{endpoint::rtc_signal::CreateResponseData, error::Error},
+    db::{agent_connection, janus_backend, ConnectionPool},
+    util::spawn_blocking,
+};
+
+use super::{
+    client::{IncomingEvent, JanusClient, PollResult, SessionId},
+    waitlist::WaitList,
+};
+
 #[derive(Clone)]
 pub struct Clients {
     clients: Arc<RwLock<HashMap<janus_backend::Object, ClientHandle>>>,
     events_sink: UnboundedSender<IncomingEvent>,
     group: Option<String>,
     db: ConnectionPool,
+    stream_waitlist: WaitList<Result<CreateResponseData, Error>>,
+    ip_addr: IpAddr,
 }
 
 impl Clients {
@@ -29,12 +38,16 @@ impl Clients {
         events_sink: UnboundedSender<IncomingEvent>,
         group: Option<String>,
         db: ConnectionPool,
+        waitlist_epoch_duration: std::time::Duration,
+        ip_addr: IpAddr,
     ) -> Self {
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
             events_sink,
             group,
             db,
+            stream_waitlist: WaitList::new(waitlist_epoch_duration),
+            ip_addr,
         }
     }
 
@@ -106,6 +119,14 @@ impl Clients {
         for (_, handle) in guard.iter() {
             handle.is_cancelled.store(true, Ordering::SeqCst)
         }
+    }
+
+    pub fn stream_waitlist(&self) -> &WaitList<Result<CreateResponseData, Error>> {
+        &self.stream_waitlist
+    }
+
+    pub fn own_ip_addr(&self) -> IpAddr {
+        self.ip_addr
     }
 }
 

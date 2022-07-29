@@ -51,6 +51,7 @@ pub enum ErrorKind {
     RoomTimeChangingForbidden,
     RtcNotFound,
     MethodNotSupported,
+    JanusResponseTimeout,
 }
 
 impl ErrorKind {
@@ -287,6 +288,12 @@ impl From<ErrorKind> for ErrorKindProperties {
                 status: ResponseStatus::UNAUTHORIZED,
                 kind: "authentication_failed",
                 title: "Authentication failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::JanusResponseTimeout => ErrorKindProperties {
+                status: ResponseStatus::INTERNAL_SERVER_ERROR,
+                kind: "janus_response_timeout",
+                title: "Janus response timeout",
                 is_notify_sentry: true,
             },
         }

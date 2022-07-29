@@ -21,6 +21,7 @@ use crate::{
         metrics::HistogramExt,
         API_VERSION,
     },
+    client::conference::ConferenceClient,
     db::{self, agent_connection, janus_rtc_stream, recording, room, rtc},
 };
 
@@ -99,7 +100,8 @@ async fn handle_event_impl<C: Context>(
                 Some(TransactionKind::AgentLeave) => Ok(Box::new(stream::empty())),
                 Some(TransactionKind::CreateStream(tn)) => {
                     let jsep = resp.jsep;
-                    resp.plugindata
+                    let response_data = resp
+                        .plugindata
                         .data
                         .as_ref()
                         .ok_or_else(|| anyhow!("Missing 'data' in the response"))
@@ -120,32 +122,84 @@ async fn handle_event_impl<C: Context>(
                             let jsep = jsep
                                 .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
                                 .error(AppErrorKind::MessageParsingFailed)?;
+                            Ok(endpoint::rtc_signal::CreateResponseData::new(Some(jsep)))
+                        });
 
-                            let timing =
-                                ShortTermTimingProperties::until_now(context.start_timestamp());
+                    match tn {
+                        client::create_stream::CreateStreamTransaction::Mqtt {
+                            reqp,
+                            start_timestamp,
+                        } => match response_data {
+                            Ok(payload) => {
+                                let timing =
+                                    ShortTermTimingProperties::until_now(context.start_timestamp());
 
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),
-                                tn.reqp.to_response(ResponseStatus::OK, timing),
-                                tn.reqp.as_agent_id(),
-                                JANUS_API_VERSION,
-                            );
+                                let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                                    payload,
+                                    reqp.to_response(ResponseStatus::OK, timing),
+                                    reqp.as_agent_id(),
+                                    JANUS_API_VERSION,
+                                );
 
-                            let boxed_resp = Box::new(resp)
-                                as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-                            context
-                                .metrics()
-                                .request_duration
-                                .rtc_signal_create
-                                .observe_timestamp(tn.start_timestamp);
-                            Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
-                                as MessageStream)
-                        })
-                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
+                                context
+                                    .metrics()
+                                    .request_duration
+                                    .rtc_signal_create
+                                    .observe_timestamp(start_timestamp);
+
+                                let boxed_resp = Box::new(resp)
+                                    as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
+                                Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
+                                    as MessageStream)
+                            }
+                            Err(err) => Ok(handle_response_error(context, &reqp, err)),
+                        },
+                        client::create_stream::CreateStreamTransaction::Http {
+                            id,
+                            replica_addr,
+                        } => {
+                            let own_ip_addr = context.janus_clients().own_ip_addr();
+
+                            if own_ip_addr == replica_addr {
+                                if let Err(err) = context
+                                    .janus_clients()
+                                    .stream_waitlist()
+                                    .fire(id, response_data)
+                                {
+                                    error!(?err, "failed to fire the response to waitlist");
+                                }
+                            } else {
+                                match response_data {
+                                    Ok(response) => {
+                                        if let Err(err) = context
+                                            .conference_client()
+                                            .stream_callback(replica_addr, response, id)
+                                            .await
+                                        {
+                                            error!(
+                                                ?err,
+                                                "failed to callback replica {}", replica_addr,
+                                            );
+                                        }
+                                    }
+                                    Err(err) => {
+                                        error!(
+                                            ?err,
+                                            "failed to parse create stream event for replica {}",
+                                            replica_addr,
+                                        );
+                                    }
+                                }
+                            }
+
+                            Ok(Box::new(stream::empty()))
+                        }
+                    }
                 }
                 Some(TransactionKind::ReadStream(tn)) => {
                     let jsep = resp.jsep;
-                    resp.plugindata
+                    let response_data = resp
+                        .plugindata
                         .data
                         .as_ref()
                         .ok_or_else(|| anyhow!("Missing 'data' in the response"))
@@ -168,27 +222,75 @@ async fn handle_event_impl<C: Context>(
                                 .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
                                 .error(AppErrorKind::MessageParsingFailed)?;
 
-                            let timing =
-                                ShortTermTimingProperties::until_now(context.start_timestamp());
+                            Ok(endpoint::rtc_signal::CreateResponseData::new(Some(jsep)))
+                        });
 
-                            let resp = endpoint::rtc_signal::CreateResponse::unicast(
-                                endpoint::rtc_signal::CreateResponseData::new(Some(jsep)),
-                                tn.reqp.to_response(ResponseStatus::OK, timing),
-                                tn.reqp.as_agent_id(),
-                                JANUS_API_VERSION,
-                            );
+                    match tn {
+                        client::read_stream::ReadStreamTransaction::Mqtt {
+                            reqp,
+                            start_timestamp,
+                        } => match response_data {
+                            Ok(payload) => {
+                                let timing =
+                                    ShortTermTimingProperties::until_now(context.start_timestamp());
 
-                            let boxed_resp = Box::new(resp)
-                                as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-                            context
-                                .metrics()
-                                .request_duration
-                                .rtc_signal_read
-                                .observe_timestamp(tn.start_timestamp);
-                            Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
-                                as MessageStream)
-                        })
-                        .or_else(|err| Ok(handle_response_error(context, &tn.reqp, err)))
+                                let resp = endpoint::rtc_signal::CreateResponse::unicast(
+                                    payload,
+                                    reqp.to_response(ResponseStatus::OK, timing),
+                                    reqp.as_agent_id(),
+                                    JANUS_API_VERSION,
+                                );
+
+                                let boxed_resp = Box::new(resp)
+                                    as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
+                                context
+                                    .metrics()
+                                    .request_duration
+                                    .rtc_signal_read
+                                    .observe_timestamp(start_timestamp);
+                                Ok(Box::new(stream::once(std::future::ready(boxed_resp)))
+                                    as MessageStream)
+                            }
+                            Err(err) => Ok(handle_response_error(context, &reqp, err)),
+                        },
+                        client::read_stream::ReadStreamTransaction::Http { id, replica_addr } => {
+                            let own_ip_addr = context.janus_clients().own_ip_addr();
+
+                            if own_ip_addr == replica_addr {
+                                if let Err(err) = context
+                                    .janus_clients()
+                                    .stream_waitlist()
+                                    .fire(id, response_data)
+                                {
+                                    error!(?err, "failed to fire the response to waitlist");
+                                }
+                            } else {
+                                match response_data {
+                                    Ok(response) => {
+                                        if let Err(err) = context
+                                            .conference_client()
+                                            .stream_callback(replica_addr, response, id)
+                                            .await
+                                        {
+                                            error!(
+                                                ?err,
+                                                "failed to callback replica {}", replica_addr,
+                                            );
+                                        }
+                                    }
+                                    Err(err) => {
+                                        error!(
+                                            ?err,
+                                            "failed to parse create stream event for replica {}",
+                                            replica_addr,
+                                        );
+                                    }
+                                }
+                            }
+
+                            Ok(Box::new(stream::empty()))
+                        }
+                    }
                 }
                 Some(TransactionKind::UpdateReaderConfig) => Ok(Box::new(stream::empty())),
                 Some(TransactionKind::UpdateWriterConfig) => Ok(Box::new(stream::empty())),
@@ -401,3 +503,4 @@ pub mod client;
 pub mod client_pool;
 pub mod metrics;
 pub mod online_handler;
+mod waitlist;

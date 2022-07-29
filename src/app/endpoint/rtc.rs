@@ -8,7 +8,8 @@ use chrono::{Duration, Utc};
 
 use serde::{Deserialize, Serialize};
 use std::{fmt, ops::Bound, sync::Arc};
-use svc_agent::{mqtt::ResponseStatus, Addressable};
+use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId, Authenticable};
+use svc_utils::extractors::AuthnExtractor;
 
 use tracing::{warn, Span};
 
@@ -18,7 +19,6 @@ use crate::{
         endpoint,
         endpoint::prelude::*,
         handle_id::HandleId,
-        http::AuthExtractor,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
     },
@@ -51,7 +51,7 @@ pub struct CreateRequest {
 
 pub async fn create(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = CreateRequest { room_id };
@@ -154,7 +154,7 @@ pub struct ReadRequest {
 
 pub async fn read(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(rtc_id): Path<db::rtc::Id>,
 ) -> RequestResult {
     let request = ReadRequest { id: rtc_id };
@@ -245,7 +245,7 @@ pub struct ListParams {
 
 pub async fn list(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<ListParams>>,
 ) -> RequestResult {
@@ -364,21 +364,29 @@ impl ConnectRequest {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Intent {
+pub struct ConnectPayload {
     #[serde(default = "ConnectRequest::default_intent")]
     intent: ConnectIntent,
+    #[serde(default)]
+    agent_label: Option<String>,
 }
 
 pub async fn connect(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
+    AuthnExtractor(agent_id): AuthnExtractor,
     Path(rtc_id): Path<db::rtc::Id>,
-    Json(intent): Json<Intent>,
+    Json(intent): Json<ConnectPayload>,
 ) -> RequestResult {
     let request = ConnectRequest {
         id: rtc_id,
         intent: intent.intent,
     };
+    let agent_id = intent
+        .agent_label
+        .as_ref()
+        .map(|label| AgentId::new(label, agent_id.as_account_id().to_owned()))
+        .unwrap_or(agent_id);
+
     ConnectHandler::handle(
         &mut ctx.start_message(),
         request,

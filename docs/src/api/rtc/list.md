@@ -4,15 +4,11 @@ List of real-time connections.
 
 
 
-## Multicast request
+## Request
+
+GET /api/v1/rooms/{id}/rtcs?{offset}&{limit}
 
 **Properties**
-
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ------------------
-method           | String | _required_ | Always `rtc.list`.
-
-**Payload**
 
 Name       | Type   | Default    | Description
 ---------- | ------ | ---------- | ------------------
@@ -22,6 +18,6 @@ limit      | i32    |         25 | Limits the number of objects in the response.
 
 
 
-## Unicast response
+## Response
 
 If successful, the response payload contains the list of **Real-Time Connection** objects.

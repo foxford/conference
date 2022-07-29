@@ -20,6 +20,7 @@ spec:
       labels:
         {{- include "conference.selectorLabels" . | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "conference.name" . }}
       imagePullSecrets:
         - name: regcred
       initContainers:

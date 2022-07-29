@@ -4,15 +4,11 @@ Retrieve a Room which holds Real-Time Connections.
 
 
 
-## Multicast request
+## Request
+
+GET /api/v1/rooms/{id}
 
 **Properties**
-
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ------------------
-method           | String | _required_ | Always `room.read`.
-
-**Payload**
 
 Name   | Type | Default    | Description
 ------ | ---- | ---------- | ------------------
@@ -20,6 +16,6 @@ id     | Uuid | _required_ | The room identifier.
 
 
 
-## Unicast response
+## Response
 
 If successful, the response payload contains a requested **Room** object.

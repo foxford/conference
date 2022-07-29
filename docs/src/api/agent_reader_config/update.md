@@ -9,22 +9,23 @@ The room must have `owned` RTC sharing policy.
 
 The writer for which we want to apply config for must have created an owned RTC in the room.
 
-## Multicast request
+## Request
+
+POST /api/v1/rooms/{room_id}/configs/reader
 
 **Properties**
 
 Name             | Type   | Default    | Description
 ---------------- | ------ | ---------- | ----------------------------------------
-method           | String | _required_ | Always `agent_reader_connection.update`.
+room_id          |   uuid | _required_ | The **Room** identifier.
 
 **Payload**
 
 Name    | Type     | Default    | Description
 ------- | -------- | ---------- | ----------------------------------------------
-room_id |     uuid | _required_ | The **Room** identifier.
 configs | [object] | []         | Array of **[Agent Reader Config Item](../agent_reader_config.html#agent-reader-config-item)** objects.
 
-## Unicast response
+## Response
 
 If successful, the response payload contains current
 **[Agent Reader Config](../agent_reader_config.html#agent-reader-config)** state for all RTCs

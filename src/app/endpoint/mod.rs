@@ -82,7 +82,6 @@ use super::service_utils::{RequestParams, Response};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CorrelationData {
-    SubscriptionCreate(subscription::CorrelationDataPayload),
     SubscriptionDelete(subscription::CorrelationDataPayload),
     MessageUnicast(message::CorrelationDataPayload),
 }
@@ -130,7 +129,6 @@ macro_rules! response_routes {
 }
 
 response_routes!(
-    SubscriptionCreate => subscription::CreateResponseHandler,
     SubscriptionDelete => subscription::DeleteResponseHandler,
     MessageUnicast => message::UnicastResponseHandler
 );
@@ -193,4 +191,10 @@ pub(self) mod prelude {
         endpoint::CorrelationData,
         error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
     };
+}
+
+pub async fn options() -> hyper::Response<hyper::Body> {
+    hyper::Response::builder()
+        .body(hyper::Body::empty())
+        .unwrap()
 }

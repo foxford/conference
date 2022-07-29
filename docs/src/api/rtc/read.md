@@ -4,15 +4,11 @@ Read the real-time connection.
 
 
 
-## Multicast request
+## Request
+
+GET /api/v1/rtcs/{id}
 
 **Properties**
-
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ------------------
-method           | String | _required_ | Always `rtc.read`.
-
-**Payload**
 
 Name       | Type   | Default    | Description
 ---------- | ------ | ---------- | ------------------
@@ -20,6 +16,6 @@ id         | String | _required_ | The Real-time connection identifier.
 
 
 
-## Unicast response
+## Response
 
 If successful, the response payload contains the **Real-Time Connection** instance.

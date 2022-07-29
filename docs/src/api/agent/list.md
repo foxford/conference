@@ -2,17 +2,11 @@
 
 List active agents.
 
+## Request
 
-
-## Multicast request
+GET /api/v1/rooms/{room_id}/agents?{offset}&{limit}
 
 **Properties**
-
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ------------------
-method           | string | _required_ | Always `agent.list`.
-
-**Payload**
 
 Name       | Type       | Default    | Description
 ---------- | ---------- | ---------- | ------------------
@@ -20,8 +14,6 @@ room_id    | string     | _required_ | Returns only objects that belong to the r
 offset     | int        | _optional_ | Returns objects starting from the specified index.
 limit      | int        |         25 | Limits the number of objects in the response.
 
-
-
-## Unicast response
+## Response
 
 If successful, the response payload contains the list of **Agent** objects.

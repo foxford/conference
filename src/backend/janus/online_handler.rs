@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use crate::{
+    app::endpoint::rtc_signal::CreateResponseData,
     backend::janus::client::{
         create_handle::CreateHandleRequest,
         service_ping::{ServicePingRequest, ServicePingRequestBody},
@@ -13,8 +16,9 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Body, Server,
 };
-use serde::Deserialize;
-use svc_agent::AgentId;
+use serde::{Deserialize, Serialize};
+use svc_agent::{AccountId, AgentId};
+use svc_authn::{jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config};
 use tracing::error;
 
 use super::client_pool::Clients;
@@ -28,44 +32,120 @@ struct Online {
     agent_id: AgentId,
 }
 
-pub async fn start_janus_reg_handler(
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StreamCallback {
+    response: CreateResponseData,
+    id: usize,
+}
+
+impl StreamCallback {
+    pub fn new(response: CreateResponseData, id: usize) -> Self {
+        Self { response, id }
+    }
+}
+
+pub async fn start_internal_api(
     janus_registry: JanusRegistry,
     clients: Clients,
     db: ConnectionPool,
+    authn: ConfigMap,
 ) -> anyhow::Result<()> {
     let token = janus_registry.token.clone();
+    let authn = Arc::new(authn);
+
     let service = make_service_fn(move |_| {
         let clients = clients.clone();
         let db = db.clone();
         let token = token.clone();
+        let authn = authn.clone();
+
         std::future::ready::<Result<_, hyper::Error>>(Ok(service_fn(move |req| {
             let clients = clients.clone();
             let db = db.clone();
             let token = token.clone();
+            let authn = authn.clone();
+
             async move {
-                let handle = async {
-                    if req
-                        .headers()
-                        .get("Authorization")
-                        .and_then(|x| x.to_str().ok())
-                        .map_or(true, |h| h != token)
-                    {
-                        return Ok::<_, anyhow::Error>(
-                            Response::builder().status(401).body(Body::empty())?,
-                        );
+                match req.uri().path() {
+                    "/" => {
+                        let handle = async {
+                            if req
+                                .headers()
+                                .get("Authorization")
+                                .and_then(|x| x.to_str().ok())
+                                .map_or(true, |h| h != token)
+                            {
+                                error!("Invalid token, path = {}", req.uri().path());
+                                return Ok::<_, anyhow::Error>(
+                                    Response::builder().status(401).body(Body::empty())?,
+                                );
+                            }
+                            let online: Online = serde_json::from_slice(
+                                &hyper::body::to_bytes(req.into_body()).await?,
+                            )?;
+                            handle_online(online, clients, db).await?;
+                            Ok::<_, anyhow::Error>(Response::builder().body(Body::empty())?)
+                        };
+                        Ok::<_, String>(handle.await.unwrap_or_else(|err| {
+                            error!(?err, "Register janus failed");
+                            Response::builder()
+                                .status(500)
+                                .body(Body::empty())
+                                .expect("Must be ok")
+                        }))
                     }
-                    let online: Online =
-                        serde_json::from_slice(&hyper::body::to_bytes(req.into_body()).await?)?;
-                    handle_online(online, clients, db).await?;
-                    Ok::<_, anyhow::Error>(Response::builder().body(Body::empty())?)
-                };
-                Ok::<_, String>(handle.await.unwrap_or_else(|err| {
-                    error!(?err, "Register janus failed");
-                    Response::builder()
-                        .status(500)
+                    "/callbacks/stream" => {
+                        let handle = async {
+                            let token = req
+                                .headers()
+                                .get("Authorization")
+                                .and_then(|x| x.to_str().ok())
+                                .and_then(|x| x.get("Bearer ".len()..))
+                                .unwrap_or_default();
+
+                            let account_id = decode_jws_compact_with_config::<String>(
+                                token, &authn,
+                            )
+                            .map(|jws| AccountId::new(jws.claims.subject(), jws.claims.audience()));
+
+                            match account_id {
+                                Ok(account_id) if account_id.label() == "conference" => {}
+                                _ => {
+                                    error!(
+                                        ?account_id,
+                                        "Invalid token, path = {}",
+                                        req.uri().path()
+                                    );
+                                    return Ok::<_, anyhow::Error>(
+                                        Response::builder().status(401).body(Body::empty())?,
+                                    );
+                                }
+                            }
+
+                            let callback: StreamCallback = serde_json::from_slice(
+                                &hyper::body::to_bytes(req.into_body()).await?,
+                            )?;
+
+                            clients
+                                .stream_waitlist()
+                                .fire(callback.id, Ok(callback.response))?;
+
+                            Ok::<_, anyhow::Error>(Response::builder().body(Body::empty())?)
+                        };
+
+                        Ok::<_, String>(handle.await.unwrap_or_else(|err| {
+                            error!(?err, "Callback handler failed");
+                            Response::builder()
+                                .status(500)
+                                .body(Body::empty())
+                                .expect("Must be ok")
+                        }))
+                    }
+                    _ => Ok(Response::builder()
+                        .status(404)
                         .body(Body::empty())
-                        .expect("Must be ok")
-                }))
+                        .expect("Must be ok")),
+                }
             }
         })))
     });

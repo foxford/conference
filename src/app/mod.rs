@@ -5,9 +5,8 @@ use crate::{
         error::{Error as AppError, ErrorKind as AppErrorKind},
         http::build_router,
     },
-    backend::janus::{
-        client_pool::Clients, online_handler::start_janus_reg_handler, JANUS_API_VERSION,
-    },
+    backend::janus::{client_pool::Clients, online_handler::start_internal_api, JANUS_API_VERSION},
+    client::{conference::ConferenceHttpClient, mqtt_gateway::MqttGatewayHttpClient},
     config::{self, Config},
     db::ConnectionPool,
 };
@@ -77,8 +76,19 @@ pub async fn run(
     let metrics_registry = Registry::new();
     let metrics = crate::app::metrics::Metrics::new(&metrics_registry)?;
     let janus_metrics = crate::backend::janus::metrics::Metrics::new(&metrics_registry)?;
+
+    let replica_label =
+        std::env::var("APP_AGENT_LABEL").expect("APP_AGENT_LABEL must be specified");
+    let own_ip_addr = cluster_ip::get_ip(&replica_label).await?;
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::unbounded_channel();
-    let clients = Clients::new(ev_tx, config.janus_group.clone(), db.clone());
+    let clients = Clients::new(
+        ev_tx,
+        config.janus_group.clone(),
+        db.clone(),
+        config.waitlist_epoch_duration,
+        own_ip_addr,
+    );
+
     thread::spawn({
         let db = db.clone();
         let collect_interval = config.metrics.janus_metrics_collect_interval;
@@ -94,17 +104,25 @@ pub async fn run(
     subscribe(&mut agent, &agent_id, &config)?;
     // Context
     let metrics = Arc::new(metrics);
+
+    let mqtt_gateway_client =
+        MqttGatewayHttpClient::new(token.clone(), config.mqtt_api_host_uri.clone());
+    let conference_client = ConferenceHttpClient::new(token.clone());
+
     let context = AppContext::new(
         config.clone(),
         authz,
         db.clone(),
         clients.clone(),
         metrics.clone(),
+        mqtt_gateway_client,
+        conference_client,
     );
-    let reg_handler = tokio::spawn(start_janus_reg_handler(
+    let reg_handler = tokio::spawn(start_internal_api(
         config.janus_registry.clone(),
         context.janus_clients(),
         context.db().clone(),
+        config.authn.clone(),
     ));
 
     let context = match redis_pool {
@@ -114,7 +132,14 @@ pub async fn run(
     let (graceful_tx, graceful_rx) = tokio::sync::oneshot::channel();
     let _http_task = tokio::spawn(
         axum::Server::bind(&config.http_addr)
-            .serve(build_router(Arc::new(context.clone()), agent.clone()).into_make_service())
+            .serve(
+                build_router(
+                    Arc::new(context.clone()),
+                    agent.clone(),
+                    config.authn.clone(),
+                )
+                .into_make_service(),
+            )
             .with_graceful_shutdown(async move {
                 let _ = graceful_rx.await;
             }),
@@ -282,21 +307,31 @@ fn resubscribe(agent: &mut Agent, agent_id: &AgentId, config: &Config) {
 async fn start_metrics_collector(registry: Registry, bind_addr: SocketAddr) -> anyhow::Result<()> {
     let service = make_service_fn(move |_| {
         let registry = registry.clone();
-        std::future::ready::<Result<_, hyper::Error>>(Ok(service_fn(move |_| {
+        std::future::ready::<Result<_, hyper::Error>>(Ok(service_fn(move |req| {
             let registry = registry.clone();
             async move {
-                let mut buffer = vec![];
-                let encoder = TextEncoder::new();
-                let metric_families = registry.gather();
-                match encoder.encode(&metric_families, &mut buffer) {
-                    Ok(_) => {
-                        let response = Response::new(Body::from(buffer));
-                        Ok::<_, hyper::Error>(response)
+                match req.uri().path() {
+                    "/metrics" => {
+                        let mut buffer = vec![];
+                        let encoder = TextEncoder::new();
+                        let metric_families = registry.gather();
+                        match encoder.encode(&metric_families, &mut buffer) {
+                            Ok(_) => {
+                                let response = Response::new(Body::from(buffer));
+                                Ok::<_, hyper::Error>(response)
+                            }
+                            Err(err) => {
+                                warn!(?err, "Metrics not gathered");
+                                let mut response = Response::default();
+                                *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                                Ok(response)
+                            }
+                        }
                     }
-                    Err(err) => {
-                        warn!(?err, "Metrics not gathered");
+                    path => {
+                        warn!(?path, "Not found");
                         let mut response = Response::default();
-                        *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                        *response.status_mut() = StatusCode::NOT_FOUND;
                         Ok(response)
                     }
                 }
@@ -310,6 +345,7 @@ async fn start_metrics_collector(registry: Registry, bind_addr: SocketAddr) -> a
     Ok(())
 }
 
+pub mod cluster_ip;
 pub mod context;
 pub mod endpoint;
 pub mod error;

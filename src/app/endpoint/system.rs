@@ -1,9 +1,8 @@
 use crate::{
     app::{
-        context::{AppContext, Context},
+        context::Context,
         endpoint::prelude::*,
         error::Error as AppError,
-        http::AuthExtractor,
         service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
@@ -20,12 +19,11 @@ use crate::{
 };
 use anyhow::anyhow;
 use async_trait::async_trait;
-use axum::extract::Extension;
 use chrono::Utc;
 use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{ops::Bound, result::Result as StdResult, sync::Arc};
+use std::{ops::Bound, result::Result as StdResult};
 use svc_agent::{
     mqtt::{
         IncomingEventProperties, OutgoingEvent, OutgoingEventProperties, OutgoingMessage,
@@ -69,20 +67,6 @@ struct ClosedRoomNotification {
 
 #[derive(Debug, Deserialize)]
 pub struct VacuumRequest {}
-pub async fn vacuum(
-    Extension(ctx): Extension<Arc<AppContext>>,
-    AuthExtractor(agent_id): AuthExtractor,
-) -> RequestResult {
-    let request = VacuumRequest {};
-    VacuumHandler::handle(
-        &mut ctx.start_message(),
-        request,
-        RequestParams::Http {
-            agent_id: &agent_id,
-        },
-    )
-    .await
-}
 
 pub struct VacuumHandler;
 
@@ -350,7 +334,6 @@ fn record_name(recording: &Recording, room: &Room) -> String {
 
 mod agent_cleanup;
 
-pub use agent_cleanup::agent_cleanup;
 pub use agent_cleanup::Handler as AgentCleanupHandler;
 
 ///////////////////////////////////////////////////////////////////////////////

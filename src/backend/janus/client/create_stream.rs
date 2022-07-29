@@ -15,9 +15,16 @@ pub struct CreateStreamRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CreateStreamTransaction {
-    pub reqp: IncomingRequestProperties,
-    pub start_timestamp: DateTime<Utc>,
+#[allow(clippy::large_enum_variant)]
+pub enum CreateStreamTransaction {
+    Mqtt {
+        reqp: IncomingRequestProperties,
+        start_timestamp: DateTime<Utc>,
+    },
+    Http {
+        id: usize,
+        replica_addr: std::net::IpAddr,
+    },
 }
 
 #[derive(Serialize, Debug)]

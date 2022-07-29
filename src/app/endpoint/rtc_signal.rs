@@ -1,6 +1,6 @@
 use crate::{
     app::{
-        context::Context,
+        context::{AppContext, Context},
         endpoint,
         endpoint::prelude::*,
         handle_id::HandleId,
@@ -21,22 +21,24 @@ use crate::{
 };
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
+use axum::{Extension, Json};
 use chrono::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use std::result::Result as StdResult;
+use std::{result::Result as StdResult, sync::Arc};
 use svc_agent::{
     mqtt::{OutgoingResponse, ResponseStatus},
-    Addressable,
+    Addressable, AgentId, Authenticable,
 };
+use svc_utils::extractors::AuthnExtractor;
 
 use tracing::Span;
 use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CreateResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
     jsep: Option<JsonValue>,
@@ -52,11 +54,34 @@ pub type CreateResponse = OutgoingResponse<CreateResponseData>;
 
 ///////////////////////////////////////////////////////////////////////////////
 
+pub async fn create(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AuthnExtractor(agent_id): AuthnExtractor,
+    Json(payload): Json<CreateRequest>,
+) -> RequestResult {
+    let agent_id = payload
+        .agent_label
+        .as_ref()
+        .map(|label| AgentId::new(label, agent_id.as_account_id().to_owned()))
+        .unwrap_or(agent_id);
+
+    CreateHandler::handle(
+        &mut ctx.start_message(),
+        payload,
+        RequestParams::Http {
+            agent_id: &agent_id,
+        },
+    )
+    .await
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateRequest {
     handle_id: HandleId,
     jsep: Jsep,
     label: Option<String>,
+    #[serde(default)]
+    agent_label: Option<String>,
 }
 
 pub struct CreateHandler;
@@ -79,10 +104,9 @@ impl RequestHandler for CreateHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let mqtt_params = reqp.as_mqtt_params()?;
         // Validate RTC and room presence.
         let conn = context.get_conn().await?;
-        let (room, rtc, backend) =crate::util::spawn_blocking({
+        let (room, rtc, backend) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let handle_id = payload.handle_id.clone();
             move ||{
@@ -163,17 +187,60 @@ impl RequestHandler for CreateHandler {
                                 session_id: payload.handle_id.janus_session_id(),
                                 jsep: payload.jsep,
                             };
-                            let transaction = ReadStreamTransaction {
-                                reqp: mqtt_params.clone(),
-                                start_timestamp: context.start_timestamp(),
-                            };
-                            context
-                                .janus_clients()
-                                .get_or_insert(&backend)
-                                .error(AppErrorKind::BackendClientCreationFailed)?
-                                .read_stream(request, transaction)
-                                .await
-                                .error(AppErrorKind::BackendRequestFailed)?;
+
+                            match reqp.as_mqtt_params() {
+                                Ok(mqtt_params) => {
+                                    let transaction = ReadStreamTransaction::Mqtt {
+                                        reqp: mqtt_params.clone(),
+                                        start_timestamp: context.start_timestamp(),
+                                    };
+                                    context
+                                        .janus_clients()
+                                        .get_or_insert(&backend)
+                                        .error(AppErrorKind::BackendClientCreationFailed)?
+                                        .read_stream(request, transaction)
+                                        .await
+                                        .error(AppErrorKind::BackendRequestFailed)?;
+
+                                    Ok(Response::new(
+                                        ResponseStatus::NO_CONTENT,
+                                        json!({}),
+                                        context.start_timestamp(),
+                                        None,
+                                    ))
+                                }
+                                Err(_err) => {
+                                    let handle = context
+                                        .janus_clients()
+                                        .stream_waitlist()
+                                        .register()
+                                        .error(AppErrorKind::JanusResponseTimeout)?;
+
+                                    let transaction = ReadStreamTransaction::Http {
+                                        id: handle.id(),
+                                        replica_addr: context.janus_clients().own_ip_addr(),
+                                    };
+                                    context
+                                        .janus_clients()
+                                        .get_or_insert(&backend)
+                                        .error(AppErrorKind::BackendClientCreationFailed)?
+                                        .read_stream(request, transaction)
+                                        .await
+                                        .error(AppErrorKind::BackendRequestFailed)?;
+
+                                    let resp = handle
+                                        .wait()
+                                        .await
+                                        .error(AppErrorKind::JanusResponseTimeout)??;
+
+                                    Ok(Response::new(
+                                        ResponseStatus::OK,
+                                        resp,
+                                        context.start_timestamp(),
+                                        None,
+                                    ))
+                                }
+                            }
                         } else {
                             current_span.record("intent", &"update");
 
@@ -249,24 +316,61 @@ impl RequestHandler for CreateHandler {
                                 session_id: payload.handle_id.janus_session_id(),
                                 jsep: payload.jsep,
                             };
-                            let transaction = CreateStreamTransaction {
-                                reqp: mqtt_params.clone(),
-                                start_timestamp: context.start_timestamp(),
-                            };
-                            context
-                                .janus_clients()
-                                .get_or_insert(&backend)
-                                .error(AppErrorKind::BackendClientCreationFailed)?
-                                .create_stream(request, transaction)
-                                .await
-                                .error(AppErrorKind::BackendRequestFailed)?;
+
+                            match reqp.as_mqtt_params() {
+                                Ok(mqtt_params) => {
+                                    let transaction = CreateStreamTransaction::Mqtt {
+                                        reqp: mqtt_params.clone(),
+                                        start_timestamp: context.start_timestamp(),
+                                    };
+                                    context
+                                        .janus_clients()
+                                        .get_or_insert(&backend)
+                                        .error(AppErrorKind::BackendClientCreationFailed)?
+                                        .create_stream(request, transaction)
+                                        .await
+                                        .error(AppErrorKind::BackendRequestFailed)?;
+
+                                    Ok(Response::new(
+                                        ResponseStatus::NO_CONTENT,
+                                        json!({}),
+                                        context.start_timestamp(),
+                                        None,
+                                    ))
+                                }
+                                Err(_err) => {
+                                    let handle = context
+                                        .janus_clients()
+                                        .stream_waitlist()
+                                        .register()
+                                        .error(AppErrorKind::JanusResponseTimeout)?;
+
+                                    let transaction = CreateStreamTransaction::Http {
+                                        id: handle.id(),
+                                        replica_addr: context.janus_clients().own_ip_addr(),
+                                    };
+                                    context
+                                        .janus_clients()
+                                        .get_or_insert(&backend)
+                                        .error(AppErrorKind::BackendClientCreationFailed)?
+                                        .create_stream(request, transaction)
+                                        .await
+                                        .error(AppErrorKind::BackendRequestFailed)?;
+
+                                    let resp = handle
+                                        .wait()
+                                        .await
+                                        .error(AppErrorKind::JanusResponseTimeout)??;
+
+                                    Ok(Response::new(
+                                        ResponseStatus::OK,
+                                        resp,
+                                        context.start_timestamp(),
+                                        None,
+                                    ))
+                                }
+                            }
                         }
-                        Ok(Response::new(
-                            ResponseStatus::NO_CONTENT,
-                            json!({}),
-                            context.start_timestamp(),
-                            None,
-                        ))
                     }
                     JsepType::Answer => Err(anyhow!("sdp_type = 'answer' is not allowed"))
                         .error(AppErrorKind::InvalidSdpType)?,
@@ -483,6 +587,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                 handle_id: handle_id.clone(),
                 jsep,
                 label: Some(String::from("whatever")),
+                agent_label: None,
             };
 
             handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -573,6 +678,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                 handle_id,
                 jsep,
                 label: Some(String::from("whatever")),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -664,6 +770,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: Some(String::from("whatever")),
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -759,6 +866,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
+                agent_label: None,
             };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -826,6 +934,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -879,6 +988,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -941,6 +1051,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1008,6 +1119,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1066,6 +1178,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1119,6 +1232,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1173,6 +1287,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1234,6 +1349,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1305,6 +1421,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent1, payload)
@@ -1368,6 +1485,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1439,6 +1557,7 @@ a=rtcp-fb:120 ccm fir
                 handle_id,
                 jsep,
                 label: None,
+                agent_label: None,
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent1, payload)

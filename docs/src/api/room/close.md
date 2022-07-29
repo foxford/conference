@@ -2,22 +2,18 @@
 
 Close a Room which holds Real-Time Connections.
 
-## Multicast request
+## Request
+
+POST /api/v1/rooms/{id}/close
 
 **Properties**
-
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ------------------
-method           | String | _required_ | Always `room.close`.
-
-**Payload**
 
 Name         | Type       | Default    | Description
 ------------ | ---------- | ---------- | ------------------
 id           | String     | _required_ | The room identifier. The room must not be expired.
 
 
-## Unicast response
+## Response
 
 If successful, the response payload contains an updated **Room** object.
 

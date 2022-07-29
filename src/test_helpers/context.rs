@@ -1,6 +1,10 @@
-use std::sync::Arc;
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    sync::Arc,
+};
 
 use chrono::{DateTime, Utc};
+use httpmock::MockServer;
 use prometheus::Registry;
 use serde_json::json;
 use svc_agent::AgentId;
@@ -13,6 +17,7 @@ use crate::{
         metrics::Metrics,
     },
     backend::janus::{client::IncomingEvent, client_pool::Clients},
+    client::{conference::ConferenceHttpClient, mqtt_gateway::MqttGatewayHttpClient},
     config::Config,
     db::ConnectionPool as Db,
 };
@@ -21,7 +26,7 @@ use super::{authz::TestAuthz, db::TestDb, SVC_AUDIENCE, USR_AUDIENCE};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-fn build_config() -> Config {
+fn build_config(mock: &MockServer) -> Config {
     let id = format!("conference.{}", SVC_AUDIENCE);
     let broker_id = format!("mqtt-gateway.{}", SVC_AUDIENCE);
     let backend_id = format!("janus-gateway.{}", SVC_AUDIENCE);
@@ -37,6 +42,7 @@ fn build_config() -> Config {
         },
         "authz": {},
         "authn": {},
+        "mqtt_api_host_uri": mock.base_url(),
         "mqtt": {
             "uri": "mqtt://0.0.0.0:1883",
             "clean_session": false,
@@ -89,12 +95,25 @@ pub struct TestContext {
     agent_id: AgentId,
     start_timestamp: DateTime<Utc>,
     clients: Option<Clients>,
+    mqtt_gateway_client: MqttGatewayHttpClient,
+    conference_client: ConferenceHttpClient,
 }
+
+const WAITLIST_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl TestContext {
     pub fn new(db: TestDb, authz: TestAuthz) -> Self {
-        let config = build_config();
+        // can be safely dropped
+        let mock_server = MockServer::start();
+        let _subscriptions_mock = mock_server.mock(|when, then| {
+            when.path("/api/v1/subscriptions")
+                .method(httpmock::Method::POST);
+            then.status(200);
+        });
+
+        let config = build_config(&mock_server);
         let agent_id = AgentId::new(&config.agent_label, config.id.clone());
+        let mqtt_api_host_uri = config.mqtt_api_host_uri.clone();
 
         Self {
             config,
@@ -103,11 +122,19 @@ impl TestContext {
             agent_id,
             start_timestamp: Utc::now(),
             clients: None,
+            mqtt_gateway_client: MqttGatewayHttpClient::new("test".to_owned(), mqtt_api_host_uri),
+            conference_client: ConferenceHttpClient::new("test".to_owned()),
         }
     }
 
     pub fn with_janus(&mut self, events_sink: UnboundedSender<IncomingEvent>) {
-        self.clients = Some(Clients::new(events_sink, None, self.db().clone()));
+        self.clients = Some(Clients::new(
+            events_sink,
+            None,
+            self.db().clone(),
+            WAITLIST_DURATION,
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+        ));
     }
 
     pub fn with_grouped_janus(&mut self, group: &str, events_sink: UnboundedSender<IncomingEvent>) {
@@ -115,6 +142,8 @@ impl TestContext {
             events_sink,
             Some(group.to_string()),
             self.db().clone(),
+            WAITLIST_DURATION,
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
         ));
     }
 
@@ -154,6 +183,14 @@ impl GlobalContext for TestContext {
     fn metrics(&self) -> Arc<Metrics> {
         let registry = Registry::new();
         Arc::new(Metrics::new(&registry).unwrap())
+    }
+
+    fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient {
+        &self.mqtt_gateway_client
+    }
+
+    fn conference_client(&self) -> &crate::client::conference::ConferenceHttpClient {
+        &self.conference_client
     }
 }
 

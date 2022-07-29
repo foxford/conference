@@ -1,5 +1,6 @@
 use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
+use reqwest::Url;
 use serde::Deserialize;
 use svc_agent::{mqtt::AgentConfig, AccountId};
 use svc_authn::jose::Algorithm;
@@ -15,6 +16,7 @@ pub struct Config {
     pub broker_id: AccountId,
     pub authz: Authz,
     pub mqtt: AgentConfig,
+    pub mqtt_api_host_uri: Url,
     pub sentry: Option<SentryConfig>,
     pub backend: BackendConfig,
     pub upload: UploadConfigs,
@@ -25,6 +27,12 @@ pub struct Config {
     pub orphaned_room_timeout: Duration,
     pub janus_registry: JanusRegistry,
     pub authn: svc_authn::jose::ConfigMap,
+    #[serde(with = "humantime_serde", default = "default_waitlist_epoch_duration")]
+    pub waitlist_epoch_duration: Duration,
+}
+
+fn default_waitlist_epoch_duration() -> Duration {
+    std::time::Duration::from_secs(60)
 }
 
 #[derive(Clone, Debug, Deserialize)]

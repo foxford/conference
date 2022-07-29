@@ -4,14 +4,9 @@ Create a Room which holds Real-Time Connections.
 
 
 
-## Multicast request
+## Request
 
-**Properties**
-
-Name             | Type   | Default    | Description
----------------- | ------ | ---------- | ------------------
-method           | String | _required_ | Always `room.create`.
-
+POST /api/v1/rooms
 
 **Payload**
 
@@ -31,7 +26,7 @@ classroom_id       | uuid       | _required_ | Related classroom id.
 `backend = janus` implies `rtc_sharing_policy = shared` and `backend = none` implies
 `rtc_sharing_policy = none`. If `rtc_sharing_policy` is specified then `backend` is being ignored.
 
-## Unicast response
+## Response
 
 If successful, the response payload contains a **Room** object.
 

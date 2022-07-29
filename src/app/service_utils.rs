@@ -90,18 +90,13 @@ impl Response {
 }
 
 impl IntoResponse for Response {
-    type Body = axum::body::Body;
+    fn into_response(self) -> axum::response::Response {
+        let body = serde_json::to_string(&self.payload.expect("Todo")).expect("todo");
 
-    type BodyError = <Self::Body as axum::body::HttpBody>::Error;
+        let mut r = (self.status, body).into_response();
+        r.extensions_mut().insert(self.notifications);
 
-    fn into_response(self) -> http::Response<Self::Body> {
-        http::Response::builder()
-            .status(self.status)
-            .extension(self.notifications)
-            .body(axum::body::Body::from(
-                serde_json::to_string(&self.payload.expect("Todo")).expect("todo"),
-            ))
-            .expect("Must be valid response")
+        r
     }
 }
 
