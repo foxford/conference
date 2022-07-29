@@ -94,6 +94,9 @@ name = "anyhow"
 version = "1.0.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61604a8f862e1d5c3229fdd78f8b02c68dcf73a4c4b05fd636d12240aaa242c1"
+dependencies = [
+ "backtrace",
+]
 
 [[package]]
 name = "arrayvec"
@@ -2854,11 +2857,23 @@ checksum = "546b9b6f76c26c60ffbcf0b7136e15169fe13d43949b4aadb7c1edc1c3f3a26f"
 dependencies = [
  "httpdate",
  "reqwest",
+ "sentry-anyhow",
  "sentry-backtrace",
  "sentry-contexts",
  "sentry-core",
  "sentry-panic",
  "tokio",
+]
+
+[[package]]
+name = "sentry-anyhow"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "338ef04f73ca2fb1130ebab3853dca36041aa219a442ae873627373887660c36"
+dependencies = [
+ "anyhow",
+ "sentry-backtrace",
+ "sentry-core",
 ]
 
 [[package]]
@@ -3332,16 +3347,18 @@ dependencies = [
 
 [[package]]
 name = "svc-error"
-version = "0.2.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45ba124380cab5b1acf1bb40fdb6159ee5be24f6c45b9f6f7b939c90a3f63bca"
+checksum = "746114b66fe115121d146776dd3808f4c60c762d72921fa5a0f0817798e26538"
 dependencies = [
+ "anyhow",
  "crossbeam-channel",
  "diesel",
  "http",
  "once_cell",
  "r2d2",
  "sentry",
+ "sentry-anyhow",
  "serde 1.0.130",
  "serde_derive",
  "svc-agent",
