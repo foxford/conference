@@ -13,7 +13,7 @@ use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Authenticable, Subscription,
 };
-use svc_utils::extractors::AuthnExtractor;
+use svc_utils::extractors::AgentIdExtractor;
 
 use uuid::Uuid;
 
@@ -67,7 +67,7 @@ pub struct CreateRequest {
 
 pub async fn create(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Json(request): Json<CreateRequest>,
 ) -> RequestResult {
     CreateHandler::handle(
@@ -164,7 +164,7 @@ pub struct ReadRequest {
 
 pub async fn read(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = ReadRequest { id: room_id };
@@ -248,7 +248,7 @@ pub struct UpdateFields {
 
 pub async fn update(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
     Json(request): Json<UpdateFields>,
 ) -> RequestResult {
@@ -417,7 +417,7 @@ pub struct CloseRequest {
 
 pub async fn close(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = CloseRequest { id: room_id };
@@ -531,7 +531,7 @@ pub struct EnterPayload {
 
 pub async fn enter(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
     Json(payload): Json<EnterPayload>,
 ) -> RequestResult {

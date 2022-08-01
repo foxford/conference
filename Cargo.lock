@@ -563,7 +563,7 @@ dependencies = [
  "svc-agent",
  "svc-authn",
  "svc-authz",
- "svc-error",
+ "svc-error 0.2.0",
  "svc-utils",
  "testcontainers",
  "tokio",
@@ -3350,10 +3350,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "svc-utils"
+name = "svc-error"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8fb014a41d49cd1bc0a7975511ed3a23e19a7352fc6bc8c76839d3ea0eed83d"
+checksum = "601b25c55d2123e19b0d6981a8579f4811c12d3d883ad73c4d7e97119d1ee704"
+dependencies = [
+ "anyhow",
+ "crossbeam-channel",
+ "http",
+ "serde 1.0.130",
+ "serde_derive",
+]
+
+[[package]]
+name = "svc-utils"
+version = "0.5.0"
+source = "git+https://github.com/0nkery/svc-utils-rs#da07c56b939b95ae91da34a13f6b8ca95ed67656"
 dependencies = [
  "axum",
  "futures",
@@ -3362,6 +3374,7 @@ dependencies = [
  "prometheus 0.13.1",
  "svc-agent",
  "svc-authn",
+ "svc-error 0.3.0",
  "tokio",
  "tower",
  "tower-http 0.2.5",

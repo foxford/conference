@@ -5,7 +5,7 @@ use axum::extract::{Extension, Path, Query};
 
 use serde::Deserialize;
 use svc_agent::mqtt::ResponseStatus;
-use svc_utils::extractors::AuthnExtractor;
+use svc_utils::extractors::AgentIdExtractor;
 
 use crate::{
     app::{
@@ -38,7 +38,7 @@ pub struct Pagination {
 
 pub async fn list(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<Pagination>>,
 ) -> RequestResult {
