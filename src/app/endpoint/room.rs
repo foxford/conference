@@ -533,7 +533,7 @@ pub async fn enter(
     Extension(ctx): Extension<Arc<AppContext>>,
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
-    Json(payload): Json<Option<EnterPayload>>,
+    payload: Option<Json<EnterPayload>>,
 ) -> RequestResult {
     let request = EnterRequest { id: room_id };
 
