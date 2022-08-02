@@ -533,14 +533,16 @@ pub async fn enter(
     Extension(ctx): Extension<Arc<AppContext>>,
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
-    Json(payload): Json<EnterPayload>,
+    Json(payload): Json<Option<EnterPayload>>,
 ) -> RequestResult {
     let request = EnterRequest { id: room_id };
 
     let agent_id = payload
-        .agent_label
-        .as_ref()
-        .map(|label| AgentId::new(label, agent_id.as_account_id().to_owned()))
+        .and_then(|p| {
+            p.agent_label
+                .as_ref()
+                .map(|label| AgentId::new(label, agent_id.as_account_id().to_owned()))
+        })
         .unwrap_or(agent_id);
 
     EnterHandler::handle(

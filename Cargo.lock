@@ -3365,7 +3365,7 @@ dependencies = [
 [[package]]
 name = "svc-utils"
 version = "0.5.0"
-source = "git+https://github.com/0nkery/svc-utils-rs#e570154a3602660e5509d29478a9902027caa741"
+source = "git+https://github.com/0nkery/svc-utils-rs#bc523d69e5999b541415396be8da8011563d5e0f"
 dependencies = [
  "axum",
  "futures",
