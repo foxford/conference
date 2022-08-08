@@ -31,7 +31,7 @@ use svc_agent::{
     mqtt::{OutgoingResponse, ResponseStatus},
     Addressable, AgentId, Authenticable,
 };
-use svc_utils::extractors::AuthnExtractor;
+use svc_utils::extractors::AgentIdExtractor;
 
 use tracing::Span;
 use tracing_attributes::instrument;
@@ -56,7 +56,7 @@ pub type CreateResponse = OutgoingResponse<CreateResponseData>;
 
 pub async fn create(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Json(payload): Json<CreateRequest>,
 ) -> RequestResult {
     let agent_id = payload

@@ -2,6 +2,7 @@
 
 - [Overview](overview.md)
 - [Authz](authz.md)
+- [Authn](authn.md)
 - [API](api.md)
     - [Room](api/room.md)
         - [Create](api/room/create.md)

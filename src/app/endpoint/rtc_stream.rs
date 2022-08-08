@@ -9,7 +9,7 @@ use svc_agent::mqtt::{
     OutgoingEvent, OutgoingEventProperties, OutgoingMessage, ResponseStatus,
     ShortTermTimingProperties,
 };
-use svc_utils::extractors::AuthnExtractor;
+use svc_utils::extractors::AgentIdExtractor;
 
 use crate::{
     app::{
@@ -50,7 +50,7 @@ pub struct ListParams {
 
 pub async fn list(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<ListParams>>,
 ) -> RequestResult {

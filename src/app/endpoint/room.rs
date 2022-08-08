@@ -13,7 +13,7 @@ use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Authenticable, Subscription,
 };
-use svc_utils::extractors::AuthnExtractor;
+use svc_utils::extractors::AgentIdExtractor;
 
 use uuid::Uuid;
 
@@ -67,7 +67,7 @@ pub struct CreateRequest {
 
 pub async fn create(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Json(request): Json<CreateRequest>,
 ) -> RequestResult {
     CreateHandler::handle(
@@ -164,7 +164,7 @@ pub struct ReadRequest {
 
 pub async fn read(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = ReadRequest { id: room_id };
@@ -248,7 +248,7 @@ pub struct UpdateFields {
 
 pub async fn update(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
     Json(request): Json<UpdateFields>,
 ) -> RequestResult {
@@ -417,7 +417,7 @@ pub struct CloseRequest {
 
 pub async fn close(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
     let request = CloseRequest { id: room_id };
@@ -531,16 +531,18 @@ pub struct EnterPayload {
 
 pub async fn enter(
     Extension(ctx): Extension<Arc<AppContext>>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
-    Json(payload): Json<EnterPayload>,
+    payload: Option<Json<EnterPayload>>,
 ) -> RequestResult {
     let request = EnterRequest { id: room_id };
 
     let agent_id = payload
-        .agent_label
-        .as_ref()
-        .map(|label| AgentId::new(label, agent_id.as_account_id().to_owned()))
+        .and_then(|p| {
+            p.agent_label
+                .as_ref()
+                .map(|label| AgentId::new(label, agent_id.as_account_id().to_owned()))
+        })
         .unwrap_or(agent_id);
 
     EnterHandler::handle(

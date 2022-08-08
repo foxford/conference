@@ -47,7 +47,7 @@ svc-error = { version = "0.2", features = [
   "svc-authz",
   "sentry-extension",
 ] }
-svc-utils = { version = "0.3", features = ["cors-middleware", "authn-extractor"] }
+svc-utils = { version = "0.5", features = ["cors-middleware", "authn-extractor"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
 tower-http = { version = "0.1", features = ["trace"] }

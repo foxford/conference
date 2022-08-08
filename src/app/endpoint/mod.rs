@@ -192,9 +192,3 @@ pub(self) mod prelude {
         error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
     };
 }
-
-pub async fn options() -> hyper::Response<hyper::Body> {
-    hyper::Response::builder()
-        .body(hyper::Body::empty())
-        .unwrap()
-}
