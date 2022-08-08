@@ -94,6 +94,9 @@ name = "anyhow"
 version = "1.0.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61604a8f862e1d5c3229fdd78f8b02c68dcf73a4c4b05fd636d12240aaa242c1"
+dependencies = [
+ "backtrace",
+]
 
 [[package]]
 name = "arrayvec"
@@ -563,7 +566,7 @@ dependencies = [
  "svc-agent",
  "svc-authn",
  "svc-authz",
- "svc-error 0.2.0",
+ "svc-error",
  "svc-utils",
  "testcontainers",
  "tokio",
@@ -2854,11 +2857,23 @@ checksum = "546b9b6f76c26c60ffbcf0b7136e15169fe13d43949b4aadb7c1edc1c3f3a26f"
 dependencies = [
  "httpdate",
  "reqwest",
+ "sentry-anyhow",
  "sentry-backtrace",
  "sentry-contexts",
  "sentry-core",
  "sentry-panic",
  "tokio",
+]
+
+[[package]]
+name = "sentry-anyhow"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "338ef04f73ca2fb1130ebab3853dca36041aa219a442ae873627373887660c36"
+dependencies = [
+ "anyhow",
+ "sentry-backtrace",
+ "sentry-core",
 ]
 
 [[package]]
@@ -3332,16 +3347,18 @@ dependencies = [
 
 [[package]]
 name = "svc-error"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45ba124380cab5b1acf1bb40fdb6159ee5be24f6c45b9f6f7b939c90a3f63bca"
+checksum = "601b25c55d2123e19b0d6981a8579f4811c12d3d883ad73c4d7e97119d1ee704"
 dependencies = [
+ "anyhow",
  "crossbeam-channel",
  "diesel",
  "http",
  "once_cell",
  "r2d2",
  "sentry",
+ "sentry-anyhow",
  "serde 1.0.130",
  "serde_derive",
  "svc-agent",
@@ -3350,22 +3367,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "svc-error"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "601b25c55d2123e19b0d6981a8579f4811c12d3d883ad73c4d7e97119d1ee704"
-dependencies = [
- "anyhow",
- "crossbeam-channel",
- "http",
- "serde 1.0.130",
- "serde_derive",
-]
-
-[[package]]
 name = "svc-utils"
 version = "0.5.0"
-source = "git+https://github.com/0nkery/svc-utils-rs#b968518e2b4c53be954417f23e2eee929a6b76e9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd2ff44610526e1a93636b09b44ff05a741a8b9ace6e1c6abe4aa1d8cde88b08"
 dependencies = [
  "axum",
  "futures",
@@ -3374,7 +3379,7 @@ dependencies = [
  "prometheus 0.13.1",
  "svc-agent",
  "svc-authn",
- "svc-error 0.3.0",
+ "svc-error",
  "tokio",
  "tower",
  "tower-http 0.2.5",
