@@ -71,6 +71,3 @@ version = "0.4"
 diesel_migrations = "1"
 httpmock = "0.6"
 testcontainers = { git = "https://github.com/testcontainers/testcontainers-rs" }
-
-[patch.crates-io]
-svc-utils = {git = "https://github.com/0nkery/svc-utils-rs"}
