@@ -3365,7 +3365,8 @@ dependencies = [
 [[package]]
 name = "svc-utils"
 version = "0.5.0"
-source = "git+https://github.com/0nkery/svc-utils-rs#b968518e2b4c53be954417f23e2eee929a6b76e9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd2ff44610526e1a93636b09b44ff05a741a8b9ace6e1c6abe4aa1d8cde88b08"
 dependencies = [
  "axum",
  "futures",
@@ -3566,9 +3567,9 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.20.0"
+version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57aec3cfa4c296db7255446efb4928a6be304b431a806216105542a67b6ca82e"
+checksum = "7a8325f63a7d4774dd041e363b2409ed1c5cbbd0f867795e661df066b2b0a581"
 dependencies = [
  "autocfg",
  "bytes 1.1.0",
