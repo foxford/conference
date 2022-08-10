@@ -14,8 +14,8 @@ spec:
   type: LoadBalancer
   externalTrafficPolicy: Cluster
   sessionAffinity: None
-  {{- if .Values.clusterService.ip }}
-  loadBalancerIP: {{ .Values.clusterService.ip }}
+  {{- if .Values.internalService.ip }}
+  loadBalancerIP: {{ .Values.internalService.ip }}
   {{- end }}
   ports:
     {{- if .Values.clusterService.ports.http }}
