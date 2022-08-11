@@ -11,7 +11,9 @@ use svc_agent::{
 use svc_error::Error as SvcError;
 use tracing::{error, Span};
 
-use self::client::{create_handle::OpaqueId, transactions::TransactionKind, IncomingEvent};
+use self::client::{
+    create_handle::OpaqueId, transactions::TransactionKind, HandleId, IncomingEvent,
+};
 use crate::{
     app::{
         context::Context,
@@ -89,8 +91,12 @@ async fn handle_event_impl<C: Context>(
             })
             .await
         }
-        IncomingEvent::HangUp(inev) => handle_hangup_detach(context, inev.opaque_id).await,
-        IncomingEvent::Detached(inev) => handle_hangup_detach(context, inev.opaque_id).await,
+        IncomingEvent::HangUp(inev) => {
+            handle_hangup_detach(context, inev.opaque_id, inev.sender).await
+        }
+        IncomingEvent::Detached(inev) => {
+            handle_hangup_detach(context, inev.opaque_id, inev.sender).await
+        }
         IncomingEvent::Media(_) | IncomingEvent::Timeout(_) | IncomingEvent::SlowLink(_) => {
             // Ignore these kinds of events.
             Ok(Box::new(stream::empty()))
@@ -466,6 +472,7 @@ struct SpeakingNotification {
 async fn handle_hangup_detach<C: Context>(
     context: &mut C,
     opaque_id: OpaqueId,
+    handle_id: HandleId,
 ) -> Result<MessageStream, AppError> {
     // If the event relates to the publisher's handle,
     // we will find the corresponding stream and send an event w/ updated stream object
@@ -473,24 +480,32 @@ async fn handle_hangup_detach<C: Context>(
     let conn = context.get_conn().await?;
     let start_timestamp = context.start_timestamp();
     crate::util::spawn_blocking(move || {
-        if let Some(rtc_stream) = janus_rtc_stream::stop(opaque_id.stream_id, &conn)? {
-            // Publish the update event only if the stream object has been changed.
-            // If there's no actual media stream, the object wouldn't contain its start time.
-            if rtc_stream.time().is_some() {
-                // Disconnect agents.
-                agent_connection::BulkDisconnectByRtcQuery::new(rtc_stream.rtc_id())
-                    .execute(&conn)?;
+        match janus_rtc_stream::stop(opaque_id.stream_id, &conn)? {
+            Some(rtc_stream) => {
+                // Publish the update event only if the stream object has been changed.
+                // If there's no actual media stream, the object wouldn't contain its start time.
+                if rtc_stream.time().is_some() {
+                    // Disconnect agents.
+                    agent_connection::BulkDisconnectByRtcQuery::new(rtc_stream.rtc_id())
+                        .execute(&conn)?;
 
-                // Send rtc_stream.update event.
-                let event = endpoint::rtc_stream::update_event(
-                    opaque_id.room_id,
-                    rtc_stream,
-                    start_timestamp,
-                )?;
+                    // Send rtc_stream.update event.
+                    let event = endpoint::rtc_stream::update_event(
+                        opaque_id.room_id,
+                        rtc_stream,
+                        start_timestamp,
+                    )?;
 
-                let boxed_event =
-                    Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-                return Ok(Box::new(stream::once(std::future::ready(boxed_event))) as MessageStream);
+                    let boxed_event =
+                        Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
+                    return Ok(
+                        Box::new(stream::once(std::future::ready(boxed_event))) as MessageStream
+                    );
+                }
+            }
+            None => {
+                // Disconnecting this agent.
+                agent_connection::DisconnectSingleAgentQuery::new(handle_id).execute(&conn)?;
             }
         }
         Ok::<_, AppError>(Box::new(stream::empty()) as MessageStream)
