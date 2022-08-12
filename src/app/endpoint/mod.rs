@@ -166,7 +166,6 @@ macro_rules! event_routes {
 
 // Event routes configuration: label => EventHandler
 event_routes!(
-    "subscription.delete" => subscription::DeleteEventHandler,
     "system.close_orphaned_rooms" => system::OrphanedRoomCloseHandler
 );
 
