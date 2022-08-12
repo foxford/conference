@@ -34,7 +34,7 @@ pub const ALL_COLUMNS: AllColumns = (
 
 pub type Segment = (Bound<i64>, Bound<i64>);
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[PgType = "recording_status"]
 #[DieselType = "Recording_status"]

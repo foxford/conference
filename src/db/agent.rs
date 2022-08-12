@@ -21,7 +21,7 @@ use diesel_derive_newtype::DieselNewType;
 )]
 pub struct Id(Uuid);
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[PgType = "agent_status"]
 #[DieselType = "Agent_status"]

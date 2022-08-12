@@ -36,7 +36,7 @@ impl Id {
     }
 }
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[DieselType = "Rtc_sharing_policy"]
 pub enum SharingPolicy {

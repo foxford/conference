@@ -45,10 +45,11 @@ pub struct TraceIdLayer<S> {
     _subscriber: PhantomData<fn(S)>,
 }
 
+type TraceIdSetter<'a> = &'a mut dyn FnMut(&TraceId);
 // this function "remembers" the types of the subscriber and the formatter,
 // so that we can downcast to something aware of them without knowing those
 // types at the callsite.
-struct WithContext(fn(&Dispatch, &span::Id, f: &mut dyn FnMut(&TraceId)));
+struct WithContext(fn(&Dispatch, &span::Id, f: TraceIdSetter<'_>));
 
 impl<S> Layer<S> for TraceIdLayer<S>
 where
