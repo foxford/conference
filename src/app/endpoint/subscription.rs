@@ -181,7 +181,7 @@ fn try_room_id(object: &[String]) -> StdResult<db::room::Id, AppError> {
 }
 
 #[instrument(skip(context))]
-async fn leave_room<C: Context>(
+pub async fn leave_room<C: Context>(
     context: &mut C,
     agent_id: &AgentId,
     room_id: db::room::Id,
@@ -192,20 +192,7 @@ async fn leave_room<C: Context>(
         move || {
             let row_count = db::agent::DeleteQuery::new()
                 .agent_id(&agent_id)
-                // in theory we should delete agent row only for this room id
-                //
-                // but right now broker doesnt send a subscription.delete event when
-                // someone connects kicking out previous connection
-                // (for example when you enter one p2p room and then another,
-                //      you will get session_taken_over in old tab, but `agent` row for the first room remains intact)
-                // this leads to non existent subscriptions still present in agent table
-                //
-                // this fix isnt correct since we have multiple brokers
-                // and connecting to one broker doesnt interrupt connection to another
-                // so we need to delete only those `agent` rows that have rooms subscriptions on the same broker
-                // but we cant differentiate between room types here
-                //
-                // .room_id(room_id)
+                .room_id(room_id)
                 .execute(&conn)?;
 
             if row_count < 1 {

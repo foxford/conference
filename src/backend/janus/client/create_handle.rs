@@ -2,6 +2,7 @@ use crate::db;
 
 use super::{HandleId, SessionId};
 use serde::{Deserialize, Serialize};
+use svc_agent::AgentId;
 
 #[derive(Debug, Serialize)]
 pub struct CreateHandleRequest {
@@ -14,6 +15,7 @@ pub struct CreateHandleRequest {
 pub struct OpaqueId {
     pub stream_id: db::janus_rtc_stream::Id,
     pub room_id: db::room::Id,
+    pub agent_id: AgentId,
 }
 
 #[derive(Debug, Deserialize)]

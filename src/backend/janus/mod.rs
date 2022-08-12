@@ -11,13 +11,14 @@ use svc_agent::{
 use svc_error::Error as SvcError;
 use tracing::{error, Span};
 
-use self::client::{
-    create_handle::OpaqueId, transactions::TransactionKind, HandleId, IncomingEvent,
-};
+use self::client::{create_handle::OpaqueId, transactions::TransactionKind, IncomingEvent};
 use crate::{
     app::{
         context::Context,
-        endpoint,
+        endpoint::{
+            self,
+            subscription::{leave_room, RoomEnterLeaveEvent},
+        },
         error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
         message_handler::MessageStream,
         metrics::HistogramExt,
@@ -91,12 +92,8 @@ async fn handle_event_impl<C: Context>(
             })
             .await
         }
-        IncomingEvent::HangUp(inev) => {
-            handle_hangup_detach(context, inev.opaque_id, inev.sender).await
-        }
-        IncomingEvent::Detached(inev) => {
-            handle_hangup_detach(context, inev.opaque_id, inev.sender).await
-        }
+        IncomingEvent::HangUp(inev) => handle_hangup_detach(context, inev.opaque_id).await,
+        IncomingEvent::Detached(inev) => handle_hangup_detach(context, inev.opaque_id).await,
         IncomingEvent::Media(_) | IncomingEvent::Timeout(_) | IncomingEvent::SlowLink(_) => {
             // Ignore these kinds of events.
             Ok(Box::new(stream::empty()))
@@ -472,45 +469,61 @@ struct SpeakingNotification {
 async fn handle_hangup_detach<C: Context>(
     context: &mut C,
     opaque_id: OpaqueId,
-    handle_id: HandleId,
 ) -> Result<MessageStream, AppError> {
     // If the event relates to the publisher's handle,
     // we will find the corresponding stream and send an event w/ updated stream object
     // to the room's topic.
     let conn = context.get_conn().await?;
     let start_timestamp = context.start_timestamp();
-    crate::util::spawn_blocking(move || {
-        match janus_rtc_stream::stop(opaque_id.stream_id, &conn)? {
-            Some(rtc_stream) => {
-                // Publish the update event only if the stream object has been changed.
-                // If there's no actual media stream, the object wouldn't contain its start time.
-                if rtc_stream.time().is_some() {
-                    // Disconnect agents.
-                    agent_connection::BulkDisconnectByRtcQuery::new(rtc_stream.rtc_id())
-                        .execute(&conn)?;
 
-                    // Send rtc_stream.update event.
-                    let event = endpoint::rtc_stream::update_event(
-                        opaque_id.room_id,
-                        rtc_stream,
-                        start_timestamp,
-                    )?;
+    let stream_id = opaque_id.stream_id;
+    let room_id = opaque_id.room_id;
 
-                    let boxed_event =
-                        Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-                    return Ok(
-                        Box::new(stream::once(std::future::ready(boxed_event))) as MessageStream
-                    );
-                }
-            }
-            None => {
-                // Disconnecting this agent.
-                agent_connection::DisconnectSingleAgentQuery::new(handle_id).execute(&conn)?;
+    let stop_stream_evt = crate::util::spawn_blocking(move || {
+        if let Some(rtc_stream) = janus_rtc_stream::stop(stream_id, &conn)? {
+            // Publish the update event only if the stream object has been changed.
+            // If there's no actual media stream, the object wouldn't contain its start time.
+            if rtc_stream.time().is_some() {
+                // Disconnect agents.
+                agent_connection::BulkDisconnectByRtcQuery::new(rtc_stream.rtc_id())
+                    .execute(&conn)?;
+
+                // Send rtc_stream.update event.
+                let event =
+                    endpoint::rtc_stream::update_event(room_id, rtc_stream, start_timestamp)?;
+
+                let boxed_event =
+                    Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
+                return Ok(Some(boxed_event));
             }
         }
-        Ok::<_, AppError>(Box::new(stream::empty()) as MessageStream)
+
+        Ok::<_, AppError>(None)
     })
-    .await
+    .await?;
+
+    let leave_room_evt = if leave_room(context, &opaque_id.agent_id, opaque_id.room_id).await? {
+        let outgoing_event_payload =
+            RoomEnterLeaveEvent::new(opaque_id.room_id, opaque_id.agent_id.clone());
+        let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
+        let props = OutgoingEventProperties::new("room.leave", short_term_timing);
+        let to_uri = format!("rooms/{}/events", opaque_id.room_id);
+        let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
+        let notification =
+            Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
+        context
+            .metrics()
+            .request_duration
+            .subscription_delete_event
+            .observe_timestamp(context.start_timestamp());
+
+        Some(notification)
+    } else {
+        None
+    };
+
+    let stream = stream::iter(vec![stop_stream_evt, leave_room_evt].into_iter().flatten());
+    Ok(Box::new(stream))
 }
 
 ////////////////////////////////////////////////////////////////////////////////

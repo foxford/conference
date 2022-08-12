@@ -572,6 +572,7 @@ impl RequestHandler for ConnectHandler {
                 session_id: backend.session_id(),
                 opaque_id: Some(OpaqueId {
                     room_id,
+                    agent_id: reqp.as_agent_id().clone(),
                     stream_id: rtc_stream_id,
                 }),
             })

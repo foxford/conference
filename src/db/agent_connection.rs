@@ -151,27 +151,6 @@ impl BulkDisconnectByRtcQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug)]
-pub struct DisconnectSingleAgentQuery {
-    handle_id: HandleId,
-}
-
-impl DisconnectSingleAgentQuery {
-    pub fn new(handle_id: HandleId) -> Self {
-        Self { handle_id }
-    }
-
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-
-        diesel::delete(agent_connection::table)
-            .filter(agent_connection::handle_id.eq(self.handle_id))
-            .execute(conn)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 // Diesel doesn't support joins in UPDATE/DELETE queries so it's raw SQL.
 const BULK_DISCONNECT_BY_BACKEND_SQL: &str = r#"
     DELETE FROM agent_connection AS ac
