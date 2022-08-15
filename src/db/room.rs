@@ -77,7 +77,7 @@ impl Id {
 }
 
 // Deprecated in favor of `crate::db::rtc::SharingPolicy`.
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[DieselType = "Room_backend"]
 // This is not just `Backend` because of clash with `diesel::backend::Backend`.

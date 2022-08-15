@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::atomic};
 
 use tokio::sync::{mpsc, oneshot};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     OtherSideDropped,
     InternalTaskStopped,

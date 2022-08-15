@@ -334,7 +334,7 @@ impl RequestHandler for ListHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ConnectIntent {
     Read,
