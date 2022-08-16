@@ -656,18 +656,6 @@ where
         let jsep = Jsep::OfferOrAnswer(self.offer_sdp);
 
         let answer = if is_recvonly {
-            current_span.record("intent", &"read");
-
-            // Authorization
-            let _authz_time = endpoint::rtc_signal::authorize(
-                self.ctx,
-                &handle_id,
-                self.agent_id.clone(),
-                "read",
-                &room,
-            )
-            .await?;
-
             let request = ReadStreamRequest {
                 body: ReadStreamRequestBody::new(handle_id.rtc_id(), self.agent_id.clone()),
                 handle_id: handle_id.janus_handle_id(),
@@ -701,8 +689,6 @@ where
 
             resp.jsep
         } else {
-            current_span.record("intent", &"update");
-
             if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
                 // Check that the RTC is owned by the same agent.
                 let conn = self.ctx.get_conn().await?;
@@ -723,15 +709,6 @@ where
                     .error(AppErrorKind::AccessDenied);
                 }
             }
-
-            let _authz_time = endpoint::rtc_signal::authorize(
-                self.ctx,
-                &handle_id,
-                self.agent_id.clone(),
-                "update",
-                &room,
-            )
-            .await?;
 
             // Updating the Real-Time Connection state
             let label = self
