@@ -54,6 +54,8 @@ pub fn build_router(
         .route("/rtcs/:id/streams", post(endpoint::rtc::connect))
         .route("/rooms/:id/streams", get(endpoint::rtc_stream::list))
         .route("/streams/signal", post(endpoint::rtc_signal::create))
+        .route("/rtcs/:id/signal", post(endpoint::rtc::connect_and_signal))
+        .route("/streams/trickle", post(endpoint::rtc_signal::trickle))
         .route(
             "/rooms/:id/configs/writer/snapshot",
             get(endpoint::writer_config_snapshot::read),

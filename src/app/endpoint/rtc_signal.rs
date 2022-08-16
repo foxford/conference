@@ -1,6 +1,6 @@
 use crate::{
     app::{
-        context::{AppContext, Context},
+        context::{AppContext, Context, MessageContext},
         endpoint,
         endpoint::prelude::*,
         handle_id::HandleId,
@@ -15,7 +15,7 @@ use crate::{
         },
         read_stream::{ReadStreamRequest, ReadStreamRequestBody, ReadStreamTransaction},
         trickle::TrickleRequest,
-        Jsep, JsepType,
+        IceCandidateSdp, Jsep, JsepType, JsonSdp,
     },
     db,
 };
@@ -41,7 +41,7 @@ use tracing_attributes::instrument;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CreateResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
-    jsep: Option<JsonValue>,
+    pub jsep: Option<JsonValue>,
 }
 
 impl CreateResponseData {
@@ -162,7 +162,7 @@ impl RequestHandler for CreateHandler {
         }}).await?;
 
         match payload.jsep {
-            Jsep::OfferOrAnswer { kind, ref sdp } => {
+            Jsep::OfferOrAnswer(JsonSdp { kind, ref sdp }) => {
                 match kind {
                     JsepType::Offer => {
                         let current_span = Span::current();
@@ -176,7 +176,7 @@ impl RequestHandler for CreateHandler {
 
                             // Authorization
                             let _authz_time =
-                                authorize(context, &payload, reqp, "read", &room).await?;
+                                authorize(context, &payload.handle_id, reqp, "read", &room).await?;
 
                             let request = ReadStreamRequest {
                                 body: ReadStreamRequestBody::new(
@@ -252,7 +252,8 @@ impl RequestHandler for CreateHandler {
                             }
 
                             let _authz_time =
-                                authorize(context, &payload, reqp, "update", &room).await?;
+                                authorize(context, &payload.handle_id, reqp, "update", &room)
+                                    .await?;
 
                             // Updating the Real-Time Connection state
                             let label = payload
@@ -381,7 +382,8 @@ impl RequestHandler for CreateHandler {
                 current_span.record("sdp_type", &"ice_candidate");
                 current_span.record("intent", &"read");
 
-                let _authz_time = authorize(context, &payload, reqp, "read", &room).await?;
+                let _authz_time =
+                    authorize(context, &payload.handle_id, reqp, "read", &room).await?;
 
                 let request = TrickleRequest {
                     candidate: payload.jsep,
@@ -414,14 +416,141 @@ impl RequestHandler for CreateHandler {
     }
 }
 
-async fn authorize<C: Context>(
+#[derive(Deserialize)]
+pub struct TricklePayload {
+    candidates: IceCandidateSdp,
+    handle_id: HandleId,
+}
+
+pub async fn trickle(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
+    Json(payload): Json<TricklePayload>,
+) -> RequestResult {
+    let ctx = &mut ctx.start_message();
+
+    Trickle {
+        ctx,
+        handle_id: payload.handle_id,
+        candidates: payload.candidates,
+        agent_id,
+    }
+    .run()
+    .await?;
+
+    Ok(Response::new(
+        ResponseStatus::OK,
+        serde_json::json!({}),
+        ctx.start_timestamp(),
+        None,
+    ))
+}
+
+struct Trickle<'a, C> {
+    ctx: &'a mut C,
+    handle_id: HandleId,
+    candidates: IceCandidateSdp,
+    agent_id: AgentId,
+}
+
+impl<C: Context> Trickle<'_, C> {
+    async fn run(self) -> Result<(), AppError> {
+        // Validate RTC and room presence.
+        let conn = self.ctx.get_conn().await?;
+        let (room, backend) = crate::util::spawn_blocking({
+            let agent_id = self.agent_id.clone();
+            let handle_id = self.handle_id.clone();
+
+            move ||{
+            let rtc = db::rtc::FindQuery::new()
+                .id(handle_id.rtc_id())
+                .execute(&conn)?
+                .ok_or_else(|| anyhow!("RTC not found"))
+                .error(AppErrorKind::RtcNotFound)?;
+
+            let room = helpers::find_room_by_id(
+                rtc.room_id(),
+                helpers::RoomTimeRequirement::Open,
+                &conn,
+            )?;
+
+            helpers::check_room_presence(&room, &agent_id, &conn)?;
+
+            // Validate backend and janus session id.
+            if let Some(backend_id) = room.backend_id() {
+                if handle_id.backend_id() != backend_id {
+                    return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
+                        .error(AppErrorKind::InvalidHandleId);
+                }
+            } else {
+                return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
+            }
+
+            let janus_backend = db::janus_backend::FindQuery::new()
+                .id(handle_id.backend_id())
+                .execute(&conn)?
+                .ok_or_else(|| anyhow!("Backend not found"))
+                .error(AppErrorKind::BackendNotFound)?;
+
+            if handle_id.janus_session_id() != janus_backend.session_id() {
+                return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
+                    .error(AppErrorKind::InvalidHandleId)?;
+            }
+
+            // Validate agent connection and handle id.
+            let agent_connection =
+                db::agent_connection::FindQuery::new(&agent_id, rtc.id())
+                    .execute(&conn)?
+                    .ok_or_else(|| anyhow!("Agent not connected"))
+                    .error(AppErrorKind::AgentNotConnected)?;
+
+            if handle_id.janus_handle_id() != agent_connection.handle_id() {
+                return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
+                    .error(AppErrorKind::InvalidHandleId)?;
+            }
+
+            Ok::<_, AppError>((room, janus_backend))
+        }}).await?;
+
+        let current_span = Span::current();
+        current_span.record("sdp_type", &"ice_candidate");
+        current_span.record("intent", &"read");
+
+        let _authz_time =
+            authorize(self.ctx, &self.handle_id, self.agent_id, "read", &room).await?;
+        let jsep = Jsep::IceCandidate(self.candidates);
+
+        let request = TrickleRequest {
+            candidate: jsep,
+            handle_id: self.handle_id.janus_handle_id(),
+            session_id: self.handle_id.janus_session_id(),
+        };
+        self.ctx
+            .janus_clients()
+            .get_or_insert(&backend)
+            .error(AppErrorKind::BackendClientCreationFailed)?
+            .trickle_request(request)
+            .await
+            .error(AppErrorKind::BackendRequestFailed)?;
+
+        self.ctx
+            .metrics()
+            .request_duration
+            .rtc_signal_trickle
+            .observe_timestamp(self.ctx.start_timestamp());
+
+        Ok(())
+    }
+}
+
+pub async fn authorize<A: Authenticable, C: Context>(
     context: &mut C,
-    payload: &CreateRequest,
-    reqp: RequestParams<'_>,
+    handle_id: &HandleId,
+    reqp: A,
     action: &str,
     room: &db::room::Object,
 ) -> StdResult<Duration, AppError> {
-    let rtc_id = payload.handle_id.rtc_id();
+    let rtc_id = handle_id.rtc_id();
 
     if room.rtc_sharing_policy() == db::rtc::SharingPolicy::None {
         let err = anyhow!(
@@ -444,7 +573,7 @@ async fn authorize<C: Context>(
     Ok(elapsed)
 }
 
-fn is_sdp_recvonly(sdp: &str) -> anyhow::Result<bool> {
+pub fn is_sdp_recvonly(sdp: &str) -> anyhow::Result<bool> {
     use webrtc_sdp::{attribute_type::SdpAttributeType, parse_sdp};
     let sdp = parse_sdp(sdp, false).context("Invalid SDP")?;
 
