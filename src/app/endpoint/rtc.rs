@@ -494,7 +494,7 @@ where
             // Choose backend to connect.
             let group = self.ctx.config().janus_group.clone();
             let conn = self.ctx.get_conn().await?;
-            let id = self.id.clone();
+            let id = self.id;
             let intent = self.intent;
             let backend_span = tracing::info_span!("finding_backend");
             let room = room.clone();
