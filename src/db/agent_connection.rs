@@ -4,6 +4,8 @@
 
 use chrono::{DateTime, Utc};
 use diesel::{dsl::count_star, pg::PgConnection, result::Error};
+use diesel_derive_enum::DbEnum;
+use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
 use crate::{
@@ -20,6 +22,7 @@ type AllColumns = (
     agent_connection::handle_id,
     agent_connection::created_at,
     agent_connection::rtc_id,
+    agent_connection::status,
 );
 
 const ALL_COLUMNS: AllColumns = (
@@ -27,9 +30,20 @@ const ALL_COLUMNS: AllColumns = (
     agent_connection::handle_id,
     agent_connection::created_at,
     agent_connection::rtc_id,
+    agent_connection::status,
 );
 
 ////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[PgType = "agent_connection_status"]
+#[DieselType = "Agent_connection_status"]
+pub enum Status {
+    #[serde(rename = "in_progress")]
+    InProgress,
+    Connected,
+}
 
 #[derive(Debug, Identifiable, Queryable, QueryableByName, Associations)]
 #[belongs_to(Agent, foreign_key = "agent_id")]
@@ -42,6 +56,8 @@ pub struct Object {
     created_at: DateTime<Utc>,
     #[allow(dead_code)]
     rtc_id: db::rtc::Id,
+    #[allow(dead_code)]
+    status: Status,
 }
 
 impl Object {
@@ -125,6 +141,53 @@ impl UpsertQuery {
             .do_update()
             .set(self)
             .get_result(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Insertable, AsChangeset)]
+#[table_name = "agent_connection"]
+pub struct UpdateQuery {
+    handle_id: HandleId,
+    status: Status,
+}
+
+impl UpdateQuery {
+    pub fn new(handle_id: HandleId, status: Status) -> Self {
+        Self { handle_id, status }
+    }
+
+    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
+        use crate::schema::agent_connection::dsl::*;
+        use diesel::prelude::*;
+
+        let query = agent_connection.filter(handle_id.eq_all(self.handle_id));
+
+        diesel::update(query).set(self).get_result(conn).optional()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub struct CleanupNotConnectedQuery {
+    created_at: DateTime<Utc>,
+}
+
+impl CleanupNotConnectedQuery {
+    pub fn new(created_at: DateTime<Utc>) -> Self {
+        Self { created_at }
+    }
+
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+        use crate::schema::agent_connection::dsl::*;
+        use diesel::prelude::*;
+
+        let q = agent_connection
+            .filter(created_at.lt(self.created_at))
+            .filter(status.eq(Status::InProgress));
+
+        diesel::delete(q).execute(conn)
     }
 }
 

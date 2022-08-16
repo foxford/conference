@@ -333,8 +333,10 @@ fn record_name(recording: &Recording, room: &Room) -> String {
 ///////////////////////////////////////////////////////////////////////////////
 
 mod agent_cleanup;
+mod agent_connection_cleanup;
 
 pub use agent_cleanup::Handler as AgentCleanupHandler;
+pub use agent_connection_cleanup::Handler as AgentConnectionCleanupHandler;
 
 ///////////////////////////////////////////////////////////////////////////////
 

@@ -20,6 +20,7 @@ table! {
         handle_id -> Int8,
         created_at -> Timestamptz,
         rtc_id -> Uuid,
+        status -> Agent_connection_status,
     }
 }
 

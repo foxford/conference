@@ -66,12 +66,18 @@ async fn handle_event_impl<C: Context>(
 ) -> Result<MessageStream, AppError> {
     match payload {
         IncomingEvent::WebRtcUp(inev) => {
-            // If the event relates to a publisher's handle,
-            // we will find the corresponding stream and send event w/ updated stream object
-            // to the room's topic.
             let conn = context.get_conn().await?;
             let start_timestamp = context.start_timestamp();
             crate::util::spawn_blocking(move || {
+                agent_connection::UpdateQuery::new(
+                    inev.sender,
+                    agent_connection::Status::Connected,
+                )
+                .execute(&conn)?;
+
+                // If the event relates to a publisher's handle,
+                // we will find the corresponding stream and send event w/ updated stream object
+                // to the room's topic.
                 if let Some(rtc_stream) = janus_rtc_stream::start(inev.opaque_id.stream_id, &conn)?
                 {
                     let room = endpoint::helpers::find_room_by_rtc_id(
