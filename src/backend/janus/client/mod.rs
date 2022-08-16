@@ -153,7 +153,7 @@ pub enum PollResult {
     Events(Vec<Value>),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct JsonSdp {
     // '{"type": "offer", "sdp": _}' or '{"type": "answer", "sdp": _}'
     #[serde(rename = "type")]
