@@ -452,7 +452,7 @@ where
                     // Check that the RTC is owned by the same agent.
                     let conn = self.ctx.get_conn().await?;
 
-                    let rtc = crate::util::spawn_blocking(move || {
+                    let rtc_object = crate::util::spawn_blocking(move || {
                         db::rtc::FindQuery::new()
                             .id(payload_id)
                             .execute(&conn)?
@@ -461,7 +461,7 @@ where
                     })
                     .await?;
 
-                    if *rtc.created_by() != self.agent_id {
+                    if *rtc_object.created_by() != self.agent_id {
                         return Err(anyhow!("RTC doesn't belong to the agent"))
                             .error(AppErrorKind::AccessDenied);
                     }
@@ -542,7 +542,6 @@ where
                             if let Some(reserve) = room.reserve() {
                                 extra.insert(String::from("reserve"), Value::from(reserve));
                             }
-
 
                             sentry::capture_event(Event {
                                 message: Some(String::from("No capable backends to host the reserve; falling back to the least loaded backend")),
@@ -689,27 +688,7 @@ where
 
             resp.jsep
         } else {
-            if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
-                // Check that the RTC is owned by the same agent.
-                let conn = self.ctx.get_conn().await?;
-
-                let rtc = crate::util::spawn_blocking(move || {
-                    db::rtc::FindQuery::new()
-                        .id(payload_id)
-                        .execute(&conn)?
-                        .ok_or_else(|| anyhow!("RTC not found"))
-                        .error(AppErrorKind::RtcNotFound)
-                })
-                .await?;
-
-                if self.agent_id != *rtc.created_by() {
-                    return Err(anyhow!(
-                        "Signaling to other's RTC with sendonly or sendrecv SDP is not allowed"
-                    ))
-                    .error(AppErrorKind::AccessDenied);
-                }
-            }
-
+            // We've checked that the RTC is owned by the same agent earlier.
             // Updating the Real-Time Connection state
             let label = self
                 .label

@@ -543,7 +543,7 @@ impl<C: Context> Trickle<'_, C> {
     }
 }
 
-pub async fn authorize<A: Authenticable, C: Context>(
+async fn authorize<A: Authenticable, C: Context>(
     context: &mut C,
     handle_id: &HandleId,
     reqp: A,
