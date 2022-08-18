@@ -109,8 +109,8 @@ impl RequestHandler for ListHandler {
             return Err(err).error(AppErrorKind::NotImplemented)?;
         }
 
-        let room_id = room.id().to_string();
-        let object = AuthzObject::new(&["rooms", &room_id]).into();
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
 
         let authz_time = context
             .authz()
@@ -193,20 +193,20 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
             let mut authz = TestAuthz::new();
 
-            let (rtc_stream, rtc) = db
+            let (rtc_stream, rtc, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
                     // Insert janus rtc streams.
                     let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE).insert(&conn);
 
-                    let rtc_stream = crate::db::janus_rtc_stream::start(rtc_stream.id(), &conn)
+                    let rtc_stream = db::janus_rtc_stream::start(rtc_stream.id(), &conn)
                         .expect("Failed to start rtc stream")
                         .expect("Missing rtc stream");
 
                     let other_rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE).insert(&conn);
 
-                    crate::db::janus_rtc_stream::start(other_rtc_stream.id(), &conn)
+                    db::janus_rtc_stream::start(other_rtc_stream.id(), &conn)
                         .expect("Failed to start rtc stream");
 
                     // Find rtc.
@@ -215,14 +215,20 @@ mod test {
                         .get_result(&conn)
                         .expect("Rtc not found");
 
-                    (rtc_stream, rtc)
+                    let room = helpers::find_room_by_id(
+                        rtc.room_id(),
+                        helpers::RoomTimeRequirement::Open,
+                        &conn,
+                    )
+                    .expect("Room not found");
+
+                    (rtc_stream, rtc, room.classroom_id().to_string())
                 })
                 .expect("Failed to create rtc streams");
 
             // Allow user to list rtcs in the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let room_id = rtc.room_id().to_string();
-            let object = vec!["rooms", &room_id];
+            let object = vec!["classrooms", &classroom_id];
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc_stream.list request.

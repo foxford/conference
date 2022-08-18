@@ -105,7 +105,7 @@ impl RequestHandler for CreateHandler {
             .authorize(
                 payload.audience.clone(),
                 reqp,
-                AuthzObject::new(&["rooms"]).into(),
+                AuthzObject::new(&["classrooms"]).into(),
                 "create".into(),
             )
             .await?;
@@ -198,8 +198,8 @@ impl RequestHandler for ReadHandler {
         .await?;
 
         // Authorize room reading on the tenant.
-        let room_id = room.id().to_string();
-        let object = AuthzObject::new(&["rooms", &room_id]).into();
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
 
         let authz_time = context
             .authz()
@@ -298,8 +298,8 @@ impl RequestHandler for UpdateHandler {
         .await?;
 
         // Authorize room updating on the tenant.
-        let room_id = room.id().to_string();
-        let object = AuthzObject::new(&["rooms", &room_id]).into();
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
 
         let authz_time = context
             .authz()
@@ -464,8 +464,8 @@ impl RequestHandler for CloseHandler {
         }
 
         // Authorize room updating on the tenant.
-        let room_id = room.id().to_string();
-        let object = AuthzObject::new(&["rooms", &room_id]).into();
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
 
         let authz_time = context
             .authz()
@@ -577,7 +577,8 @@ impl RequestHandler for EnterHandler {
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();
-        let object = AuthzObject::new(&["rooms", &room_id]).into();
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
 
         let authz_time = context
             .authz()
@@ -768,7 +769,7 @@ mod test {
             // Allow user to create rooms.
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            authz.allow(agent.account_id(), vec!["rooms"], "create");
+            authz.allow(agent.account_id(), vec!["classrooms"], "create");
 
             // Make room.create request.
             let mut context = TestContext::new(db.clone(), authz);
@@ -867,8 +868,12 @@ mod test {
             // Allow agent to read the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = room.id().to_string();
-            authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
 
             // Make room.read request.
             let mut context = TestContext::new(db, authz);
@@ -972,8 +977,12 @@ mod test {
             // Allow agent to update the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = room.id().to_string();
-            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
 
             // Make room.update request.
             let mut context = TestContext::new(db, authz);
@@ -1040,8 +1049,12 @@ mod test {
             // Allow agent to update the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = room.id().to_string();
-            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
 
             // Make room.update request.
             let mut context = TestContext::new(db, authz);
@@ -1092,8 +1105,12 @@ mod test {
             // Allow agent to update the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = room.id().to_string();
-            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
 
             // Make room.update request.
             let mut context = TestContext::new(db, authz);
@@ -1166,8 +1183,12 @@ mod test {
             // Allow agent to update the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = room.id().to_string();
-            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
 
             // Make room.update request.
             let mut context = TestContext::new(db, authz);
@@ -1289,8 +1310,12 @@ mod test {
             // Allow agent to update the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = room.id().to_string();
-            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
 
             // Make room.update request.
             let mut context = TestContext::new(db, authz);
@@ -1340,8 +1365,12 @@ mod test {
             // Allow agent to update the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = room.id().to_string();
-            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
 
             // Make room.update request.
             let mut context = TestContext::new(db, authz);
@@ -1379,8 +1408,12 @@ mod test {
             // Allow agent to update the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = room.id().to_string();
-            authz.allow(agent.account_id(), vec!["rooms", &room_id], "update");
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
 
             // Make room.update request.
             let mut context = TestContext::new(db, authz);
@@ -1483,9 +1516,12 @@ mod test {
             // Allow agent to subscribe to the rooms' events.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = room.id().to_string();
-
-            authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
 
             // Make room.enter request.
             let mut context = TestContext::new(db, authz);
@@ -1562,9 +1598,12 @@ mod test {
             // Allow agent to subscribe to the rooms' events.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = room.id().to_string();
-
-            authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
 
             // Make room.enter request.
             let mut context = TestContext::new(db, authz);
@@ -1600,9 +1639,12 @@ mod test {
             // Allow agent to subscribe to the rooms' events.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = room.id().to_string();
-
-            authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
 
             // Make room.enter request.
             let mut context = TestContext::new(db, authz);
@@ -1641,9 +1683,12 @@ mod test {
             // Allow agent to subscribe to the rooms' events.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = room.id().to_string();
-
-            authz.allow(agent.account_id(), vec!["rooms", &room_id], "read");
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
 
             // Make room.enter request.
             let mut context = TestContext::new(db, authz);

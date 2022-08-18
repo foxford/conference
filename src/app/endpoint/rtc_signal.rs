@@ -432,9 +432,9 @@ async fn authorize<C: Context>(
         return Err(err).error(AppErrorKind::NotImplemented);
     }
 
-    let room_id = room.id().to_string();
+    let classroom_id = room.classroom_id().to_string();
     let rtc_id = rtc_id.to_string();
-    let object = AuthzObject::new(&["rooms", &room_id, "rtcs", &rtc_id]).into();
+    let object = AuthzObject::new(&["classrooms", &classroom_id, "rtcs", &rtc_id]).into();
 
     let elapsed = context
         .authz()
@@ -542,7 +542,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             // Insert room with backend and rtc and an agent connection.
-            let (backend, rtc, agent_connection) = db
+            let (backend, rtc, agent_connection, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -559,13 +559,17 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                         rtc.id(),
                         user_handle,
                     );
-                    (backend, rtc, agent_connection)
+                    (
+                        backend,
+                        rtc,
+                        agent_connection,
+                        room.classroom_id().to_string(),
+                    )
                 })
                 .unwrap();
             // Allow user to update the rtc.
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object.clone(), "update");
 
             // Make rtc_signal.create request.
@@ -814,7 +818,7 @@ a=rtcp-fb:120 ccm fir
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             // Insert room with backend and rtc and an agent connection.
-            let (backend, rtc, agent_connection) = db
+            let (backend, rtc, agent_connection, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -832,14 +836,18 @@ a=rtcp-fb:120 ccm fir
                         user_handle,
                     );
 
-                    (backend, rtc, agent_connection)
+                    (
+                        backend,
+                        rtc,
+                        agent_connection,
+                        room.classroom_id().to_string(),
+                    )
                 })
                 .unwrap();
 
             // Allow user to read the rtc.
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc_signal.create request.

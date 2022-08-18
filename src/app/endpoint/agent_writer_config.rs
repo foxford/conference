@@ -204,8 +204,7 @@ impl RequestHandler for UpdateHandler {
         let maybe_authz_time = if is_only_owned_config {
             None
         } else {
-            let room_id = room.id().to_string();
-            let object = AuthzObject::new(&["rooms", &room_id]);
+            let object = AuthzObject::new(&["classrooms", &room.classroom_id().to_string()]);
 
             let authz_time = context
                 .authz()
@@ -484,8 +483,8 @@ mod tests {
                 .unwrap();
 
             // Allow agent to update agent_writer_config.
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id];
+            let classroom_id = room.classroom_id().to_string();
+            let object = vec!["classrooms", &classroom_id];
             authz.allow(agent1.account_id(), object, "update");
 
             // Make agent_writer_config.update request.
