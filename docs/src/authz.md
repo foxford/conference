@@ -12,7 +12,7 @@ In order to authorize an **action** performed by a **subject** to an **object**,
     },
     "object": {
         "namespace": "conference.example.org",
-        "value": ["rooms", "123e4567-e89b-12d3-a456-426655440000", "rtcs", "321e7654-e89b-12d3-a456-426655440000"]
+        "value": ["classrooms", "123e4567-e89b-12d3-a456-426655440000", "rtcs", "321e7654-e89b-12d3-a456-426655440000"]
     },
     "action": "read"
 }
@@ -22,10 +22,10 @@ Subject's namespace and account label are retrieved from `audience` and `account
 
 Possible values for `OBJECT` and `ACTION`:
 
-object / action                           | create | read | update | list | subscribe
------------------------------------------ | ------ | ---- | ------ | ---- | ---------
-["rooms"]                                 |      + |      |        |    + |
-["rooms", ROOM_ID]                        |        |    + |      + |      |
-["rooms", ROOM_ID, "rtcs"]                |      + |      |        |    + |
-["rooms", ROOM_ID, "rtcs", RTC_ID]        |        |    + |      + |      |
-["rooms", ROOM_ID, "events"]              |        |      |        |      |         +
+| object / action                              | create | read | update | list | subscribe |
+|----------------------------------------------|--------|------|--------|------|-----------|
+| ["classrooms"]                               | +      |      |        | +    |           |
+| ["classrooms", CLASSROOM_ID]                 |        | +    | +      |      |           |
+| ["classrooms", CLASSROOM_ID, "rtcs"]         | +      |      |        | +    |           |
+| ["classrooms", CLASSROOM_ID, "rtcs", RTC_ID] |        | +    | +      |      |           |
+| ["classrooms", CLASSROOM_ID, "events"]       |        |      |        |      | +         |

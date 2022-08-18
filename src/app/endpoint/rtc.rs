@@ -85,8 +85,8 @@ impl RequestHandler for CreateHandler {
         .await?;
 
         // Authorize room creation.
-        let room_id = room.id().to_string();
-        let object = AuthzObject::new(&["rooms", &room_id, "rtcs"]).into();
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id, "rtcs"]).into();
 
         let authz_time = context
             .authz()
@@ -192,8 +192,8 @@ impl RequestHandler for ReadHandler {
 
         // Authorize rtc reading.
         let rtc_id = payload.id.to_string();
-        let room_id = room.id().to_string();
-        let object = AuthzObject::new(&["rooms", &room_id, "rtcs", &rtc_id]).into();
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id, "rtcs", &rtc_id]).into();
 
         let authz_time = context
             .authz()
@@ -294,8 +294,8 @@ impl RequestHandler for ListHandler {
         .await?;
 
         // Authorize rtc listing.
-        let room_id = room.id().to_string();
-        let object = AuthzObject::new(&["rooms", &room_id, "rtcs"]).into();
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id, "rtcs"]).into();
 
         let authz_time = context
             .authz()
@@ -453,8 +453,8 @@ impl RequestHandler for ConnectHandler {
         }
 
         let rtc_id = payload.id.to_string();
-        let room_id = room.id().to_string();
-        let object = AuthzObject::new(&["rooms", &room_id, "rtcs", &rtc_id]).into();
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id, "rtcs", &rtc_id]).into();
 
         let action = match payload.intent {
             ConnectIntent::Read => "read",
@@ -661,8 +661,8 @@ mod test {
 
             // Allow user to create rtcs in the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs"];
+            let classroom_id = room.classroom_id().to_string();
+            let object = vec!["classrooms", &classroom_id, "rtcs"];
             authz.allow(agent.account_id(), object, "create");
 
             // Make rtc.create request.
@@ -710,8 +710,8 @@ mod test {
 
             // Allow user to create rtcs in the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs"];
+            let classroom_id = room.classroom_id().to_string();
+            let object = vec!["classrooms", &classroom_id, "rtcs"];
             authz.allow(agent.account_id(), object, "create");
 
             // Make rtc.create request.
@@ -774,8 +774,8 @@ mod test {
 
             // Allow user to create rtcs in the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs"];
+            let classroom_id = room.classroom_id().to_string();
+            let object = vec!["classrooms", &classroom_id, "rtcs"];
             authz.allow(agent.account_id(), object, "create");
 
             // Make rtc.create request.
@@ -819,8 +819,8 @@ mod test {
             // Allow agents to create RTCs in the room.
             let agent1 = TestAgent::new("web", "user123", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user456", USR_AUDIENCE);
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs"];
+            let classroom_id = room.classroom_id().to_string();
+            let object = vec!["classrooms", &classroom_id, "rtcs"];
             authz.allow(agent1.account_id(), object.clone(), "create");
             authz.allow(agent2.account_id(), object, "create");
 
@@ -866,8 +866,8 @@ mod test {
 
             // Allow agent to create RTCs in the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let room_id = room.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs"];
+            let classroom_id = room.classroom_id().to_string();
+            let object = vec!["classrooms", &classroom_id, "rtcs"];
             authz.allow(agent.account_id(), object, "create");
 
             // Make the first rtc.create request.
@@ -937,22 +937,30 @@ mod test {
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
 
-            let rtc = {
+            let (rtc, classroom_id) = {
+                // Insert a room.
+                let room = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| shared_helpers::insert_room_with_owned(&conn))
+                    .unwrap();
+
                 let conn = db
                     .connection_pool()
                     .get()
                     .expect("Failed to get DB connection");
 
                 // Create rtc.
-                shared_helpers::insert_rtc(&conn)
+                let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+
+                (rtc, room.classroom_id().to_string())
             };
 
             // Allow agent to read the rtc.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut authz = TestAuthz::new();
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.read request.
@@ -1034,20 +1042,28 @@ mod test {
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let rtc = {
+            let (rtc, classroom_id) = {
+                // Insert a room.
+                let room = db
+                    .connection_pool()
+                    .get()
+                    .map(|conn| shared_helpers::insert_room_with_owned(&conn))
+                    .unwrap();
+
                 let conn = db
                     .connection_pool()
                     .get()
                     .expect("Failed to get DB connection");
 
                 // Create rtc.
-                shared_helpers::insert_rtc(&conn)
+                let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+
+                (rtc, room.classroom_id().to_string())
             };
 
             // Allow agent to list rtcs in the room.
             let mut authz = TestAuthz::new();
-            let room_id = rtc.room_id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs"];
+            let object = vec!["classrooms", &classroom_id, "rtcs"];
             authz.allow(agent.account_id(), object, "list");
 
             // Make rtc.list request.
@@ -1150,7 +1166,7 @@ mod test {
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
             // Insert an rtc and janus backend.
-            let (rtc, backend, agent) = db
+            let (rtc, classroom_id, backend, agent) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -1204,14 +1220,13 @@ mod test {
                     let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
                     let s3a1 = TestAgent::new("web", "s3a1", USR_AUDIENCE);
                     shared_helpers::insert_agent(&conn, s3a1.agent_id(), room3.id());
-                    (rtc3, backend2, s3a1)
+                    (rtc3, room3.classroom_id().to_string(), backend2, s3a1)
                 })
                 .unwrap();
 
             // Allow user to read the rtc.
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object, "read");
 
             let mut context = TestContext::new(db, authz);
@@ -1247,7 +1262,7 @@ mod test {
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
             // Insert an rtc and janus backend.
-            let (rtc, backend, agent) = db
+            let (rtc, classroom_id, backend, agent) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -1263,14 +1278,13 @@ mod test {
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
                     let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    (rtc, backend2, agent)
+                    (rtc, room.classroom_id().to_string(), backend2, agent)
                 })
                 .unwrap();
 
             // Allow user to read the rtc.
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
@@ -1305,7 +1319,7 @@ mod test {
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
 
-            let (rtc, backend, agent) = db
+            let (rtc, classroom_id, backend, agent) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -1364,14 +1378,13 @@ mod test {
                     let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
                     let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room2.id());
-                    (rtc2, backend1, agent)
+                    (rtc2, room2.classroom_id().to_string(), backend1, agent)
                 })
                 .unwrap();
 
             // Allow user to read the rtc.
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
@@ -1410,7 +1423,7 @@ mod test {
             let writer1 = TestAgent::new("web", "writer1", USR_AUDIENCE);
             let writer2 = TestAgent::new("web", "writer2", USR_AUDIENCE);
 
-            let (rtc1, rtc2, backend) = db
+            let (rtc1, rtc2, backend, classroom_id1, classroom_id2) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -1466,15 +1479,20 @@ mod test {
 
                     shared_helpers::insert_agent(&conn, reader2.agent_id(), room2.id());
 
-                    (rtc1, rtc2, backend)
+                    (
+                        rtc1,
+                        rtc2,
+                        backend,
+                        room1.classroom_id().to_string(),
+                        room2.classroom_id().to_string(),
+                    )
                 })
                 .unwrap();
 
             // Allow user to read rtcs.
-            for rtc in &[&rtc1, &rtc2] {
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            for rtc in &[(&rtc1, &classroom_id1), (&rtc2, &classroom_id2)] {
+                let rtc_id = rtc.0.id().to_string();
+                let object = vec!["classrooms", &rtc.1, "rtcs", &rtc_id];
                 authz.allow(reader1.account_id(), object, "read");
             }
 
@@ -1529,7 +1547,7 @@ mod test {
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
 
-            let (rtc, backend) = db
+            let (rtc, backend, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -1561,14 +1579,13 @@ mod test {
                         .status(AgentStatus::Ready)
                         .insert(&conn);
 
-                    (rtc, backend)
+                    (rtc, backend, room.classroom_id().to_string())
                 })
                 .unwrap();
 
             // Allow user to read the rtc.
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(reader.account_id(), object, "read");
 
             // Make rtc.connect request.
@@ -1599,7 +1616,7 @@ mod test {
             let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
             let reader2 = TestAgent::new("web", "reader2", USR_AUDIENCE);
 
-            let rtc = db
+            let (rtc, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -1644,14 +1661,13 @@ mod test {
                         .status(AgentStatus::Ready)
                         .insert(&conn);
 
-                    rtc
+                    (rtc, room.classroom_id().to_string())
                 })
                 .unwrap();
 
             // Allow user to read the rtc.
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(reader2.account_id(), object, "read");
 
             // Make rtc.connect request.
@@ -1683,7 +1699,7 @@ mod test {
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
 
-            let (rtc, backend) = db
+            let (rtc, backend, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -1715,14 +1731,13 @@ mod test {
                         .status(AgentStatus::Ready)
                         .insert(&conn);
 
-                    (rtc, backend)
+                    (rtc, backend, room.classroom_id().to_string())
                 })
                 .unwrap();
 
             // Allow user to update the rtc.
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(writer.account_id(), object, "update");
 
             // Make rtc.connect request.
@@ -1751,7 +1766,7 @@ mod test {
             let mut authz = TestAuthz::new();
             let new_writer = TestAgent::new("web", "new-writer", USR_AUDIENCE);
 
-            let (rtc, backend) = db
+            let (rtc, backend, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -1872,14 +1887,13 @@ mod test {
 
                     shared_helpers::insert_agent(&conn, new_writer.agent_id(), room3.id());
 
-                    (rtc3, backend2)
+                    (rtc3, backend2, room3.classroom_id().to_string())
                 })
                 .unwrap();
 
             // Allow user to update the rtc.
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(new_writer.account_id(), object, "update");
 
             // Make an rtc.connect request.
@@ -2022,15 +2036,21 @@ mod test {
                     shared_helpers::insert_agent(&conn, new_reader.agent_id(), room2.id());
                     shared_helpers::insert_agent(&conn, new_reader.agent_id(), room3.id());
 
-                    ([rtc1, rtc2, rtc3], backend)
+                    (
+                        [
+                            (rtc1, room1.classroom_id().to_string()),
+                            (rtc2, room2.classroom_id().to_string()),
+                            (rtc3, room3.classroom_id().to_string()),
+                        ],
+                        backend,
+                    )
                 })
                 .unwrap();
 
             // Allow user to read the rtcs.
             for rtc in rtcs.iter() {
-                let room_id = rtc.room_id().to_string();
-                let rtc_id = rtc.id().to_string();
-                let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+                let rtc_id = rtc.0.id().to_string();
+                let object = vec!["classrooms", &rtc.1, "rtcs", &rtc_id];
                 authz.allow(new_reader.account_id(), object, "read");
             }
 
@@ -2041,7 +2061,7 @@ mod test {
             // First two rooms have reserves AND there is free capacity so we can connect to them
             for rtc in rtcs.iter().take(2) {
                 let payload = ConnectRequest {
-                    id: rtc.id(),
+                    id: rtc.0.id(),
                     intent: ConnectIntent::Read,
                 };
 
@@ -2053,14 +2073,14 @@ mod test {
                     find_response::<ConnectResponseData>(messages.as_slice());
 
                 assert_eq!(respp.status(), StatusCode::OK);
-                assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+                assert_eq!(resp.handle_id.rtc_id(), rtc.0.id());
                 assert_eq!(resp.handle_id.janus_session_id(), session_id);
                 assert_eq!(resp.handle_id.backend_id(), backend.id());
                 assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
             }
 
             let payload = ConnectRequest {
-                id: rtcs[2].id(),
+                id: rtcs[2].0.id(),
                 intent: ConnectIntent::Read,
             };
 
@@ -2087,7 +2107,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             // Create an RTC.
-            let (rtc, backend) = db
+            let (rtc, backend, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -2109,15 +2129,14 @@ mod test {
                         .created_by(creator.agent_id().to_owned())
                         .insert(&conn);
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    (rtc, backend)
+                    (rtc, backend, room.classroom_id().to_string())
                 })
                 .unwrap();
 
             // Allow agent to update the RTC.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object, "update");
 
             // Make rtc.connect request.
@@ -2147,7 +2166,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             // Create an RTC.
-            let (rtc, backend) = db
+            let (rtc, backend, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -2169,14 +2188,13 @@ mod test {
                         .created_by(creator.agent_id().to_owned())
                         .insert(&conn);
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    (rtc, backend)
+                    (rtc, backend, room.classroom_id().to_string())
                 })
                 .unwrap();
 
             // Allow agent to update the RTC.
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object, "update");
 
             // Make rtc.connect request.
@@ -2209,7 +2227,7 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             // Create an RTC.
-            let (rtc, backend) = db
+            let (rtc, backend, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -2232,14 +2250,13 @@ mod test {
                         .insert(&conn);
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
 
-                    (rtc, backend)
+                    (rtc, backend, room.classroom_id().to_string())
                 })
                 .unwrap();
 
             // Allow agent to read the RTC.
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
@@ -2268,7 +2285,7 @@ mod test {
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let (rtc, backend) = {
+            let (rtc, backend, classroom_id) = {
                 let conn = db
                     .connection_pool()
                     .get()
@@ -2313,13 +2330,12 @@ mod test {
                 let room2 = shared_helpers::insert_room(&conn);
                 let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
                 shared_helpers::insert_agent(&conn, agent.agent_id(), room2.id());
-                (rtc2, backend2)
+                (rtc2, backend2, room2.classroom_id().to_string())
             };
 
             // Allow agent to read the RTC.
-            let room_id = rtc.room_id().to_string();
             let rtc_id = rtc.id().to_string();
-            let object = vec!["rooms", &room_id, "rtcs", &rtc_id];
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object, "read");
 
             // Configure the app to the `right` janus group.
