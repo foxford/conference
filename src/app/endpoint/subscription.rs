@@ -218,3 +218,295 @@ fn make_orphaned_if_host_left(
     }
     Ok(())
 }
+
+///////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod tests {
+    mod delete_response {
+        use svc_agent::mqtt::ResponseStatus;
+
+        use crate::{
+            app::API_VERSION,
+            db::agent::ListQuery as AgentListQuery,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
+
+        use super::super::*;
+
+        #[tokio::test]
+        async fn delete_subscription() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            let room = {
+                // Create room and put the agent online.
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                let room = shared_helpers::insert_room(&conn);
+                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                room
+            };
+
+            // Send subscription.delete response.
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let reqp = build_reqp(agent.agent_id(), "room.leave");
+            let room_id = room.id().to_string();
+
+            let corr_data = CorrelationDataPayload {
+                reqp: reqp.clone(),
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
+
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+
+            let messages = handle_response::<DeleteResponseHandler>(
+                &mut context,
+                &broker,
+                CreateDeleteResponsePayload {},
+                &corr_data,
+            )
+            .await
+            .expect("Subscription deletion failed");
+
+            // Assert original request response.
+            let (_payload, respp, topic) =
+                find_response::<CreateDeleteResponsePayload>(messages.as_slice());
+
+            let expected_topic = format!(
+                "agents/{}/api/{}/in/conference.{}",
+                agent.agent_id(),
+                API_VERSION,
+                SVC_AUDIENCE,
+            );
+
+            assert_eq!(topic, &expected_topic);
+            assert_eq!(respp.status(), ResponseStatus::OK);
+            assert_eq!(respp.correlation_data(), reqp.correlation_data());
+
+            // Assert notification.
+            let (payload, evp, topic) = find_event::<RoomEnterLeaveEvent>(messages.as_slice());
+            assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
+            assert_eq!(evp.label(), "room.leave");
+            assert_eq!(payload.id, room.id());
+            assert_eq!(&payload.agent_id, agent.agent_id());
+
+            // Assert agent deleted from the DB.
+            let conn = context
+                .get_conn()
+                .await
+                .expect("Failed to get DB connection");
+
+            let db_agents = AgentListQuery::new()
+                .agent_id(agent.agent_id())
+                .room_id(room.id())
+                .execute(&conn)
+                .expect("Failed to execute agent list query");
+
+            assert_eq!(db_agents.len(), 0);
+        }
+
+        #[tokio::test]
+        async fn delete_subscription_missing_agent() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                shared_helpers::insert_room(&conn)
+            };
+
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let room_id = room.id().to_string();
+
+            let corr_data = CorrelationDataPayload {
+                reqp: build_reqp(agent.agent_id(), "room.leave"),
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
+
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+
+            let err = handle_response::<DeleteResponseHandler>(
+                &mut context,
+                &broker,
+                CreateDeleteResponsePayload {},
+                &corr_data,
+            )
+            .await
+            .expect_err("Unexpected success on subscription deletion");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
+        }
+
+        #[tokio::test]
+        async fn delete_subscription_missing_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let room_id = db::room::Id::random().to_string();
+
+            let corr_data = CorrelationDataPayload {
+                reqp: build_reqp(agent.agent_id(), "room.leave"),
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
+
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+
+            let err = handle_response::<DeleteResponseHandler>(
+                &mut context,
+                &broker,
+                CreateDeleteResponsePayload {},
+                &corr_data,
+            )
+            .await
+            .expect_err("Unexpected success on subscription deletion");
+
+            assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+            assert_eq!(err.kind(), "agent_not_entered_the_room");
+        }
+    }
+
+    mod delete_event {
+        use crate::{
+            db::agent::ListQuery as AgentListQuery,
+            test_helpers::{prelude::*, test_deps::LocalDeps},
+        };
+
+        use super::super::*;
+
+        #[tokio::test]
+        async fn delete_subscription() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            let old_room = {
+                // First room, we were online in it but then session was taken over and we disconnected (not in the db tho).
+                // By the end of this test subscription for this room should be absent.
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                let old_room = shared_helpers::insert_room(&conn);
+                shared_helpers::insert_agent(&conn, agent.agent_id(), old_room.id());
+                old_room
+            };
+
+            let room = {
+                // Create room and put the agent online.
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                let room = shared_helpers::insert_room(&conn);
+                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                room
+            };
+
+            // Send subscription.delete event.
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let room_id = room.id().to_string();
+
+            let payload = DeleteEventPayload {
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
+
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+
+            let messages = handle_event::<DeleteEventHandler>(&mut context, &broker, payload)
+                .await
+                .expect("Subscription deletion failed");
+
+            // Assert notification.
+            let (payload, evp, topic) = find_event::<RoomEnterLeaveEvent>(messages.as_slice());
+            assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
+            assert_eq!(evp.label(), "room.leave");
+            assert_eq!(payload.id, room.id());
+            assert_eq!(&payload.agent_id, agent.agent_id());
+
+            // Assert agent deleted from the DB.
+            let conn = context
+                .get_conn()
+                .await
+                .expect("Failed to get DB connection");
+
+            let db_agents = AgentListQuery::new()
+                .agent_id(agent.agent_id())
+                .room_id(room.id())
+                .execute(&conn)
+                .expect("Failed to execute agent list query");
+
+            assert_eq!(db_agents.len(), 0);
+
+            let db_agents = AgentListQuery::new()
+                .agent_id(agent.agent_id())
+                .room_id(old_room.id())
+                .execute(&conn)
+                .expect("Failed to execute agent list query");
+
+            assert_eq!(db_agents.len(), 0);
+        }
+
+        #[tokio::test]
+        async fn delete_subscription_missing_agent() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                shared_helpers::insert_room(&conn)
+            };
+
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let room_id = room.id().to_string();
+
+            let payload = DeleteEventPayload {
+                subject: agent.agent_id().to_owned(),
+                object: vec!["rooms".to_string(), room_id, "events".to_string()],
+            };
+
+            let broker_account_label = context.config().broker_id.label();
+            let broker = TestAgent::new("alpha", broker_account_label, SVC_AUDIENCE);
+
+            let messages = handle_event::<DeleteEventHandler>(&mut context, &broker, payload)
+                .await
+                .expect("Subscription deletion failed");
+
+            assert!(messages.is_empty());
+        }
+    }
+}
