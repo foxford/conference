@@ -76,7 +76,7 @@ impl ResponseHandler for DeleteResponseHandler {
     ) -> MqttResult {
         ensure_broker(context, respp)?;
         let room_id = try_room_id(&corr_data.object)?;
-        let maybe_left = leave_room(context, &corr_data.subject, room_id).await?;
+        let maybe_left = leave_room_if_not_connected(context, &corr_data.subject, room_id).await?;
         if maybe_left {
             let response = helpers::build_response(
                 ResponseStatus::OK,
@@ -125,7 +125,7 @@ impl EventHandler for DeleteEventHandler {
     ) -> MqttResult {
         ensure_broker(context, evp)?;
         let room_id = try_room_id(&payload.object)?;
-        if leave_room(context, &payload.subject, room_id).await? {
+        if leave_room_if_not_connected(context, &payload.subject, room_id).await? {
             let outgoing_event_payload =
                 RoomEnterLeaveEvent::new(room_id, payload.subject.to_owned());
             let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
@@ -194,6 +194,30 @@ pub async fn leave_room<C: Context>(
                 .agent_id(&agent_id)
                 .room_id(room_id)
                 .execute(&conn)?;
+
+            if row_count < 1 {
+                return Ok::<_, AppError>(false);
+            }
+
+            make_orphaned_if_host_left(room_id, &agent_id, &conn)?;
+            Ok::<_, AppError>(true)
+        }
+    })
+    .await?;
+    Ok(left)
+}
+
+#[instrument(skip(context))]
+pub async fn leave_room_if_not_connected<C: Context>(
+    context: &mut C,
+    agent_id: &AgentId,
+    room_id: db::room::Id,
+) -> StdResult<bool, AppError> {
+    let conn = context.get_conn().await?;
+    let left = crate::util::spawn_blocking({
+        let agent_id = agent_id.clone();
+        move || {
+            let row_count = db::agent::DeleteNotConnectedQuery::new(&agent_id).execute(&conn)?;
 
             if row_count < 1 {
                 return Ok::<_, AppError>(false);

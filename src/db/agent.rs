@@ -227,7 +227,7 @@ impl<'a> UpdateQuery<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-/// Deletes the agent and associated agent_connection.
+/// Deletes the agent and associated agent_connection (cascade).
 pub struct DeleteQuery<'a> {
     agent_id: Option<&'a AgentId>,
     room_id: Option<db::room::Id>,
@@ -269,6 +269,35 @@ impl<'a> DeleteQuery<'a> {
         }
 
         query.execute(conn)
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+const DELETE_NOT_CONNECTED_SQL: &str = r#"
+    DELETE FROM agent AS a
+    WHERE a.id = $1
+    AND NOT EXISTS
+        (SELECT * FROM agent_connection AS ac
+            WHERE a.id = ac.agent_id);
+"#;
+
+pub struct DeleteNotConnectedQuery<'a> {
+    agent_id: &'a AgentId,
+}
+
+impl<'a> DeleteNotConnectedQuery<'a> {
+    pub fn new(agent_id: &'a AgentId) -> Self {
+        Self { agent_id }
+    }
+
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+        use crate::db::sql::Agent_id;
+        use diesel::prelude::*;
+
+        diesel::sql_query(DELETE_NOT_CONNECTED_SQL)
+            .bind::<Agent_id, _>(self.agent_id)
+            .execute(conn)
     }
 }
 
