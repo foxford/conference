@@ -1,16 +1,21 @@
+use anyhow::anyhow;
 use async_trait::async_trait;
 use chrono::Utc;
 use diesel::PgConnection;
 use futures::stream;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::result::Result as StdResult;
 use svc_agent::{
-    mqtt::{IncomingRequestProperties, IncomingResponseProperties},
-    AgentId,
+    mqtt::{
+        IncomingEventProperties, IncomingRequestProperties, IncomingResponseProperties,
+        IntoPublishableMessage, OutgoingEvent, ResponseStatus, ShortTermTimingProperties,
+    },
+    Addressable, AgentId,
 };
 
 use crate::{
-    app::{context::Context, endpoint::prelude::*},
+    app::{context::Context, endpoint::prelude::*, metrics::HistogramExt},
     db::{self, room::FindQueryable},
 };
 use tracing_attributes::instrument;
@@ -62,18 +67,118 @@ impl ResponseHandler for DeleteResponseHandler {
     type Payload = CreateDeleteResponsePayload;
     type CorrelationData = CorrelationDataPayload;
 
-    #[instrument(skip(_context, _payload, _respp, _corr_data))]
+    #[instrument(skip(context, _payload, respp, corr_data))]
     async fn handle<C: Context>(
-        _context: &mut C,
+        context: &mut C,
         _payload: Self::Payload,
-        _respp: &IncomingResponseProperties,
-        _corr_data: &Self::CorrelationData,
+        respp: &IncomingResponseProperties,
+        corr_data: &Self::CorrelationData,
     ) -> MqttResult {
-        Ok(Box::new(stream::empty()))
+        ensure_broker(context, respp)?;
+        let room_id = try_room_id(&corr_data.object)?;
+        let maybe_left = leave_room(context, &corr_data.subject, room_id).await?;
+        if maybe_left {
+            let response = helpers::build_response(
+                ResponseStatus::OK,
+                json!({}),
+                &corr_data.reqp,
+                context.start_timestamp(),
+                None,
+            );
+
+            let notification = helpers::build_notification(
+                "room.leave",
+                &format!("rooms/{}/events", room_id),
+                RoomEnterLeaveEvent::new(room_id, corr_data.subject.to_owned()),
+                corr_data.reqp.tracking(),
+                context.start_timestamp(),
+            );
+            context
+                .metrics()
+                .request_duration
+                .subscription_delete_response
+                .observe_timestamp(context.start_timestamp());
+
+            Ok(Box::new(stream::iter(vec![response, notification])))
+        } else {
+            Err(anyhow!("The agent is not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteEventPayload {
+    subject: AgentId,
+    object: Vec<String>,
+}
+
+pub struct DeleteEventHandler;
+
+#[async_trait]
+impl EventHandler for DeleteEventHandler {
+    type Payload = DeleteEventPayload;
+
+    async fn handle<C: Context>(
+        context: &mut C,
+        payload: Self::Payload,
+        evp: &IncomingEventProperties,
+    ) -> MqttResult {
+        ensure_broker(context, evp)?;
+        let room_id = try_room_id(&payload.object)?;
+        if leave_room(context, &payload.subject, room_id).await? {
+            let outgoing_event_payload =
+                RoomEnterLeaveEvent::new(room_id, payload.subject.to_owned());
+            let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
+            let props = evp.to_event("room.leave", short_term_timing);
+            let to_uri = format!("rooms/{}/events", room_id);
+            let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
+            let notification =
+                Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
+            context
+                .metrics()
+                .request_duration
+                .subscription_delete_event
+                .observe_timestamp(context.start_timestamp());
+
+            Ok(Box::new(stream::once(std::future::ready(notification))))
+        } else {
+            Ok(Box::new(stream::empty()))
+        }
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+fn ensure_broker<C: Context, A: Addressable>(
+    context: &mut C,
+    sender: &A,
+) -> StdResult<(), AppError> {
+    if sender.as_account_id() == &context.config().broker_id {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "Expected subscription.delete event to be sent from the broker account '{}', got '{}'",
+            context.config().broker_id,
+            sender.as_account_id()
+        ))
+        .error(AppErrorKind::AccessDenied)
+    }
+}
+
+fn try_room_id(object: &[String]) -> StdResult<db::room::Id, AppError> {
+    let object: Vec<&str> = object.iter().map(AsRef::as_ref).collect();
+
+    match object.as_slice() {
+        ["rooms", room_id, "events"] => room_id
+            .parse()
+            .map_err(|err| anyhow!("UUID parse error: {}", err)),
+        _ => Err(anyhow!(
+            "Bad 'object' format; expected [\"room\", <ROOM_ID>, \"events\"], got: {:?}",
+            object
+        )),
+    }
+    .error(AppErrorKind::InvalidSubscriptionObject)
+}
 
 #[instrument(skip(context))]
 pub async fn leave_room<C: Context>(
