@@ -276,7 +276,7 @@ impl<'a> DeleteQuery<'a> {
 
 const DELETE_NOT_CONNECTED_SQL: &str = r#"
     DELETE FROM agent AS a
-    WHERE a.id = $1
+    WHERE a.agent_id = $1
     AND NOT EXISTS
         (SELECT * FROM agent_connection AS ac
             WHERE a.id = ac.agent_id);
