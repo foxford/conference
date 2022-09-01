@@ -524,7 +524,7 @@ dependencies = [
 
 [[package]]
 name = "conference"
-version = "0.6.45"
+version = "0.6.46"
 dependencies = [
  "anyhow",
  "async-trait",
