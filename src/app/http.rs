@@ -10,14 +10,11 @@ use axum::{
     Extension, Router,
 };
 use futures::future::BoxFuture;
-use http::{Method, Request, StatusCode};
+use http::{Method, Request};
 use hyper::{body::HttpBody, Body};
 use svc_agent::mqtt::{Agent, IntoPublishableMessage};
 use tower::{layer::layer_fn, Service};
-use tower_http::{
-    classify::{ClassifiedResponse, ClassifyResponse, NeverClassifyEos, SharedClassifier},
-    trace::TraceLayer,
-};
+use tower_http::trace::TraceLayer;
 use tracing::{
     error,
     field::{self, Empty},
@@ -76,7 +73,7 @@ pub fn build_router(
     let router = router.merge(pingz_router);
 
     router.layer(
-        TraceLayer::new(ErrorsAsFailures::make_classifier())
+        TraceLayer::new_for_http()
             .make_span_with(|request: &Request<Body>| {
                 let span = tracing::error_span!(
                     "http-api-request",
@@ -85,9 +82,7 @@ pub fn build_router(
                     method = %request.method(),
                     status_code = Empty,
                     kind = Empty,
-                    detail = Empty,
-                    // to differentiate error messages from super::error::Error and the rest
-                    failure_desc = Empty
+                    detail = Empty
                 );
 
                 if request.method() != Method::GET && request.method() != Method::OPTIONS {
@@ -101,14 +96,12 @@ pub fn build_router(
             })
             .on_response(|response: &Response<_>, latency: Duration, span: &Span| {
                 span.record("status_code", &field::debug(response.status()));
-                info!("response generated in {:?}", latency);
-            })
-            .on_failure(
-                |failure: ErrorsFailureClass, latency: Duration, span: &Span| {
-                    span.record("failure_desc", &field::display(failure));
+                if response.status().is_success() {
+                    info!("response generated in {:?}", latency);
+                } else {
                     error!("response generated in {:?}", latency);
-                },
-            ),
+                }
+            }),
     )
 }
 
@@ -172,63 +165,5 @@ where
 
             Ok(res)
         })
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct ErrorsAsFailures {}
-
-impl ErrorsAsFailures {
-    /// Create a new [`ErrorsAsFailures`].
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Returns a [`MakeClassifier`] that produces `ErrorsAsFailures`.
-    ///
-    /// This is a convenience function that simply calls `SharedClassifier::new`.
-    pub fn make_classifier() -> SharedClassifier<Self> {
-        SharedClassifier::new(Self::new())
-    }
-}
-
-impl ClassifyResponse for ErrorsAsFailures {
-    type FailureClass = ErrorsFailureClass;
-    type ClassifyEos = NeverClassifyEos<ErrorsFailureClass>;
-
-    fn classify_response<B>(
-        self,
-        res: &Response<B>,
-    ) -> ClassifiedResponse<Self::FailureClass, Self::ClassifyEos> {
-        if res.status().is_client_error() || res.status().is_server_error() {
-            ClassifiedResponse::Ready(Err(ErrorsFailureClass::StatusCode(res.status())))
-        } else {
-            ClassifiedResponse::Ready(Ok(()))
-        }
-    }
-
-    fn classify_error<E>(self, error: &E) -> Self::FailureClass
-    where
-        E: std::fmt::Display + 'static,
-    {
-        ErrorsFailureClass::Error(error.to_string())
-    }
-}
-
-/// The failure class for [`ServerErrorsAsFailures`].
-#[derive(Debug)]
-pub enum ErrorsFailureClass {
-    /// A response was classified as a failure with the corresponding status.
-    StatusCode(StatusCode),
-    /// A response was classified as an error with the corresponding error description.
-    Error(String),
-}
-
-impl std::fmt::Display for ErrorsFailureClass {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::StatusCode(code) => write!(f, "Status code: {}", code),
-            Self::Error(error) => write!(f, "Error: {}", error),
-        }
     }
 }
