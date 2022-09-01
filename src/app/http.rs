@@ -14,7 +14,7 @@ use http::{Method, Request};
 use hyper::{body::HttpBody, Body};
 use svc_agent::mqtt::{Agent, IntoPublishableMessage};
 use tower::{layer::layer_fn, Service};
-use tower_http::trace::TraceLayer;
+use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{
     error,
     field::{self, Empty},
@@ -82,7 +82,9 @@ pub fn build_router(
                     method = %request.method(),
                     status_code = Empty,
                     kind = Empty,
-                    detail = Empty
+                    detail = Empty,
+                    // to differentiate error messages from super::error::Error and the rest
+                    failure_desc = Empty
                 );
 
                 if request.method() != Method::GET && request.method() != Method::OPTIONS {
@@ -96,12 +98,14 @@ pub fn build_router(
             })
             .on_response(|response: &Response<_>, latency: Duration, span: &Span| {
                 span.record("status_code", &field::debug(response.status()));
-                if response.status().is_success() {
-                    info!("response generated in {:?}", latency)
-                } else {
-                    error!("response generated in {:?}", latency)
-                }
-            }),
+                info!("response generated in {:?}", latency);
+            })
+            .on_failure(
+                |failure: ServerErrorsFailureClass, latency: Duration, span: &Span| {
+                    span.record("failure_desc", &field::display(failure));
+                    error!("response generated in {:?}", latency);
+                },
+            ),
     )
 }
 
