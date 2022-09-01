@@ -77,10 +77,12 @@ pub fn build_router(
             .make_span_with(|request: &Request<Body>| {
                 let span = tracing::error_span!(
                     "http-api-request",
-                    status_code = Empty,
                     path = request.uri().path(),
                     query = request.uri().query(),
                     method = %request.method(),
+                    status_code = Empty,
+                    kind = Empty,
+                    detail = Empty
                 );
 
                 if request.method() != Method::GET && request.method() != Method::OPTIONS {
@@ -95,9 +97,9 @@ pub fn build_router(
             .on_response(|response: &Response<_>, latency: Duration, span: &Span| {
                 span.record("status_code", &field::debug(response.status()));
                 if response.status().is_success() {
-                    info!("response generated in {:?}", latency)
+                    info!("response generated in {:?}", latency);
                 } else {
-                    error!("response generated in {:?}", latency)
+                    error!("response generated in {:?}", latency);
                 }
             }),
     )
@@ -105,11 +107,17 @@ pub fn build_router(
 
 impl IntoResponse for super::error::Error {
     fn into_response(self) -> Response {
+        let source = self.source().to_string();
         let err = svc_error::Error::builder()
             .status(self.status())
             .kind(self.kind(), self.title())
-            .detail(&self.source().to_string())
+            .detail(&source)
             .build();
+
+        let span = Span::current();
+        span.record("kind", &self.kind());
+        span.record("detail", &source.as_str());
+
         let error =
             serde_json::to_string(&err).unwrap_or_else(|_| "Failed to serialize error".to_string());
 
