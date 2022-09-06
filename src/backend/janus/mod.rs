@@ -15,10 +15,7 @@ use self::client::{create_handle::OpaqueId, transactions::TransactionKind, Incom
 use crate::{
     app::{
         context::Context,
-        endpoint::{
-            self,
-            subscription::{leave_room, RoomEnterLeaveEvent},
-        },
+        endpoint,
         error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
         message_handler::MessageStream,
         metrics::HistogramExt,
@@ -508,27 +505,7 @@ async fn handle_hangup_detach<C: Context>(
     })
     .await?;
 
-    let leave_room_evt = if leave_room(context, &opaque_id.agent_id, opaque_id.room_id).await? {
-        let outgoing_event_payload =
-            RoomEnterLeaveEvent::new(opaque_id.room_id, opaque_id.agent_id.clone());
-        let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
-        let props = OutgoingEventProperties::new("room.leave", short_term_timing);
-        let to_uri = format!("rooms/{}/events", opaque_id.room_id);
-        let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
-        let notification =
-            Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-        context
-            .metrics()
-            .request_duration
-            .subscription_delete_event
-            .observe_timestamp(context.start_timestamp());
-
-        Some(notification)
-    } else {
-        None
-    };
-
-    let stream = stream::iter(vec![stop_stream_evt, leave_room_evt].into_iter().flatten());
+    let stream = stream::iter(vec![stop_stream_evt].into_iter().flatten());
     Ok(Box::new(stream))
 }
 

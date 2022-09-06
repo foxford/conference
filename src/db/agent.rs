@@ -274,35 +274,6 @@ impl<'a> DeleteQuery<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-const DELETE_NOT_CONNECTED_SQL: &str = r#"
-    DELETE FROM agent AS a
-    WHERE a.agent_id = $1
-    AND NOT EXISTS
-        (SELECT * FROM agent_connection AS ac
-            WHERE a.id = ac.agent_id);
-"#;
-
-pub struct DeleteNotConnectedQuery<'a> {
-    agent_id: &'a AgentId,
-}
-
-impl<'a> DeleteNotConnectedQuery<'a> {
-    pub fn new(agent_id: &'a AgentId) -> Self {
-        Self { agent_id }
-    }
-
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use crate::db::sql::Agent_id;
-        use diesel::prelude::*;
-
-        diesel::sql_query(DELETE_NOT_CONNECTED_SQL)
-            .bind::<Agent_id, _>(self.agent_id)
-            .execute(conn)
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
 pub struct CleanupQuery {
     created_at: DateTime<Utc>,
 }
