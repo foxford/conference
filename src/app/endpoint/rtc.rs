@@ -375,7 +375,7 @@ impl ConnectRequest {
 pub struct ConnectAndSignalPayload {
     #[serde(default = "ConnectRequest::default_intent")]
     intent: ConnectIntent,
-    offer_sdp: JsonSdp,
+    jsep: JsonSdp,
     label: Option<String>,
 }
 
@@ -402,7 +402,7 @@ pub async fn connect_and_signal(
         id: rtc_id,
         intent: payload.intent,
         agent_id,
-        offer_sdp: payload.offer_sdp,
+        jsep: payload.jsep,
         label: payload.label,
     }
     .run()
@@ -421,7 +421,7 @@ struct ConnectAndSignal<'a, C> {
     id: db::rtc::Id,
     intent: ConnectIntent,
     agent_id: AgentId,
-    offer_sdp: JsonSdp,
+    jsep: JsonSdp,
     label: Option<String>,
 }
 
@@ -715,11 +715,11 @@ where
 
         let current_span = Span::current();
         current_span.record("sdp_type", &"offer");
-        let is_recvonly = endpoint::rtc_signal::is_sdp_recvonly(self.offer_sdp.sdp.as_str())
+        let is_recvonly = endpoint::rtc_signal::is_sdp_recvonly(self.jsep.sdp.as_str())
             .context("Invalid JSEP format")
             .error(AppErrorKind::InvalidJsepFormat)?;
 
-        let jsep = Jsep::OfferOrAnswer(self.offer_sdp.clone());
+        let jsep = Jsep::OfferOrAnswer(self.jsep.clone());
 
         let answer = if is_recvonly {
             let request = ReadStreamRequest {
