@@ -146,7 +146,7 @@ impl UpsertQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable, AsChangeset)]
+#[derive(Debug, AsChangeset)]
 #[table_name = "agent_connection"]
 pub struct UpdateQuery {
     handle_id: HandleId,
@@ -188,6 +188,27 @@ impl CleanupNotConnectedQuery {
             .filter(status.eq(Status::InProgress));
 
         diesel::delete(q).execute(conn)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
+pub struct DisconnectSingleAgentQuery {
+    handle_id: HandleId,
+}
+
+impl DisconnectSingleAgentQuery {
+    pub fn new(handle_id: HandleId) -> Self {
+        Self { handle_id }
+    }
+
+    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
+        use diesel::prelude::*;
+
+        diesel::delete(agent_connection::table)
+            .filter(agent_connection::handle_id.eq(self.handle_id))
+            .execute(conn)
     }
 }
 
