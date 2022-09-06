@@ -820,7 +820,10 @@ where
             .rtc_connect
             .observe_timestamp(self.ctx.start_timestamp());
 
-        Ok(ConnectAndSignalResult { handle_id, jsep: answer })
+        Ok(ConnectAndSignalResult {
+            handle_id,
+            jsep: answer,
+        })
     }
 }
 
