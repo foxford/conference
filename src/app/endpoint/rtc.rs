@@ -382,7 +382,7 @@ pub struct ConnectAndSignalPayload {
 #[derive(Serialize)]
 pub struct ConnectAndSignalResult {
     handle_id: HandleId,
-    answer: Option<serde_json::Value>,
+    jsep: Option<serde_json::Value>,
 }
 
 #[instrument(skip(ctx, payload), fields(
@@ -820,7 +820,7 @@ where
             .rtc_connect
             .observe_timestamp(self.ctx.start_timestamp());
 
-        Ok(ConnectAndSignalResult { handle_id, answer })
+        Ok(ConnectAndSignalResult { handle_id, jsep: answer })
     }
 }
 
