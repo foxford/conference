@@ -1,24 +1,20 @@
-name: Build release artifacts
+name: Build dev artifacts
 
 on:
   push:
-    branches:
+    branches-ignore:
       - main
       - master
-    tags:
-      - '*.*.*'
 
 jobs:
   build-chart:
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
-    uses: foxford/reusable-workflows/.github/workflows/build-release-chart.yml@master
+    uses: foxford/reusable-workflows/.github/workflows/build-dev-chart.yml@master
     secrets:
       helm_registry_username: ${{ secrets.YANDEX_HELM_USERNAME }}
       helm_registry_password: ${{ secrets.YANDEX_HELM_PASSWORD }}
 
   build-image:
-    if: startsWith(github.ref, 'refs/tags/')
-    uses: foxford/reusable-workflows/.github/workflows/build-release-image.yml@master
+    uses: foxford/reusable-workflows/.github/workflows/build-dev-image.yml@master
     secrets:
       docker_registry_username: ${{ secrets.YANDEX_DOCKER_USERNAME }}
       docker_registry_password: ${{ secrets.YANDEX_DOCKER_PASSWORD }}
