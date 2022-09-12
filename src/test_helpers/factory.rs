@@ -179,6 +179,7 @@ pub struct AgentConnection {
     agent_id: agent::Id,
     rtc_id: db::rtc::Id,
     handle_id: HandleId,
+    created_at: Option<DateTime<Utc>>,
 }
 
 impl AgentConnection {
@@ -187,13 +188,26 @@ impl AgentConnection {
             agent_id,
             rtc_id,
             handle_id,
+            created_at: None,
+        }
+    }
+
+    pub fn created_at(self, at: DateTime<Utc>) -> Self {
+        Self {
+            created_at: Some(at),
+            ..self
         }
     }
 
     pub fn insert(&self, conn: &PgConnection) -> db::agent_connection::Object {
-        db::agent_connection::UpsertQuery::new(self.agent_id, self.rtc_id, self.handle_id)
-            .execute(conn)
-            .expect("Failed to insert agent_connection")
+        let mut q =
+            db::agent_connection::UpsertQuery::new(self.agent_id, self.rtc_id, self.handle_id);
+
+        if let Some(created_at) = self.created_at {
+            q = q.created_at(created_at);
+        }
+
+        q.execute(conn).expect("Failed to insert agent_connection")
     }
 }
 

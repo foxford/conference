@@ -156,7 +156,7 @@ pub fn insert_connected_to_handle_agent(
 ) -> (Agent, AgentConnection) {
     let agent = insert_agent(conn, agent_id, room_id);
     let agent_connection =
-        factory::AgentConnection::new(*agent.id(), rtc_id, handle_id).insert(conn);
+        factory::AgentConnection::new(agent.id(), rtc_id, handle_id).insert(conn);
     (agent, agent_connection)
 }
 

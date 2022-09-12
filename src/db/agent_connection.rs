@@ -131,6 +131,11 @@ impl UpsertQuery {
         }
     }
 
+    #[cfg(test)]
+    pub fn created_at(self, created_at: DateTime<Utc>) -> Self {
+        Self { created_at, ..self }
+    }
+
     pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::agent_connection::dsl::*;
         use diesel::prelude::*;
@@ -262,5 +267,72 @@ impl<'a> BulkDisconnectByBackendQuery<'a> {
         diesel::sql_query(BULK_DISCONNECT_BY_BACKEND_SQL)
             .bind::<Agent_id, _>(self.backend_id)
             .execute(conn)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn test_cleanup_not_connected_query() {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let db = TestDb::with_local_postgres(&postgres);
+        let old = TestAgent::new("web", "old_agent", USR_AUDIENCE);
+        let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);
+
+        let room = db
+            .connection_pool()
+            .get()
+            .map(|conn| {
+                let room = shared_helpers::insert_room(&conn);
+                let rtc = factory::Rtc::new(room.id())
+                    .created_by(new.agent_id().to_owned())
+                    .insert(&conn);
+                let old = factory::Agent::new()
+                    .agent_id(old.agent_id())
+                    .room_id(room.id())
+                    .status(db::agent::Status::Ready)
+                    .insert(&conn);
+                let old_agent_conn = factory::AgentConnection::new(
+                    old.id(),
+                    rtc.id(),
+                    crate::backend::janus::client::HandleId::random(),
+                )
+                .created_at(Utc::now() - Duration::minutes(20))
+                .insert(&conn);
+                println!("{old_agent_conn:?}");
+
+                let new = factory::Agent::new()
+                    .agent_id(new.agent_id())
+                    .room_id(room.id())
+                    .status(db::agent::Status::Ready)
+                    .insert(&conn);
+                let new_agent_conn = factory::AgentConnection::new(
+                    new.id(),
+                    rtc.id(),
+                    crate::backend::janus::client::HandleId::random(),
+                )
+                .insert(&conn);
+                println!("{new_agent_conn:?}");
+                let new_agent_conn =
+                    UpdateQuery::new(new_agent_conn.handle_id(), Status::Connected)
+                        .execute(&conn)
+                        .unwrap();
+                println!("{new_agent_conn:?}");
+
+                room
+            })
+            .expect("Failed to insert room");
+
+        let conn = db.connection_pool().get().unwrap();
+        let r = CleanupNotConnectedQuery::new(Utc::now() - Duration::minutes(1))
+            .execute(&conn)
+            .expect("Failed to run query");
+
+        assert_eq!(r, 1);
     }
 }

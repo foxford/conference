@@ -692,7 +692,7 @@ where
 
                     if let Some(agent) = maybe_agent.first() {
                         // Create agent connection in the DB.
-                        agent_connection::UpsertQuery::new(*agent.id(), payload_id, handle_id)
+                        agent_connection::UpsertQuery::new(agent.id(), payload_id, handle_id)
                             .execute(&conn)?;
 
                         Ok(())
@@ -1059,7 +1059,7 @@ impl RequestHandler for ConnectHandler {
 
                 if let Some(agent) = maybe_agent.first() {
                     // Create agent connection in the DB.
-                    agent_connection::UpsertQuery::new(*agent.id(), payload_id, handle_id)
+                    agent_connection::UpsertQuery::new(agent.id(), payload_id, handle_id)
                         .execute(&conn)?;
 
                     Ok(())
