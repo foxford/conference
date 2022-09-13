@@ -227,6 +227,7 @@ impl<'a> UpdateQuery<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+/// Deletes the agent and associated agent_connection (cascade).
 pub struct DeleteQuery<'a> {
     agent_id: Option<&'a AgentId>,
     room_id: Option<db::room::Id>,

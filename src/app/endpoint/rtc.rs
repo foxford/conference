@@ -15,7 +15,7 @@ use tracing::{warn, Span};
 
 use crate::{
     app::{
-        context::{AppContext, Context},
+        context::{AppContext, Context, MessageContext},
         endpoint,
         endpoint::prelude::*,
         handle_id::HandleId,
@@ -23,7 +23,15 @@ use crate::{
         service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
-    backend::janus::client::create_handle::{CreateHandleRequest, OpaqueId},
+    backend::janus::client::{
+        create_handle::{CreateHandleRequest, OpaqueId},
+        create_stream::{
+            CreateStreamRequest, CreateStreamRequestBody, CreateStreamTransaction, ReaderConfig,
+            WriterConfig,
+        },
+        read_stream::{ReadStreamRequest, ReadStreamRequestBody, ReadStreamTransaction},
+        Jsep, JsonSdp,
+    },
     db::{self, agent, agent_connection, rtc::SharingPolicy as RtcSharingPolicy},
     diesel::{Connection, Identifiable},
 };
@@ -334,7 +342,7 @@ impl RequestHandler for ListHandler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum ConnectIntent {
     Read,
@@ -360,6 +368,462 @@ pub struct ConnectRequest {
 impl ConnectRequest {
     fn default_intent() -> ConnectIntent {
         ConnectIntent::Read
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConnectAndSignalPayload {
+    #[serde(default = "ConnectRequest::default_intent")]
+    intent: ConnectIntent,
+    jsep: JsonSdp,
+    label: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ConnectAndSignalResult {
+    handle_id: HandleId,
+    jsep: Option<serde_json::Value>,
+}
+
+#[instrument(skip(ctx, payload), fields(
+    rtc_id = %rtc_id,
+    intent = %payload.intent,
+))]
+pub async fn connect_and_signal(
+    Extension(ctx): Extension<Arc<AppContext>>,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
+    Path(rtc_id): Path<db::rtc::Id>,
+    Json(payload): Json<ConnectAndSignalPayload>,
+) -> RequestResult {
+    let ctx = &mut ctx.start_message();
+
+    let response = ConnectAndSignal {
+        ctx,
+        id: rtc_id,
+        intent: payload.intent,
+        agent_id,
+        jsep: payload.jsep,
+        label: payload.label,
+    }
+    .run()
+    .await?;
+
+    Ok(Response::new(
+        ResponseStatus::OK,
+        response,
+        ctx.start_timestamp(),
+        None,
+    ))
+}
+
+struct ConnectAndSignal<'a, C> {
+    ctx: &'a mut C,
+    id: db::rtc::Id,
+    intent: ConnectIntent,
+    agent_id: AgentId,
+    jsep: JsonSdp,
+    label: Option<String>,
+}
+
+impl<C> ConnectAndSignal<'_, C>
+where
+    C: Context,
+{
+    async fn authz(&self, room: &db::room::Object) -> Result<(), AppError> {
+        let rtc_id = self.id.to_string();
+        let room_id = room.id().to_string();
+        let object = AuthzObject::new(&["rooms", &room_id, "rtcs", &rtc_id]).into();
+
+        let action = match self.intent {
+            ConnectIntent::Read => "read",
+            ConnectIntent::Write => "update",
+        };
+
+        let authz_time = self
+            .ctx
+            .authz()
+            .authorize(
+                room.audience().into(),
+                self.agent_id.clone(),
+                object,
+                action.into(),
+            )
+            .await?;
+        self.ctx.metrics().observe_auth(authz_time);
+
+        Ok(())
+    }
+
+    async fn check_room_policy(&self, room: &db::room::Object) -> Result<(), AppError> {
+        // Authorize connecting to the rtc.
+        match room.rtc_sharing_policy() {
+            RtcSharingPolicy::None => {
+                return Err(anyhow!(
+                    "'rtc.connect' is not implemented for rtc_sharing_policy = '{}'",
+                    room.rtc_sharing_policy(),
+                ))
+                .error(AppErrorKind::NotImplemented);
+            }
+            RtcSharingPolicy::Shared => (),
+            RtcSharingPolicy::Owned => {
+                if self.intent == ConnectIntent::Write {
+                    // Check that the RTC is owned by the same agent.
+                    let conn = self.ctx.get_conn().await?;
+                    let id = self.id;
+
+                    let rtc_object = crate::util::spawn_blocking(move || {
+                        db::rtc::FindQuery::new()
+                            .id(id)
+                            .execute(&conn)?
+                            .ok_or_else(|| anyhow!("RTC not found"))
+                            .error(AppErrorKind::RtcNotFound)
+                    })
+                    .await?;
+
+                    if *rtc_object.created_by() != self.agent_id {
+                        return Err(anyhow!("RTC doesn't belong to the agent"))
+                            .error(AppErrorKind::AccessDenied);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn start_rtc_stream(&self, handle_id: &HandleId) -> Result<(), AppError> {
+        let label = self
+            .label
+            .as_ref()
+            .ok_or_else(|| anyhow!("Missing label"))
+            .error(AppErrorKind::MessageParsingFailed)?
+            .clone();
+
+        let conn = self.ctx.get_conn().await?;
+
+        crate::util::spawn_blocking({
+            let handle_id = handle_id.clone();
+            let agent_id = self.agent_id.clone();
+            move || {
+                db::janus_rtc_stream::InsertQuery::new(
+                    handle_id.rtc_stream_id(),
+                    handle_id.janus_handle_id(),
+                    handle_id.rtc_id(),
+                    handle_id.backend_id(),
+                    &label,
+                    &agent_id,
+                )
+                .execute(&conn)
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    async fn fetch_reader_writer_configs(
+        &self,
+        handle_id: &HandleId,
+    ) -> Result<
+        (
+            Option<db::rtc_writer_config::Object>,
+            Option<Vec<db::rtc_reader_config::Object>>,
+        ),
+        AppError,
+    > {
+        let (writer_config, reader_config) = crate::util::spawn_blocking({
+            let rtc_id = handle_id.rtc_id();
+            let conn = self.ctx.get_conn().await?;
+            move || {
+                Ok::<_, diesel::result::Error>((
+                    db::rtc_writer_config::read_config(rtc_id, &conn)?,
+                    db::rtc_reader_config::read_config(rtc_id, &conn)?,
+                ))
+            }
+        })
+        .await?;
+
+        Ok((writer_config, reader_config))
+    }
+
+    async fn run(self) -> Result<ConnectAndSignalResult, AppError> {
+        let conn = self.ctx.get_conn().await?;
+        let payload_id = self.id;
+        let room = crate::util::spawn_blocking(move || {
+            helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
+        })
+        .await?;
+
+        tokio::try_join!(self.check_room_policy(&room), self.authz(&room))?;
+
+        let backend = crate::util::spawn_blocking({
+            // Choose backend to connect.
+            let group = self.ctx.config().janus_group.clone();
+            let conn = self.ctx.get_conn().await?;
+            let id = self.id;
+            let intent = self.intent;
+            let backend_span = tracing::info_span!("finding_backend");
+            let room = room.clone();
+
+            move || {
+            let _span_handle = backend_span.enter();
+            // There are 4 cases:
+            // 1. Connecting as a writer for a webinar for the first time. There's no `backend_id` in that case.
+            //    Select the most loaded backend that is capable to host the room's reservation.
+            //    If there's no capable backend then select the least loaded and send a warning
+            //    to Sentry. If there are no backends at all then return `no available backends`
+            // 2. Connecting as a writer for a minigroup for the first time. There's no `backend_id` in that case.
+            //    Select the least loaded backend and fallback on most loaded. Minigroups have a fixed size,
+            //    that is why least loaded should work fine.
+            // 3. Connecting as reader with existing `backend_id`. Choose it because Janus doesn't
+            //    support clustering and it must be the same server that the writer is connected to.
+            // 4. Reconnecting as writer with existing `backend_id`. Select it to avoid partitioning
+            //    of the record across multiple servers.
+            let backend = match room.backend_id() {
+                Some(backend_id) => db::janus_backend::FindQuery::new()
+                    .id(backend_id)
+                    .execute(&conn)?
+                    .ok_or_else(|| anyhow!("No backend found for stream"))
+                    .error(AppErrorKind::BackendNotFound)?,
+                None if group.as_deref() == Some("minigroup") => {
+                    db::janus_backend::least_loaded(room.id(), group.as_deref(), &conn).transpose()
+                    .or_else(|| db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn).transpose())
+                    .ok_or_else(|| anyhow!("No available backends"))
+                    .error(AppErrorKind::NoAvailableBackends)??
+                }
+                None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn)? {
+                    Some(backend) => backend,
+                    None => db::janus_backend::least_loaded(room.id(), group.as_deref(), &conn)?
+                        .map(|backend| {
+                            use sentry::protocol::{value::Value, Event, Level};
+                            let backend_id = backend.id().to_string();
+
+                            warn!(%backend_id, "No capable backends to host the reserve; falling back to the least loaded backend");
+
+                            let mut extra = std::collections::BTreeMap::new();
+                            extra.insert(String::from("room_id"), Value::from(room.id().to_string()));
+                            extra.insert(String::from("rtc_id"), Value::from(id.to_string()));
+                            extra.insert(String::from("backend_id"), Value::from(backend_id));
+
+                            if let Some(reserve) = room.reserve() {
+                                extra.insert(String::from("reserve"), Value::from(reserve));
+                            }
+
+                            sentry::capture_event(Event {
+                                message: Some(String::from("No capable backends to host the reserve; falling back to the least loaded backend")),
+                                level: Level::Warning,
+                                extra,
+                                ..Default::default()
+                            });
+
+                            backend
+                        })
+                        .ok_or_else(|| anyhow!("No available backends"))
+                        .error(AppErrorKind::NoAvailableBackends)?,
+                },
+            };
+
+            match intent {
+                ConnectIntent::Read => {
+                    // Check that the backend's capacity is not exceeded for readers.
+                    if db::janus_backend::free_capacity(id, &conn)? == 0 {
+                        return Err(anyhow!(
+                            "Active agents number on the backend exceeded its capacity"
+                        ))
+                        .error(AppErrorKind::CapacityExceeded);
+                    }
+                },
+                ConnectIntent::Write => {
+                    // Create recording if a writer connects for the first time.
+                    conn.transaction::<_, diesel::result::Error, _>(|| {
+                        if room.backend_id().is_none() {
+                            db::room::UpdateQuery::new(room.id())
+                                .backend_id(Some(backend.id()))
+                                .execute(&conn)?;
+                        }
+
+                        let recording = db::recording::FindQuery::new(id).execute(&conn)?;
+
+                        if recording.is_none() {
+                            db::recording::InsertQuery::new(id).execute(&conn)?;
+                        }
+
+                        Ok(())
+                    })?;
+                }
+            }
+
+            Ok::<_, AppError>(backend)
+        }}).await?;
+
+        let rtc_stream_id = db::janus_rtc_stream::Id::random();
+
+        let handle = self
+            .ctx
+            .janus_clients()
+            .get_or_insert(&backend)
+            .error(AppErrorKind::BackendClientCreationFailed)?
+            .create_handle(CreateHandleRequest {
+                session_id: backend.session_id(),
+                opaque_id: Some(OpaqueId {
+                    room_id: room.id(),
+                    agent_id: self.agent_id.clone(),
+                    stream_id: rtc_stream_id,
+                }),
+            })
+            .await
+            .context("Handle creating")
+            .error(AppErrorKind::BackendRequestFailed)?;
+
+        crate::util::spawn_blocking({
+            let agent_id = self.agent_id.clone();
+            let conn = self.ctx.get_conn().await?;
+            let handle_id = handle.id;
+            let room_id = room.id();
+            move || {
+                conn.transaction::<_, AppError, _>(|| {
+                    // Find agent in the DB who made the original `rtc.connect` request.
+                    let maybe_agent = agent::ListQuery::new()
+                        .agent_id(&agent_id)
+                        .room_id(room_id)
+                        .status(agent::Status::Ready)
+                        .limit(1)
+                        .execute(&conn)?;
+
+                    if let Some(agent) = maybe_agent.first() {
+                        // Create agent connection in the DB.
+                        agent_connection::UpsertQuery::new(*agent.id(), payload_id, handle_id)
+                            .execute(&conn)?;
+
+                        Ok(())
+                    } else {
+                        // Agent may be already gone.
+                        Err(anyhow!("Agent not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
+                    }
+                })
+            }
+        })
+        .await?;
+
+        let handle_id = HandleId::new(
+            rtc_stream_id,
+            payload_id,
+            handle.id,
+            backend.session_id(),
+            backend.id().clone(),
+        );
+
+        let current_span = Span::current();
+        current_span.record("sdp_type", &"offer");
+        let is_recvonly = endpoint::rtc_signal::is_sdp_recvonly(self.jsep.sdp.as_str())
+            .context("Invalid JSEP format")
+            .error(AppErrorKind::InvalidJsepFormat)?;
+
+        let jsep = Jsep::OfferOrAnswer(self.jsep.clone());
+
+        let answer = if is_recvonly {
+            let request = ReadStreamRequest {
+                body: ReadStreamRequestBody::new(handle_id.rtc_id(), self.agent_id.clone()),
+                handle_id: handle_id.janus_handle_id(),
+                session_id: handle_id.janus_session_id(),
+                jsep,
+            };
+
+            let handle = self
+                .ctx
+                .janus_clients()
+                .stream_waitlist()
+                .register()
+                .error(AppErrorKind::JanusResponseTimeout)?;
+
+            let transaction = ReadStreamTransaction::Http {
+                id: handle.id(),
+                replica_addr: self.ctx.janus_clients().own_ip_addr(),
+            };
+            self.ctx
+                .janus_clients()
+                .get_or_insert(&backend)
+                .error(AppErrorKind::BackendClientCreationFailed)?
+                .read_stream(request, transaction)
+                .await
+                .error(AppErrorKind::BackendRequestFailed)?;
+
+            let resp = handle
+                .wait()
+                .await
+                .error(AppErrorKind::JanusResponseTimeout)??;
+
+            resp.jsep
+        } else {
+            // We've checked that the RTC is owned by the same agent earlier.
+
+            let (_, (writer_config, reader_config)) = tokio::try_join!(
+                self.start_rtc_stream(&handle_id),
+                self.fetch_reader_writer_configs(&handle_id),
+            )?;
+
+            let agent_id = self.agent_id.to_owned();
+            let request = CreateStreamRequest {
+                body: CreateStreamRequestBody::new(
+                    handle_id.rtc_id(),
+                    agent_id,
+                    writer_config.map(|w| WriterConfig {
+                        send_video: w.send_video(),
+                        send_audio: w.send_audio(),
+                        video_remb: w.video_remb(),
+                    }),
+                    reader_config.map(|r| {
+                        r.into_iter()
+                            .map(|r| ReaderConfig {
+                                reader_id: r.reader_id().to_owned(),
+                                receive_audio: r.receive_audio(),
+                                receive_video: r.receive_video(),
+                            })
+                            .collect()
+                    }),
+                ),
+                handle_id: handle_id.janus_handle_id(),
+                session_id: handle_id.janus_session_id(),
+                jsep,
+            };
+
+            let handle = self
+                .ctx
+                .janus_clients()
+                .stream_waitlist()
+                .register()
+                .error(AppErrorKind::JanusResponseTimeout)?;
+
+            let transaction = CreateStreamTransaction::Http {
+                id: handle.id(),
+                replica_addr: self.ctx.janus_clients().own_ip_addr(),
+            };
+            self.ctx
+                .janus_clients()
+                .get_or_insert(&backend)
+                .error(AppErrorKind::BackendClientCreationFailed)?
+                .create_stream(request, transaction)
+                .await
+                .error(AppErrorKind::BackendRequestFailed)?;
+
+            let resp = handle
+                .wait()
+                .await
+                .error(AppErrorKind::JanusResponseTimeout)??;
+
+            resp.jsep
+        };
+
+        self.ctx
+            .metrics()
+            .request_duration
+            .rtc_connect
+            .observe_timestamp(self.ctx.start_timestamp());
+
+        Ok(ConnectAndSignalResult {
+            handle_id,
+            jsep: answer,
+        })
     }
 }
 
@@ -572,6 +1036,7 @@ impl RequestHandler for ConnectHandler {
                 session_id: backend.session_id(),
                 opaque_id: Some(OpaqueId {
                     room_id,
+                    agent_id: reqp.as_agent_id().clone(),
                     stream_id: rtc_stream_id,
                 }),
             })

@@ -153,15 +153,18 @@ pub enum PollResult {
     Events(Vec<Value>),
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct JsonSdp {
+    // '{"type": "offer", "sdp": _}' or '{"type": "answer", "sdp": _}'
+    #[serde(rename = "type")]
+    pub kind: JsepType,
+    pub sdp: String,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Jsep {
-    // '{"type": "offer", "sdp": _}' or '{"type": "answer", "sdp": _}'
-    OfferOrAnswer {
-        #[serde(rename = "type")]
-        kind: JsepType,
-        sdp: String,
-    },
+    OfferOrAnswer(JsonSdp),
     IceCandidate(IceCandidateSdp),
 }
 

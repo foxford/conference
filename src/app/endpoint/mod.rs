@@ -71,6 +71,7 @@ request_routes!(
     "rtc_stream.list" => rtc_stream::ListHandler,
     "system.vacuum" => system::VacuumHandler,
     "system.agent_cleanup" => system::AgentCleanupHandler,
+    "system.agent_connection_cleanup" => system::AgentConnectionCleanupHandler,
     "writer_config_snapshot.read" => writer_config_snapshot::ReadHandler
 );
 

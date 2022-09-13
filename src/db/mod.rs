@@ -22,8 +22,8 @@ pub fn create_pool(url: &str, size: u32, idle_size: Option<u32>, timeout: u64) -
 
 pub mod sql {
     pub use super::{
-        agent::Agent_status, recording::Recording_status, room::Room_backend,
-        rtc::Rtc_sharing_policy,
+        agent::Agent_status, agent_connection::Agent_connection_status,
+        recording::Recording_status, room::Room_backend, rtc::Rtc_sharing_policy,
     };
     pub use svc_agent::sql::{Account_id, Agent_id};
 }
