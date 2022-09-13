@@ -1530,7 +1530,7 @@ a=rtcp-fb:120 ccm fir
                     let agent = shared_helpers::insert_agent(&conn, agent2.agent_id(), room.id());
 
                     let agent2_connection = factory::AgentConnection::new(
-                        agent.id(),
+                        *agent.id(),
                         rtc.id(),
                         crate::backend::janus::client::HandleId::random(),
                     )

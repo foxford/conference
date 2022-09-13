@@ -275,6 +275,7 @@ mod tests {
     use super::*;
     use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
     use chrono::{Duration, Utc};
+    use diesel::Identifiable;
 
     #[test]
     fn test_cleanup_not_connected_query() {
@@ -284,8 +285,7 @@ mod tests {
         let old = TestAgent::new("web", "old_agent", USR_AUDIENCE);
         let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);
 
-        let room = db
-            .connection_pool()
+        db.connection_pool()
             .get()
             .map(|conn| {
                 let room = shared_helpers::insert_room(&conn);
@@ -298,7 +298,7 @@ mod tests {
                     .status(db::agent::Status::Ready)
                     .insert(&conn);
                 let old_agent_conn = factory::AgentConnection::new(
-                    old.id(),
+                    *old.id(),
                     rtc.id(),
                     crate::backend::janus::client::HandleId::random(),
                 )
@@ -312,7 +312,7 @@ mod tests {
                     .status(db::agent::Status::Ready)
                     .insert(&conn);
                 let new_agent_conn = factory::AgentConnection::new(
-                    new.id(),
+                    *new.id(),
                     rtc.id(),
                     crate::backend::janus::client::HandleId::random(),
                 )

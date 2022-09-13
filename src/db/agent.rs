@@ -48,10 +48,6 @@ impl Object {
     pub fn status(&self) -> Status {
         self.status
     }
-
-    pub fn id(&self) -> Id {
-        self.id
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
