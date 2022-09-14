@@ -90,7 +90,6 @@ pub fn build_router(
                     status_code = Empty,
                     kind = Empty,
                     detail = Empty,
-                    room_id = Empty,
                 );
 
                 if request.method() != Method::GET && request.method() != Method::OPTIONS {

@@ -79,6 +79,7 @@ pub fn find_room_by_rtc_id(
     find_room(query, opening_requirement, conn)
 }
 
+#[tracing::instrument(skip(query, opening_requirement, conn), fields(room_id))]
 fn find_room<Q>(
     query: Q,
     opening_requirement: RoomTimeRequirement,
