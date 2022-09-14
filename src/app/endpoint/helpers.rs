@@ -92,6 +92,8 @@ where
         .ok_or_else(|| anyhow!("Room not found"))
         .error(AppErrorKind::RoomNotFound)?;
 
+    tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
+
     match opening_requirement {
         // Room time doesn't matter.
         RoomTimeRequirement::Any => Ok(room),

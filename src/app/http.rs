@@ -89,7 +89,8 @@ pub fn build_router(
                     method = %request.method(),
                     status_code = Empty,
                     kind = Empty,
-                    detail = Empty
+                    detail = Empty,
+                    room_id = Empty,
                 );
 
                 if request.method() != Method::GET && request.method() != Method::OPTIONS {
