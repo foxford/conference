@@ -132,7 +132,7 @@ impl Metrics {
 
     /// This is helpful with HTTP.
     pub fn observe_app_error(&self, err: &ErrorKind) {
-        if let Some(m) = self.app_results_errors.get(&err) {
+        if let Some(m) = self.app_results_errors.get(err) {
             m.inc()
         }
     }

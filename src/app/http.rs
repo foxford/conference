@@ -210,10 +210,8 @@ where
 
             if res.status().is_success() {
                 ctx.metrics().observe_app_ok();
-            } else {
-                if let Some(error_kind) = res.extensions().get::<ErrorKind>() {
-                    ctx.metrics().observe_app_error(error_kind);
-                }
+            } else if let Some(error_kind) = res.extensions().get::<ErrorKind>() {
+                ctx.metrics().observe_app_error(error_kind);
             }
 
             Ok(res)
