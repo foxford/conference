@@ -749,7 +749,7 @@ where
                 .error(AppErrorKind::BackendRequestFailed)?;
 
             let resp = handle
-                .wait()
+                .wait(self.ctx.config().waitlist_timeout)
                 .await
                 .error(AppErrorKind::JanusResponseTimeout)??;
 
@@ -807,7 +807,7 @@ where
                 .error(AppErrorKind::BackendRequestFailed)?;
 
             let resp = handle
-                .wait()
+                .wait(self.ctx.config().waitlist_timeout)
                 .await
                 .error(AppErrorKind::JanusResponseTimeout)??;
 

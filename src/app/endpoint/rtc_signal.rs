@@ -229,7 +229,7 @@ impl RequestHandler for CreateHandler {
                                         .error(AppErrorKind::BackendRequestFailed)?;
 
                                     let resp = handle
-                                        .wait()
+                                        .wait(context.config().waitlist_timeout)
                                         .await
                                         .error(AppErrorKind::JanusResponseTimeout)??;
 
@@ -359,7 +359,7 @@ impl RequestHandler for CreateHandler {
                                         .error(AppErrorKind::BackendRequestFailed)?;
 
                                     let resp = handle
-                                        .wait()
+                                        .wait(context.config().waitlist_timeout)
                                         .await
                                         .error(AppErrorKind::JanusResponseTimeout)??;
 
