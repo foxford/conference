@@ -125,15 +125,26 @@ impl Metrics {
         }
     }
 
+    /// This is helpful with HTTP.
+    pub fn observe_app_ok(&self) {
+        self.app_result_ok.inc();
+    }
+
+    /// This is helpful with HTTP.
+    pub fn observe_app_error(&self, err: &ErrorKind) {
+        if let Some(m) = self.app_results_errors.get(&err) {
+            m.inc()
+        }
+    }
+
+    /// This is helpful in MQTT handlers.
     pub fn observe_app_result(&self, result: &endpoint::RequestResult) {
         match result {
             Ok(_) => {
-                self.app_result_ok.inc();
+                self.observe_app_ok();
             }
             Err(err) => {
-                if let Some(m) = self.app_results_errors.get(&err.error_kind()) {
-                    m.inc()
-                }
+                self.observe_app_error(&err.error_kind());
             }
         }
     }
