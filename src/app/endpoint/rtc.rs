@@ -667,7 +667,6 @@ where
                 session_id: backend.session_id(),
                 opaque_id: Some(OpaqueId {
                     room_id: room.id(),
-                    agent_id: self.agent_id.clone(),
                     stream_id: rtc_stream_id,
                 }),
             })
@@ -1036,7 +1035,6 @@ impl RequestHandler for ConnectHandler {
                 session_id: backend.session_id(),
                 opaque_id: Some(OpaqueId {
                     room_id,
-                    agent_id: reqp.as_agent_id().clone(),
                     stream_id: rtc_stream_id,
                 }),
             })
