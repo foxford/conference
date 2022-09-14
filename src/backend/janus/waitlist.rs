@@ -196,10 +196,7 @@ mod tests {
         let waitlist: WaitList<()> = WaitList::new(GOOD_ENOUGH);
         let handle = waitlist.register().unwrap();
         waitlist.fire(handle.id() + 1, ()).unwrap();
-        assert_eq!(
-            handle.wait(GOOD_ENOUGH * 10).await,
-            Err(Error::OtherSideDropped)
-        );
+        assert_eq!(handle.wait(GOOD_ENOUGH * 10).await, Err(Error::Timeout));
     }
 
     #[tokio::test]
