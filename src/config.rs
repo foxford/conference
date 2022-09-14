@@ -38,7 +38,7 @@ fn default_waitlist_epoch_duration() -> Duration {
 }
 
 fn default_waitlist_timeout() -> Duration {
-    std::time::Duration::from_secs(20)
+    std::time::Duration::from_secs(25)
 }
 
 #[derive(Clone, Debug, Deserialize)]
