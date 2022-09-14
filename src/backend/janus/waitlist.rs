@@ -211,10 +211,7 @@ mod tests {
 
         waitlist.fire(handle2.id(), 1000).unwrap();
 
-        assert_eq!(
-            handle1.wait(GOOD_ENOUGH * 10).await,
-            Err(Error::OtherSideDropped)
-        );
+        assert_eq!(handle1.wait(GOOD_ENOUGH * 10).await, Err(Error::Timeout));
         assert_eq!(handle2.wait(GOOD_ENOUGH * 10).await, Ok(1000));
     }
 
