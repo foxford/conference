@@ -431,8 +431,8 @@ where
 {
     async fn authz(&self, room: &db::room::Object) -> Result<(), AppError> {
         let rtc_id = self.id.to_string();
-        let room_id = room.id().to_string();
-        let object = AuthzObject::new(&["classrooms", &room_id, "rtcs", &rtc_id]).into();
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id, "rtcs", &rtc_id]).into();
 
         let action = match self.intent {
             ConnectIntent::Read => "read",
