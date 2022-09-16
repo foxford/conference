@@ -79,7 +79,6 @@ pub fn find_room_by_rtc_id(
     find_room(query, opening_requirement, conn)
 }
 
-#[tracing::instrument(skip(query, opening_requirement, conn), fields(room_id))]
 fn find_room<Q>(
     query: Q,
     opening_requirement: RoomTimeRequirement,
@@ -92,8 +91,6 @@ where
         .execute(conn)?
         .ok_or_else(|| anyhow!("Room not found"))
         .error(AppErrorKind::RoomNotFound)?;
-
-    tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
 
     match opening_requirement {
         // Room time doesn't matter.
