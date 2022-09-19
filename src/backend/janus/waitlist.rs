@@ -1,11 +1,13 @@
 use std::{collections::HashMap, sync::atomic};
 
+use futures::TryFutureExt;
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     OtherSideDropped,
     InternalTaskStopped,
+    Timeout,
 }
 
 impl std::fmt::Display for Error {
@@ -161,8 +163,13 @@ pub struct Handle<T> {
 }
 
 impl<T> Handle<T> {
-    pub async fn wait(self) -> Result<T, Error> {
-        self.receiver.await.map_err(|_| Error::OtherSideDropped)
+    pub async fn wait(self, timeout: std::time::Duration) -> Result<T, Error> {
+        let fut = self.receiver.map_err(|_| Error::OtherSideDropped);
+
+        match tokio::time::timeout(timeout, fut).await {
+            Ok(r) => r,
+            Err(_) => Err(Error::Timeout),
+        }
     }
 
     pub fn id(&self) -> usize {
@@ -181,7 +188,7 @@ mod tests {
         let waitlist = WaitList::new(GOOD_ENOUGH);
         let handle = waitlist.register().unwrap();
         waitlist.fire(handle.id(), ()).unwrap();
-        assert_eq!(handle.wait().await, Ok(()));
+        assert_eq!(handle.wait(GOOD_ENOUGH * 10).await, Ok(()));
     }
 
     #[tokio::test]
@@ -189,7 +196,7 @@ mod tests {
         let waitlist: WaitList<()> = WaitList::new(GOOD_ENOUGH);
         let handle = waitlist.register().unwrap();
         waitlist.fire(handle.id() + 1, ()).unwrap();
-        assert_eq!(handle.wait().await, Err(Error::OtherSideDropped));
+        assert_eq!(handle.wait(GOOD_ENOUGH * 10).await, Err(Error::Timeout));
     }
 
     #[tokio::test]
@@ -201,8 +208,8 @@ mod tests {
 
         waitlist.fire(handle2.id(), 1000).unwrap();
 
-        assert_eq!(handle1.wait().await, Err(Error::OtherSideDropped));
-        assert_eq!(handle2.wait().await, Ok(1000));
+        assert_eq!(handle1.wait(GOOD_ENOUGH * 10).await, Err(Error::Timeout));
+        assert_eq!(handle2.wait(GOOD_ENOUGH * 10).await, Ok(1000));
     }
 
     #[tokio::test]
@@ -215,7 +222,7 @@ mod tests {
         drop(handle1);
         waitlist.fire(handle2.id(), ()).unwrap();
 
-        assert_eq!(handle2.wait().await, Ok(()));
+        assert_eq!(handle2.wait(GOOD_ENOUGH * 10).await, Ok(()));
     }
 
     #[tokio::test]
@@ -228,7 +235,7 @@ mod tests {
         waitlist.fire(handle1.id(), 10).unwrap();
         waitlist.fire(handle2.id(), 1000).unwrap();
 
-        assert_eq!(handle2.wait().await, Ok(1000));
-        assert_eq!(handle1.wait().await, Ok(10));
+        assert_eq!(handle2.wait(GOOD_ENOUGH * 10).await, Ok(1000));
+        assert_eq!(handle1.wait(GOOD_ENOUGH * 10).await, Ok(10));
     }
 }

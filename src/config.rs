@@ -29,10 +29,16 @@ pub struct Config {
     pub authn: svc_authn::jose::ConfigMap,
     #[serde(with = "humantime_serde", default = "default_waitlist_epoch_duration")]
     pub waitlist_epoch_duration: Duration,
+    #[serde(with = "humantime_serde", default = "default_waitlist_timeout")]
+    pub waitlist_timeout: Duration,
 }
 
 fn default_waitlist_epoch_duration() -> Duration {
     std::time::Duration::from_secs(60)
+}
+
+fn default_waitlist_timeout() -> Duration {
+    std::time::Duration::from_secs(25)
 }
 
 #[derive(Clone, Debug, Deserialize)]

@@ -291,7 +291,7 @@ impl From<ErrorKind> for ErrorKindProperties {
                 is_notify_sentry: true,
             },
             ErrorKind::JanusResponseTimeout => ErrorKindProperties {
-                status: ResponseStatus::INTERNAL_SERVER_ERROR,
+                status: ResponseStatus::FAILED_DEPENDENCY,
                 kind: "janus_response_timeout",
                 title: "Janus response timeout",
                 is_notify_sentry: true,

@@ -431,8 +431,8 @@ where
 {
     async fn authz(&self, room: &db::room::Object) -> Result<(), AppError> {
         let rtc_id = self.id.to_string();
-        let room_id = room.id().to_string();
-        let object = AuthzObject::new(&["rooms", &room_id, "rtcs", &rtc_id]).into();
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id, "rtcs", &rtc_id]).into();
 
         let action = match self.intent {
             ConnectIntent::Read => "read",
@@ -667,7 +667,6 @@ where
                 session_id: backend.session_id(),
                 opaque_id: Some(OpaqueId {
                     room_id: room.id(),
-                    agent_id: self.agent_id.clone(),
                     stream_id: rtc_stream_id,
                 }),
             })
@@ -749,7 +748,7 @@ where
                 .error(AppErrorKind::BackendRequestFailed)?;
 
             let resp = handle
-                .wait()
+                .wait(self.ctx.config().waitlist_timeout)
                 .await
                 .error(AppErrorKind::JanusResponseTimeout)??;
 
@@ -807,7 +806,7 @@ where
                 .error(AppErrorKind::BackendRequestFailed)?;
 
             let resp = handle
-                .wait()
+                .wait(self.ctx.config().waitlist_timeout)
                 .await
                 .error(AppErrorKind::JanusResponseTimeout)??;
 
@@ -1036,7 +1035,6 @@ impl RequestHandler for ConnectHandler {
                 session_id: backend.session_id(),
                 opaque_id: Some(OpaqueId {
                     room_id,
-                    agent_id: reqp.as_agent_id().clone(),
                     stream_id: rtc_stream_id,
                 }),
             })
