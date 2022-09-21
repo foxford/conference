@@ -167,6 +167,8 @@ pub async fn read(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = ReadRequest { id: room_id };
     ReadHandler::handle(
         &mut ctx.start_message(),
@@ -252,6 +254,8 @@ pub async fn update(
     Path(room_id): Path<db::room::Id>,
     Json(request): Json<UpdateFields>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = UpdateRequest {
         id: room_id,
         time: request.time,
@@ -420,6 +424,8 @@ pub async fn close(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = CloseRequest { id: room_id };
     CloseHandler::handle(
         &mut ctx.start_message(),
@@ -535,6 +541,8 @@ pub async fn enter(
     Path(room_id): Path<db::room::Id>,
     payload: Option<Json<EnterPayload>>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = EnterRequest { id: room_id };
 
     let agent_id = payload

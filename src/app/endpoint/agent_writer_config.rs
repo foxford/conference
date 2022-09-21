@@ -145,6 +145,8 @@ pub async fn update(
     Path(room_id): Path<db::room::Id>,
     Json(configs): Json<StateConfigs>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = State {
         room_id,
         configs: configs.configs,
@@ -358,6 +360,8 @@ pub async fn read(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = ReadRequest { room_id };
     ReadHandler::handle(
         &mut ctx.start_message(),

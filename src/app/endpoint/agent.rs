@@ -42,6 +42,8 @@ pub async fn list(
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<Pagination>>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = ListRequest {
         room_id,
         offset: query.map(|x| x.offset),

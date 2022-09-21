@@ -59,6 +59,11 @@ pub async fn create(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Json(payload): Json<CreateRequest>,
 ) -> RequestResult {
+    tracing::Span::current().record(
+        "rtc_id",
+        &tracing::field::display(payload.handle_id.rtc_id()),
+    );
+
     let agent_id = payload
         .agent_label
         .as_ref()
@@ -427,6 +432,11 @@ pub async fn trickle(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Json(payload): Json<TricklePayload>,
 ) -> RequestResult {
+    tracing::Span::current().record(
+        "rtc_id",
+        &tracing::field::display(payload.handle_id.rtc_id()),
+    );
+
     let ctx = &mut ctx.start_message();
 
     Trickle {

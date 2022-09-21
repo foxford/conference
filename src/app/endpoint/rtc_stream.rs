@@ -54,6 +54,8 @@ pub async fn list(
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<ListParams>>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = match query {
         Some(x) => ListRequest {
             room_id,

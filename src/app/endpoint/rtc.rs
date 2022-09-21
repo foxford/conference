@@ -62,6 +62,8 @@ pub async fn create(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = CreateRequest { room_id };
     CreateHandler::handle(
         &mut ctx.start_message(),
@@ -165,6 +167,8 @@ pub async fn read(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(rtc_id): Path<db::rtc::Id>,
 ) -> RequestResult {
+    tracing::Span::current().record("rtc_id", &tracing::field::display(rtc_id));
+
     let request = ReadRequest { id: rtc_id };
     ReadHandler::handle(
         &mut ctx.start_message(),
@@ -257,6 +261,8 @@ pub async fn list(
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<ListParams>>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = match query {
         Some(x) => ListRequest {
             room_id,
@@ -395,6 +401,8 @@ pub async fn connect_and_signal(
     Path(rtc_id): Path<db::rtc::Id>,
     Json(payload): Json<ConnectAndSignalPayload>,
 ) -> RequestResult {
+    tracing::Span::current().record("rtc_id", &tracing::field::display(rtc_id));
+
     let ctx = &mut ctx.start_message();
 
     let response = ConnectAndSignal {
@@ -840,6 +848,8 @@ pub async fn connect(
     Path(rtc_id): Path<db::rtc::Id>,
     Json(intent): Json<ConnectPayload>,
 ) -> RequestResult {
+    tracing::Span::current().record("rtc_id", &tracing::field::display(rtc_id));
+
     let request = ConnectRequest {
         id: rtc_id,
         intent: intent.intent,
