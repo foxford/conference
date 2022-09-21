@@ -82,7 +82,6 @@ impl RequestHandler for CreateHandler {
     type Payload = CreateRequest;
     const ERROR_TITLE: &'static str = "Failed to create rtc";
 
-    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id, rtc_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -93,6 +92,11 @@ impl RequestHandler for CreateHandler {
             helpers::find_room_by_id(payload.room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         // Authorize room creation.
         let classroom_id = room.classroom_id().to_string();
@@ -202,6 +206,12 @@ impl RequestHandler for ReadHandler {
         })
         .await?;
 
+        tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
+
         // Authorize rtc reading.
         let rtc_id = payload.id.to_string();
         let classroom_id = room.classroom_id().to_string();
@@ -306,6 +316,11 @@ impl RequestHandler for ListHandler {
             }
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         // Authorize rtc listing.
         let classroom_id = room.classroom_id().to_string();
@@ -561,6 +576,12 @@ where
             helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
+
+        tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         tokio::try_join!(self.check_room_policy(&room), self.authz(&room))?;
 
@@ -892,6 +913,12 @@ impl RequestHandler for ConnectHandler {
             helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
+
+        tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         // Authorize connecting to the rtc.
         match room.rtc_sharing_policy() {

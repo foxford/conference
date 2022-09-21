@@ -34,7 +34,6 @@ use svc_agent::{
 use svc_utils::extractors::AgentIdExtractor;
 
 use tracing::Span;
-use tracing_attributes::instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -96,14 +95,6 @@ impl RequestHandler for CreateHandler {
     type Payload = CreateRequest;
     const ERROR_TITLE: &'static str = "Failed to create rtc";
 
-    #[instrument(skip(context, payload, reqp), fields(
-        rtc_id = %payload.handle_id.rtc_id(),
-        rtc_stream_id = %payload.handle_id.rtc_stream_id(),
-        janus_session_id = %payload.handle_id.janus_session_id(),
-        janus_handle_id = %payload.handle_id.janus_handle_id(),
-        backend_id = %payload.handle_id.backend_id().to_string()),
-        rtc_stream_label = ?payload.label
-    )]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -127,6 +118,15 @@ impl RequestHandler for CreateHandler {
                 helpers::RoomTimeRequirement::Open,
                 &conn,
             )?;
+
+            tracing::Span::current().record(
+                "room_id",
+                &tracing::field::display(room.id()),
+            );
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
 
             helpers::check_room_presence(&room, &agent_id, &conn)?;
 
@@ -483,6 +483,15 @@ impl<C: Context> Trickle<'_, C> {
                 helpers::RoomTimeRequirement::Open,
                 &conn,
             )?;
+
+            tracing::Span::current().record(
+                "room_id",
+                &tracing::field::display(room.id()),
+            );
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
 
             helpers::check_room_presence(&room, &agent_id, &conn)?;
 

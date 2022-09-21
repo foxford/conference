@@ -102,6 +102,11 @@ impl RequestHandler for ListHandler {
         })
         .await?;
 
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
+
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::None {
             let err = anyhow!(
                 "'rtc_stream.list' is not implemented for rtc_sharing_policy = '{}'",

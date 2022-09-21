@@ -93,6 +93,7 @@ pub fn build_router(
                     body_size = Empty,
                     room_id = Empty,
                     rtc_id = Empty,
+                    classroom_id = Empty,
                 );
 
                 if request.method() != Method::GET && request.method() != Method::OPTIONS {

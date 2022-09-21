@@ -64,6 +64,11 @@ impl RequestHandler for ReadHandler {
                 &conn,
             )?;
 
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
+
             if account_id.label() != "dispatcher"
                 || account_id.audience() != service_audience.audience()
             {
