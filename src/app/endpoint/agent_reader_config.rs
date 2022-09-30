@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId};
 
 use svc_utils::extractors::AgentIdExtractor;
-use tracing_attributes::instrument;
+
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -94,6 +94,8 @@ pub async fn update(
     Path(room_id): Path<db::room::Id>,
     Json(configs): Json<StateConfigs>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = State {
         room_id,
         configs: configs.configs,
@@ -115,7 +117,6 @@ impl RequestHandler for UpdateHandler {
     type Payload = State;
     const ERROR_TITLE: &'static str = "Failed to update agent reader config";
 
-    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -205,6 +206,11 @@ impl RequestHandler for UpdateHandler {
         })
         .await?;
 
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
+
         if let Some(backend) = maybe_backend {
             let items = rtc_reader_configs_with_rtcs
                 .iter()
@@ -259,6 +265,8 @@ pub async fn read(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = ReadRequest { room_id };
     ReadHandler::handle(
         &mut ctx.start_message(),
@@ -277,7 +285,6 @@ impl RequestHandler for ReadHandler {
     type Payload = ReadRequest;
     const ERROR_TITLE: &'static str = "Failed to read agent reader config";
 
-    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -310,6 +317,11 @@ impl RequestHandler for ReadHandler {
             }
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         context
             .metrics()

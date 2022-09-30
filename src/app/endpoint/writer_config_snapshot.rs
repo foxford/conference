@@ -27,6 +27,8 @@ pub async fn read(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = ReadRequest { room_id };
     ReadHandler::handle(
         &mut ctx.start_message(),
@@ -61,6 +63,11 @@ impl RequestHandler for ReadHandler {
                 helpers::RoomTimeRequirement::Any,
                 &conn,
             )?;
+
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
 
             if account_id.label() != "dispatcher"
                 || account_id.audience() != service_audience.audience()

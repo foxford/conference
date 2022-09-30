@@ -27,7 +27,6 @@ use serde::{Deserialize, Serialize};
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId};
 
 use svc_utils::extractors::AgentIdExtractor;
-use tracing_attributes::instrument;
 
 const MAX_STATE_CONFIGS_LEN: usize = 20;
 
@@ -145,6 +144,8 @@ pub async fn update(
     Path(room_id): Path<db::room::Id>,
     Json(configs): Json<StateConfigs>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = State {
         room_id,
         configs: configs.configs,
@@ -167,7 +168,6 @@ impl RequestHandler for UpdateHandler {
     type Payload = State;
     const ERROR_TITLE: &'static str = "Failed to update agent writer config";
 
-    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -197,6 +197,12 @@ impl RequestHandler for UpdateHandler {
             }
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
+
         // Authorize agent writer config updating on the tenant.
         let is_only_owned_config =
             payload.configs.len() == 1 && &payload.configs[0].agent_id == reqp.as_agent_id();
@@ -358,6 +364,8 @@ pub async fn read(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = ReadRequest { room_id };
     ReadHandler::handle(
         &mut ctx.start_message(),
@@ -376,7 +384,6 @@ impl RequestHandler for ReadHandler {
     type Payload = ReadRequest;
     const ERROR_TITLE: &'static str = "Failed to read agent writer config";
 
-    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -407,6 +414,12 @@ impl RequestHandler for ReadHandler {
             }
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
+
         context
             .metrics()
             .request_duration

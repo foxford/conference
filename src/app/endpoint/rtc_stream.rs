@@ -54,6 +54,8 @@ pub async fn list(
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<ListParams>>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = match query {
         Some(x) => ListRequest {
             room_id,
@@ -99,6 +101,11 @@ impl RequestHandler for ListHandler {
             move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::None {
             let err = anyhow!(

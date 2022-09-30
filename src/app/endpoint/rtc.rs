@@ -62,6 +62,8 @@ pub async fn create(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = CreateRequest { room_id };
     CreateHandler::handle(
         &mut ctx.start_message(),
@@ -80,7 +82,6 @@ impl RequestHandler for CreateHandler {
     type Payload = CreateRequest;
     const ERROR_TITLE: &'static str = "Failed to create rtc";
 
-    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id, rtc_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -91,6 +92,11 @@ impl RequestHandler for CreateHandler {
             helpers::find_room_by_id(payload.room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         // Authorize room creation.
         let classroom_id = room.classroom_id().to_string();
@@ -165,6 +171,8 @@ pub async fn read(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(rtc_id): Path<db::rtc::Id>,
 ) -> RequestResult {
+    tracing::Span::current().record("rtc_id", &tracing::field::display(rtc_id));
+
     let request = ReadRequest { id: rtc_id };
     ReadHandler::handle(
         &mut ctx.start_message(),
@@ -197,6 +205,12 @@ impl RequestHandler for ReadHandler {
             }
         })
         .await?;
+
+        tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         // Authorize rtc reading.
         let rtc_id = payload.id.to_string();
@@ -257,6 +271,8 @@ pub async fn list(
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<ListParams>>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = match query {
         Some(x) => ListRequest {
             room_id,
@@ -300,6 +316,11 @@ impl RequestHandler for ListHandler {
             }
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         // Authorize rtc listing.
         let classroom_id = room.classroom_id().to_string();
@@ -395,6 +416,8 @@ pub async fn connect_and_signal(
     Path(rtc_id): Path<db::rtc::Id>,
     Json(payload): Json<ConnectAndSignalPayload>,
 ) -> RequestResult {
+    tracing::Span::current().record("rtc_id", &tracing::field::display(rtc_id));
+
     let ctx = &mut ctx.start_message();
 
     let response = ConnectAndSignal {
@@ -553,6 +576,12 @@ where
             helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
+
+        tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         tokio::try_join!(self.check_room_policy(&room), self.authz(&room))?;
 
@@ -840,6 +869,8 @@ pub async fn connect(
     Path(rtc_id): Path<db::rtc::Id>,
     Json(intent): Json<ConnectPayload>,
 ) -> RequestResult {
+    tracing::Span::current().record("rtc_id", &tracing::field::display(rtc_id));
+
     let request = ConnectRequest {
         id: rtc_id,
         intent: intent.intent,
@@ -882,6 +913,12 @@ impl RequestHandler for ConnectHandler {
             helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
+
+        tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         // Authorize connecting to the rtc.
         match room.rtc_sharing_policy() {

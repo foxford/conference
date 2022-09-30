@@ -87,7 +87,6 @@ impl RequestHandler for CreateHandler {
     type Payload = CreateRequest;
     const ERROR_TITLE: &'static str = "Failed to create room";
 
-    #[instrument(skip(context, payload, reqp))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -135,6 +134,11 @@ impl RequestHandler for CreateHandler {
         })
         .await?;
 
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
+
         // Respond and broadcast to the audience topic.
         let mut response = Response::new(
             // TODO: Change to `ResponseStatus::CREATED` (breaking).
@@ -167,6 +171,8 @@ pub async fn read(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = ReadRequest { id: room_id };
     ReadHandler::handle(
         &mut ctx.start_message(),
@@ -185,7 +191,6 @@ impl RequestHandler for ReadHandler {
     type Payload = ReadRequest;
     const ERROR_TITLE: &'static str = "Failed to read room";
 
-    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -196,6 +201,11 @@ impl RequestHandler for ReadHandler {
             helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         // Authorize room reading on the tenant.
         let classroom_id = room.classroom_id().to_string();
@@ -252,6 +262,8 @@ pub async fn update(
     Path(room_id): Path<db::room::Id>,
     Json(request): Json<UpdateFields>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = UpdateRequest {
         id: room_id,
         time: request.time,
@@ -277,7 +289,6 @@ impl RequestHandler for UpdateHandler {
     type Payload = UpdateRequest;
     const ERROR_TITLE: &'static str = "Failed to update room";
 
-    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -296,6 +307,11 @@ impl RequestHandler for UpdateHandler {
             move || helpers::find_room_by_id(id, time_requirement, &conn)
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         // Authorize room updating on the tenant.
         let classroom_id = room.classroom_id().to_string();
@@ -420,6 +436,8 @@ pub async fn close(
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = CloseRequest { id: room_id };
     CloseHandler::handle(
         &mut ctx.start_message(),
@@ -438,7 +456,6 @@ impl RequestHandler for CloseHandler {
     type Payload = CloseRequest;
     const ERROR_TITLE: &'static str = "Failed to close room";
 
-    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -457,6 +474,11 @@ impl RequestHandler for CloseHandler {
             }
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         if room.infinite() {
             return Err(anyhow!("Not closing this room because its infinite"))
@@ -535,6 +557,8 @@ pub async fn enter(
     Path(room_id): Path<db::room::Id>,
     payload: Option<Json<EnterPayload>>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = EnterRequest { id: room_id };
 
     let agent_id = payload
@@ -563,7 +587,6 @@ impl RequestHandler for EnterHandler {
     type Payload = EnterRequest;
     const ERROR_TITLE: &'static str = "Failed to enter room";
 
-    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -574,6 +597,11 @@ impl RequestHandler for EnterHandler {
             helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::NotClosed, &conn)
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         // Authorize subscribing to the room's events.
         let room_id = room.id().to_string();

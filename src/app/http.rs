@@ -90,6 +90,10 @@ pub fn build_router(
                     status_code = Empty,
                     kind = Empty,
                     detail = Empty,
+                    body_size = Empty,
+                    room_id = Empty,
+                    rtc_id = Empty,
+                    classroom_id = Empty,
                 );
 
                 if request.method() != Method::GET && request.method() != Method::OPTIONS {

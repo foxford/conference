@@ -17,7 +17,6 @@ use crate::{
     authz::AuthzObject,
     db,
 };
-use tracing_attributes::instrument;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -42,6 +41,8 @@ pub async fn list(
     Path(room_id): Path<db::room::Id>,
     query: Option<Query<Pagination>>,
 ) -> RequestResult {
+    tracing::Span::current().record("room_id", &tracing::field::display(room_id));
+
     let request = ListRequest {
         room_id,
         offset: query.map(|x| x.offset),
@@ -64,7 +65,6 @@ impl RequestHandler for ListHandler {
     type Payload = ListRequest;
     const ERROR_TITLE: &'static str = "Failed to list agents";
 
-    #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -76,6 +76,11 @@ impl RequestHandler for ListHandler {
             move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
 
         // Authorize agents listing in the room.
         let object = AuthzObject::new(&["classrooms", &room.classroom_id().to_string()]);
