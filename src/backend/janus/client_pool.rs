@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use crate::{
     app::{endpoint::rtc_signal::CreateResponseData, error::Error},
@@ -175,6 +175,7 @@ async fn start_polling(
                 break;
             }
             Ok(PollResult::Events(events)) => {
+                tracing::info!(?events, "got events");
                 fail_retries_count = 5;
                 if let [event] = events.as_slice() {
                     let keep_alive = event.get("janus").and_then(|x| x.as_str());
