@@ -14,7 +14,7 @@ use tracing::{error, warn};
 
 use crate::{
     app::{endpoint::rtc_signal::CreateResponseData, error::Error},
-    db::{agent_connection, janus_backend, ConnectionPool},
+    db::{agent_connection, janus_backend, janus_rtc_stream, ConnectionPool},
     util::spawn_blocking,
 };
 
@@ -217,6 +217,7 @@ async fn remove_backend(backend: &janus_backend::Object, db: ConnectionPool) {
                 if deleted > 0 {
                     agent_connection::BulkDisconnectByBackendQuery::new(backend.id())
                         .execute(&conn)?;
+                    janus_rtc_stream::stop_running_streams_by_backend(backend.id(), &conn)?;
                 }
                 Ok(())
             })?;

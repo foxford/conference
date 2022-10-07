@@ -285,3 +285,18 @@ pub fn stop(id: db::janus_rtc_stream::Id, conn: &PgConnection) -> Result<Option<
         .get_result(conn)
         .optional()
 }
+
+pub fn stop_running_streams_by_backend(
+    backend_id: &AgentId,
+    conn: &PgConnection,
+) -> Result<Vec<Object>, Error> {
+    use diesel::{dsl::sql, prelude::*};
+
+    diesel::update(
+        janus_rtc_stream::table
+            .filter(sql(ACTIVE_SQL))
+            .filter(janus_rtc_stream::backend_id.eq(backend_id)),
+    )
+    .set(janus_rtc_stream::time.eq(sql(STOP_TIME_SQL)))
+    .get_results(conn)
+}
