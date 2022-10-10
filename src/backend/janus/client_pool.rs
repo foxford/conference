@@ -208,17 +208,18 @@ async fn remove_backend(backend: &janus_backend::Object, db: ConnectionPool) {
         move || {
             let conn = db.get()?;
             conn.transaction::<_, diesel::result::Error, _>(|| {
-                let deleted = janus_backend::DeleteQuery::new(
+                janus_backend::DeleteQuery::new(
                     backend.id(),
                     backend.session_id(),
                     backend.handle_id(),
                 )
                 .execute(&conn)?;
-                if deleted > 0 {
-                    agent_connection::BulkDisconnectByBackendQuery::new(backend.id())
-                        .execute(&conn)?;
-                    janus_rtc_stream::stop_running_streams_by_backend(backend.id(), &conn)?;
-                }
+
+                // since backend can be up again we should disconnect everyone and stop
+                // all running streams regardless of whether backend was deleted or not
+                agent_connection::BulkDisconnectByBackendQuery::new(backend.id()).execute(&conn)?;
+                janus_rtc_stream::stop_running_streams_by_backend(backend.id(), &conn)?;
+
                 Ok(())
             })?;
             Ok::<_, anyhow::Error>(())
