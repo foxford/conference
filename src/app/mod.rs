@@ -87,6 +87,7 @@ pub async fn run(
         db.clone(),
         config.waitlist_epoch_duration,
         own_ip_addr,
+        Some(agent.clone()),
     );
 
     thread::spawn({

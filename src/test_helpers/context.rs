@@ -134,6 +134,7 @@ impl TestContext {
             self.db().clone(),
             WAITLIST_DURATION,
             IpAddr::V4(Ipv4Addr::LOCALHOST),
+            None,
         ));
     }
 
@@ -144,6 +145,7 @@ impl TestContext {
             self.db().clone(),
             WAITLIST_DURATION,
             IpAddr::V4(Ipv4Addr::LOCALHOST),
+            None,
         ));
     }
 

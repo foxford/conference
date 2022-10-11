@@ -86,7 +86,7 @@ async fn handle_event_impl<C: Context>(
                     )?;
 
                     let event =
-                        endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp)?;
+                        endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp);
 
                     Ok(Box::new(stream::once(std::future::ready(
                         Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>
@@ -501,7 +501,7 @@ async fn handle_hangup_detach<C: Context>(
 
                     // Send rtc_stream.update event.
                     let event =
-                        endpoint::rtc_stream::update_event(room_id, rtc_stream, start_timestamp)?;
+                        endpoint::rtc_stream::update_event(room_id, rtc_stream, start_timestamp);
 
                     let boxed_event =
                         Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
