@@ -290,12 +290,12 @@ lazy_static::lazy_static!(
     // Diesel doesn't support joins in UPDATE/DELETE queries so it's raw SQL.
     static ref BULK_STOP_BY_BACKEND_SQL: String = format!(
         r#"
-        UPDATE janus_rtc_stream AS jrs
-        SET time = {STOP_TIME_SQL}
-        FROM rtc AS r
-        WHERE r.id = jrs.rtc_id
+        UPDATE "janus_rtc_stream"
+        SET "time" = {STOP_TIME_SQL}
+        FROM "rtc"
+        WHERE "rtc"."id" = "janus_rtc_stream"."rtc_id"
         AND   {ACTIVE_SQL}
-        RETURNING r.*, jrs.*
+        RETURNING "rtc".*, "janus_rtc_stream".*
     "#
     );
 );
