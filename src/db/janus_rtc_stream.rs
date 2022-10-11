@@ -295,15 +295,23 @@ lazy_static::lazy_static!(
         FROM "rtc"
         WHERE "rtc"."id" = "janus_rtc_stream"."rtc_id"
         AND   {ACTIVE_SQL}
-        RETURNING "rtc".*, "janus_rtc_stream".*
+        RETURNING "janus_rtc_stream".*, "rtc"."room_id"
     "#
     );
 );
 
+#[derive(Debug, Deserialize, Serialize, Queryable, QueryableByName, Associations)]
+pub struct StreamWithRoomId {
+    #[diesel(embed)]
+    pub janus_rtc_stream: Object,
+    #[sql_type = "diesel::sql_types::Uuid"]
+    pub room_id: db::room::Id,
+}
+
 pub fn stop_running_streams_by_backend(
     backend_id: &AgentId,
     conn: &PgConnection,
-) -> Result<Vec<(db::rtc::Object, Object)>, Error> {
+) -> Result<Vec<StreamWithRoomId>, Error> {
     use crate::db::sql::Agent_id;
     use diesel::prelude::*;
 
@@ -339,11 +347,10 @@ mod tests {
             .expect("Failed to stop running streams");
 
         assert_eq!(r.len(), 1);
-        let (rtc, stream) = &r[0];
-        assert_eq!(rtc.id(), rtc_stream.rtc_id());
-        assert_eq!(stream.id(), rtc_stream.id());
+        let stream = &r[0];
+        assert_eq!(stream.janus_rtc_stream.id(), rtc_stream.id());
         assert!(matches!(
-            stream.time(),
+            stream.janus_rtc_stream.time(),
             Some((std::ops::Bound::Included(_), std::ops::Bound::Excluded(_)))
         ));
     }

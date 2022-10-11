@@ -250,15 +250,16 @@ async fn remove_backend(backend: &janus_backend::Object, db: ConnectionPool, age
     match (result, agent) {
         (Ok(stopped_rtcs_streams), Some(mut agent)) => {
             let now = Utc::now();
-            for (rtc, stream) in stopped_rtcs_streams {
-                let end_time = match stream.time() {
+            for stream in stopped_rtcs_streams {
+                let end_time = match stream.janus_rtc_stream.time() {
                     Some((_start, end)) => match end {
                         std::ops::Bound::Included(t) | std::ops::Bound::Excluded(t) => t,
                         std::ops::Bound::Unbounded => continue,
                     },
                     None => now,
                 };
-                let update_evt = rtc_stream::update_event(rtc.room_id(), stream, end_time);
+                let update_evt =
+                    rtc_stream::update_event(stream.room_id, stream.janus_rtc_stream, end_time);
                 if let Err(err) = agent.publish(update_evt) {
                     error!(backend = ?backend, ?err, "Failed to publish rtc_stream.update evt");
                 }
