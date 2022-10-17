@@ -342,8 +342,14 @@ impl RequestHandler for UpdateHandler {
                     };
 
                     match room.time() {
-                        // Allow any change when no closing date specified.
-                        (_, Bound::Unbounded) => Some(new_time),
+                        (_, Bound::Unbounded) => match new_time {
+                            (_, Bound::Excluded(_)) if room.infinite() => {
+                                return Err(anyhow!("Setting closing time is not allowed in this room since it's infinite"))
+                                .error(AppErrorKind::RoomTimeChangingForbidden);
+                            }
+                            // Allow any change when no closing date specified.
+                            _  => Some(new_time)
+                        }
                         (Bound::Included(o), Bound::Excluded(c)) if *c > Utc::now() => {
                             match new_time {
                                 // Allow reschedule future closing.
