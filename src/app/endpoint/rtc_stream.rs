@@ -4,7 +4,7 @@ use axum::extract::{Extension, Path, Query};
 use chrono::{DateTime, Utc};
 
 use serde::Deserialize;
-use std::{result::Result as StdResult, sync::Arc};
+use std::sync::Arc;
 use svc_agent::mqtt::{
     OutgoingEvent, OutgoingEventProperties, OutgoingMessage, ResponseStatus,
     ShortTermTimingProperties,
@@ -169,11 +169,11 @@ pub fn update_event(
     room_id: db::room::Id,
     object: db::janus_rtc_stream::Object,
     start_timestamp: DateTime<Utc>,
-) -> StdResult<ObjectUpdateEvent, AppError> {
+) -> ObjectUpdateEvent {
     let uri = format!("rooms/{}/events", room_id);
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let props = OutgoingEventProperties::new("rtc_stream.update", timing);
-    Ok(OutgoingEvent::broadcast(object, props, &uri))
+    OutgoingEvent::broadcast(object, props, &uri)
 }
 
 ////////////////////////////////////////////////////////////////////////////////

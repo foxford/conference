@@ -285,3 +285,73 @@ pub fn stop(id: db::janus_rtc_stream::Id, conn: &PgConnection) -> Result<Option<
         .get_result(conn)
         .optional()
 }
+
+lazy_static::lazy_static!(
+    // Diesel doesn't support joins in UPDATE/DELETE queries so it's raw SQL.
+    static ref BULK_STOP_BY_BACKEND_SQL: String = format!(
+        r#"
+        UPDATE "janus_rtc_stream"
+        SET "time" = {STOP_TIME_SQL}
+        FROM "rtc"
+        WHERE "rtc"."id" = "janus_rtc_stream"."rtc_id"
+        AND   {ACTIVE_SQL}
+        RETURNING "janus_rtc_stream".*, "rtc"."room_id"
+    "#
+    );
+);
+
+#[derive(Debug, Deserialize, Serialize, Queryable, QueryableByName, Associations)]
+pub struct StreamWithRoomId {
+    #[diesel(embed)]
+    pub janus_rtc_stream: Object,
+    #[sql_type = "diesel::sql_types::Uuid"]
+    pub room_id: db::room::Id,
+}
+
+pub fn stop_running_streams_by_backend(
+    backend_id: &AgentId,
+    conn: &PgConnection,
+) -> Result<Vec<StreamWithRoomId>, Error> {
+    use crate::db::sql::Agent_id;
+    use diesel::prelude::*;
+
+    diesel::sql_query(&*BULK_STOP_BY_BACKEND_SQL)
+        .bind::<Agent_id, _>(backend_id)
+        .get_results(conn)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
+
+    #[test]
+    fn test_stop_running_streams_by_backend() {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let db = TestDb::with_local_postgres(&postgres);
+
+        let rtc_stream = db
+            .connection_pool()
+            .get()
+            .map(|conn| {
+                let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE).insert(&conn);
+                start(rtc_stream.id(), &conn).expect("Failed to start rtc stream");
+
+                rtc_stream
+            })
+            .expect("Failed to insert room");
+
+        let conn = db.connection_pool().get().unwrap();
+        let r = stop_running_streams_by_backend(rtc_stream.backend_id(), &conn)
+            .expect("Failed to stop running streams");
+
+        assert_eq!(r.len(), 1);
+        let stream = &r[0];
+        assert_eq!(stream.janus_rtc_stream.id(), rtc_stream.id());
+        assert!(matches!(
+            stream.janus_rtc_stream.time(),
+            Some((std::ops::Bound::Included(_), std::ops::Bound::Excluded(_)))
+        ));
+    }
+}

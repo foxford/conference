@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use chrono::Utc;
 use diesel::Connection;
 use std::{
     collections::{hash_map::Entry, HashMap},
@@ -9,12 +10,16 @@ use std::{
     },
     time::Duration,
 };
+use svc_agent::mqtt::Agent;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{error, warn};
 
 use crate::{
-    app::{endpoint::rtc_signal::CreateResponseData, error::Error},
-    db::{agent_connection, janus_backend, ConnectionPool},
+    app::{
+        endpoint::{rtc_signal::CreateResponseData, rtc_stream},
+        error::Error,
+    },
+    db::{agent_connection, janus_backend, janus_rtc_stream, ConnectionPool},
     util::spawn_blocking,
 };
 
@@ -31,6 +36,7 @@ pub struct Clients {
     db: ConnectionPool,
     stream_waitlist: WaitList<Result<CreateResponseData, Error>>,
     ip_addr: IpAddr,
+    mqtt_agent: Option<Agent>,
 }
 
 impl Clients {
@@ -40,6 +46,7 @@ impl Clients {
         db: ConnectionPool,
         waitlist_epoch_duration: std::time::Duration,
         ip_addr: IpAddr,
+        mqtt_agent: Option<Agent>,
     ) -> Self {
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
@@ -48,6 +55,7 @@ impl Clients {
             db,
             stream_waitlist: WaitList::new(waitlist_epoch_duration),
             ip_addr,
+            mqtt_agent,
         }
     }
 
@@ -82,6 +90,7 @@ impl Clients {
             Entry::Occupied(o) => Ok(o.get().client.clone()),
             Entry::Vacant(v) => {
                 let this = self.clone();
+                let mqtt_agent = self.mqtt_agent.clone();
                 let client = JanusClient::new(backend.janus_url())?;
                 let session_id = backend.session_id();
                 let is_cancelled = Arc::new(AtomicBool::new(false));
@@ -99,7 +108,16 @@ impl Clients {
                             clients: &this,
                             backend: &backend,
                         };
-                        start_polling(client, session_id, sink, db, &is_cancelled, &backend).await;
+                        start_polling(
+                            client,
+                            session_id,
+                            sink,
+                            db,
+                            &is_cancelled,
+                            &backend,
+                            mqtt_agent,
+                        )
+                        .await;
                     }
                 });
                 Ok(client)
@@ -157,11 +175,12 @@ async fn start_polling(
     db: ConnectionPool,
     is_cancelled: &AtomicBool,
     janus_backend: &janus_backend::Object,
+    mqtt_agent: Option<Agent>,
 ) {
     let mut fail_retries_count = 5;
     loop {
         if fail_retries_count == 0 {
-            remove_backend(janus_backend, db).await;
+            remove_backend(janus_backend, db, mqtt_agent).await;
             break;
         }
         if is_cancelled.load(Ordering::SeqCst) {
@@ -171,7 +190,7 @@ async fn start_polling(
         match poll_result {
             Ok(PollResult::SessionNotFound) => {
                 warn!(?janus_backend, "Session not found");
-                remove_backend(janus_backend, db).await;
+                remove_backend(janus_backend, db, mqtt_agent).await;
                 break;
             }
             Ok(PollResult::Events(events)) => {
@@ -202,29 +221,55 @@ async fn start_polling(
     }
 }
 
-async fn remove_backend(backend: &janus_backend::Object, db: ConnectionPool) {
+async fn remove_backend(backend: &janus_backend::Object, db: ConnectionPool, agent: Option<Agent>) {
     let result = spawn_blocking({
         let backend = backend.clone();
         move || {
             let conn = db.get()?;
-            conn.transaction::<_, diesel::result::Error, _>(|| {
-                let deleted = janus_backend::DeleteQuery::new(
+            let stopped_rtcs_streams = conn.transaction::<_, diesel::result::Error, _>(|| {
+                janus_backend::DeleteQuery::new(
                     backend.id(),
                     backend.session_id(),
                     backend.handle_id(),
                 )
                 .execute(&conn)?;
-                if deleted > 0 {
-                    agent_connection::BulkDisconnectByBackendQuery::new(backend.id())
-                        .execute(&conn)?;
-                }
-                Ok(())
+
+                // since backend can be up again we should disconnect everyone and stop
+                // all running streams regardless of whether backend was deleted or not
+                agent_connection::BulkDisconnectByBackendQuery::new(backend.id()).execute(&conn)?;
+                let stopped_streams =
+                    janus_rtc_stream::stop_running_streams_by_backend(backend.id(), &conn)?;
+
+                Ok(stopped_streams)
             })?;
-            Ok::<_, anyhow::Error>(())
+            Ok::<_, anyhow::Error>(stopped_rtcs_streams)
         }
     })
     .await;
-    if let Err(err) = result {
-        error!(backend = ?backend, ?err, "Error removing backend");
+
+    match (result, agent) {
+        (Ok(stopped_rtcs_streams), Some(mut agent)) => {
+            let now = Utc::now();
+            for stream in stopped_rtcs_streams {
+                let end_time = match stream.janus_rtc_stream.time() {
+                    Some((_start, end)) => match end {
+                        std::ops::Bound::Included(t) | std::ops::Bound::Excluded(t) => t,
+                        std::ops::Bound::Unbounded => continue,
+                    },
+                    None => now,
+                };
+                let update_evt =
+                    rtc_stream::update_event(stream.room_id, stream.janus_rtc_stream, end_time);
+                if let Err(err) = agent.publish(update_evt) {
+                    error!(backend = ?backend, ?err, "Failed to publish rtc_stream.update evt");
+                }
+            }
+        }
+        (Ok(_streams), None) => {
+            // not sending events since no agent provided
+        }
+        (Err(err), _) => {
+            error!(backend = ?backend, ?err, "Error removing backend");
+        }
     }
 }

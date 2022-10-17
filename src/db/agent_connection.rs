@@ -297,14 +297,13 @@ mod tests {
                     .room_id(room.id())
                     .status(db::agent::Status::Ready)
                     .insert(&conn);
-                let old_agent_conn = factory::AgentConnection::new(
+                factory::AgentConnection::new(
                     *old.id(),
                     rtc.id(),
                     crate::backend::janus::client::HandleId::random(),
                 )
                 .created_at(Utc::now() - Duration::minutes(20))
                 .insert(&conn);
-                println!("{old_agent_conn:?}");
 
                 let new = factory::Agent::new()
                     .agent_id(new.agent_id())
@@ -317,12 +316,9 @@ mod tests {
                     crate::backend::janus::client::HandleId::random(),
                 )
                 .insert(&conn);
-                println!("{new_agent_conn:?}");
-                let new_agent_conn =
-                    UpdateQuery::new(new_agent_conn.handle_id(), Status::Connected)
-                        .execute(&conn)
-                        .unwrap();
-                println!("{new_agent_conn:?}");
+                UpdateQuery::new(new_agent_conn.handle_id(), Status::Connected)
+                    .execute(&conn)
+                    .unwrap();
 
                 room
             })
