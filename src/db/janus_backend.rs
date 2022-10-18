@@ -317,19 +317,23 @@ const LEAST_LOADED_SQL: &str = r#"
                 ON rl.room_id = ar.id
             ) AS sub
             GROUP BY backend_id
+        ),
+        least_loaded AS (
+            SELECT jb.*
+            FROM janus_backend AS jb
+            LEFT JOIN janus_backend_load AS jbl
+            ON jbl.backend_id = jb.id
+            LEFT JOIN room AS r2
+            ON 1 = 1
+            WHERE r2.id = $1
+            AND   jb.api_version = $2
+            AND   ($3 IS NULL OR jb."group" = $3)
+            ORDER BY
+                COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC
+            LIMIT 3
         )
-    SELECT jb.*
-    FROM janus_backend AS jb
-    LEFT JOIN janus_backend_load AS jbl
-    ON jbl.backend_id = jb.id
-    LEFT JOIN room AS r2
-    ON 1 = 1
-    WHERE r2.id = $1
-    AND   jb.api_version = $2
-    AND   ($3 IS NULL OR jb."group" = $3)
-    ORDER BY
-        COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC,
-        RANDOM()
+    SELECT * FROM least_loaded
+    ORDER BY RANDOM()
     LIMIT 1
 "#;
 
