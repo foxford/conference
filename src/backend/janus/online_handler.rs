@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    app::endpoint::rtc_signal::CreateResponseData,
+    app::{endpoint::rtc_signal::CreateResponseData, error},
     backend::janus::client::{
         create_handle::CreateHandleRequest,
         service_ping::{ServicePingRequest, ServicePingRequestBody},
@@ -33,14 +33,38 @@ struct Online {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct ErrorRepr {
+    kind: error::ErrorKind,
+    detail: String,
+}
+
+impl From<error::Error> for ErrorRepr {
+    fn from(e: error::Error) -> Self {
+        Self {
+            kind: e.error_kind(),
+            detail: e.source().to_string(),
+        }
+    }
+}
+
+impl Into<error::Error> for ErrorRepr {
+    fn into(self) -> error::Error {
+        error::Error::new(self.kind, anyhow::Error::msg(self.detail))
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct StreamCallback {
-    response: CreateResponseData,
+    response: Result<CreateResponseData, ErrorRepr>,
     id: usize,
 }
 
 impl StreamCallback {
-    pub fn new(response: CreateResponseData, id: usize) -> Self {
-        Self { response, id }
+    pub fn new(response: Result<CreateResponseData, error::Error>, id: usize) -> Self {
+        Self {
+            response: response.map_err(|err| ErrorRepr::from(err)),
+            id,
+        }
     }
 }
 
@@ -128,7 +152,7 @@ pub async fn start_internal_api(
 
                             clients
                                 .stream_waitlist()
-                                .fire(callback.id, Ok(callback.response))?;
+                                .fire(callback.id, callback.response.map_err(|err| err.into()))?;
 
                             Ok::<_, anyhow::Error>(Response::builder().body(Body::empty())?)
                         };
