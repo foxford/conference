@@ -6,10 +6,10 @@ metadata:
   name: {{ include "conference.fullname" . }}-app
 data:
   App.toml: |
-    {{- $id := list (include "conference.name" . ) (include "conference.audienceEnvironment" .) .Values.app.svc.audience | compact | join "." }}
+    {{- $id := list (include "conference.name" . ) .Values.app.svc.audience | compact | join "." }}
     id = {{ $id | quote }}
 
-    {{- $broker_id := list "mqtt-gateway" (include "conference.audienceEnvironment" .) .Values.app.svc.audience | compact | join "." }}
+    {{- $broker_id := list "mqtt-gateway" .Values.app.svc.audience | compact | join "." }}
     broker_id = {{ $broker_id | quote }}
 
     http_addr = "0.0.0.0:8080"
@@ -29,7 +29,7 @@ data:
     max_message_size = 5000000
 
     [backend]
-    {{- $backend_id := list "janus-gateway" (include "conference.audienceEnvironment" .) .Values.app.svc.audience | compact | join "." }}
+    {{- $backend_id := list "janus-gateway" .Values.app.svc.audience | compact | join "." }}
     id = {{ $backend_id | quote }}
     default_timeout = 5
     stream_upload_timeout = 600
@@ -64,7 +64,7 @@ data:
     algorithm = "ES256"
     key = "data/keys/svc.private_key.p8.der"
 
-    {{- $svc_audience := list (include "conference.audienceEnvironment" $) .audience | compact | join "." }}
+    {{- $svc_audience := list .audience | compact | join "." }}
     {{- with .authn }}
     [authn.{{ $svc_audience | quote }}]
     audience = [{{ $svc_audience | quote }}]
@@ -74,14 +74,14 @@ data:
 
     {{- println "" }}
 
-    {{- $svc_audience := list (include "conference.audienceEnvironment" $) .audience | compact | join "." }}
+    {{- $svc_audience := list .audience | compact | join "." }}
     {{- with .authz }}
     [authz.{{ $svc_audience | quote }}]
     type = {{ .type | quote }}
     {{- if eq "local" .type }}
     trusted = [
       {{- range $account_label := .trusted }}
-        {{ (list $account_label (include "conference.audienceEnvironment" $) $.Values.app.svc.audience) | compact | join "." | quote }},
+        {{ (list $account_label $.Values.app.svc.audience) | compact | join "." | quote }},
       {{- end }}
     ]
     {{- end }}
@@ -106,8 +106,8 @@ data:
     ##
     ## {{ .audience }}
     ##
-    {{- $svc_audience := list (include "conference.audienceEnvironment" $) "svc" .audience | compact | join "." }}
-    {{- $usr_audience := list (include "conference.audienceEnvironment" $) "usr" .audience | compact | join "." }}
+    {{- $svc_audience := list "svc" .audience | compact | join "." }}
+    {{- $usr_audience := list "usr" .audience | compact | join "." }}
     {{- with .authn }}
     [authn.{{ list "iam" $svc_audience | join "." | quote }}]
     audience = [{{ $svc_audience | quote }}, {{ $usr_audience | quote }}]
@@ -130,7 +130,7 @@ data:
     max_retries = {{ default 3 .max_retries }}
     trusted = [
       {{- range $account_label := .trusted }}
-        {{ (list $account_label (include "conference.audienceEnvironment" $) $.Values.app.svc.audience) | compact | join "." | quote }},
+        {{ (list $account_label $.Values.app.svc.audience) | compact | join "." | quote }},
       {{- end }}
     ]
     {{- end }}
