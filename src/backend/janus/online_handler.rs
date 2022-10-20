@@ -47,9 +47,9 @@ impl From<error::Error> for ErrorRepr {
     }
 }
 
-impl Into<error::Error> for ErrorRepr {
-    fn into(self) -> error::Error {
-        error::Error::new(self.kind, anyhow::Error::msg(self.detail))
+impl From<ErrorRepr> for error::Error {
+    fn from(e: ErrorRepr) -> Self {
+        Self::new(e.kind, anyhow::Error::msg(e.detail))
     }
 }
 
@@ -62,7 +62,7 @@ pub struct StreamCallback {
 impl StreamCallback {
     pub fn new(response: Result<CreateResponseData, error::Error>, id: usize) -> Self {
         Self {
-            response: response.map_err(|err| ErrorRepr::from(err)),
+            response: response.map_err(ErrorRepr::from),
             id,
         }
     }
