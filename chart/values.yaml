@@ -82,3 +82,7 @@ tls:
 
 sentry:
   dsn: "https://foobar.example.org/"
+
+serviceMonitor:
+  labels:
+    release: kube-prometheus-stack
