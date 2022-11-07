@@ -15,9 +15,7 @@ struct ErrorKindProperties {
     is_notify_sentry: bool,
 }
 
-#[derive(
-    Debug, Clone, Copy, Hash, PartialEq, Eq, IntoEnumIterator, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, IntoEnumIterator)]
 pub enum ErrorKind {
     AccessDenied,
     AgentNotConnected,

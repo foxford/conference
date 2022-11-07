@@ -4,8 +4,7 @@ use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 
 use crate::{
-    app::{endpoint::rtc_signal::CreateResponseData, error},
-    backend::janus::online_handler::StreamCallback,
+    app::endpoint::rtc_signal::CreateResponseData, backend::janus::online_handler::StreamCallback,
 };
 
 #[derive(Debug)]
@@ -33,7 +32,7 @@ pub trait ConferenceClient: Sync + Send {
     async fn stream_callback(
         &self,
         replica_addr: IpAddr,
-        response: Result<CreateResponseData, error::Error>,
+        response: CreateResponseData,
         id: usize,
     ) -> Result<(), Error>;
 }
@@ -60,7 +59,7 @@ impl ConferenceClient for ConferenceHttpClient {
     async fn stream_callback(
         &self,
         replica_addr: IpAddr,
-        response: Result<CreateResponseData, error::Error>,
+        response: CreateResponseData,
         id: usize,
     ) -> Result<(), Error> {
         let uri = format!(

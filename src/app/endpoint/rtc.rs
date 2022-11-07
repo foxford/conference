@@ -2270,7 +2270,7 @@ mod test {
             let mut authz = TestAuthz::new();
             let new_writer = TestAgent::new("web", "new-writer", USR_AUDIENCE);
 
-            let (rtc, backend_beta, backend_gamma, backend_delta, classroom_id) = db
+            let (rtc, backend, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
@@ -2296,24 +2296,6 @@ mod test {
 
                     let backend2 = {
                         let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
-                        let id = agent.agent_id().to_owned();
-                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
-                            .balancer_capacity(700)
-                            .capacity(800)
-                            .insert(&conn)
-                    };
-
-                    let backend3 = {
-                        let agent = TestAgent::new("gamma", "janus", SVC_AUDIENCE);
-                        let id = agent.agent_id().to_owned();
-                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
-                            .balancer_capacity(700)
-                            .capacity(800)
-                            .insert(&conn)
-                    };
-
-                    let backend4 = {
-                        let agent = TestAgent::new("delta", "janus", SVC_AUDIENCE);
                         let id = agent.agent_id().to_owned();
                         factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
                             .balancer_capacity(700)
@@ -2409,13 +2391,7 @@ mod test {
 
                     shared_helpers::insert_agent(&conn, new_writer.agent_id(), room3.id());
 
-                    (
-                        rtc3,
-                        backend2,
-                        backend3,
-                        backend4,
-                        room3.classroom_id().to_string(),
-                    )
+                    (rtc3, backend2, room3.classroom_id().to_string())
                 })
                 .unwrap();
 
@@ -2440,13 +2416,12 @@ mod test {
                 .await
                 .expect("RTC connect failed");
             let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
-            context.janus_clients().remove_client(&backend_beta);
+            context.janus_clients().remove_client(&backend);
 
             assert_eq!(respp.status(), StatusCode::OK);
             assert_eq!(resp.handle_id.rtc_id(), rtc.id());
             assert_eq!(resp.handle_id.janus_session_id(), session_id);
-            assert!([backend_beta.id(), backend_gamma.id(), backend_delta.id()]
-                .contains(&resp.handle_id.backend_id()));
+            assert_eq!(resp.handle_id.backend_id(), backend.id());
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
