@@ -48,7 +48,6 @@ enum Cmd<T> {
 
 struct WaitListInner<T> {
     epochs: [HashMap<usize, oneshot::Sender<T>>; 2],
-    epoch_start: std::time::Instant,
     current_epoch: usize,
 }
 
@@ -56,7 +55,6 @@ impl<T> WaitListInner<T> {
     pub fn new() -> Self {
         Self {
             epochs: [HashMap::new(), HashMap::new()],
-            epoch_start: std::time::Instant::now(),
             current_epoch: 0,
         }
     }
@@ -79,8 +77,6 @@ impl<T> WaitListInner<T> {
         self.current_epoch = (self.current_epoch + 1) % self.epochs.len();
         // dropping the old events
         self.epochs[self.current_epoch] = HashMap::new();
-        // we don't care about precise epochs here
-        self.epoch_start = std::time::Instant::now();
     }
 }
 
@@ -108,13 +104,13 @@ impl<T: Send + 'static> WaitList<T> {
                                     Some(entry) => {
                                         if let Err(_err) = entry.send(evt) {
                                             tracing::warn!(
-                                                "requester is not waiting for response from waitlist anymore, id: {}",
-                                                id
+                                                %id,
+                                                "requester is not waiting for response from waitlist anymore",
                                             );
                                         };
                                     }
                                     None => {
-                                        tracing::warn!("unknown response id in waitlist: {}", id);
+                                        tracing::warn!(%id, "unknown response id in waitlist");
                                     }
                                 }
                             }
