@@ -180,28 +180,12 @@ async fn handle_event_impl<C: Context>(
                                 {
                                     error!(?err, "failed to fire the response to waitlist");
                                 }
-                            } else {
-                                match response_data {
-                                    Ok(response) => {
-                                        if let Err(err) = context
-                                            .conference_client()
-                                            .stream_callback(replica_addr, response, id)
-                                            .await
-                                        {
-                                            error!(
-                                                ?err,
-                                                "failed to callback replica {}", replica_addr,
-                                            );
-                                        }
-                                    }
-                                    Err(err) => {
-                                        error!(
-                                            ?err,
-                                            "failed to parse create stream event for replica {}",
-                                            replica_addr,
-                                        );
-                                    }
-                                }
+                            } else if let Err(err) = context
+                                .conference_client()
+                                .stream_callback(replica_addr, response_data, id)
+                                .await
+                            {
+                                error!(?err, "failed to callback replica {}", replica_addr,);
                             }
 
                             Ok(Box::new(stream::empty()))
@@ -276,28 +260,12 @@ async fn handle_event_impl<C: Context>(
                                 {
                                     error!(?err, "failed to fire the response to waitlist");
                                 }
-                            } else {
-                                match response_data {
-                                    Ok(response) => {
-                                        if let Err(err) = context
-                                            .conference_client()
-                                            .stream_callback(replica_addr, response, id)
-                                            .await
-                                        {
-                                            error!(
-                                                ?err,
-                                                "failed to callback replica {}", replica_addr,
-                                            );
-                                        }
-                                    }
-                                    Err(err) => {
-                                        error!(
-                                            ?err,
-                                            "failed to parse create stream event for replica {}",
-                                            replica_addr,
-                                        );
-                                    }
-                                }
+                            } else if let Err(err) = context
+                                .conference_client()
+                                .stream_callback(replica_addr, response_data, id)
+                                .await
+                            {
+                                error!(?err, "failed to callback replica {}", replica_addr,);
                             }
 
                             Ok(Box::new(stream::empty()))
