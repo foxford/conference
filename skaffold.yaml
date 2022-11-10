@@ -20,8 +20,8 @@ deploy:
     - name: conference
       chartPath: chart
       artifactOverrides:
-        app.image: cr.yandex/crp1of6bddata8ain3q5/conference
-        migrations.image: cr.yandex/crp1of6bddata8ain3q5/conference-migration
+        app.image.repository: cr.yandex/crp1of6bddata8ain3q5/conference
+        migrations.image.repository: cr.yandex/crp1of6bddata8ain3q5/conference-migration
       imageStrategy:
         helm: {}
       valuesFiles:
