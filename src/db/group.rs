@@ -3,13 +3,14 @@ use crate::db;
 use crate::schema::group;
 use diesel::{pg::PgConnection, result::Error};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
+pub type Id = db::id::Id;
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
 #[belongs_to(Room, foreign_key = "room_id")]
 #[table_name = "group"]
 pub struct Object {
-    id: Uuid,
+    id: Id,
     room_id: db::room::Id,
     number: i32,
 }
@@ -24,10 +25,6 @@ pub struct InsertQuery {
 impl InsertQuery {
     pub fn new(room_id: db::room::Id) -> Self {
         Self { room_id, number: 0 }
-    }
-
-    pub fn number(self, number: i32) -> Self {
-        Self { number, ..self }
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {

@@ -31,6 +31,7 @@ pub mod sql {
 pub mod agent;
 pub mod agent_connection;
 pub mod group;
+pub mod id;
 pub mod janus_backend;
 pub mod janus_rtc_stream;
 pub mod orphaned_room;

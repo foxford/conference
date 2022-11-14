@@ -7,19 +7,13 @@ use diesel::{pg::PgConnection, result::Error};
 use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
-use uuid::Uuid;
 
 use super::room::Object as Room;
 use crate::db;
 use crate::schema::agent;
-use derive_more::Display;
-use diesel_derive_newtype::DieselNewType;
 
 ////////////////////////////////////////////////////////////////////////////////
-#[derive(
-    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq,
-)]
-pub struct Id(Uuid);
+pub type Id = db::id::Id;
 
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
