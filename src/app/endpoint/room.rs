@@ -134,6 +134,16 @@ impl RequestHandler for CreateHandler {
         })
         .await?;
 
+        // Creates default group
+        if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+            let conn = context.get_conn().await?;
+            let room_id = room.id();
+            crate::util::spawn_blocking(move || {
+                db::group::InsertQuery::new(room_id).execute(&conn)
+            })
+            .await?;
+        }
+
         tracing::Span::current().record(
             "classroom_id",
             &tracing::field::display(room.classroom_id()),
