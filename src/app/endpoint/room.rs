@@ -15,6 +15,7 @@ use svc_agent::{
 };
 use svc_utils::extractors::AgentIdExtractor;
 
+use diesel::{Connection, Identifiable};
 use uuid::Uuid;
 
 use crate::{
@@ -134,12 +135,13 @@ impl RequestHandler for CreateHandler {
         })
         .await?;
 
-        // Creates default group
-        if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+        // Creates default group for mini-groups
+        if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
             let conn = context.get_conn().await?;
-            let room_id = room.id();
-            crate::util::spawn_blocking(move || {
-                db::group::InsertQuery::new(room_id).execute(&conn)
+            crate::util::spawn_blocking({
+                let room_id = room.id();
+                // TODO: Add a test that the default group was created
+                move || db::group::InsertQuery::new(room_id).execute(&conn)
             })
             .await?;
         }
@@ -632,7 +634,7 @@ impl RequestHandler for EnterHandler {
 
         // Register agent in `in_progress` state.
         let conn = context.get_conn().await?;
-        crate::util::spawn_blocking({
+        let agent = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let room_id = room.id();
             move || db::agent::InsertQuery::new(&agent_id, room_id).execute(&conn)
@@ -670,6 +672,32 @@ impl RequestHandler for EnterHandler {
             }
         })
         .await?;
+
+        // TODO: Add tests for cases:
+        // 1. Adding new participants
+        // 2. Adding existed participants
+        //
+        // Adds participants to the default group for mini-groups
+        if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
+            let room_id = room.id();
+            let conn = context.get_conn().await?;
+
+            crate::util::spawn_blocking(move || {
+                conn.transaction::<_, AppError, _>(|| {
+                    let maybe_group_agent =
+                        db::group_agent::FindQuery::new(room_id, *agent.id()).execute(&conn)?;
+
+                    if maybe_group_agent.is_none() {
+                        let group = db::group::FindQuery::new(room_id).execute(&conn)?;
+                        db::group_agent::InsertQuery::new(*group.id(), *agent.id())
+                            .execute(&conn)?;
+                    }
+
+                    Ok(())
+                })
+            })
+            .await?;
+        }
 
         let mut response = Response::new(
             ResponseStatus::OK,
