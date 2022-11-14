@@ -57,3 +57,22 @@ impl FindQuery {
             .get_result(conn)
     }
 }
+
+pub struct CountQuery {
+    room_id: db::room::Id,
+}
+
+impl CountQuery {
+    pub fn new(room_id: db::room::Id) -> Self {
+        Self { room_id }
+    }
+
+    pub fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
+        use diesel::prelude::*;
+
+        group::table
+            .filter(group::room_id.eq(self.room_id))
+            .count()
+            .get_result(conn)
+    }
+}

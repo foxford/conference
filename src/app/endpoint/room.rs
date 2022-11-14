@@ -674,8 +674,9 @@ impl RequestHandler for EnterHandler {
         .await?;
 
         // TODO: Add tests for cases:
-        // 1. Adding new participants
-        // 2. Adding existed participants
+        // 1. Adding new participants to the default group
+        // 2. Adding existed participants to the default group (1 group)
+        // 3. Adding existed participants to the default group (more than 2 groups)
         //
         // Adds participants to the default group for mini-groups
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
@@ -691,6 +692,11 @@ impl RequestHandler for EnterHandler {
                         let group = db::group::FindQuery::new(room_id).execute(&conn)?;
                         db::group_agent::InsertQuery::new(*group.id(), *agent.id())
                             .execute(&conn)?;
+                    }
+
+                    let count = db::group::CountQuery::new(room_id).execute(&conn)?;
+                    if count > 0 {
+                        // Creates reader_configs...
                     }
 
                     Ok(())
