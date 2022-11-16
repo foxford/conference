@@ -65,8 +65,12 @@ lazy_static = "1.4.0"
 local_ip = ["local-ip-address"]
 
 [dependencies.local-ip-address]
-optional = true
 version = "0.4"
+optional = true
+
+[dependencies.dotenv]
+version = "0.15"
+optional = true
 
 [dev-dependencies]
 diesel_migrations = "1"

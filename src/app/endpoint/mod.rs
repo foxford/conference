@@ -176,6 +176,7 @@ event_routes!(
 pub mod agent;
 pub mod agent_reader_config;
 pub mod agent_writer_config;
+pub mod group;
 pub mod helpers;
 pub mod message;
 pub mod room;

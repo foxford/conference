@@ -4,6 +4,7 @@ use crate::db;
 use crate::schema::{group, group_agent};
 use diesel::{pg::PgConnection, result::Error};
 use serde::{Deserialize, Serialize};
+use svc_agent::AgentId;
 
 pub type Id = db::id::Id;
 
@@ -72,5 +73,69 @@ impl FindQuery {
             .select(ALL_COLUMNS)
             .get_result(conn)
             .optional()
+    }
+}
+
+pub struct ListWithGroupQuery {
+    room_id: db::room::Id,
+    agent_id: Option<AgentId>,
+}
+
+#[derive(QueryableByName)]
+pub struct GroupAgent {
+    #[sql_type = "diesel::sql_types::Integer"]
+    pub number: i32,
+    #[sql_type = "svc_agent::sql::Agent_id"]
+    pub agent_id: AgentId,
+}
+
+const GROUP_AGENT_SQL: &'static str = r#"
+    select distinct
+            g.number,
+            a.agent_id
+    from group_agent ga
+         join "group" g on g.id = ga.group_id
+         join agent a on a.id = ga.agent_id
+         join (
+             select
+                 group_agent.group_id,
+                 agent.agent_id
+             from group_agent
+             join agent on agent.id = group_agent.agent_id
+         ) ga2 on ga2.group_id = ga.group_id
+         where g.room_id = $1
+    "#;
+
+impl ListWithGroupQuery {
+    pub fn new(room_id: db::room::Id) -> Self {
+        Self {
+            room_id,
+            agent_id: None,
+        }
+    }
+
+    pub fn within_group(self, agent_id: AgentId) -> Self {
+        Self {
+            agent_id: Some(agent_id),
+            ..self
+        }
+    }
+
+    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<GroupAgent>, Error> {
+        use crate::db::sql::Agent_id;
+        use diesel::{prelude::*, sql_types::Uuid};
+
+        if let Some(agent_id) = &self.agent_id {
+            let sql = format!("{} and ga2.agent_id = $2", GROUP_AGENT_SQL);
+
+            diesel::sql_query(sql)
+                .bind::<Uuid, _>(self.room_id)
+                .bind::<Agent_id, _>(agent_id)
+                .get_results(conn)
+        } else {
+            diesel::sql_query(GROUP_AGENT_SQL)
+                .bind::<Uuid, _>(self.room_id)
+                .get_results(conn)
+        }
     }
 }

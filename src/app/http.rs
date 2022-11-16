@@ -54,6 +54,7 @@ pub fn build_router(
             "/rooms/:id/rtcs",
             get(endpoint::rtc::list).post(endpoint::rtc::create),
         )
+        .route("/rooms/:id/groups", get(endpoint::group::list))
         .route("/rtcs/:id", get(endpoint::rtc::read))
         .route("/rtcs/:id/streams", post(endpoint::rtc::connect))
         .route("/rooms/:id/streams", get(endpoint::rtc_stream::list))
