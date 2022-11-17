@@ -634,7 +634,7 @@ impl RequestHandler for EnterHandler {
 
         // Register agent in `in_progress` state.
         let conn = context.get_conn().await?;
-        let agent = crate::util::spawn_blocking({
+        crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let room_id = room.id();
             move || db::agent::InsertQuery::new(&agent_id, room_id).execute(&conn)
@@ -681,17 +681,17 @@ impl RequestHandler for EnterHandler {
         // Adds participants to the default group for mini-groups
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
             let room_id = room.id();
+            let agent_id = reqp.as_agent_id().clone();
             let conn = context.get_conn().await?;
 
             crate::util::spawn_blocking(move || {
                 conn.transaction::<_, AppError, _>(|| {
                     let maybe_group_agent =
-                        db::group_agent::FindQuery::new(room_id, *agent.id()).execute(&conn)?;
+                        db::group_agent::FindQuery::new(room_id, &agent_id).execute(&conn)?;
 
                     if maybe_group_agent.is_none() {
                         let group = db::group::FindQuery::new(room_id).execute(&conn)?;
-                        db::group_agent::InsertQuery::new(*group.id(), *agent.id())
-                            .execute(&conn)?;
+                        db::group_agent::InsertQuery::new(*group.id(), &agent_id).execute(&conn)?;
                     }
 
                     let count = db::group::CountQuery::new(room_id).execute(&conn)?;

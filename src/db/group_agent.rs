@@ -27,18 +27,18 @@ const ALL_COLUMNS: AllColumns = (
 pub struct Object {
     id: Id,
     group_id: db::group::Id,
-    agent_id: db::agent::Id,
+    agent_id: AgentId,
 }
 
-#[derive(Debug, Insertable)]
+#[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "group_agent"]
-pub struct InsertQuery {
+pub struct InsertQuery<'a> {
     group_id: db::group::Id,
-    agent_id: db::agent::Id,
+    agent_id: &'a AgentId,
 }
 
-impl InsertQuery {
-    pub fn new(group_id: db::group::Id, agent_id: db::agent::Id) -> Self {
+impl<'a> InsertQuery<'a> {
+    pub fn new(group_id: db::group::Id, agent_id: &'a AgentId) -> Self {
         Self { group_id, agent_id }
     }
 
@@ -48,18 +48,20 @@ impl InsertQuery {
 
         diesel::insert_into(group_agent)
             .values(self)
-            .on_conflict_do_nothing()
+            .on_conflict((group_id, agent_id))
+            .do_update()
+            .set(self)
             .get_result(conn)
     }
 }
 
-pub struct FindQuery {
+pub struct FindQuery<'a> {
     room_id: db::room::Id,
-    agent_id: db::agent::Id,
+    agent_id: &'a AgentId,
 }
 
-impl FindQuery {
-    pub fn new(room_id: db::room::Id, agent_id: db::agent::Id) -> Self {
+impl<'a> FindQuery<'a> {
+    pub fn new(room_id: db::room::Id, agent_id: &'a AgentId) -> Self {
         Self { room_id, agent_id }
     }
 
@@ -92,16 +94,14 @@ pub struct GroupAgent {
 const GROUP_AGENT_SQL: &'static str = r#"
     select distinct
             g.number,
-            a.agent_id
+            ga.agent_id
     from group_agent ga
          join "group" g on g.id = ga.group_id
-         join agent a on a.id = ga.agent_id
          join (
              select
-                 group_agent.group_id,
-                 agent.agent_id
+                 group_id,
+                 agent_id
              from group_agent
-             join agent on agent.id = group_agent.agent_id
          ) ga2 on ga2.group_id = ga.group_id
          where g.room_id = $1
     "#;

@@ -42,7 +42,7 @@ table! {
     group_agent (id) {
         id -> Uuid,
         group_id -> Uuid,
-        agent_id -> Uuid,
+        agent_id -> Agent_id,
     }
 }
 
@@ -179,7 +179,6 @@ joinable!(agent -> room (room_id));
 joinable!(agent_connection -> agent (agent_id));
 joinable!(agent_connection -> rtc (rtc_id));
 joinable!(group -> room (room_id));
-joinable!(group_agent -> agent (agent_id));
 joinable!(group_agent -> group (group_id));
 joinable!(janus_rtc_stream -> janus_backend (backend_id));
 joinable!(janus_rtc_stream -> rtc (rtc_id));
