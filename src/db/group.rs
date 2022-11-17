@@ -15,7 +15,7 @@ pub struct Object {
     number: i32,
 }
 
-#[derive(Debug, Insertable)]
+#[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "group"]
 pub struct InsertQuery {
     room_id: db::room::Id,
@@ -27,13 +27,19 @@ impl InsertQuery {
         Self { room_id, number: 0 }
     }
 
+    pub fn number(self, number: i32) -> Self {
+        Self { number, ..self }
+    }
+
     pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use crate::schema::group::dsl::*;
         use diesel::RunQueryDsl;
 
         diesel::insert_into(group)
             .values(self)
-            .on_conflict_do_nothing()
+            .on_conflict((room_id, number))
+            .do_update()
+            .set(self)
             .get_result(conn)
     }
 }

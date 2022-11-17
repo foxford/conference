@@ -4,6 +4,6 @@ create table group_agent (
     agent_id agent_id not null,
     
     foreign key (group_id) references "group" (id) on delete cascade,
-    unique (group_id, agent_id),
+    unique (agent_id),
     primary key (id)
 );

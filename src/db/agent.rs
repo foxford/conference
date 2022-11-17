@@ -37,8 +37,12 @@ pub struct Object {
     status: Status,
 }
 
-#[cfg(test)]
 impl Object {
+    pub fn agent_id(&self) -> &AgentId {
+        &self.agent_id
+    }
+
+    #[cfg(test)]
     pub fn status(&self) -> Status {
         self.status
     }
@@ -107,8 +111,8 @@ impl<'a> ListQuery<'a> {
             .into_boxed()
             .filter(agent::status.eq(Status::Ready));
 
-        if let Some(agent_id) = self.agent_id {
-            q = q.filter(agent::agent_id.eq(agent_id));
+        if let Some(agent_ids) = self.agent_id {
+            q = q.filter(agent::agent_id.eq(agent_ids));
         }
 
         if let Some(room_id) = self.room_id {

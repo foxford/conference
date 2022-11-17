@@ -55,14 +55,14 @@ pub struct State(Vec<StateItem>);
 
 impl State {
     fn new(groups: &[GroupAgent]) -> Self {
-        let groups = groups.iter().fold(HashMap::new(), |mut map, ga| {
-            map.entry(ga.number)
-                .or_insert_with(|| Vec::new())
-                .push(ga.agent_id.to_owned());
-            map
-        });
-
-        let items = groups
+        let groups = groups
+            .iter()
+            .fold(HashMap::new(), |mut map, ga| {
+                map.entry(ga.number)
+                    .or_insert_with(|| Vec::new())
+                    .push(ga.agent_id.to_owned());
+                map
+            })
             .into_iter()
             .map(|(number, agents)| StateItem {
                 number: number.to_owned(),
@@ -70,7 +70,7 @@ impl State {
             })
             .collect();
 
-        Self(items)
+        Self(groups)
     }
 }
 

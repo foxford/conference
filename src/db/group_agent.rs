@@ -43,14 +43,18 @@ impl<'a> InsertQuery<'a> {
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+        use crate::diesel::ExpressionMethods;
         use crate::schema::group_agent::dsl::*;
+        use diesel::pg::upsert::excluded;
         use diesel::RunQueryDsl;
+
+        // TODO: Bulk insert
 
         diesel::insert_into(group_agent)
             .values(self)
-            .on_conflict((group_id, agent_id))
+            .on_conflict(agent_id)
             .do_update()
-            .set(self)
+            .set(group_id.eq(excluded(group_id)))
             .get_result(conn)
     }
 }
@@ -104,6 +108,7 @@ const GROUP_AGENT_SQL: &'static str = r#"
              from group_agent
          ) ga2 on ga2.group_id = ga.group_id
          where g.room_id = $1
+    order by g.number     
     "#;
 
 impl ListWithGroupQuery {
