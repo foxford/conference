@@ -96,19 +96,24 @@ pub struct GroupAgent {
 }
 
 const GROUP_AGENT_SQL: &'static str = r#"
-    select distinct
-            g.number,
-            ga.agent_id
+    select number, agent_id
     from group_agent ga
-         join "group" g on g.id = ga.group_id
-         join (
-             select
-                 group_id,
-                 agent_id
-             from group_agent
-         ) ga2 on ga2.group_id = ga.group_id
-         where g.room_id = $1
-    order by g.number     
+    join "group" g on g.id = ga.group_id
+    where g.room_id = $1
+    order by number
+    "#;
+
+const GROUP_AGENT_WITHIN_GROUP_SQL: &'static str = r#"
+    select number, ga.agent_id
+    from group_agent ga
+    join "group" g on g.id = ga.group_id
+    join (
+        select group_id, agent_id
+        from group_agent
+        where agent_id = $2
+    ) ga2 on ga2.group_id = ga.group_id
+    where g.room_id = $1
+    order by g.number
     "#;
 
 impl ListWithGroupQuery {
@@ -131,9 +136,7 @@ impl ListWithGroupQuery {
         use diesel::{prelude::*, sql_types::Uuid};
 
         if let Some(agent_id) = &self.agent_id {
-            let sql = format!("{} and ga2.agent_id = $2", GROUP_AGENT_SQL);
-
-            diesel::sql_query(sql)
+            diesel::sql_query(GROUP_AGENT_WITHIN_GROUP_SQL)
                 .bind::<Uuid, _>(self.room_id)
                 .bind::<Agent_id, _>(agent_id)
                 .get_results(conn)
