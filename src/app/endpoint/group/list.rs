@@ -97,7 +97,7 @@ impl RequestHandler for Handler {
         let groups = crate::util::spawn_blocking(move || {
             let mut q = db::group_agent::ListWithGroupQuery::new(payload.room_id);
             if payload.within_group {
-                q = q.within_group(agent_id);
+                q = q.within_group(&agent_id);
             }
 
             let groups = q.execute(&conn)?;

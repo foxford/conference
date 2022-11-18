@@ -97,9 +97,9 @@ impl<'a> FindQuery<'a> {
     }
 }
 
-pub struct ListWithGroupQuery {
+pub struct ListWithGroupQuery<'a> {
     room_id: db::room::Id,
-    agent_id: Option<AgentId>,
+    agent_id: Option<&'a AgentId>,
 }
 
 #[derive(QueryableByName)]
@@ -131,7 +131,7 @@ const GROUP_AGENT_WITHIN_GROUP_SQL: &'static str = r#"
     order by g.number
     "#;
 
-impl ListWithGroupQuery {
+impl<'a> ListWithGroupQuery<'a> {
     pub fn new(room_id: db::room::Id) -> Self {
         Self {
             room_id,
@@ -139,7 +139,7 @@ impl ListWithGroupQuery {
         }
     }
 
-    pub fn within_group(self, agent_id: AgentId) -> Self {
+    pub fn within_group(self, agent_id: &'a AgentId) -> Self {
         Self {
             agent_id: Some(agent_id),
             ..self

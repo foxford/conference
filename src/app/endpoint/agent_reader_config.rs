@@ -147,11 +147,20 @@ impl RequestHandler for UpdateHandler {
                 helpers::check_room_presence(&room, &agent_id, &conn)?;
 
                 let rtc_reader_configs_with_rtcs = conn.transaction::<_, AppError, _>(|| {
+                    // An agent can create/update reader_configs only for agents in the same group
+                    let group_agents = db::group_agent::ListWithGroupQuery::new(room.id())
+                        .within_group(&agent_id)
+                        .execute(&conn)?
+                        .into_iter()
+                        .map(|g| g.agent_id)
+                        .collect::<Vec<_>>();
+
                     // Find RTCs owned by agents.
                     let agent_ids = payload
                         .configs
                         .iter()
                         .map(|c| &c.agent_id)
+                        .filter(|a| group_agents.contains(a))
                         .collect::<Vec<_>>();
 
                     let rtcs = db::rtc::ListQuery::new()
