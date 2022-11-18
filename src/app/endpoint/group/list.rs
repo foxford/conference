@@ -106,11 +106,9 @@ impl RequestHandler for Handler {
         })
         .await?;
 
-        let state = State::new(&groups);
-
         Ok(Response::new(
             ResponseStatus::OK,
-            state,
+            State::new(&groups),
             context.start_timestamp(),
             None,
         ))

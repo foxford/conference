@@ -8,6 +8,8 @@ use axum::extract::Path;
 use axum::{Extension, Json};
 use diesel::{Connection, Identifiable};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::collections::HashMap;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
 use svc_agent::AgentId;
@@ -57,10 +59,7 @@ impl RequestHandler for UpdateHandler {
     type Payload = State;
     const ERROR_TITLE: &'static str = "Failed to update groups";
 
-    // Plan to do:
-    // 1. Create groups (on conflict - do nothing)
-    // 2. Create/update group_agent (on conflict - update group_id)
-
+    // TODO: Add tests
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -69,21 +68,31 @@ impl RequestHandler for UpdateHandler {
         let conn = context.get_conn().await?;
 
         crate::util::spawn_blocking({
-            let groups = payload.groups;
+            let group_agents = payload.groups;
             let room_id = payload.room_id;
 
             move || {
                 conn.transaction::<_, AppError, _>(|| {
-                    for g in groups {
-                        let group = db::group::InsertQuery::new(room_id)
-                            .number(g.number)
-                            .execute(&conn)?;
+                    // Deletes all groups and groups agents in the room
+                    db::group::DeleteQuery::new(room_id).execute(&conn)?;
 
-                        for agent in g.agents {
-                            db::group_agent::InsertQuery::new(*group.id(), &agent)
-                                .execute(&conn)?;
+                    // Creates groups
+                    let numbers = group_agents.iter().map(|g| g.number).collect::<Vec<i32>>();
+                    let groups = db::group::batch_insert(&conn, room_id, numbers)?
+                        .iter()
+                        .map(|g| (g.number(), *g.id()))
+                        .collect::<HashMap<_, _>>();
+
+                    let agents = group_agents.into_iter().fold(Vec::new(), |mut vec, g| {
+                        if let Some(group_id) = groups.get(&g.number) {
+                            vec.push((*group_id, g.agents));
                         }
-                    }
+
+                        vec
+                    });
+
+                    // Creates group participants
+                    db::group_agent::batch_insert(&conn, agents)?;
 
                     Ok(())
                 })?;
@@ -93,12 +102,17 @@ impl RequestHandler for UpdateHandler {
         })
         .await?;
 
-        let mut response = Response::new(ResponseStatus::OK, "", context.start_timestamp(), None);
+        let mut response = Response::new(
+            ResponseStatus::OK,
+            json!({}),
+            context.start_timestamp(),
+            None,
+        );
 
         response.add_notification(
             "group.update",
             &format!("rooms/{}/events", payload.room_id),
-            "",
+            json!({}),
             context.start_timestamp(),
         );
 

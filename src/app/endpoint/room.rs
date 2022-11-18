@@ -691,7 +691,7 @@ impl RequestHandler for EnterHandler {
 
                     if maybe_group_agent.is_none() {
                         let group = db::group::FindQuery::new(room_id).execute(&conn)?;
-                        db::group_agent::InsertQuery::new(*group.id(), &agent_id).execute(&conn)?;
+                        db::group_agent::InsertQuery::new(*group.id(), agent_id).execute(&conn)?;
                     }
 
                     let count = db::group::CountQuery::new(room_id).execute(&conn)?;

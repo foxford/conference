@@ -2,7 +2,7 @@ use super::agent::Object as Agent;
 use super::group::Object as Group;
 use crate::db;
 use crate::schema::{group, group_agent};
-use diesel::{pg::PgConnection, result::Error};
+use diesel::{pg::PgConnection, result::Error, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
@@ -32,13 +32,13 @@ pub struct Object {
 
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "group_agent"]
-pub struct InsertQuery<'a> {
+pub struct InsertQuery {
     group_id: db::group::Id,
-    agent_id: &'a AgentId,
+    agent_id: AgentId,
 }
 
-impl<'a> InsertQuery<'a> {
-    pub fn new(group_id: db::group::Id, agent_id: &'a AgentId) -> Self {
+impl InsertQuery {
+    pub fn new(group_id: db::group::Id, agent_id: AgentId) -> Self {
         Self { group_id, agent_id }
     }
 
@@ -46,9 +46,6 @@ impl<'a> InsertQuery<'a> {
         use crate::diesel::ExpressionMethods;
         use crate::schema::group_agent::dsl::*;
         use diesel::pg::upsert::excluded;
-        use diesel::RunQueryDsl;
-
-        // TODO: Bulk insert
 
         diesel::insert_into(group_agent)
             .values(self)
@@ -57,6 +54,24 @@ impl<'a> InsertQuery<'a> {
             .set(group_id.eq(excluded(group_id)))
             .get_result(conn)
     }
+}
+
+pub fn batch_insert(
+    conn: &PgConnection,
+    group_agents: Vec<(db::group::Id, Vec<AgentId>)>,
+) -> Result<Vec<Object>, Error> {
+    let mut values = Vec::new();
+
+    for (group_id, agents) in group_agents {
+        for agent_id in agents {
+            values.push(InsertQuery { group_id, agent_id })
+        }
+    }
+
+    diesel::insert_into(group_agent::table)
+        .values(&values)
+        .on_conflict_do_nothing()
+        .get_results(conn)
 }
 
 pub struct FindQuery<'a> {
