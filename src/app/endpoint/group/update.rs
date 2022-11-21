@@ -1,4 +1,5 @@
 use crate::app::context::{AppContext, Context};
+use crate::app::endpoint::group::StateItem;
 use crate::app::endpoint::prelude::AppError;
 use crate::app::endpoint::{RequestHandler, RequestResult};
 use crate::app::service_utils::{RequestParams, Response};
@@ -7,24 +8,17 @@ use async_trait::async_trait;
 use axum::extract::Path;
 use axum::{Extension, Json};
 use diesel::{Connection, Identifiable};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
-use svc_agent::AgentId;
 use svc_utils::extractors::AgentIdExtractor;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct State {
+#[derive(Deserialize)]
+pub struct UpdatePayload {
     room_id: db::room::Id,
     groups: Vec<StateItem>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct StateItem {
-    number: i32,
-    agents: Vec<AgentId>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,10 +32,11 @@ pub async fn update(
 ) -> RequestResult {
     tracing::Span::current().record("room_id", &tracing::field::display(room_id));
 
-    let request = State {
+    let request = UpdatePayload {
         room_id,
         groups: groups.0,
     };
+
     UpdateHandler::handle(
         &mut ctx.start_message(),
         request,
@@ -56,7 +51,7 @@ pub struct UpdateHandler;
 
 #[async_trait]
 impl RequestHandler for UpdateHandler {
-    type Payload = State;
+    type Payload = UpdatePayload;
     const ERROR_TITLE: &'static str = "Failed to update groups";
 
     // TODO: Add tests
@@ -91,8 +86,11 @@ impl RequestHandler for UpdateHandler {
                         vec
                     });
 
-                    // Creates group participants
+                    // Creates group agents
                     db::group_agent::batch_insert(&conn, agents)?;
+
+                    // Update reader_configs
+                    // group_reader_config::update(&conn, state);
 
                     Ok(())
                 })?;

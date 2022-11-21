@@ -1,17 +1,16 @@
 use crate::app::context::{AppContext, Context};
+use crate::app::endpoint::group::State;
 use crate::app::endpoint::prelude::AppError;
 use crate::app::endpoint::{RequestHandler, RequestResult};
 use crate::app::service_utils::{RequestParams, Response};
 use crate::db;
-use crate::db::group_agent::GroupAgent;
 use async_trait::async_trait;
 use axum::extract::{Path, Query};
 use axum::Extension;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde::Deserialize;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
-use svc_agent::{Addressable, AgentId};
+use svc_agent::Addressable;
 use svc_utils::extractors::AgentIdExtractor;
 
 #[derive(Debug, Deserialize, Default)]
@@ -49,36 +48,6 @@ pub async fn list(
 }
 
 pub struct Handler;
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct State(Vec<StateItem>);
-
-impl State {
-    fn new(groups: &[GroupAgent]) -> Self {
-        let groups = groups
-            .iter()
-            .fold(HashMap::new(), |mut map, ga| {
-                map.entry(ga.number)
-                    .or_insert_with(|| Vec::new())
-                    .push(ga.agent_id.to_owned());
-                map
-            })
-            .into_iter()
-            .map(|(number, agents)| StateItem {
-                number: number.to_owned(),
-                agents: agents.to_owned(),
-            })
-            .collect();
-
-        Self(groups)
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct StateItem {
-    number: i32,
-    agents: Vec<AgentId>,
-}
 
 #[async_trait]
 impl RequestHandler for Handler {
