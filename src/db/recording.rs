@@ -170,11 +170,11 @@ impl UpdateQuery {
     pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use diesel::prelude::*;
 
-        // do not overwrite existing status with `Status::Missing`
+        // do not overwrite existing `Ready` status with `Missing`
         if let Some(Status::Missing) = self.status {
             let source = recording::table.filter(
                 recording::status
-                    .is_null()
+                    .eq(Status::InProgress)
                     .and(recording::rtc_id.eq(self.rtc_id)),
             );
 
