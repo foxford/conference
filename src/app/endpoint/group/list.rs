@@ -1,9 +1,11 @@
 use crate::app::context::{AppContext, Context};
 use crate::app::endpoint::group::State;
-use crate::app::endpoint::prelude::AppError;
-use crate::app::endpoint::{RequestHandler, RequestResult};
+use crate::app::endpoint::prelude::{AppError, AppErrorKind};
+use crate::app::endpoint::{helpers, RequestHandler, RequestResult};
+use crate::app::error::ErrorExt;
 use crate::app::service_utils::{RequestParams, Response};
 use crate::db;
+use anyhow::anyhow;
 use async_trait::async_trait;
 use axum::extract::{Path, Query};
 use axum::Extension;
@@ -64,6 +66,19 @@ impl RequestHandler for Handler {
         let agent_id = reqp.as_agent_id().clone();
 
         let groups = crate::util::spawn_blocking(move || {
+            let room = helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::NotClosed,
+                &conn,
+            )?;
+
+            if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+                return Err(anyhow!(
+                    "Getting groups is only available for rooms with owned RTC sharing policy"
+                ))
+                .error(AppErrorKind::InvalidPayload)?;
+            }
+
             let mut q = db::group_agent::ListWithGroupQuery::new(payload.room_id);
             if payload.within_group {
                 q = q.within_group(&agent_id);

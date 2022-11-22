@@ -18,6 +18,11 @@ use svc_utils::extractors::AgentIdExtractor;
 use diesel::{Connection, Identifiable};
 use uuid::Uuid;
 
+use crate::app::group_reader_config;
+use crate::backend::janus::client::update_agent_reader_config::{
+    UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
+    UpdateReaderConfigRequestBodyConfigItem,
+};
 use crate::{
     app::{
         context::{AppContext, Context},
@@ -673,19 +678,26 @@ impl RequestHandler for EnterHandler {
         })
         .await?;
 
+        let mut response = Response::new(
+            ResponseStatus::OK,
+            json!({}),
+            context.start_timestamp(),
+            None,
+        );
+
         // TODO: Add tests for cases:
         // 1. Adding new participants to the default group
         // 2. Adding existed participants to the default group (1 group)
         // 3. Adding existed participants to the default group (more than 2 groups)
         //
         // Adds participants to the default group for mini-groups
+        let room_id = room.id();
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
-            let room_id = room.id();
             let agent_id = reqp.as_agent_id().clone();
             let conn = context.get_conn().await?;
 
-            crate::util::spawn_blocking(move || {
-                conn.transaction::<_, AppError, _>(|| {
+            let (room, configs, maybe_backend) = crate::util::spawn_blocking(move || {
+                let configs = conn.transaction(|| {
                     let maybe_group_agent =
                         db::group_agent::FindQuery::new(room_id, &agent_id).execute(&conn)?;
 
@@ -695,28 +707,71 @@ impl RequestHandler for EnterHandler {
                     }
 
                     let count = db::group::CountQuery::new(room_id).execute(&conn)?;
-                    if count > 0 {
-                        // Creates reader_configs...
+                    if count > 1 {
+                        // Create rtc_reader_configs
+                        let configs = group_reader_config::update(&conn, room_id)?;
+                        return Ok(Some(configs));
                     }
 
-                    Ok(())
-                })
+                    Ok::<_, AppError>(None)
+                })?;
+
+                // Find backend and send updates to it if present.
+                let maybe_backend = match room.backend_id() {
+                    None => None,
+                    Some(backend_id) => db::janus_backend::FindQuery::new()
+                        .id(backend_id)
+                        .execute(&conn)?,
+                };
+
+                Ok::<_, AppError>((room, configs, maybe_backend))
             })
             .await?;
-        }
 
-        let mut response = Response::new(
-            ResponseStatus::OK,
-            json!({}),
-            context.start_timestamp(),
-            None,
-        );
+            // TODO: Need refactoring
+            if let Some((configs, backend)) =
+                configs.and_then(|cfgs| maybe_backend.and_then(|backend| Some((cfgs, backend))))
+            {
+                let items = configs
+                    .iter()
+                    .map(|cfg| UpdateReaderConfigRequestBodyConfigItem {
+                        reader_id: cfg.agent_id.to_owned(),
+                        stream_id: cfg.rtc_id,
+                        receive_video: cfg.availability,
+                        receive_audio: cfg.availability,
+                    })
+                    .collect();
+
+                let request = UpdateReaderConfigRequest {
+                    session_id: backend.session_id(),
+                    handle_id: backend.handle_id(),
+                    body: UpdateReaderConfigRequestBody::new(items),
+                };
+                context
+                    .janus_clients()
+                    .get_or_insert(&backend)
+                    .error(AppErrorKind::BackendClientCreationFailed)?
+                    .reader_update(request)
+                    .await
+                    .context("Reader update")
+                    .error(AppErrorKind::BackendRequestFailed)?
+            }
+
+            response.add_notification(
+                "group.update",
+                &format!("rooms/{}/events", room.id()),
+                json!({}),
+                context.start_timestamp(),
+            );
+        };
+
         response.add_notification(
             "room.enter",
             &format!("rooms/{}/events", room_id),
-            RoomEnterLeaveEvent::new(room.id(), subject),
+            RoomEnterLeaveEvent::new(room_id, subject),
             context.start_timestamp(),
         );
+
         context
             .metrics()
             .request_duration

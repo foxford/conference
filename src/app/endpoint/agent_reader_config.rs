@@ -197,7 +197,7 @@ impl RequestHandler for UpdateHandler {
 
                     // Retrieve state data.
                     let rtc_reader_configs_with_rtcs =
-                        db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &agent_id)
+                        db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &[&agent_id])
                             .execute(&conn)?;
 
                     Ok(rtc_reader_configs_with_rtcs)
@@ -320,7 +320,7 @@ impl RequestHandler for ReadHandler {
                 helpers::check_room_presence(&room, &agent_id, &conn)?;
 
                 let rtc_reader_configs_with_rtcs =
-                    db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &agent_id)
+                    db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &[&agent_id])
                         .execute(&conn)?;
                 Ok::<_, AppError>((room, rtc_reader_configs_with_rtcs))
             }

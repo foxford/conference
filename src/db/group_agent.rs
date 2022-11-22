@@ -102,7 +102,7 @@ pub struct ListWithGroupQuery<'a> {
     agent_id: Option<&'a AgentId>,
 }
 
-#[derive(QueryableByName)]
+#[derive(QueryableByName, Eq, PartialEq)]
 pub struct GroupAgent {
     #[sql_type = "diesel::sql_types::Integer"]
     pub number: i32,

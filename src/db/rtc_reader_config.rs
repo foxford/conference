@@ -2,7 +2,8 @@
 // `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
 #![allow(clippy::extra_unused_lifetimes)]
 
-use diesel::{pg::PgConnection, result::Error};
+use diesel::dsl::any;
+use diesel::{pg::PgConnection, result::Error, RunQueryDsl};
 use svc_agent::AgentId;
 
 use crate::{
@@ -59,12 +60,15 @@ impl Object {
 #[derive(Debug)]
 pub struct ListWithRtcQuery<'a> {
     room_id: db::room::Id,
-    reader_id: &'a AgentId,
+    reader_ids: &'a [&'a AgentId],
 }
 
 impl<'a> ListWithRtcQuery<'a> {
-    pub fn new(room_id: db::room::Id, reader_id: &'a AgentId) -> Self {
-        Self { room_id, reader_id }
+    pub fn new(room_id: db::room::Id, reader_ids: &'a [&'a AgentId]) -> Self {
+        Self {
+            room_id,
+            reader_ids,
+        }
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Rtc)>, Error> {
@@ -73,8 +77,8 @@ impl<'a> ListWithRtcQuery<'a> {
         rtc_reader_config::table
             .inner_join(rtc::table)
             .filter(rtc::room_id.eq(self.room_id))
-            .filter(rtc_reader_config::reader_id.eq(self.reader_id))
-            .select((ALL_COLUMNS, crate::db::rtc::ALL_COLUMNS))
+            .filter(rtc_reader_config::reader_id.eq(any(self.reader_ids)))
+            .select((ALL_COLUMNS, db::rtc::ALL_COLUMNS))
             .get_results(conn)
     }
 }
@@ -147,4 +151,20 @@ impl<'a> UpsertQuery<'a> {
             .set(self)
             .get_result(conn)
     }
+}
+
+pub fn batch_insert(conn: &PgConnection, configs: &[UpsertQuery]) -> Result<Vec<Object>, Error> {
+    use crate::diesel::ExpressionMethods;
+    use crate::schema::rtc_reader_config::*;
+    use diesel::pg::upsert::excluded;
+
+    diesel::insert_into(rtc_reader_config::table)
+        .values(configs)
+        .on_conflict((rtc_reader_config::rtc_id, rtc_reader_config::reader_id))
+        .do_update()
+        .set((
+            receive_video.eq(excluded(receive_video)),
+            receive_audio.eq(excluded(receive_audio)),
+        ))
+        .get_results(conn)
 }
