@@ -3,6 +3,7 @@ use diesel::pg::PgConnection;
 use rand::Rng;
 use svc_agent::{AccountId, AgentId};
 
+use crate::db::room::Id;
 use crate::{
     backend::janus::client::{HandleId, SessionId},
     db::{self, agent},
@@ -555,5 +556,44 @@ impl<'a> RtcWriterConfigSnaphost<'a> {
 
         q.execute(conn)
             .expect("Failed to insert RTC writer config snapshot")
+    }
+}
+
+pub struct Group {
+    room_id: Id,
+    number: i32,
+}
+
+impl Group {
+    pub fn new(room_id: Id) -> Self {
+        Self { room_id, number: 0 }
+    }
+
+    pub fn number(self, number: i32) -> Self {
+        Self { number, ..self }
+    }
+
+    pub fn insert(self, conn: &PgConnection) -> db::group::Object {
+        db::group::InsertQuery::new(self.room_id)
+            .number(self.number)
+            .execute(conn)
+            .expect("Failed to insert group")
+    }
+}
+
+pub struct GroupAgent<'a> {
+    group_id: db::group::Id,
+    agent_id: &'a AgentId,
+}
+
+impl<'a> GroupAgent<'a> {
+    pub fn new(group_id: db::group::Id, agent_id: &'a AgentId) -> Self {
+        Self { group_id, agent_id }
+    }
+
+    pub fn insert(self, conn: &PgConnection) -> db::group_agent::Object {
+        db::group_agent::InsertQuery::new(self.group_id, self.agent_id.to_owned())
+            .execute(conn)
+            .expect("Failed to insert group agent")
     }
 }

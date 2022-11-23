@@ -43,15 +43,11 @@ impl InsertQuery {
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::diesel::ExpressionMethods;
         use crate::schema::group_agent::dsl::*;
-        use diesel::pg::upsert::excluded;
 
         diesel::insert_into(group_agent)
             .values(self)
-            .on_conflict(agent_id)
-            .do_update()
-            .set(group_id.eq(excluded(group_id)))
+            .on_conflict_do_nothing()
             .get_result(conn)
     }
 }

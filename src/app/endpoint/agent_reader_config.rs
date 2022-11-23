@@ -147,7 +147,7 @@ impl RequestHandler for UpdateHandler {
                 helpers::check_room_presence(&room, &agent_id, &conn)?;
 
                 let rtc_reader_configs_with_rtcs = conn.transaction::<_, AppError, _>(|| {
-                    // An agent can create/update reader_configs only for agents in the same group
+                    // An agent can create/update reader configs only for agents in the same group
                     let group_agents = db::group_agent::ListWithGroupQuery::new(room.id())
                         .within_group(&agent_id)
                         .execute(&conn)?
@@ -160,7 +160,6 @@ impl RequestHandler for UpdateHandler {
                         .configs
                         .iter()
                         .map(|c| &c.agent_id)
-                        .filter(|a| group_agents.contains(a))
                         .collect::<Vec<_>>();
 
                     let rtcs = db::rtc::ListQuery::new()
@@ -181,6 +180,14 @@ impl RequestHandler for UpdateHandler {
                                 anyhow!("{} has no owned RTC", state_config_item.agent_id)
                             })
                             .error(AppErrorKind::InvalidPayload)?;
+
+                        if !group_agents.contains(&state_config_item.agent_id) {
+                            return Err(anyhow!(
+                                "{} is in another group",
+                                state_config_item.agent_id
+                            ))
+                            .error(AppErrorKind::InvalidPayload)?;
+                        }
 
                         let mut q = db::rtc_reader_config::UpsertQuery::new(*rtc_id, &agent_id);
 
@@ -359,6 +366,7 @@ mod tests {
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
         use chrono::{Duration, Utc};
+        use diesel::Identifiable;
 
         use super::super::*;
 
@@ -401,6 +409,11 @@ mod tests {
                                 .insert(&conn)
                         })
                         .collect::<Vec<_>>();
+
+                    let group = factory::Group::new(room.id()).insert(&conn);
+                    for agent in &[&agent1, &agent2, &agent3, &agent4] {
+                        factory::GroupAgent::new(*group.id(), agent.agent_id()).insert(&conn);
+                    }
 
                     (room, backend, rtcs)
                 })
@@ -737,6 +750,75 @@ mod tests {
 
             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
             assert_eq!(err.kind(), "room_not_found");
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn agent_in_another_group() -> std::io::Result<()> {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+            let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
+            let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
+
+            // Insert a room with agents and RTCs.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
+                    let room = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                        .backend_id(backend.id())
+                        .insert(&conn);
+
+                    for agent in &[&agent1, &agent2] {
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                    }
+
+                    factory::Rtc::new(room.id())
+                        .created_by(agent2.agent_id().to_owned())
+                        .insert(&conn);
+
+                    let group = factory::Group::new(room.id()).insert(&conn);
+                    factory::GroupAgent::new(*group.id(), agent1.agent_id()).insert(&conn);
+
+                    room
+                })
+                .unwrap();
+
+            // Make agent_reader_config.update request.
+            let mut context = TestContext::new(db, TestAuthz::new());
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+            context.with_janus(tx);
+
+            let payload = State {
+                room_id: room.id(),
+                configs: vec![StateConfigItem {
+                    agent_id: agent2.agent_id().to_owned(),
+                    receive_video: Some(true),
+                    receive_audio: Some(false),
+                }],
+            };
+
+            // Assert error.
+            let err = handle_request::<UpdateHandler>(&mut context, &agent1, payload)
+                .await
+                .expect_err("Unexpected agent reader config update success");
+
+            assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
+            assert_eq!(err.kind(), "invalid_payload");
+            assert_eq!(
+                err.source().to_string(),
+                format!("{} is in another group", agent2.agent_id())
+            );
+
             Ok(())
         }
     }

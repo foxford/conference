@@ -140,12 +140,11 @@ impl RequestHandler for CreateHandler {
         })
         .await?;
 
-        // Creates default group for mini-groups
+        // Create a default group for minigroups
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
             let conn = context.get_conn().await?;
             crate::util::spawn_blocking({
                 let room_id = room.id();
-                // TODO: Add a test that the default group was created
                 move || db::group::InsertQuery::new(room_id).execute(&conn)
             })
             .await?;
@@ -971,6 +970,50 @@ mod test {
 
             assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
             assert_eq!(err.kind(), "access_denied");
+        }
+
+        #[tokio::test]
+        async fn create_default_group() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            // Allow user to create rooms.
+            let mut authz = TestAuthz::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            authz.allow(agent.account_id(), vec!["classrooms"], "create");
+
+            // Make room.create request.
+            let mut context = TestContext::new(db.clone(), authz);
+            let time = (Bound::Unbounded, Bound::Unbounded);
+            let classroom_id = Uuid::new_v4();
+
+            let payload = CreateRequest {
+                time: time.clone(),
+                audience: USR_AUDIENCE.to_owned(),
+                backend: None,
+                rtc_sharing_policy: Some(db::rtc::SharingPolicy::Owned),
+                reserve: Some(123),
+                tags: Some(json!({ "foo": "bar" })),
+                classroom_id,
+            };
+
+            let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room creation failed");
+
+            let (room, _, _) = find_response::<Room>(messages.as_slice());
+
+            let conn = db
+                .connection_pool()
+                .get()
+                .expect("Failed to get DB connection");
+
+            let group = db::group::FindQuery::new(room.id())
+                .execute(&conn)
+                .expect("failed to get group");
+
+            assert_eq!(group.number(), 0);
         }
     }
 
