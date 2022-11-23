@@ -730,7 +730,7 @@ impl RequestHandler for EnterHandler {
 
             // TODO: Need refactoring
             if let Some((configs, backend)) =
-                configs.and_then(|cfgs| maybe_backend.and_then(|backend| Some((cfgs, backend))))
+                configs.and_then(|cfgs| maybe_backend.map(|backend| (cfgs, backend)))
             {
                 let items = configs
                     .iter()
@@ -916,7 +916,7 @@ mod test {
                 rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
                 reserve: Some(123),
                 tags: Some(json!({ "foo": "bar" })),
-                classroom_id: classroom_id,
+                classroom_id,
             };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -962,7 +962,7 @@ mod test {
                 rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
                 reserve: None,
                 tags: None,
-                classroom_id: uuid::Uuid::new_v4(),
+                classroom_id: Uuid::new_v4(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)

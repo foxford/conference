@@ -14,7 +14,7 @@ pub struct GroupReaderConfig {
 }
 
 pub fn update(conn: &PgConnection, room_id: db::room::Id) -> Result<Vec<GroupReaderConfig>, Error> {
-    let group_agents = db::group_agent::ListWithGroupQuery::new(room_id).execute(&conn)?;
+    let group_agents = db::group_agent::ListWithGroupQuery::new(room_id).execute(conn)?;
 
     let agent_ids = group_agents
         .iter()
@@ -24,7 +24,7 @@ pub fn update(conn: &PgConnection, room_id: db::room::Id) -> Result<Vec<GroupRea
     let rtcs = db::rtc::ListQuery::new()
         .room_id(room_id)
         .created_by(agent_ids.as_slice())
-        .execute(&conn)?;
+        .execute(conn)?;
 
     let agents_to_rtcs = rtcs
         .iter()
@@ -67,9 +67,9 @@ pub fn update(conn: &PgConnection, room_id: db::room::Id) -> Result<Vec<GroupRea
 
     let reader_configs_with_rtcs =
         db::rtc_reader_config::ListWithRtcQuery::new(room_id, &agent_ids)
-            .execute(&conn)?
+            .execute(conn)?
             .iter()
-            .filter(|(cfg, _)| cfg.receive_video() == false && cfg.receive_audio() == false)
+            .filter(|(cfg, _)| !cfg.receive_video() && !cfg.receive_audio())
             .map(|(cfg, rtc)| (rtc.id(), cfg.reader_id().to_owned()))
             .collect::<Vec<(Id, AgentId)>>();
 
@@ -88,7 +88,7 @@ pub fn update(conn: &PgConnection, room_id: db::room::Id) -> Result<Vec<GroupRea
         })
         .collect::<Vec<UpsertQuery>>();
 
-    db::rtc_reader_config::batch_insert(&conn, &configs)?;
+    db::rtc_reader_config::batch_insert(conn, &configs)?;
 
     Ok(all_configs)
 }

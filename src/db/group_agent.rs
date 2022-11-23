@@ -110,7 +110,7 @@ pub struct GroupAgent {
     pub agent_id: AgentId,
 }
 
-const GROUP_AGENT_SQL: &'static str = r#"
+const GROUP_AGENT_SQL: &str = r#"
     select number, agent_id
     from group_agent ga
     join "group" g on g.id = ga.group_id
@@ -118,7 +118,7 @@ const GROUP_AGENT_SQL: &'static str = r#"
     order by number
     "#;
 
-const GROUP_AGENT_WITHIN_GROUP_SQL: &'static str = r#"
+const GROUP_AGENT_WITHIN_GROUP_SQL: &str = r#"
     select number, ga.agent_id
     from group_agent ga
     join "group" g on g.id = ga.group_id

@@ -18,14 +18,14 @@ impl State {
             .iter()
             .fold(HashMap::new(), |mut map, ga| {
                 map.entry(ga.number)
-                    .or_insert_with(|| Vec::new())
+                    .or_insert_with(Vec::new)
                     .push(ga.agent_id.to_owned());
                 map
             })
             .into_iter()
             .map(|(number, agents)| StateItem {
                 number: number.to_owned(),
-                agents: agents.to_owned(),
+                agents,
             })
             .collect();
 
