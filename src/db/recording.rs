@@ -135,7 +135,7 @@ impl InsertQuery {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Identifiable, AsChangeset)]
+#[derive(Debug, Identifiable, AsChangeset, Queryable)]
 #[table_name = "recording"]
 #[primary_key(rtc_id)]
 pub struct UpdateQuery {
@@ -170,6 +170,17 @@ impl UpdateQuery {
     pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
         use diesel::prelude::*;
 
-        diesel::update(self).set(self).get_result(conn)
+        // do not overwrite existing `Ready` status with `Missing`
+        if let Some(Status::Missing) = self.status {
+            let source = recording::table.filter(
+                recording::status
+                    .eq(Status::InProgress)
+                    .and(recording::rtc_id.eq(self.rtc_id)),
+            );
+
+            diesel::update(source).set(self).get_result(conn)
+        } else {
+            diesel::update(self).set(self).get_result(conn)
+        }
     }
 }

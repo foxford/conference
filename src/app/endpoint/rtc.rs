@@ -667,18 +667,11 @@ where
                     }
                 },
                 ConnectIntent::Write => {
-                    // Create recording if a writer connects for the first time.
                     conn.transaction::<_, diesel::result::Error, _>(|| {
                         if room.backend_id().is_none() {
                             db::room::UpdateQuery::new(room.id())
                                 .backend_id(Some(backend.id()))
                                 .execute(&conn)?;
-                        }
-
-                        let recording = db::recording::FindQuery::new(id).execute(&conn)?;
-
-                        if recording.is_none() {
-                            db::recording::InsertQuery::new(id).execute(&conn)?;
                         }
 
                         Ok(())
@@ -845,6 +838,29 @@ where
 
             resp.jsep
         };
+
+        // Create recording if a writer connects for the first time.
+        // We run it after successful signaling to avoid in-progress recording entries
+        // which are not really bound to anything.
+        if let ConnectIntent::Write = self.intent {
+            crate::util::spawn_blocking({
+                let id = self.id;
+                let conn = self.ctx.get_conn().await?;
+
+                move || {
+                    conn.transaction::<_, diesel::result::Error, _>(|| {
+                        let recording = db::recording::FindQuery::new(id).execute(&conn)?;
+
+                        if recording.is_none() {
+                            db::recording::InsertQuery::new(id).execute(&conn)?;
+                        }
+
+                        Ok(())
+                    })
+                }
+            })
+            .await?;
+        }
 
         self.ctx
             .metrics()
