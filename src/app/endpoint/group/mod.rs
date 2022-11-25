@@ -9,7 +9,7 @@ pub use update::update;
 mod list;
 mod update;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct State(Vec<StateItem>);
 
 impl State {
@@ -33,7 +33,7 @@ impl State {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct StateItem {
     number: i32,
     agents: Vec<AgentId>,
