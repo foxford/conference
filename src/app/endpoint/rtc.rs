@@ -667,7 +667,6 @@ where
                     }
                 },
                 ConnectIntent::Write => {
-                    // Create recording if a writer connects for the first time.
                     conn.transaction::<_, diesel::result::Error, _>(|| {
                         if room.backend_id().is_none() {
                             db::room::UpdateQuery::new(room.id())
