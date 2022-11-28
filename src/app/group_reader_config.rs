@@ -183,8 +183,8 @@ mod tests {
 
         let agent1_configs = reader_configs
             .iter()
-            .filter(|(cfg, rtc)| cfg.reader_id() == agent1.agent_id())
-            .map(|(cfg, rtc)| (rtcs.get(&cfg.rtc_id()).unwrap(), cfg))
+            .filter(|(cfg, _)| cfg.reader_id() == agent1.agent_id())
+            .map(|(cfg, _)| (rtcs.get(&cfg.rtc_id()).unwrap(), cfg))
             .collect::<HashMap<_, _>>();
 
         assert_eq!(agent1_configs.len(), 4);
@@ -199,8 +199,8 @@ mod tests {
 
         let agent3_configs = reader_configs
             .iter()
-            .filter(|(cfg, rtc)| cfg.reader_id() == agent3.agent_id())
-            .map(|(cfg, rtc)| (rtcs.get(&cfg.rtc_id()).unwrap(), cfg))
+            .filter(|(cfg, _)| cfg.reader_id() == agent3.agent_id())
+            .map(|(cfg, _)| (rtcs.get(&cfg.rtc_id()).unwrap(), cfg))
             .collect::<HashMap<_, _>>();
 
         assert_eq!(agent3_configs.len(), 3);
@@ -235,8 +235,8 @@ mod tests {
 
         let agent1_configs = reader_configs
             .iter()
-            .filter(|(cfg, rtc)| cfg.reader_id() == agent1.agent_id())
-            .map(|(cfg, rtc)| (rtcs.get(&cfg.rtc_id()).unwrap(), cfg))
+            .filter(|(cfg, _)| cfg.reader_id() == agent1.agent_id())
+            .map(|(cfg, _)| (rtcs.get(&cfg.rtc_id()).unwrap(), cfg))
             .collect::<HashMap<_, _>>();
 
         assert_eq!(agent1_configs.len(), 4);
@@ -247,8 +247,8 @@ mod tests {
 
         let agent4_configs = reader_configs
             .iter()
-            .filter(|(cfg, rtc)| cfg.reader_id() == agent4.agent_id())
-            .map(|(cfg, rtc)| (rtcs.get(&cfg.rtc_id()).unwrap(), cfg))
+            .filter(|(cfg, _)| cfg.reader_id() == agent4.agent_id())
+            .map(|(cfg, _)| (rtcs.get(&cfg.rtc_id()).unwrap(), cfg))
             .collect::<HashMap<_, _>>();
 
         assert_eq!(agent4_configs.len(), 4);

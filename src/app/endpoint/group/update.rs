@@ -23,7 +23,7 @@ use svc_agent::mqtt::ResponseStatus;
 use svc_utils::extractors::AgentIdExtractor;
 
 #[derive(Deserialize)]
-pub struct UpdatePayload {
+pub struct Payload {
     room_id: db::room::Id,
     groups: Vec<StateItem>,
 }
@@ -36,9 +36,9 @@ pub async fn update(
 ) -> RequestResult {
     tracing::Span::current().record("room_id", &tracing::field::display(room_id));
 
-    let request = UpdatePayload { room_id, groups };
+    let request = Payload { room_id, groups };
 
-    UpdateHandler::handle(
+    Handler::handle(
         &mut ctx.start_message(),
         request,
         RequestParams::Http {
@@ -48,11 +48,11 @@ pub async fn update(
     .await
 }
 
-pub struct UpdateHandler;
+pub struct Handler;
 
 #[async_trait]
-impl RequestHandler for UpdateHandler {
-    type Payload = UpdatePayload;
+impl RequestHandler for Handler {
+    type Payload = Payload;
     const ERROR_TITLE: &'static str = "Failed to update groups";
 
     // TODO: Add tests
@@ -167,5 +167,258 @@ impl RequestHandler for UpdateHandler {
         );
 
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
+    use crate::test_helpers::prelude::{GlobalContext, TestAgent, TestAuthz, TestContext, TestDb};
+    use crate::test_helpers::test_deps::LocalDeps;
+    use crate::test_helpers::{factory, handle_request, shared_helpers, USR_AUDIENCE};
+    use chrono::{Duration, Utc};
+    use std::ops::Bound;
+
+    #[tokio::test]
+    async fn missing_room() -> std::io::Result<()> {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let db = TestDb::with_local_postgres(&postgres);
+        let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+        let mut context = TestContext::new(db, TestAuthz::new());
+
+        let payload = Payload {
+            room_id: db::room::Id::random(),
+            groups: vec![],
+        };
+
+        // Assert error.
+        let err = handle_request::<Handler>(&mut context, &agent, payload)
+            .await
+            .expect_err("Unexpected group list success");
+
+        assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+        assert_eq!(err.kind(), "room_not_found");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn closed_room() -> std::io::Result<()> {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let db = TestDb::with_local_postgres(&postgres);
+        let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+
+        let room = db
+            .connection_pool()
+            .get()
+            .map(|conn| {
+                let room = factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((
+                        Bound::Included(Utc::now() - Duration::hours(2)),
+                        Bound::Excluded(Utc::now() - Duration::hours(1)),
+                    ))
+                    .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                    .insert(&conn);
+
+                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+
+                room
+            })
+            .unwrap();
+
+        let mut context = TestContext::new(db, TestAuthz::new());
+
+        let payload = Payload {
+            room_id: room.id(),
+            groups: vec![],
+        };
+
+        // Assert error.
+        let err = handle_request::<Handler>(&mut context, &agent, payload)
+            .await
+            .expect_err("Unexpected agent reader config read success");
+
+        assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
+        assert_eq!(err.kind(), "room_closed");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wrong_rtc_sharing_policy() {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let db = TestDb::with_local_postgres(&postgres);
+        let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
+
+        let room = db
+            .connection_pool()
+            .get()
+            .map(|conn| {
+                factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                    .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                    .insert(&conn)
+            })
+            .unwrap();
+
+        let mut context = TestContext::new(db, TestAuthz::new());
+        let payload = Payload {
+            room_id: room.id(),
+            groups: vec![],
+        };
+
+        // Assert error.
+        let err = handle_request::<Handler>(&mut context, &agent1, payload)
+            .await
+            .expect_err("Unexpected group list success");
+
+        assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
+        assert_eq!(err.kind(), "invalid_payload");
+    }
+
+    #[tokio::test]
+    async fn update_group_agents() {
+        let local_deps = LocalDeps::new();
+        let postgres = local_deps.run_postgres();
+        let janus = local_deps.run_janus();
+        let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+        let db = TestDb::with_local_postgres(&postgres);
+        let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
+        let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
+
+        let (room, backend) = db
+            .connection_pool()
+            .get()
+            .map(|conn| {
+                let backend =
+                    shared_helpers::insert_janus_backend(&conn, &janus.url, session_id, handle_id);
+
+                let room = factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                    .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                    .backend_id(backend.id())
+                    .insert(&conn);
+
+                factory::Group::new(room.id()).insert(&conn);
+                factory::Group::new(room.id()).number(1).insert(&conn);
+
+                vec![&agent1, &agent2].iter().for_each(|agent| {
+                    factory::Rtc::new(room.id())
+                        .created_by(agent.agent_id().to_owned())
+                        .insert(&conn);
+                });
+
+                (room, backend)
+            })
+            .unwrap();
+
+        let mut context = TestContext::new(db.clone(), TestAuthz::new());
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        context.with_janus(tx);
+
+        let payload = Payload {
+            room_id: room.id(),
+            groups: vec![
+                StateItem {
+                    number: 0,
+                    agents: vec![agent1.agent_id().to_owned()],
+                },
+                StateItem {
+                    number: 1,
+                    agents: vec![agent2.agent_id().to_owned()],
+                },
+            ],
+        };
+
+        handle_request::<Handler>(&mut context, &agent1, payload)
+            .await
+            .expect("Group update failed");
+
+        let conn = db
+            .connection_pool()
+            .get()
+            .expect("Failed to get DB connection");
+
+        let group_agents = db::group_agent::ListWithGroupQuery::new(room.id())
+            .execute(&conn)
+            .expect("failed to get groups with participants");
+
+        assert_eq!(group_agents.len(), 2);
+
+        let group_agents = group_agents
+            .iter()
+            .map(|ga| (ga.agent_id.to_owned(), ga.number))
+            .collect::<HashMap<_, _>>();
+
+        let agent1_number = group_agents.get(agent1.agent_id()).unwrap();
+        assert_eq!(*agent1_number, 0);
+
+        let agent2_number = group_agents.get(agent2.agent_id()).unwrap();
+        assert_eq!(*agent2_number, 1);
+
+        let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(
+            room.id(),
+            &[agent1.agent_id(), agent2.agent_id()],
+        )
+        .execute(&conn)
+        .expect("failed to get rtc reader configs");
+
+        assert_eq!(reader_configs.len(), 2);
+
+        for (cfg, _) in reader_configs {
+            assert!(!cfg.receive_video());
+            assert!(!cfg.receive_audio());
+        }
+
+        // Make one more group.update request
+        let payload = Payload {
+            room_id: room.id(),
+            groups: vec![StateItem {
+                number: 0,
+                agents: vec![agent1.agent_id().to_owned(), agent2.agent_id().to_owned()],
+            }],
+        };
+
+        handle_request::<Handler>(&mut context, &agent1, payload)
+            .await
+            .expect("Group update failed");
+
+        let group_agents = db::group_agent::ListWithGroupQuery::new(room.id())
+            .execute(&conn)
+            .expect("failed to get groups with participants");
+
+        assert_eq!(group_agents.len(), 2);
+
+        let group_agents = group_agents
+            .iter()
+            .map(|ga| (ga.agent_id.to_owned(), ga.number))
+            .collect::<HashMap<_, _>>();
+
+        let agent1_number = group_agents.get(agent1.agent_id()).unwrap();
+        assert_eq!(*agent1_number, 0);
+
+        let agent2_number = group_agents.get(agent2.agent_id()).unwrap();
+        assert_eq!(*agent2_number, 0);
+
+        let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(
+            room.id(),
+            &[agent1.agent_id(), agent2.agent_id()],
+        )
+        .execute(&conn)
+        .expect("failed to get rtc reader configs");
+
+        assert_eq!(reader_configs.len(), 2);
+
+        for (cfg, _) in reader_configs {
+            assert!(cfg.receive_video());
+            assert!(cfg.receive_audio());
+        }
+
+        context.janus_clients().remove_client(&backend);
     }
 }

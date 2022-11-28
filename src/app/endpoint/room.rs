@@ -1871,7 +1871,7 @@ mod test {
         }
 
         #[tokio::test]
-        async fn adds_new_participant_to_default_group() {
+        async fn add_new_participant_to_default_group() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
@@ -1974,21 +1974,30 @@ mod test {
         }
 
         #[tokio::test]
-        async fn creates_reader_configs() {
+        async fn create_reader_configs() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let db = TestDb::with_local_postgres(&postgres);
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-            let room = {
+            let (room, backend) = {
                 let conn = db
                     .connection_pool()
                     .get()
                     .expect("Failed to get DB connection");
 
-                // Create room.
-                let room = shared_helpers::insert_room_with_owned(&conn);
+                let backend =
+                    shared_helpers::insert_janus_backend(&conn, &janus.url, session_id, handle_id);
+
+                let room = factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                    .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                    .backend_id(backend.id())
+                    .insert(&conn);
 
                 factory::Group::new(room.id()).insert(&conn);
                 let group1 = factory::Group::new(room.id()).number(1).insert(&conn);
@@ -2003,7 +2012,7 @@ mod test {
                         .insert(&conn);
                 });
 
-                room
+                (room, backend)
             };
 
             // Allow agent to subscribe to the rooms' events.
@@ -2017,6 +2026,9 @@ mod test {
 
             // Make room.enter request.
             let mut context = TestContext::new(db.clone(), authz);
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+            context.with_janus(tx);
+
             let payload = EnterRequest { id: room.id() };
 
             handle_request::<EnterHandler>(&mut context, &agent2, payload)
@@ -2039,9 +2051,11 @@ mod test {
                 &[agent1.agent_id(), agent2.agent_id()],
             )
             .execute(&conn)
-            .unwrap();
+            .expect("failed to get rtc reader configs");
 
             assert_eq!(reader_configs.len(), 2);
+
+            context.janus_clients().remove_client(&backend);
         }
     }
 
