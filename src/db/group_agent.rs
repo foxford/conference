@@ -30,6 +30,12 @@ pub struct Object {
     agent_id: AgentId,
 }
 
+impl Object {
+    pub fn group_id(&self) -> db::group::Id {
+        self.group_id
+    }
+}
+
 #[derive(Debug, Insertable, AsChangeset)]
 #[table_name = "group_agent"]
 pub struct InsertQuery {
@@ -98,7 +104,7 @@ pub struct ListWithGroupQuery<'a> {
     agent_id: Option<&'a AgentId>,
 }
 
-#[derive(QueryableByName, Eq, PartialEq)]
+#[derive(QueryableByName, Eq, PartialEq, Debug)]
 pub struct GroupAgent {
     #[sql_type = "diesel::sql_types::Integer"]
     pub number: i32,
@@ -164,7 +170,6 @@ impl<'a> ListWithGroupQuery<'a> {
 pub struct UpdateQuery {
     id: Id,
     group_id: db::group::Id,
-    // agent_id: AgentId,
 }
 
 impl UpdateQuery {

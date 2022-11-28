@@ -206,12 +206,12 @@ mod tests {
         assert_eq!(agent3_configs.len(), 3);
 
         let agent3_agent1_cfg = agent3_configs.get(agent1.agent_id()).unwrap();
-        assert!(!agent1_agent2_cfg.receive_video());
-        assert!(!agent1_agent2_cfg.receive_audio());
+        assert!(!agent3_agent1_cfg.receive_video());
+        assert!(!agent3_agent1_cfg.receive_audio());
 
         let agent3_agent2_cfg = agent3_configs.get(agent2.agent_id()).unwrap();
-        assert!(!agent1_agent3_cfg.receive_video());
-        assert!(!agent1_agent3_cfg.receive_audio());
+        assert!(!agent3_agent2_cfg.receive_video());
+        assert!(!agent3_agent2_cfg.receive_audio());
 
         let group_agent2 = db::group_agent::FindQuery::new(room.id(), agent2.agent_id())
             .execute(&conn)

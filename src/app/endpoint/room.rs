@@ -684,12 +684,7 @@ impl RequestHandler for EnterHandler {
             None,
         );
 
-        // TODO: Add tests for cases:
-        // 1. Adding new participants to the default group
-        // 2. Adding existed participants to the default group (1 group)
-        // 3. Adding existed participants to the default group (more than 2 groups)
-        //
-        // Adds participants to the default group for mini-groups
+        // Adds participants to the default group for minigroups
         let room_id = room.id();
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
             let agent_id = reqp.as_agent_id().clone();
@@ -707,7 +702,7 @@ impl RequestHandler for EnterHandler {
 
                     let count = db::group::CountQuery::new(room_id).execute(&conn)?;
                     if count > 1 {
-                        // Create rtc_reader_configs
+                        // Creates rtc_reader_configs
                         let configs = group_reader_config::update(&conn, room_id)?;
                         return Ok(Some(configs));
                     }
@@ -1873,6 +1868,180 @@ mod test {
             handle_request::<EnterHandler>(&mut context, &agent, payload)
                 .await
                 .expect("Room entrance failed");
+        }
+
+        #[tokio::test]
+        async fn adds_new_participant_to_default_group() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            let (room, group) = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                // Create room.
+                let room = shared_helpers::insert_room_with_owned(&conn);
+                let group = factory::Group::new(room.id()).insert(&conn);
+
+                (room, group)
+            };
+
+            // Allow agent to subscribe to the rooms' events.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
+
+            // Make room.enter request.
+            let mut context = TestContext::new(db.clone(), authz);
+            let payload = EnterRequest { id: room.id() };
+
+            handle_request::<EnterHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room entrance failed");
+
+            let conn = db
+                .connection_pool()
+                .get()
+                .expect("Failed to get DB connection");
+
+            let group_agent = db::group_agent::FindQuery::new(room.id(), agent.agent_id())
+                .execute(&conn)
+                .expect("failed to find a group agent")
+                .expect("group agent not found");
+
+            assert_eq!(group_agent.group_id(), *group.id())
+        }
+
+        #[tokio::test]
+        async fn existed_participant_in_group() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                // Create room.
+                let room = shared_helpers::insert_room_with_owned(&conn);
+                let group = factory::Group::new(room.id()).number(1).insert(&conn);
+
+                factory::GroupAgent::new(*group.id())
+                    .agent_id(agent.agent_id())
+                    .insert(&conn);
+
+                room
+            };
+
+            // Allow agent to subscribe to the rooms' events.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
+
+            // Make room.enter request.
+            let mut context = TestContext::new(db.clone(), authz);
+            let payload = EnterRequest { id: room.id() };
+
+            handle_request::<EnterHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room entrance failed");
+
+            let conn = db
+                .connection_pool()
+                .get()
+                .expect("Failed to get DB connection");
+
+            let group_agents = db::group_agent::ListWithGroupQuery::new(room.id())
+                .execute(&conn)
+                .expect("failed to get group agents");
+
+            assert_eq!(group_agents.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn creates_reader_configs() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
+            let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
+
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                // Create room.
+                let room = shared_helpers::insert_room_with_owned(&conn);
+
+                factory::Group::new(room.id()).insert(&conn);
+                let group1 = factory::Group::new(room.id()).number(1).insert(&conn);
+
+                factory::GroupAgent::new(*group1.id())
+                    .agent_id(agent1.agent_id())
+                    .insert(&conn);
+
+                vec![&agent1, &agent2].iter().for_each(|agent| {
+                    factory::Rtc::new(room.id())
+                        .created_by(agent.agent_id().to_owned())
+                        .insert(&conn);
+                });
+
+                room
+            };
+
+            // Allow agent to subscribe to the rooms' events.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent2.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
+
+            // Make room.enter request.
+            let mut context = TestContext::new(db.clone(), authz);
+            let payload = EnterRequest { id: room.id() };
+
+            handle_request::<EnterHandler>(&mut context, &agent2, payload)
+                .await
+                .expect("Room entrance failed");
+
+            let conn = db
+                .connection_pool()
+                .get()
+                .expect("Failed to get DB connection");
+
+            let group_agents = db::group_agent::ListWithGroupQuery::new(room.id())
+                .execute(&conn)
+                .expect("failed to get group agents");
+
+            assert_eq!(group_agents.len(), 2);
+
+            let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(
+                room.id(),
+                &[agent1.agent_id(), agent2.agent_id()],
+            )
+            .execute(&conn)
+            .unwrap();
+
+            assert_eq!(reader_configs.len(), 2);
         }
     }
 
