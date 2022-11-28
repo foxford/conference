@@ -412,7 +412,9 @@ mod tests {
 
                     let group = factory::Group::new(room.id()).insert(&conn);
                     for agent in &[&agent1, &agent2, &agent3, &agent4] {
-                        factory::GroupAgent::new(*group.id(), agent.agent_id()).insert(&conn);
+                        factory::GroupAgent::new(*group.id())
+                            .agent_id(agent.agent_id())
+                            .insert(&conn);
                     }
 
                     (room, backend, rtcs)
@@ -787,7 +789,9 @@ mod tests {
                         .insert(&conn);
 
                     let group = factory::Group::new(room.id()).insert(&conn);
-                    factory::GroupAgent::new(*group.id(), agent1.agent_id()).insert(&conn);
+                    factory::GroupAgent::new(*group.id())
+                        .agent_id(agent1.agent_id())
+                        .insert(&conn);
 
                     room
                 })

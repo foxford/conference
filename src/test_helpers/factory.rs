@@ -582,18 +582,45 @@ impl Group {
 }
 
 pub struct GroupAgent<'a> {
+    id: Option<db::group_agent::Id>,
     group_id: db::group::Id,
-    agent_id: &'a AgentId,
+    agent_id: Option<&'a AgentId>,
 }
 
 impl<'a> GroupAgent<'a> {
-    pub fn new(group_id: db::group::Id, agent_id: &'a AgentId) -> Self {
-        Self { group_id, agent_id }
+    pub fn new(group_id: db::group::Id) -> Self {
+        Self {
+            id: None,
+            group_id,
+            agent_id: None,
+        }
+    }
+
+    pub fn id(self, id: db::group_agent::Id) -> Self {
+        Self {
+            id: Some(id),
+            ..self
+        }
+    }
+
+    pub fn agent_id(self, agent_id: &'a AgentId) -> Self {
+        Self {
+            agent_id: Some(agent_id),
+            ..self
+        }
     }
 
     pub fn insert(self, conn: &PgConnection) -> db::group_agent::Object {
-        db::group_agent::InsertQuery::new(self.group_id, self.agent_id.to_owned())
+        let agent_id = self.agent_id.expect("expect agent_id").to_owned();
+        db::group_agent::InsertQuery::new(self.group_id, agent_id)
             .execute(conn)
             .expect("Failed to insert group agent")
+    }
+
+    pub fn update(self, conn: &PgConnection) -> db::group_agent::Object {
+        let id = self.id.expect("expect group agent id");
+        db::group_agent::UpdateQuery::new(id, self.group_id)
+            .execute(conn)
+            .expect("failed to update group agent")
     }
 }

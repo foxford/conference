@@ -158,3 +158,26 @@ impl<'a> ListWithGroupQuery<'a> {
         }
     }
 }
+
+#[derive(Debug, Identifiable, AsChangeset)]
+#[table_name = "group_agent"]
+pub struct UpdateQuery {
+    id: Id,
+    group_id: db::group::Id,
+    // agent_id: AgentId,
+}
+
+impl UpdateQuery {
+    pub fn new(id: Id, group_id: db::group::Id) -> Self {
+        Self { id, group_id }
+    }
+
+    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
+        use crate::diesel::ExpressionMethods;
+        use crate::schema::group_agent::dsl::*;
+
+        diesel::update(self)
+            .set(group_id.eq(self.group_id))
+            .get_result(conn)
+    }
+}

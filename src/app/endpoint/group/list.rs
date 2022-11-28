@@ -234,8 +234,12 @@ mod tests {
                 let group0 = factory::Group::new(room.id()).insert(&conn);
                 let group1 = factory::Group::new(room.id()).number(1).insert(&conn);
 
-                factory::GroupAgent::new(*group0.id(), agent1.agent_id()).insert(&conn);
-                factory::GroupAgent::new(*group1.id(), agent2.agent_id()).insert(&conn);
+                factory::GroupAgent::new(*group0.id())
+                    .agent_id(agent1.agent_id())
+                    .insert(&conn);
+                factory::GroupAgent::new(*group1.id())
+                    .agent_id(agent2.agent_id())
+                    .insert(&conn);
 
                 room
             })
@@ -278,8 +282,12 @@ mod tests {
                 let group0 = factory::Group::new(room.id()).insert(&conn);
                 let group1 = factory::Group::new(room.id()).number(1).insert(&conn);
 
-                factory::GroupAgent::new(*group0.id(), agent1.agent_id()).insert(&conn);
-                factory::GroupAgent::new(*group1.id(), agent2.agent_id()).insert(&conn);
+                factory::GroupAgent::new(*group0.id())
+                    .agent_id(agent1.agent_id())
+                    .insert(&conn);
+                factory::GroupAgent::new(*group1.id())
+                    .agent_id(agent2.agent_id())
+                    .insert(&conn);
 
                 room
             })

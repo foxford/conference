@@ -42,6 +42,10 @@ pub struct Object {
 }
 
 impl Object {
+    pub fn rtc_id(&self) -> db::rtc::Id {
+        self.rtc_id
+    }
+
     pub fn reader_id(&self) -> &AgentId {
         &self.reader_id
     }
