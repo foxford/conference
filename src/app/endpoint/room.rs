@@ -689,8 +689,8 @@ impl RequestHandler for EnterHandler {
             let agent_id = reqp.as_agent_id().clone();
             let conn = context.get_conn().await?;
 
-            let (room, configs, maybe_backend) = crate::util::spawn_blocking(move || {
-                let configs = conn.transaction(|| {
+            let (room, maybe_configs, maybe_backend) = crate::util::spawn_blocking(move || {
+                let maybe_configs = conn.transaction(|| {
                     let maybe_group_agent =
                         db::group_agent::FindQuery::new(room_id, &agent_id).execute(&conn)?;
 
@@ -699,9 +699,10 @@ impl RequestHandler for EnterHandler {
                         db::group_agent::InsertQuery::new(*group.id(), agent_id).execute(&conn)?;
                     }
 
+                    // Check the number of groups, and if there are more than 1,
+                    // then create RTC reader configs for participants from other groups
                     let count = db::group::CountQuery::new(room_id).execute(&conn)?;
                     if count > 1 {
-                        // Creates rtc_reader_configs
                         let configs = group_reader_config::update(&conn, room_id)?;
                         return Ok(Some(configs));
                     }
@@ -709,7 +710,7 @@ impl RequestHandler for EnterHandler {
                     Ok::<_, AppError>(None)
                 })?;
 
-                // Find backend and send updates to it if present.
+                // Find backend and send updates to it if present
                 let maybe_backend = match room.backend_id() {
                     None => None,
                     Some(backend_id) => db::janus_backend::FindQuery::new()
@@ -717,13 +718,13 @@ impl RequestHandler for EnterHandler {
                         .execute(&conn)?,
                 };
 
-                Ok::<_, AppError>((room, configs, maybe_backend))
+                Ok::<_, AppError>((room, maybe_configs, maybe_backend))
             })
             .await?;
 
-            // TODO: Need refactoring
+            // If RTC reader configs have been created, then send them to the janus server
             if let Some((configs, backend)) =
-                configs.and_then(|cfgs| maybe_backend.map(|backend| (cfgs, backend)))
+                maybe_configs.and_then(|cfgs| maybe_backend.map(|backend| (cfgs, backend)))
             {
                 let items = configs
                     .iter()

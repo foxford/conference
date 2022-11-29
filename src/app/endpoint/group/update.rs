@@ -55,7 +55,6 @@ impl RequestHandler for Handler {
     type Payload = Payload;
     const ERROR_TITLE: &'static str = "Failed to update groups";
 
-    // TODO: Add tests
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
@@ -80,10 +79,10 @@ impl RequestHandler for Handler {
 
             move || {
                 let configs = conn.transaction(|| {
-                    // Deletes all groups and groups agents in the room
+                    // Delete all groups and groups agents in the room
                     db::group::DeleteQuery::new(room.id()).execute(&conn)?;
 
-                    // Creates groups
+                    // Create groups
                     let numbers = group_agents.iter().map(|g| g.number).collect::<Vec<i32>>();
                     let groups = db::group::batch_insert(&conn, room.id(), numbers)?
                         .iter()
@@ -98,7 +97,7 @@ impl RequestHandler for Handler {
                         acc
                     });
 
-                    // Creates group agents
+                    // Create group agents
                     db::group_agent::batch_insert(&conn, agents)?;
 
                     // Update rtc_reader_configs
@@ -107,7 +106,7 @@ impl RequestHandler for Handler {
                     Ok::<_, AppError>(configs)
                 })?;
 
-                // Find backend and send updates to it if present.
+                // Find backend and send updates to it if present
                 let maybe_backend = match room.backend_id() {
                     None => None,
                     Some(backend_id) => db::janus_backend::FindQuery::new()
@@ -125,7 +124,7 @@ impl RequestHandler for Handler {
             &tracing::field::display(room.classroom_id()),
         );
 
-        // TODO: Need refactoring
+        // Send RTC reader configs to the janus server
         if let Some(backend) = maybe_backend {
             let items = configs
                 .iter()
