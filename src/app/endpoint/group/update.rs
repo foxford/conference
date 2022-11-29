@@ -1,19 +1,26 @@
-use crate::app::context::{AppContext, Context};
-use crate::app::endpoint::group::StateItem;
-use crate::app::endpoint::prelude::{AppError, AppErrorKind};
-use crate::app::endpoint::{helpers, RequestHandler, RequestResult};
-use crate::app::error::ErrorExt;
-use crate::app::group_reader_config;
-use crate::app::service_utils::{RequestParams, Response};
-use crate::backend::janus::client::update_agent_reader_config::{
-    UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
-    UpdateReaderConfigRequestBodyConfigItem,
+use crate::{
+    app::{
+        context::{AppContext, Context},
+        endpoint::{
+            group::StateItem,
+            helpers,
+            prelude::{AppError, AppErrorKind},
+            RequestHandler, RequestResult,
+        },
+        error::ErrorExt,
+        group_reader_config,
+        service_utils::{RequestParams, Response},
+    },
+    backend::janus::client::update_agent_reader_config::{
+        UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
+        UpdateReaderConfigRequestBodyConfigItem,
+    },
+    db,
 };
-use crate::db;
+
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
-use axum::extract::Path;
-use axum::{Extension, Json};
+use axum::{extract::Path, Extension, Json};
 use diesel::{Connection, Identifiable};
 use serde::Deserialize;
 use serde_json::json;
