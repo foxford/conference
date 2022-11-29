@@ -1,6 +1,5 @@
 use super::room::Object as Room;
-use crate::db;
-use crate::schema::group;
+use crate::{db, schema::group};
 use diesel::{pg::PgConnection, result::Error, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 

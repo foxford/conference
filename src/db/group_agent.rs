@@ -1,7 +1,8 @@
-use super::agent::Object as Agent;
-use super::group::Object as Group;
-use crate::db;
-use crate::schema::{group, group_agent};
+use super::{agent::Object as Agent, group::Object as Group};
+use crate::{
+    db,
+    schema::{group, group_agent},
+};
 use diesel::{pg::PgConnection, result::Error, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;

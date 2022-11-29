@@ -11,8 +11,7 @@ use crate::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
         UpdateReaderConfigRequestBodyConfigItem,
     },
-    db,
-    db::{rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},
+    db::{self, rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},
     diesel::Connection,
 };
 use anyhow::{anyhow, Context as AnyhowContext};

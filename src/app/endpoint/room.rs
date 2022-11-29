@@ -18,7 +18,6 @@ use svc_utils::extractors::AgentIdExtractor;
 use diesel::{Connection, Identifiable};
 use uuid::Uuid;
 
-use crate::app::group_reader_config;
 use crate::backend::janus::client::update_agent_reader_config::{
     UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
     UpdateReaderConfigRequestBodyConfigItem,
@@ -27,14 +26,14 @@ use crate::{
     app::{
         context::{AppContext, Context},
         endpoint::{prelude::*, subscription::CorrelationDataPayload},
+        group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
         API_VERSION,
     },
     authz::AuthzObject,
     client::mqtt_gateway::MqttGatewayClient,
-    db,
-    db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
+    db::{self, room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
 };
 use tracing_attributes::instrument;
 

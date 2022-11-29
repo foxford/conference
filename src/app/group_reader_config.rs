@@ -1,7 +1,7 @@
-use crate::app::error::Error;
-use crate::db;
-use crate::db::rtc::Id;
-use crate::db::rtc_reader_config::UpsertQuery;
+use crate::{
+    app::error::Error,
+    db::{self, rtc::Id, rtc_reader_config::UpsertQuery},
+};
 use diesel::PgConnection;
 use std::collections::HashMap;
 use svc_agent::AgentId;
@@ -99,10 +99,17 @@ pub fn update(conn: &PgConnection, room_id: db::room::Id) -> Result<Vec<GroupRea
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-    use crate::test_helpers::prelude::{TestAgent, TestDb};
-    use crate::test_helpers::test_deps::LocalDeps;
-    use crate::test_helpers::{factory, USR_AUDIENCE};
+
+    use crate::{
+        db::rtc::SharingPolicy as RtcSharingPolicy,
+        test_helpers::{
+            factory,
+            prelude::{TestAgent, TestDb},
+            test_deps::LocalDeps,
+            USR_AUDIENCE,
+        },
+    };
+
     use chrono::Utc;
     use diesel::Identifiable;
     use std::ops::Bound;

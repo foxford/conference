@@ -1,18 +1,26 @@
-use crate::app::context::{AppContext, Context};
-use crate::app::endpoint::group::State;
-use crate::app::endpoint::prelude::{AppError, AppErrorKind};
-use crate::app::endpoint::{helpers, RequestHandler, RequestResult};
-use crate::app::error::ErrorExt;
-use crate::app::service_utils::{RequestParams, Response};
-use crate::db;
+use crate::{
+    app::{
+        context::{AppContext, Context},
+        endpoint::{
+            group::State,
+            helpers,
+            prelude::{AppError, AppErrorKind},
+            RequestHandler, RequestResult,
+        },
+        error::ErrorExt,
+        service_utils::{RequestParams, Response},
+    },
+    db,
+};
 use anyhow::anyhow;
 use async_trait::async_trait;
-use axum::extract::{Path, Query};
-use axum::Extension;
+use axum::{
+    extract::{Path, Query},
+    Extension,
+};
 use serde::Deserialize;
 use std::sync::Arc;
-use svc_agent::mqtt::ResponseStatus;
-use svc_agent::Addressable;
+use svc_agent::{mqtt::ResponseStatus, Addressable};
 use svc_utils::extractors::AgentIdExtractor;
 
 #[derive(Debug, Deserialize, Default)]
@@ -101,12 +109,16 @@ impl RequestHandler for Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::endpoint::group::StateItem;
-    use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-    use crate::test_helpers::prelude::{TestAgent, TestAuthz, TestContext, TestDb};
-    use crate::test_helpers::test_deps::LocalDeps;
-    use crate::test_helpers::{
-        factory, find_response, handle_request, shared_helpers, USR_AUDIENCE,
+    use crate::{
+        app::endpoint::group::StateItem,
+        db::rtc::SharingPolicy as RtcSharingPolicy,
+        test_helpers::{
+            factory, find_response, handle_request,
+            prelude::{TestAgent, TestAuthz, TestContext, TestDb},
+            shared_helpers,
+            test_deps::LocalDeps,
+            USR_AUDIENCE,
+        },
     };
     use chrono::{Duration, Utc};
     use diesel::Identifiable;
