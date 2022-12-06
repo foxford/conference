@@ -5,7 +5,7 @@ use svc_agent::{AccountId, AgentId};
 
 use crate::{
     backend::janus::client::{HandleId, SessionId},
-    db::{self, agent},
+    db::{self, agent, group_agent::Groups, room::Id},
 };
 
 use super::{
@@ -552,5 +552,22 @@ impl<'a> RtcWriterConfigSnaphost<'a> {
 
         q.execute(conn)
             .expect("Failed to insert RTC writer config snapshot")
+    }
+}
+
+pub struct GroupAgent {
+    room_id: Id,
+    groups: Groups,
+}
+
+impl GroupAgent {
+    pub fn new(room_id: Id, groups: Groups) -> Self {
+        Self { room_id, groups }
+    }
+
+    pub fn upsert(self, conn: &PgConnection) -> db::group_agent::Object {
+        db::group_agent::UpsertQuery::new(self.room_id, &self.groups)
+            .execute(conn)
+            .expect("failed to upsert group agent")
     }
 }

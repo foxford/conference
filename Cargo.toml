@@ -2,7 +2,7 @@
 authors = ["Andrei Nesterov <ae.nesterov@gmail.com>"]
 edition = "2018"
 name = "conference"
-version = "0.6.55"
+version = "0.6.56"
 
 [dependencies]
 anyhow = "1"
@@ -65,8 +65,12 @@ lazy_static = "1.4.0"
 local_ip = ["local-ip-address"]
 
 [dependencies.local-ip-address]
-optional = true
 version = "0.4"
+optional = true
+
+[dependencies.dotenv]
+version = "0.15"
+optional = true
 
 [dev-dependencies]
 diesel_migrations = "1"

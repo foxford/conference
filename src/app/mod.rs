@@ -350,6 +350,7 @@ pub mod cluster_ip;
 pub mod context;
 pub mod endpoint;
 pub mod error;
+pub mod group_reader_config;
 pub mod handle_id;
 pub mod http;
 pub mod message_handler;

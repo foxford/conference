@@ -38,7 +38,7 @@ impl LocalDeps {
         let base_dir = env!("CARGO_MANIFEST_DIR");
         let image = images::generic::GenericImage::new(
             "cr.yandex/crp1of6bddata8ain3q5/janus-gateway",
-            "v0.8.23",
+            "v0.8.25-alpha-7",
         )
         .with_volume(
             format!("{}/{}", base_dir, "src/test_helpers/janus_confs/"),

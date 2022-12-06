@@ -4,11 +4,8 @@
 
 use chrono::serde::ts_milliseconds;
 use chrono::{DateTime, Utc};
-use derive_more::{Display, FromStr};
 use diesel::{pg::PgConnection, result::Error};
-use diesel_derive_newtype::DieselNewType;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::db;
 use crate::db::rtc::Object as Rtc;
@@ -57,17 +54,7 @@ impl ListWithRtcQuery {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-#[derive(
-    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
-)]
-pub struct Id(Uuid);
-
-impl Id {
-    pub fn random() -> Self {
-        Id(Uuid::new_v4())
-    }
-}
+pub type Id = db::id::Id;
 
 ////////////////////////////////////////////////////////////////////////////////
 

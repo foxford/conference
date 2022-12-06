@@ -6,7 +6,7 @@ use svc_agent::{mqtt::IncomingRequestProperties, AgentId};
 
 use crate::db;
 
-use super::{HandleId, Jsep, SessionId};
+use super::{create_stream::ReaderConfig, HandleId, Jsep, SessionId};
 
 #[derive(Serialize, Debug)]
 pub struct ReadStreamRequest {
@@ -34,14 +34,20 @@ pub struct ReadStreamRequestBody {
     method: &'static str,
     id: db::rtc::Id,
     agent_id: AgentId,
+    reader_configs: Option<Vec<ReaderConfig>>,
 }
 
 impl ReadStreamRequestBody {
-    pub fn new(id: db::rtc::Id, agent_id: AgentId) -> Self {
+    pub fn new(
+        id: db::rtc::Id,
+        agent_id: AgentId,
+        reader_configs: Option<Vec<ReaderConfig>>,
+    ) -> Self {
         Self {
             method: "stream.read",
             id,
             agent_id,
+            reader_configs,
         }
     }
 }

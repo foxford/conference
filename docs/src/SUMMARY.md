@@ -34,4 +34,7 @@
         - [Read](api/agent_writer_config/read.md)
     - [Writer Config Snapshot](api/writer_config_snapshot.md)
         - [Read](api/writer_config_snapshot/read.md)
+    - [Group](api/group.md)
+      - [List](api/group/list.md)
+      - [Update](api/group/update.md)
     - [Errors](api/errors.md)

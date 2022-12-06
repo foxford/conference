@@ -764,8 +764,27 @@ where
         let jsep = Jsep::OfferOrAnswer(self.jsep.clone());
 
         let answer = if is_recvonly {
+            let reader_config = crate::util::spawn_blocking({
+                let rtc_id = handle_id.rtc_id();
+                let conn = self.ctx.get_conn().await?;
+                move || db::rtc_reader_config::read_config(rtc_id, &conn)
+            })
+            .await?;
+
             let request = ReadStreamRequest {
-                body: ReadStreamRequestBody::new(handle_id.rtc_id(), self.agent_id.clone()),
+                body: ReadStreamRequestBody::new(
+                    handle_id.rtc_id(),
+                    self.agent_id.clone(),
+                    reader_config.map(|r| {
+                        r.into_iter()
+                            .map(|r| ReaderConfig {
+                                reader_id: r.reader_id().to_owned(),
+                                receive_audio: r.receive_audio(),
+                                receive_video: r.receive_video(),
+                            })
+                            .collect()
+                    }),
+                ),
                 handle_id: handle_id.janus_handle_id(),
                 session_id: handle_id.janus_session_id(),
                 jsep,

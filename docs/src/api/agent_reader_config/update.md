@@ -9,6 +9,8 @@ The room must have `owned` RTC sharing policy.
 
 The writer for which we want to apply config for must have created an owned RTC in the room.
 
+An agent can create/update reader configs only for agents in the same group.
+
 ## Request
 
 POST /api/v1/rooms/{room_id}/configs/reader

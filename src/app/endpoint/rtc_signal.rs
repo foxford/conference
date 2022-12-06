@@ -180,6 +180,13 @@ impl RequestHandler for CreateHandler {
                         if is_recvonly {
                             current_span.record("intent", &"read");
 
+                            let reader_config = crate::util::spawn_blocking({
+                                let rtc_id = payload.handle_id.rtc_id();
+                                let conn = context.get_conn().await?;
+                                move || db::rtc_reader_config::read_config(rtc_id, &conn)
+                            })
+                            .await?;
+
                             // Authorization
                             let _authz_time =
                                 authorize(context, &payload.handle_id, reqp, "read", &room).await?;
@@ -188,6 +195,15 @@ impl RequestHandler for CreateHandler {
                                 body: ReadStreamRequestBody::new(
                                     payload.handle_id.rtc_id(),
                                     reqp.as_agent_id().clone(),
+                                    reader_config.map(|r| {
+                                        r.into_iter()
+                                            .map(|r| ReaderConfig {
+                                                reader_id: r.reader_id().to_owned(),
+                                                receive_audio: r.receive_audio(),
+                                                receive_video: r.receive_video(),
+                                            })
+                                            .collect()
+                                    }),
                                 ),
                                 handle_id: payload.handle_id.janus_handle_id(),
                                 session_id: payload.handle_id.janus_session_id(),
