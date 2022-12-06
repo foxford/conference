@@ -20,6 +20,35 @@ pub fn create_pool(url: &str, size: u32, idle_size: Option<u32>, timeout: u64) -
     Arc::new(pool)
 }
 
+macro_rules! impl_jsonb {
+    ($name: ident) => {
+        impl ::diesel::deserialize::FromSql<::diesel::sql_types::Jsonb, ::diesel::pg::Pg>
+            for $name
+        {
+            fn from_sql(bytes: Option<&[u8]>) -> diesel::deserialize::Result<Self> {
+                let value = <::serde_json::Value as ::diesel::deserialize::FromSql<
+                    ::diesel::sql_types::Jsonb,
+                    ::diesel::pg::Pg,
+                >>::from_sql(bytes)?;
+                Ok(::serde_json::from_value(value)?)
+            }
+        }
+
+        impl ::diesel::serialize::ToSql<::diesel::sql_types::Jsonb, ::diesel::pg::Pg> for $name {
+            fn to_sql<W: ::std::io::Write>(
+                &self,
+                out: &mut ::diesel::serialize::Output<W, Pg>,
+            ) -> ::diesel::serialize::Result {
+                let value = ::serde_json::to_value(self)?;
+                <::serde_json::Value as ::diesel::serialize::ToSql<
+                    ::diesel::sql_types::Jsonb,
+                    ::diesel::pg::Pg,
+                >>::to_sql(&value, out)
+            }
+        }
+    };
+}
+
 pub mod sql {
     pub use super::{
         agent::Agent_status, agent_connection::Agent_connection_status,
@@ -30,6 +59,8 @@ pub mod sql {
 
 pub mod agent;
 pub mod agent_connection;
+pub mod group_agent;
+pub mod id;
 pub mod janus_backend;
 pub mod janus_rtc_stream;
 pub mod orphaned_room;
