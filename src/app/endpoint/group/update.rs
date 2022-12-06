@@ -2,7 +2,6 @@ use crate::{
     app::{
         context::{AppContext, Context},
         endpoint::{
-            group::StateItem,
             helpers,
             prelude::{AppError, AppErrorKind},
             RequestHandler, RequestResult,
@@ -15,16 +14,15 @@ use crate::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
         UpdateReaderConfigRequestBodyConfigItem,
     },
-    db,
+    db::{self, group_agent::Groups},
 };
 
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
 use axum::{extract::Path, Extension, Json};
-use diesel::{Connection, Identifiable};
+use diesel::Connection;
 use serde::Deserialize;
 use serde_json::json;
-use std::collections::HashMap;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
 use svc_utils::extractors::AgentIdExtractor;
@@ -32,14 +30,14 @@ use svc_utils::extractors::AgentIdExtractor;
 #[derive(Deserialize)]
 pub struct Payload {
     room_id: db::room::Id,
-    groups: Vec<StateItem>,
+    groups: Groups,
 }
 
 pub async fn update(
     Extension(ctx): Extension<Arc<AppContext>>,
     AgentIdExtractor(agent_id): AgentIdExtractor,
     Path(room_id): Path<db::room::Id>,
-    Json(groups): Json<Vec<StateItem>>,
+    Json(groups): Json<Groups>,
 ) -> RequestResult {
     tracing::Span::current().record("room_id", &tracing::field::display(room_id));
 
@@ -70,7 +68,7 @@ impl RequestHandler for Handler {
         let conn = context.get_conn().await?;
 
         let (room, configs, maybe_backend) = crate::util::spawn_blocking({
-            let group_agents = payload.groups;
+            let groups = payload.groups;
             let room = helpers::find_room_by_id(
                 payload.room_id,
                 helpers::RoomTimeRequirement::NotClosed,
@@ -86,29 +84,13 @@ impl RequestHandler for Handler {
 
             move || {
                 let configs = conn.transaction(|| {
-                    // Delete all groups and groups agents in the room
-                    db::group::DeleteQuery::new(room.id()).execute(&conn)?;
-
-                    // Create groups
-                    let numbers = group_agents.iter().map(|g| g.number).collect::<Vec<i32>>();
-                    let groups = db::group::batch_insert(&conn, room.id(), numbers)?
-                        .iter()
-                        .map(|g| (g.number(), *g.id()))
-                        .collect::<HashMap<_, _>>();
-
-                    let agents = group_agents.into_iter().fold(Vec::new(), |mut acc, g| {
-                        if let Some(group_id) = groups.get(&g.number) {
-                            acc.push((*group_id, g.agents));
-                        }
-
-                        acc
-                    });
-
-                    // Create group agents
-                    db::group_agent::batch_insert(&conn, agents)?;
+                    // todo: fix clone
+                    db::group_agent::UpsertQuery::new(room.id())
+                        .groups(groups.clone())
+                        .execute(&conn)?;
 
                     // Update rtc_reader_configs
-                    let configs = group_reader_config::update(&conn, room.id())?;
+                    let configs = group_reader_config::update(&conn, room.id(), groups)?;
 
                     Ok::<_, AppError>(configs)
                 })?;
@@ -179,11 +161,16 @@ impl RequestHandler for Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
-    use crate::test_helpers::prelude::{GlobalContext, TestAgent, TestAuthz, TestContext, TestDb};
-    use crate::test_helpers::test_deps::LocalDeps;
-    use crate::test_helpers::{factory, handle_request, shared_helpers, USR_AUDIENCE};
+    use crate::db::{group_agent::GroupItem, rtc::SharingPolicy as RtcSharingPolicy};
+    use crate::test_helpers::{
+        factory, handle_request,
+        prelude::{GlobalContext, TestAgent, TestAuthz, TestContext, TestDb},
+        shared_helpers,
+        test_deps::LocalDeps,
+        USR_AUDIENCE,
+    };
     use chrono::{Duration, Utc};
+    use std::collections::HashMap;
     use std::ops::Bound;
 
     #[tokio::test]
@@ -196,7 +183,7 @@ mod tests {
 
         let payload = Payload {
             room_id: db::room::Id::random(),
-            groups: vec![],
+            groups: Groups::new(vec![]),
         };
 
         // Assert error.
@@ -239,7 +226,7 @@ mod tests {
 
         let payload = Payload {
             room_id: room.id(),
-            groups: vec![],
+            groups: Groups::new(vec![]),
         };
 
         // Assert error.
@@ -274,7 +261,7 @@ mod tests {
         let mut context = TestContext::new(db, TestAuthz::new());
         let payload = Payload {
             room_id: room.id(),
-            groups: vec![],
+            groups: Groups::new(vec![]),
         };
 
         // Assert error.
@@ -310,8 +297,11 @@ mod tests {
                     .backend_id(backend.id())
                     .insert(&conn);
 
-                factory::Group::new(room.id()).insert(&conn);
-                factory::Group::new(room.id()).number(1).insert(&conn);
+                factory::GroupAgent::new(
+                    room.id(),
+                    Groups::new(vec![GroupItem::new(0, vec![]), GroupItem::new(1, vec![])]),
+                )
+                .upsert(&conn);
 
                 vec![&agent1, &agent2].iter().for_each(|agent| {
                     factory::Rtc::new(room.id())
@@ -329,16 +319,10 @@ mod tests {
 
         let payload = Payload {
             room_id: room.id(),
-            groups: vec![
-                StateItem {
-                    number: 0,
-                    agents: vec![agent1.agent_id().to_owned()],
-                },
-                StateItem {
-                    number: 1,
-                    agents: vec![agent2.agent_id().to_owned()],
-                },
-            ],
+            groups: Groups::new(vec![
+                GroupItem::new(0, vec![agent1.agent_id().to_owned()]),
+                GroupItem::new(1, vec![agent2.agent_id().to_owned()]),
+            ]),
         };
 
         handle_request::<Handler>(&mut context, &agent1, payload)
@@ -350,15 +334,16 @@ mod tests {
             .get()
             .expect("Failed to get DB connection");
 
-        let group_agents = db::group_agent::ListWithGroupQuery::new(room.id())
+        let group_agent = db::group_agent::FindQuery::new(room.id())
             .execute(&conn)
             .expect("failed to get groups with participants");
 
-        assert_eq!(group_agents.len(), 2);
+        let groups = group_agent.groups();
+        assert_eq!(groups.len(), 2);
 
-        let group_agents = group_agents
+        let group_agents = groups
             .iter()
-            .map(|ga| (ga.agent_id.to_owned(), ga.number))
+            .flat_map(|g| g.agents().into_iter().map(move |a| (a.clone(), g.number())))
             .collect::<HashMap<_, _>>();
 
         let agent1_number = group_agents.get(agent1.agent_id()).unwrap();
@@ -384,25 +369,26 @@ mod tests {
         // Make one more group.update request
         let payload = Payload {
             room_id: room.id(),
-            groups: vec![StateItem {
-                number: 0,
-                agents: vec![agent1.agent_id().to_owned(), agent2.agent_id().to_owned()],
-            }],
+            groups: Groups::new(vec![GroupItem::new(
+                0,
+                vec![agent1.agent_id().to_owned(), agent2.agent_id().to_owned()],
+            )]),
         };
 
         handle_request::<Handler>(&mut context, &agent1, payload)
             .await
             .expect("Group update failed");
 
-        let group_agents = db::group_agent::ListWithGroupQuery::new(room.id())
+        let group_agent = db::group_agent::FindQuery::new(room.id())
             .execute(&conn)
             .expect("failed to get groups with participants");
 
-        assert_eq!(group_agents.len(), 2);
+        let groups = group_agent.groups();
+        assert_eq!(groups.len(), 1);
 
-        let group_agents = group_agents
+        let group_agents = groups
             .iter()
-            .map(|ga| (ga.agent_id.to_owned(), ga.number))
+            .flat_map(|g| g.agents().into_iter().map(move |a| (a.clone(), g.number())))
             .collect::<HashMap<_, _>>();
 
         let agent1_number = group_agents.get(agent1.agent_id()).unwrap();

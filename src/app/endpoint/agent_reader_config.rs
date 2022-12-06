@@ -147,12 +147,11 @@ impl RequestHandler for UpdateHandler {
 
                 let rtc_reader_configs_with_rtcs = conn.transaction::<_, AppError, _>(|| {
                     // An agent can create/update reader configs only for agents in the same group
-                    let group_agents = db::group_agent::ListWithGroupQuery::new(room.id())
-                        .within_group(&agent_id)
+                    let groups = db::group_agent::FindQuery::new(room.id())
                         .execute(&conn)?
-                        .into_iter()
-                        .map(|g| g.agent_id)
-                        .collect::<Vec<_>>();
+                        .groups()
+                        .filter(&agent_id);
+                    let group_agents = groups.iter().flat_map(|i| i.agents()).collect::<Vec<_>>();
 
                     // Find RTCs owned by agents.
                     let agent_ids = payload
@@ -180,7 +179,7 @@ impl RequestHandler for UpdateHandler {
                             })
                             .error(AppErrorKind::InvalidPayload)?;
 
-                        if !group_agents.contains(&state_config_item.agent_id) {
+                        if !group_agents.contains(&&state_config_item.agent_id) {
                             return Err(anyhow!(
                                 "{} is in another group",
                                 state_config_item.agent_id
@@ -360,12 +359,12 @@ mod tests {
     mod update {
         use std::ops::Bound;
 
+        use crate::db::group_agent::{GroupItem, Groups};
         use crate::{
             db::rtc::SharingPolicy as RtcSharingPolicy,
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
         use chrono::{Duration, Utc};
-        use diesel::Identifiable;
 
         use super::super::*;
 
@@ -409,12 +408,17 @@ mod tests {
                         })
                         .collect::<Vec<_>>();
 
-                    let group = factory::Group::new(room.id()).insert(&conn);
-                    for agent in &[&agent1, &agent2, &agent3, &agent4] {
-                        factory::GroupAgent::new(*group.id())
-                            .agent_id(agent.agent_id())
-                            .insert(&conn);
-                    }
+                    let groups = Groups::new(vec![GroupItem::new(
+                        0,
+                        vec![
+                            agent1.agent_id().clone(),
+                            agent2.agent_id().clone(),
+                            agent3.agent_id().clone(),
+                            agent4.agent_id().clone(),
+                        ],
+                    )]);
+
+                    factory::GroupAgent::new(room.id(), groups).upsert(&conn);
 
                     (room, backend, rtcs)
                 })
@@ -584,6 +588,12 @@ mod tests {
 
                     shared_helpers::insert_agent(&conn, agent1.agent_id(), room.id());
                     shared_helpers::insert_agent(&conn, agent2.agent_id(), room.id());
+
+                    factory::GroupAgent::new(
+                        room.id(),
+                        Groups::new(vec![GroupItem::new(0, vec![])]),
+                    )
+                    .upsert(&conn);
 
                     room
                 })
@@ -787,10 +797,11 @@ mod tests {
                         .created_by(agent2.agent_id().to_owned())
                         .insert(&conn);
 
-                    let group = factory::Group::new(room.id()).insert(&conn);
-                    factory::GroupAgent::new(*group.id())
-                        .agent_id(agent1.agent_id())
-                        .insert(&conn);
+                    factory::GroupAgent::new(
+                        room.id(),
+                        Groups::new(vec![GroupItem::new(0, vec![agent1.agent_id().clone()])]),
+                    )
+                    .upsert(&conn);
 
                     room
                 })

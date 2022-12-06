@@ -1,3 +1,4 @@
+use crate::db::group_agent::Groups;
 use crate::{
     app::error::Error,
     db::{self, rtc::Id, rtc_reader_config::UpsertQuery},
@@ -13,21 +14,22 @@ pub struct GroupReaderConfig {
     pub availability: bool,
 }
 
-/// Creates/updates `rtc_reader_configs` based on `group_agents`
-pub fn update(conn: &PgConnection, room_id: db::room::Id) -> Result<Vec<GroupReaderConfig>, Error> {
-    let group_agents = db::group_agent::ListWithGroupQuery::new(room_id).execute(conn)?;
-
-    let agent_ids = group_agents
-        .iter()
-        .map(|g| &g.agent_id)
-        .collect::<Vec<&AgentId>>();
+/// Creates/updates `rtc_reader_configs` based on `group_agents`.
+///
+/// Note: This function should be run within a database transaction.
+pub fn update(
+    conn: &PgConnection,
+    room_id: db::room::Id,
+    groups: Groups,
+) -> Result<Vec<GroupReaderConfig>, Error> {
+    let agent_ids = groups.iter().flat_map(|g| g.agents()).collect::<Vec<_>>();
 
     let rtcs = db::rtc::ListQuery::new()
         .room_id(room_id)
-        .created_by(agent_ids.as_slice())
+        .created_by(&agent_ids)
         .execute(conn)?;
 
-    let agents_to_rtcs = rtcs
+    let agent_rtcs = rtcs
         .iter()
         .map(|rtc| (rtc.created_by(), rtc.id()))
         .collect::<HashMap<_, _>>();
@@ -35,20 +37,25 @@ pub fn update(conn: &PgConnection, room_id: db::room::Id) -> Result<Vec<GroupRea
     let mut all_configs = Vec::new();
     let mut true_configs = Vec::new();
 
+    let group_agents = groups
+        .iter()
+        .flat_map(|g| g.agents().into_iter().map(move |a| (g.number(), a.clone())))
+        .collect::<Vec<(_, _)>>();
+
     // Generates cross-configs for agents: agent1 <-> agent2
-    for group_agent1 in &group_agents {
-        for group_agent2 in &group_agents {
-            if group_agent1 == group_agent2 {
+    for (group1, agent1) in &group_agents {
+        for (group2, agent2) in &group_agents {
+            if agent1 == agent2 {
                 continue;
             }
 
-            let rtc_id = match agents_to_rtcs.get(&group_agent2.agent_id) {
+            let rtc_id = match agent_rtcs.get(agent2) {
                 None => continue,
                 Some(rtc_id) => rtc_id,
             };
-            let agent_id = group_agent1.agent_id.to_owned();
+            let agent_id = agent1.to_owned();
 
-            if group_agent1.number != group_agent2.number {
+            if group1 != group2 {
                 let cfg = GroupReaderConfig {
                     agent_id,
                     rtc_id: *rtc_id,
@@ -68,9 +75,12 @@ pub fn update(conn: &PgConnection, room_id: db::room::Id) -> Result<Vec<GroupRea
         }
     }
 
+    // TODO: Update logic using HashMap<(rtc_id, agent_id), rtc_reader_config>
+
+    // Get false rtc_reader_configs to update them if needed
     let reader_configs_with_rtcs =
         db::rtc_reader_config::ListWithRtcQuery::new(room_id, &agent_ids)
-            .execute(conn)?
+            .execute_for_update(conn)?
             .iter()
             .filter(|(cfg, _)| !cfg.receive_video() && !cfg.receive_audio())
             .map(|(cfg, rtc)| (rtc.id(), cfg.reader_id().to_owned()))
@@ -110,9 +120,10 @@ mod tests {
         },
     };
 
+    use crate::db::group_agent::GroupItem;
     use chrono::Utc;
-    use diesel::Identifiable;
     use std::ops::Bound;
+    use svc_agent::Addressable;
 
     #[test]
     fn distribution_by_groups() {
@@ -140,27 +151,25 @@ mod tests {
                     .rtc_sharing_policy(RtcSharingPolicy::Owned)
                     .insert(&conn);
 
-                let group0 = factory::Group::new(room.id()).insert(&conn);
-                let group1 = factory::Group::new(room.id()).number(1).insert(&conn);
-                let group2 = factory::Group::new(room.id()).number(2).insert(&conn);
+                let groups = Groups::new(vec![
+                    GroupItem::new(0, vec![agents[0].as_agent_id().clone()]),
+                    GroupItem::new(
+                        1,
+                        vec![
+                            agents[1].as_agent_id().clone(),
+                            agents[3].as_agent_id().clone(),
+                        ],
+                    ),
+                    GroupItem::new(
+                        2,
+                        vec![
+                            agents[2].as_agent_id().clone(),
+                            agents[4].as_agent_id().clone(),
+                        ],
+                    ),
+                ]);
 
-                factory::GroupAgent::new(*group0.id())
-                    .agent_id(&agents[0])
-                    .insert(&conn);
-                factory::GroupAgent::new(*group1.id())
-                    .agent_id(&agents[1])
-                    .insert(&conn);
-                factory::GroupAgent::new(*group2.id())
-                    .agent_id(&agents[2])
-                    .insert(&conn);
-                factory::GroupAgent::new(*group1.id())
-                    .agent_id(&agents[3])
-                    .insert(&conn);
-                factory::GroupAgent::new(*group2.id())
-                    .agent_id(&agents[4])
-                    .insert(&conn);
-
-                let groups = vec![*group0.id(), *group1.id(), *group2.id()];
+                factory::GroupAgent::new(room.id(), groups.clone()).upsert(&conn);
 
                 let rtcs = agents
                     .iter()
@@ -179,7 +188,7 @@ mod tests {
 
         // First distribution by groups
         let conn = db.connection_pool().get().unwrap();
-        let _ = update(&conn, room.id()).expect("group reader config update failed");
+        let _ = update(&conn, room.id(), groups).expect("group reader config update failed");
 
         let agents = agents.iter().map(|a| a).collect::<Vec<_>>();
         let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &agents)
@@ -220,19 +229,24 @@ mod tests {
         assert!(!agent3_agent2_cfg.receive_video());
         assert!(!agent3_agent2_cfg.receive_audio());
 
-        let group_agent2 = db::group_agent::FindQuery::new(room.id(), agent2.agent_id())
-            .execute(&conn)
-            .unwrap()
-            .unwrap();
-
         // Move agent2 to the group 0
-        factory::GroupAgent::new(groups[0])
-            .id(*group_agent2.id())
-            .update(&conn);
+        let groups = Groups::new(vec![
+            GroupItem::new(
+                0,
+                vec![agent1.agent_id().clone(), agent2.agent_id().clone()],
+            ),
+            GroupItem::new(1, vec![agent4.agent_id().clone()]),
+            GroupItem::new(
+                2,
+                vec![agent3.agent_id().clone(), agent5.agent_id().clone()],
+            ),
+        ]);
+
+        factory::GroupAgent::new(room.id(), groups.clone()).upsert(&conn);
 
         // Second distribution by groups
         let conn = db.connection_pool().get().unwrap();
-        let _ = update(&conn, room.id()).expect("group reader config update failed");
+        let _ = update(&conn, room.id(), groups).expect("group reader config update failed");
 
         let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &agents)
             .execute(&conn)

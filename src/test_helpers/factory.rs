@@ -3,10 +3,9 @@ use diesel::pg::PgConnection;
 use rand::Rng;
 use svc_agent::{AccountId, AgentId};
 
-use crate::db::room::Id;
 use crate::{
     backend::janus::client::{HandleId, SessionId},
-    db::{self, agent},
+    db::{self, agent, group_agent::Groups, room::Id},
 };
 
 use super::{
@@ -559,68 +558,20 @@ impl<'a> RtcWriterConfigSnaphost<'a> {
     }
 }
 
-pub struct Group {
+pub struct GroupAgent {
     room_id: Id,
-    number: i32,
+    groups: Groups,
 }
 
-impl Group {
-    pub fn new(room_id: Id) -> Self {
-        Self { room_id, number: 0 }
+impl GroupAgent {
+    pub fn new(room_id: Id, groups: Groups) -> Self {
+        Self { room_id, groups }
     }
 
-    pub fn number(self, number: i32) -> Self {
-        Self { number, ..self }
-    }
-
-    pub fn insert(self, conn: &PgConnection) -> db::group::Object {
-        db::group::InsertQuery::new(self.room_id)
-            .number(self.number)
+    pub fn upsert(self, conn: &PgConnection) -> db::group_agent::Object {
+        db::group_agent::UpsertQuery::new(self.room_id)
+            .groups(self.groups)
             .execute(conn)
-            .expect("Failed to insert group")
-    }
-}
-
-pub struct GroupAgent<'a> {
-    id: Option<db::group_agent::Id>,
-    group_id: db::group::Id,
-    agent_id: Option<&'a AgentId>,
-}
-
-impl<'a> GroupAgent<'a> {
-    pub fn new(group_id: db::group::Id) -> Self {
-        Self {
-            id: None,
-            group_id,
-            agent_id: None,
-        }
-    }
-
-    pub fn id(self, id: db::group_agent::Id) -> Self {
-        Self {
-            id: Some(id),
-            ..self
-        }
-    }
-
-    pub fn agent_id(self, agent_id: &'a AgentId) -> Self {
-        Self {
-            agent_id: Some(agent_id),
-            ..self
-        }
-    }
-
-    pub fn insert(self, conn: &PgConnection) -> db::group_agent::Object {
-        let agent_id = self.agent_id.expect("expect agent_id").to_owned();
-        db::group_agent::InsertQuery::new(self.group_id, agent_id)
-            .execute(conn)
-            .expect("Failed to insert group agent")
-    }
-
-    pub fn update(self, conn: &PgConnection) -> db::group_agent::Object {
-        let id = self.id.expect("expect group agent id");
-        db::group_agent::UpdateQuery::new(id, self.group_id)
-            .execute(conn)
-            .expect("failed to update group agent")
+            .expect("failed to upsert group agent")
     }
 }

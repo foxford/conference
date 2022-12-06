@@ -1,9 +1,9 @@
-create table group_agent (
+create table if not exists group_agent (
     id uuid default gen_random_uuid(),
-    group_id uuid not null,
-    agent_id agent_id not null,
-    
-    foreign key (group_id) references "group" (id) on delete cascade,
-    unique (group_id, agent_id),
+    room_id uuid not null,
+    groups jsonb not null default '[]',
+
+    foreign key (room_id) references room (id) on delete cascade,
+    unique (room_id),
     primary key (id)
 );

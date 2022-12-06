@@ -15,7 +15,7 @@ use svc_agent::{
 };
 use svc_utils::extractors::AgentIdExtractor;
 
-use diesel::{Connection, Identifiable};
+use diesel::Connection;
 use uuid::Uuid;
 
 use crate::backend::janus::client::update_agent_reader_config::{
@@ -144,7 +144,7 @@ impl RequestHandler for CreateHandler {
             let conn = context.get_conn().await?;
             crate::util::spawn_blocking({
                 let room_id = room.id();
-                move || db::group::InsertQuery::new(room_id).execute(&conn)
+                move || db::group_agent::UpsertQuery::new(room_id).execute(&conn)
             })
             .await?;
         }
@@ -691,20 +691,25 @@ impl RequestHandler for EnterHandler {
 
             let (room, maybe_configs, maybe_backend) = crate::util::spawn_blocking(move || {
                 let maybe_configs = conn.transaction(|| {
-                    let maybe_group_agent =
-                        db::group_agent::FindQuery::new(room_id, &agent_id).execute(&conn)?;
+                    let group_agent = db::group_agent::FindQuery::new(room_id).execute(&conn)?;
 
-                    if maybe_group_agent.is_none() {
-                        let group = db::group::FindQuery::new(room_id).execute(&conn)?;
-                        db::group_agent::InsertQuery::new(*group.id(), agent_id).execute(&conn)?;
-                    }
+                    let groups = group_agent.groups();
+                    let agent_exists = groups.exist(&agent_id);
 
-                    // Check the number of groups, and if there are more than 1,
-                    // then create RTC reader configs for participants from other groups
-                    let count = db::group::CountQuery::new(room_id).execute(&conn)?;
-                    if count > 1 {
-                        let configs = group_reader_config::update(&conn, room_id)?;
-                        return Ok(Some(configs));
+                    if !agent_exists {
+                        let changed_groups = groups.add_to_default_group(&agent_id);
+                        // todo: remove clone
+                        db::group_agent::UpsertQuery::new(room_id)
+                            .groups(changed_groups.clone())
+                            .execute(&conn)?;
+
+                        // Check the number of groups, and if there are more than 1,
+                        // then create RTC reader configs for participants from other groups
+                        if groups.len() > 1 {
+                            let configs =
+                                group_reader_config::update(&conn, room_id, changed_groups)?;
+                            return Ok(Some(configs));
+                        }
                     }
 
                     Ok::<_, AppError>(None)
@@ -880,6 +885,7 @@ mod test {
         use chrono::Utc;
         use serde_json::json;
 
+        use crate::db::group_agent::{GroupItem, Groups};
         use crate::{
             db::room::Object as Room,
             test_helpers::{prelude::*, test_deps::LocalDeps},
@@ -1004,11 +1010,12 @@ mod test {
                 .get()
                 .expect("Failed to get DB connection");
 
-            let group = db::group::FindQuery::new(room.id())
+            let group = db::group_agent::FindQuery::new(room.id())
                 .execute(&conn)
                 .expect("failed to get group");
 
-            assert_eq!(group.number(), 0);
+            let groups = Groups::new(vec![GroupItem::new(0, vec![])]);
+            assert_eq!(group.groups(), groups);
         }
     }
 
@@ -1662,6 +1669,7 @@ mod test {
     }
 
     mod enter {
+        use crate::db::group_agent::{GroupItem, Groups};
         use chrono::{Duration, Utc};
 
         use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
@@ -1876,7 +1884,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
 
-            let (room, group) = {
+            let room = {
                 let conn = db
                     .connection_pool()
                     .get()
@@ -1884,9 +1892,11 @@ mod test {
 
                 // Create room.
                 let room = shared_helpers::insert_room_with_owned(&conn);
-                let group = factory::Group::new(room.id()).insert(&conn);
 
-                (room, group)
+                factory::GroupAgent::new(room.id(), Groups::new(vec![GroupItem::new(0, vec![])]))
+                    .upsert(&conn);
+
+                room
             };
 
             // Allow agent to subscribe to the rooms' events.
@@ -1912,12 +1922,14 @@ mod test {
                 .get()
                 .expect("Failed to get DB connection");
 
-            let group_agent = db::group_agent::FindQuery::new(room.id(), agent.agent_id())
+            let group_agent = db::group_agent::FindQuery::new(room.id())
                 .execute(&conn)
-                .expect("failed to find a group agent")
-                .expect("group agent not found");
+                .expect("failed to find a group agent");
 
-            assert_eq!(group_agent.group_id(), *group.id())
+            dbg!(group_agent.groups());
+
+            let groups = Groups::new(vec![GroupItem::new(0, vec![agent.agent_id().clone()])]);
+            assert_eq!(group_agent.groups(), groups);
         }
 
         #[tokio::test]
@@ -1935,11 +1947,12 @@ mod test {
 
                 // Create room.
                 let room = shared_helpers::insert_room_with_owned(&conn);
-                let group = factory::Group::new(room.id()).number(1).insert(&conn);
 
-                factory::GroupAgent::new(*group.id())
-                    .agent_id(agent.agent_id())
-                    .insert(&conn);
+                factory::GroupAgent::new(
+                    room.id(),
+                    Groups::new(vec![GroupItem::new(0, vec![agent.agent_id().clone()])]),
+                )
+                .upsert(&conn);
 
                 room
             };
@@ -1966,11 +1979,11 @@ mod test {
                 .get()
                 .expect("Failed to get DB connection");
 
-            let group_agents = db::group_agent::ListWithGroupQuery::new(room.id())
+            let group_agent = db::group_agent::FindQuery::new(room.id())
                 .execute(&conn)
                 .expect("failed to get group agents");
 
-            assert_eq!(group_agents.len(), 1);
+            assert_eq!(group_agent.groups().len(), 1);
         }
 
         #[tokio::test]
@@ -1999,12 +2012,14 @@ mod test {
                     .backend_id(backend.id())
                     .insert(&conn);
 
-                factory::Group::new(room.id()).insert(&conn);
-                let group1 = factory::Group::new(room.id()).number(1).insert(&conn);
-
-                factory::GroupAgent::new(*group1.id())
-                    .agent_id(agent1.agent_id())
-                    .insert(&conn);
+                factory::GroupAgent::new(
+                    room.id(),
+                    Groups::new(vec![
+                        GroupItem::new(0, vec![]),
+                        GroupItem::new(1, vec![agent1.agent_id().clone()]),
+                    ]),
+                )
+                .upsert(&conn);
 
                 vec![&agent1, &agent2].iter().for_each(|agent| {
                     factory::Rtc::new(room.id())
@@ -2040,11 +2055,11 @@ mod test {
                 .get()
                 .expect("Failed to get DB connection");
 
-            let group_agents = db::group_agent::ListWithGroupQuery::new(room.id())
+            let group_agent = db::group_agent::FindQuery::new(room.id())
                 .execute(&conn)
                 .expect("failed to get group agents");
 
-            assert_eq!(group_agents.len(), 2);
+            assert_eq!(group_agent.groups().len(), 2);
 
             let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(
                 room.id(),

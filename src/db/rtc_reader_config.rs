@@ -85,6 +85,18 @@ impl<'a> ListWithRtcQuery<'a> {
             .select((ALL_COLUMNS, db::rtc::ALL_COLUMNS))
             .get_results(conn)
     }
+
+    pub fn execute_for_update(&self, conn: &PgConnection) -> Result<Vec<(Object, Rtc)>, Error> {
+        use diesel::prelude::*;
+
+        rtc_reader_config::table
+            .for_update()
+            .inner_join(rtc::table)
+            .filter(rtc::room_id.eq(self.room_id))
+            .filter(rtc_reader_config::reader_id.eq(any(self.reader_ids)))
+            .select((ALL_COLUMNS, db::rtc::ALL_COLUMNS))
+            .get_results(conn)
+    }
 }
 
 pub fn read_config(

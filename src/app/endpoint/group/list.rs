@@ -2,7 +2,6 @@ use crate::{
     app::{
         context::{AppContext, Context},
         endpoint::{
-            group::State,
             helpers,
             prelude::{AppError, AppErrorKind},
             RequestHandler, RequestResult,
@@ -86,12 +85,12 @@ impl RequestHandler for Handler {
                 .error(AppErrorKind::InvalidPayload)?;
             }
 
-            let mut q = db::group_agent::ListWithGroupQuery::new(payload.room_id);
-            if payload.within_group {
-                q = q.within_group(&agent_id);
-            }
+            let group_agent = db::group_agent::FindQuery::new(payload.room_id).execute(&conn)?;
 
-            let groups = q.execute(&conn)?;
+            let mut groups = group_agent.groups();
+            if payload.within_group {
+                groups = groups.filter(&agent_id);
+            }
 
             Ok::<_, AppError>(groups)
         })
@@ -99,7 +98,7 @@ impl RequestHandler for Handler {
 
         Ok(Response::new(
             ResponseStatus::OK,
-            State::new(&groups),
+            groups,
             context.start_timestamp(),
             None,
         ))
@@ -109,8 +108,8 @@ impl RequestHandler for Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::group_agent::{GroupItem, Groups};
     use crate::{
-        app::endpoint::group::StateItem,
         db::rtc::SharingPolicy as RtcSharingPolicy,
         test_helpers::{
             factory, find_response, handle_request,
@@ -121,7 +120,6 @@ mod tests {
         },
     };
     use chrono::{Duration, Utc};
-    use diesel::Identifiable;
     use std::ops::Bound;
     use svc_agent::mqtt::ResponseStatus;
 
@@ -243,15 +241,14 @@ mod tests {
                     .rtc_sharing_policy(RtcSharingPolicy::Owned)
                     .insert(&conn);
 
-                let group0 = factory::Group::new(room.id()).insert(&conn);
-                let group1 = factory::Group::new(room.id()).number(1).insert(&conn);
-
-                factory::GroupAgent::new(*group0.id())
-                    .agent_id(agent1.agent_id())
-                    .insert(&conn);
-                factory::GroupAgent::new(*group1.id())
-                    .agent_id(agent2.agent_id())
-                    .insert(&conn);
+                factory::GroupAgent::new(
+                    room.id(),
+                    Groups::new(vec![
+                        GroupItem::new(0, vec![agent1.agent_id().clone()]),
+                        GroupItem::new(1, vec![agent2.agent_id().clone()]),
+                    ]),
+                )
+                .upsert(&conn);
 
                 room
             })
@@ -268,9 +265,9 @@ mod tests {
             .expect("Group list failed");
 
         // Assert response.
-        let (state, respp, _) = find_response::<State>(messages.as_slice());
+        let (state, respp, _) = find_response::<Groups>(messages.as_slice());
         assert_eq!(respp.status(), ResponseStatus::OK);
-        assert_eq!(state.0.len(), 2);
+        assert_eq!(state.len(), 2);
     }
 
     #[tokio::test]
@@ -291,15 +288,14 @@ mod tests {
                     .rtc_sharing_policy(RtcSharingPolicy::Owned)
                     .insert(&conn);
 
-                let group0 = factory::Group::new(room.id()).insert(&conn);
-                let group1 = factory::Group::new(room.id()).number(1).insert(&conn);
-
-                factory::GroupAgent::new(*group0.id())
-                    .agent_id(agent1.agent_id())
-                    .insert(&conn);
-                factory::GroupAgent::new(*group1.id())
-                    .agent_id(agent2.agent_id())
-                    .insert(&conn);
+                factory::GroupAgent::new(
+                    room.id(),
+                    Groups::new(vec![
+                        GroupItem::new(0, vec![agent1.agent_id().clone()]),
+                        GroupItem::new(1, vec![agent2.agent_id().clone()]),
+                    ]),
+                )
+                .upsert(&conn);
 
                 room
             })
@@ -315,15 +311,11 @@ mod tests {
             .await
             .expect("Group list failed");
 
-        let current_state = State {
-            0: vec![StateItem {
-                number: 0,
-                agents: vec![agent1.agent_id().to_owned()],
-            }],
-        };
+        let current_state =
+            Groups::new(vec![GroupItem::new(0, vec![agent1.agent_id().to_owned()])]);
 
         // Assert response.
-        let (state, respp, _) = find_response::<State>(messages.as_slice());
+        let (state, respp, _) = find_response::<Groups>(messages.as_slice());
         assert_eq!(respp.status(), ResponseStatus::OK);
         assert_eq!(state, current_state);
     }
