@@ -6,6 +6,7 @@ use crate::{
 use diesel::PgConnection;
 use std::collections::HashMap;
 use svc_agent::AgentId;
+use tracing::warn;
 
 #[derive(Debug)]
 pub struct GroupReaderConfig {
@@ -34,8 +35,7 @@ pub fn update(
         .map(|rtc| (rtc.created_by(), rtc.id()))
         .collect::<HashMap<_, _>>();
 
-    let mut configs_to_update = Vec::new();
-    let mut maybe_update_configs = Vec::new();
+    let mut configs = Vec::new();
 
     let group_agents = groups
         .iter()
@@ -50,48 +50,22 @@ pub fn update(
             }
 
             let rtc_id = match agent_rtcs.get(agent2) {
-                None => continue,
+                None => {
+                    warn!(%agent2, "rtc_id not found");
+                    continue;
+                }
                 Some(rtc_id) => rtc_id,
             };
-            let agent_id = agent1.to_owned();
 
-            if group1 != group2 {
-                let cfg = GroupReaderConfig {
-                    agent_id,
-                    rtc_id: *rtc_id,
-                    availability: false,
-                };
-
-                configs_to_update.push(cfg);
-            } else {
-                let cfg = GroupReaderConfig {
-                    agent_id,
-                    rtc_id: *rtc_id,
-                    availability: true,
-                };
-
-                maybe_update_configs.push(cfg);
-            };
+            configs.push(GroupReaderConfig {
+                agent_id: agent1.to_owned(),
+                rtc_id: *rtc_id,
+                availability: (group1 == group2),
+            });
         }
     }
 
-    // Get false rtc_reader_configs to update them if needed
-    let reader_configs_with_rtcs =
-        db::rtc_reader_config::ListWithRtcQuery::new(room_id, &agent_ids)
-            .execute_for_update(conn)?
-            .iter()
-            .filter(|(cfg, _)| !cfg.receive_video() && !cfg.receive_audio())
-            .map(|(cfg, rtc)| (rtc.id(), cfg.reader_id().to_owned()))
-            .collect::<Vec<(Id, AgentId)>>();
-
-    for cfg in maybe_update_configs {
-        // Updates only true configs for which there are already false rtc_reader_configs
-        if reader_configs_with_rtcs.contains(&(cfg.rtc_id.to_owned(), cfg.agent_id.to_owned())) {
-            configs_to_update.push(cfg);
-        }
-    }
-
-    let configs = configs_to_update
+    let upsert_queries = configs
         .iter()
         .map(|cfg| {
             UpsertQuery::new(cfg.rtc_id, &cfg.agent_id)
@@ -100,9 +74,9 @@ pub fn update(
         })
         .collect::<Vec<UpsertQuery>>();
 
-    db::rtc_reader_config::batch_insert(conn, &configs)?;
+    db::rtc_reader_config::batch_insert(conn, &upsert_queries)?;
 
-    Ok(configs_to_update)
+    Ok(configs)
 }
 
 #[cfg(test)]
@@ -194,7 +168,7 @@ mod tests {
             .execute(&conn)
             .unwrap();
 
-        assert_eq!(reader_configs.len(), 16);
+        assert_eq!(reader_configs.len(), 20);
 
         let agent1_configs = reader_configs
             .iter()
@@ -218,7 +192,7 @@ mod tests {
             .map(|(cfg, _)| (rtcs.get(&cfg.rtc_id()).unwrap(), cfg))
             .collect::<HashMap<_, _>>();
 
-        assert_eq!(agent3_configs.len(), 3);
+        assert_eq!(agent3_configs.len(), 4);
 
         let agent3_agent1_cfg = agent3_configs.get(agent1.agent_id()).unwrap();
         assert!(!agent3_agent1_cfg.receive_video());
@@ -251,7 +225,7 @@ mod tests {
             .execute(&conn)
             .unwrap();
 
-        assert_eq!(reader_configs.len(), 18);
+        assert_eq!(reader_configs.len(), 20);
 
         let agent1_configs = reader_configs
             .iter()
