@@ -8,10 +8,10 @@ GET /api/v1/rooms/{room_id}/groups?{within_group}
 
 **Properties**
 
-| Name         | Type   | Default    | Description                                                            |
-|--------------|--------|------------|------------------------------------------------------------------------|
-| room_id      | string | _required_ | Returns only objects that belong to the room. The room must be opened. |
-| within_group | bool   | _optional_ | Returns agents only within the same group                              |
+| Name         | Type   | Default    | Description                                                                     |
+|--------------|--------|------------|---------------------------------------------------------------------------------|
+| room_id      | string | _required_ | Returns only objects that belong to the room. The room must be opened.          |
+| within_group | bool   | _optional_ | Returns agents of the same group in which there is an agent who sent a request. |
 
 ## Response
 
