@@ -14,7 +14,6 @@ on:
         - t01
         - t02
         - t03
-        - t04
       version:
         description: 'Commit/tag/branch'
         required: false
