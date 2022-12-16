@@ -7,7 +7,6 @@ on:
         type: choice
         description: 'Select namespace'
         options:
-        - p-minigroup-foxford
         - s01-classroom-foxford
         - s01-minigroup-foxford
         - s01-webinar-foxford
@@ -15,6 +14,7 @@ on:
         - t01
         - t02
         - t03
+        - t04
       version:
         description: 'Commit/tag/branch'
         required: false
