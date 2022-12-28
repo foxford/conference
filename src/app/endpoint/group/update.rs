@@ -10,13 +10,13 @@ use crate::{
         group_reader_config,
         service_utils::{RequestParams, Response},
     },
+    authz::AuthzObject,
     backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
         UpdateReaderConfigRequestBodyConfigItem,
     },
     db::{self, group_agent::Groups},
 };
-
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
 use axum::{extract::Path, Extension, Json};
@@ -63,7 +63,7 @@ impl RequestHandler for Handler {
     async fn handle<C: Context>(
         context: &mut C,
         payload: Self::Payload,
-        _: RequestParams<'_>,
+        reqp: RequestParams<'_>,
     ) -> RequestResult {
         let conn = context.get_conn().await?;
 
@@ -74,6 +74,21 @@ impl RequestHandler for Handler {
                 helpers::RoomTimeRequirement::NotClosed,
                 &conn,
             )?;
+
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
+
+            // Authorize classrooms.update on the tenant
+            let classroom_id = room.classroom_id().to_string();
+            let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
+
+            let authz_time = context
+                .authz()
+                .authorize(room.audience().into(), reqp, object, "update".into())
+                .await?;
+            context.metrics().observe_auth(authz_time);
 
             if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
                 return Err(anyhow!(
@@ -104,11 +119,6 @@ impl RequestHandler for Handler {
             }
         })
         .await?;
-
-        tracing::Span::current().record(
-            "classroom_id",
-            &tracing::field::display(room.classroom_id()),
-        );
 
         // Send RTC reader configs to the janus server
         if let Some(backend) = maybe_backend {

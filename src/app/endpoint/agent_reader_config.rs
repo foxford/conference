@@ -7,6 +7,7 @@ use crate::{
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
     },
+    authz::AuthzObject,
     backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
         UpdateReaderConfigRequestBodyConfigItem,
@@ -129,22 +130,38 @@ impl RequestHandler for UpdateHandler {
         let conn = context.get_conn().await?;
         let (room, rtc_reader_configs_with_rtcs, maybe_backend) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
-            move || {
-                let room = helpers::find_room_by_id(
-                    payload.room_id,
-                    helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
 
-                if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-                    return Err(anyhow!(
+            let room = helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &conn,
+            )?;
+
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
+
+            // Authorize classrooms.update on the tenant
+            let classroom_id = room.classroom_id().to_string();
+            let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
+
+            let authz_time = context
+                .authz()
+                .authorize(room.audience().into(), reqp, object, "update".into())
+                .await?;
+            context.metrics().observe_auth(authz_time);
+
+            if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+                return Err(anyhow!(
                     "Agent reader config is available only for rooms with owned RTC sharing policy"
                 ))
-                    .error(AppErrorKind::InvalidPayload)?;
-                }
+                .error(AppErrorKind::InvalidPayload)?;
+            }
 
-                helpers::check_room_presence(&room, &agent_id, &conn)?;
+            helpers::check_room_presence(&room, &agent_id, &conn)?;
 
+            move || {
                 let rtc_reader_configs_with_rtcs = conn.transaction::<_, AppError, _>(|| {
                     // An agent can create/update reader configs only for agents in the same group
                     let groups = db::group_agent::FindQuery::new(room.id())
@@ -219,11 +236,6 @@ impl RequestHandler for UpdateHandler {
             }
         })
         .await?;
-
-        tracing::Span::current().record(
-            "classroom_id",
-            &tracing::field::display(room.classroom_id()),
-        );
 
         if let Some(backend) = maybe_backend {
             let items = rtc_reader_configs_with_rtcs
@@ -308,13 +320,29 @@ impl RequestHandler for ReadHandler {
 
         let (room, rtc_reader_configs_with_rtcs) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
-            move || {
-                let room = helpers::find_room_by_id(
-                    payload.room_id,
-                    helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
 
+            let room = helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &conn,
+            )?;
+
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
+
+            // Authorize classrooms.read on the tenant
+            let classroom_id = room.classroom_id().to_string();
+            let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
+
+            let authz_time = context
+                .authz()
+                .authorize(room.audience().into(), reqp, object, "read".into())
+                .await?;
+            context.metrics().observe_auth(authz_time);
+
+            move || {
                 if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
                     return Err(anyhow!(
                     "Agent reader config is available only for rooms with owned RTC sharing policy"
@@ -331,11 +359,6 @@ impl RequestHandler for ReadHandler {
             }
         })
         .await?;
-
-        tracing::Span::current().record(
-            "classroom_id",
-            &tracing::field::display(room.classroom_id()),
-        );
 
         context
             .metrics()

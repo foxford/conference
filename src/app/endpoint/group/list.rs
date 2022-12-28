@@ -9,6 +9,7 @@ use crate::{
         error::ErrorExt,
         service_utils::{RequestParams, Response},
     },
+    authz::AuthzObject,
     db,
 };
 use anyhow::anyhow;
@@ -71,12 +72,27 @@ impl RequestHandler for Handler {
         let conn = context.get_conn().await?;
         let agent_id = reqp.as_agent_id().clone();
 
-        let groups = crate::util::spawn_blocking(move || {
+        let groups = crate::util::spawn_blocking({
             let room = helpers::find_room_by_id(
                 payload.room_id,
                 helpers::RoomTimeRequirement::NotClosed,
                 &conn,
             )?;
+
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
+
+            // Authorize classrooms.read on the tenant
+            let classroom_id = room.classroom_id().to_string();
+            let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
+
+            let authz_time = context
+                .authz()
+                .authorize(room.audience().into(), reqp, object, "read".into())
+                .await?;
+            context.metrics().observe_auth(authz_time);
 
             if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
                 return Err(anyhow!(
@@ -85,14 +101,17 @@ impl RequestHandler for Handler {
                 .error(AppErrorKind::InvalidPayload)?;
             }
 
-            let group_agent = db::group_agent::FindQuery::new(payload.room_id).execute(&conn)?;
+            move || {
+                let group_agent =
+                    db::group_agent::FindQuery::new(payload.room_id).execute(&conn)?;
 
-            let mut groups = group_agent.groups();
-            if payload.within_group {
-                groups = groups.filter(&agent_id);
+                let mut groups = group_agent.groups();
+                if payload.within_group {
+                    groups = groups.filter(&agent_id);
+                }
+
+                Ok::<_, AppError>(groups)
             }
-
-            Ok::<_, AppError>(groups)
         })
         .await?;
 
