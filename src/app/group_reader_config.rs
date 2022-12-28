@@ -65,7 +65,7 @@ pub fn update(
         }
     }
 
-    let upsert_queries = configs
+    let mut upsert_queries = configs
         .iter()
         .map(|cfg| {
             UpsertQuery::new(cfg.rtc_id, &cfg.agent_id)
@@ -74,6 +74,7 @@ pub fn update(
         })
         .collect::<Vec<UpsertQuery>>();
 
+    upsert_queries.dedup();
     db::rtc_reader_config::batch_insert(conn, &upsert_queries)?;
 
     Ok(configs)

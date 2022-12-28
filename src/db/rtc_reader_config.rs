@@ -102,7 +102,7 @@ pub fn read_config(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Debug, Insertable, AsChangeset)]
+#[derive(Clone, Debug, Insertable, AsChangeset, Eq, PartialEq)]
 #[table_name = "rtc_reader_config"]
 pub struct UpsertQuery<'a> {
     rtc_id: db::rtc::Id,
@@ -162,9 +162,9 @@ pub fn batch_insert(conn: &PgConnection, configs: &[UpsertQuery]) -> Result<Vec<
     use crate::schema::rtc_reader_config::*;
     use diesel::pg::upsert::excluded;
 
-    diesel::insert_into(rtc_reader_config::table)
+    diesel::insert_into(table)
         .values(configs)
-        .on_conflict((rtc_reader_config::rtc_id, rtc_reader_config::reader_id))
+        .on_conflict((rtc_id, reader_id))
         .do_update()
         .set((
             receive_video.eq(excluded(receive_video)),
