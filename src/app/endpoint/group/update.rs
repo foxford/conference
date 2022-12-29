@@ -123,13 +123,15 @@ impl RequestHandler for Handler {
         // Send RTC reader configs to the janus server
         if let Some(backend) = maybe_backend {
             let items = configs
-                .iter()
-                .map(|cfg| UpdateReaderConfigRequestBodyConfigItem {
-                    reader_id: cfg.agent_id.to_owned(),
-                    stream_id: cfg.rtc_id,
-                    receive_video: cfg.availability,
-                    receive_audio: cfg.availability,
-                })
+                .into_iter()
+                .map(
+                    |((rtc_id, agent_id), value)| UpdateReaderConfigRequestBodyConfigItem {
+                        reader_id: agent_id,
+                        stream_id: rtc_id,
+                        receive_video: value,
+                        receive_audio: value,
+                    },
+                )
                 .collect();
 
             let request = UpdateReaderConfigRequest {

@@ -21,7 +21,7 @@ impl Groups {
         Self(items)
     }
 
-    pub fn filter(self, agent_id: &AgentId) -> Groups {
+    pub fn filter_by_agent(self, agent_id: &AgentId) -> Groups {
         let items = self
             .0
             .into_iter()
@@ -31,7 +31,7 @@ impl Groups {
         Groups(items)
     }
 
-    pub fn exist(&self, agent_id: &AgentId) -> bool {
+    pub fn is_agent_exist(&self, agent_id: &AgentId) -> bool {
         for item in &self.0 {
             if item.agents.contains(agent_id) {
                 return true;
@@ -180,7 +180,7 @@ mod tests {
             ]);
 
             assert_eq!(
-                groups.filter(agent2.agent_id()),
+                groups.filter_by_agent(agent2.agent_id()),
                 Groups::new(vec![GroupItem::new(
                     1,
                     vec![agent2.agent_id().clone(), agent3.agent_id().clone()],
@@ -198,11 +198,14 @@ mod tests {
                 GroupItem::new(1, vec![agent2.agent_id().clone()]),
             ]);
 
-            assert_eq!(groups.filter(agent3.agent_id()), Groups::new(vec![]));
+            assert_eq!(
+                groups.filter_by_agent(agent3.agent_id()),
+                Groups::new(vec![])
+            );
         }
 
         #[test]
-        fn exist_test_succeed() {
+        fn is_agent_exist_test_succeed() {
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let groups = Groups::new(vec![
@@ -210,11 +213,11 @@ mod tests {
                 GroupItem::new(1, vec![agent2.agent_id().clone()]),
             ]);
 
-            assert!(groups.exist(agent2.agent_id()));
+            assert!(groups.is_agent_exist(agent2.agent_id()));
         }
 
         #[test]
-        fn exist_test_not_exists() {
+        fn is_agent_exist_test_not_exists() {
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
@@ -223,7 +226,7 @@ mod tests {
                 GroupItem::new(1, vec![agent2.agent_id().clone()]),
             ]);
 
-            assert!(!groups.exist(agent3.agent_id()));
+            assert!(!groups.is_agent_exist(agent3.agent_id()));
         }
 
         #[test]

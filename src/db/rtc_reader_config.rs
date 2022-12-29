@@ -102,7 +102,7 @@ pub fn read_config(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Debug, Insertable, AsChangeset, Eq, PartialEq)]
+#[derive(Clone, Debug, Insertable, AsChangeset)]
 #[table_name = "rtc_reader_config"]
 pub struct UpsertQuery<'a> {
     rtc_id: db::rtc::Id,

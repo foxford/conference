@@ -8,13 +8,6 @@ use std::collections::HashMap;
 use svc_agent::AgentId;
 use tracing::warn;
 
-#[derive(Debug)]
-pub struct GroupReaderConfig {
-    pub agent_id: AgentId,
-    pub rtc_id: Id,
-    pub availability: bool,
-}
-
 /// Creates/updates `rtc_reader_configs` based on `group_agents`.
 ///
 /// Note: This function should be run within a database transaction.
@@ -22,7 +15,7 @@ pub fn update(
     conn: &PgConnection,
     room_id: db::room::Id,
     groups: Groups,
-) -> Result<Vec<GroupReaderConfig>, Error> {
+) -> Result<HashMap<(Id, AgentId), bool>, Error> {
     let agent_ids = groups.iter().flat_map(|g| g.agents()).collect::<Vec<_>>();
 
     let rtcs = db::rtc::ListQuery::new()
@@ -35,12 +28,19 @@ pub fn update(
         .map(|rtc| (rtc.created_by(), rtc.id()))
         .collect::<HashMap<_, _>>();
 
-    let mut configs = Vec::new();
+    // Use HashMap to avoid duplicated configs in cases
+    // where a teacher can be in several groups at the same time
+    let mut configs = HashMap::new();
 
     let group_agents = groups
         .iter()
         .flat_map(|g| g.agents().iter().map(move |a| (g.number(), a.clone())))
         .collect::<Vec<(_, _)>>();
+
+    let agents_by_groups = groups
+        .iter()
+        .map(|g| (g.number(), g.agents()))
+        .collect::<HashMap<_, _>>();
 
     // Generates cross-configs for agents: agent1 <-> agent2
     for (group1, agent1) in &group_agents {
@@ -57,24 +57,54 @@ pub fn update(
                 Some(rtc_id) => rtc_id,
             };
 
-            configs.push(GroupReaderConfig {
-                agent_id: agent1.to_owned(),
-                rtc_id: *rtc_id,
-                availability: (group1 == group2),
-            });
+            // Checks the case where a teacher can be in several groups at the same time.
+            // We don't want to create false configs in such cases for participants.
+            // For example:
+            // [
+            //     "number": 1,
+            //     "agents": [
+            //       "web.Z2lkOi8vc3RvZWdlL1VzZXI6OlB1cGlsLzIyNDUxOTE=.usr.foxford.ru",
+            //       "web.Z2lkOi8vc3RvZWdlL0FkbWluLzc1NA==.usr.foxford.ru"
+            //     ]
+            //   },
+            //   {
+            //     "number": 2,
+            //     "agents": [
+            //       "web.Z2lkOi8vc3RvZWdlL1VzZXI6OlB1cGlsLzIyNDUwOTE=.usr.foxford.ru",
+            //       "web.Z2lkOi8vc3RvZWdlL0FkbWluLzc1NA==.usr.foxford.ru"
+            //     ]
+            //   }
+            // ]
+            if group1 != group2 {
+                let group1_agents = agents_by_groups.get(group1);
+                let group2_agents = agents_by_groups.get(group2);
+
+                // If at least one of the agents is in another group, then we don't create false configs
+                match group1_agents.and_then(|g1| {
+                    group2_agents.map(|g2| (g1.contains(agent2), g2.contains(agent1)))
+                }) {
+                    Some((true, false)) | Some((false, true)) => {
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+
+            configs
+                .entry((*rtc_id, agent1.to_owned()))
+                .or_insert(group1 == group2);
         }
     }
 
-    let mut upsert_queries = configs
+    let upsert_queries = configs
         .iter()
-        .map(|cfg| {
-            UpsertQuery::new(cfg.rtc_id, &cfg.agent_id)
-                .receive_video(cfg.availability)
-                .receive_audio(cfg.availability)
+        .map(|((rtc_id, agent_id), value)| {
+            UpsertQuery::new(*rtc_id, agent_id)
+                .receive_video(*value)
+                .receive_audio(*value)
         })
         .collect::<Vec<UpsertQuery>>();
 
-    upsert_queries.dedup();
     db::rtc_reader_config::batch_insert(conn, &upsert_queries)?;
 
     Ok(configs)
@@ -126,12 +156,19 @@ mod tests {
                     .insert(&conn);
 
                 let groups = Groups::new(vec![
-                    GroupItem::new(0, vec![agents[0].as_agent_id().clone()]),
+                    GroupItem::new(
+                        0,
+                        vec![
+                            agents[0].as_agent_id().clone(),
+                            agents[4].as_agent_id().clone(),
+                        ],
+                    ),
                     GroupItem::new(
                         1,
                         vec![
                             agents[1].as_agent_id().clone(),
                             agents[3].as_agent_id().clone(),
+                            agents[4].as_agent_id().clone(),
                         ],
                     ),
                     GroupItem::new(
@@ -181,11 +218,9 @@ mod tests {
 
         let agent1_agent2_cfg = agent1_configs.get(agent2.agent_id()).unwrap();
         assert!(!agent1_agent2_cfg.receive_video());
-        assert!(!agent1_agent2_cfg.receive_audio());
 
         let agent1_agent3_cfg = agent1_configs.get(agent3.agent_id()).unwrap();
         assert!(!agent1_agent3_cfg.receive_video());
-        assert!(!agent1_agent3_cfg.receive_audio());
 
         let agent3_configs = reader_configs
             .iter()
@@ -197,19 +232,43 @@ mod tests {
 
         let agent3_agent1_cfg = agent3_configs.get(agent1.agent_id()).unwrap();
         assert!(!agent3_agent1_cfg.receive_video());
-        assert!(!agent3_agent1_cfg.receive_audio());
 
         let agent3_agent2_cfg = agent3_configs.get(agent2.agent_id()).unwrap();
         assert!(!agent3_agent2_cfg.receive_video());
-        assert!(!agent3_agent2_cfg.receive_audio());
+
+        // Checks the case where a teacher can be in several groups at the same time
+        let agent5_configs = reader_configs
+            .iter()
+            .filter(|(cfg, _)| cfg.reader_id() == agent5.agent_id())
+            .map(|(cfg, _)| (rtcs.get(&cfg.rtc_id()).unwrap(), cfg))
+            .collect::<HashMap<_, _>>();
+
+        // The teacher can see all group participants
+        for (_, cfg) in agent5_configs {
+            assert!(cfg.receive_video());
+        }
+
+        // And everyone else sees the teacher
+        let agent1_agent5_cfg = agent1_configs.get(agent5.agent_id()).unwrap();
+        assert!(agent1_agent5_cfg.receive_video());
+
+        let agent3_agent5_cfg = agent3_configs.get(agent5.agent_id()).unwrap();
+        assert!(agent3_agent5_cfg.receive_video());
 
         // Move agent2 to the group 0
         let groups = Groups::new(vec![
             GroupItem::new(
                 0,
-                vec![agent1.agent_id().clone(), agent2.agent_id().clone()],
+                vec![
+                    agent1.agent_id().clone(),
+                    agent5.agent_id().clone(),
+                    agent2.agent_id().clone(),
+                ],
             ),
-            GroupItem::new(1, vec![agent4.agent_id().clone()]),
+            GroupItem::new(
+                1,
+                vec![agent4.agent_id().clone(), agent5.agent_id().clone()],
+            ),
             GroupItem::new(
                 2,
                 vec![agent3.agent_id().clone(), agent5.agent_id().clone()],
@@ -238,7 +297,6 @@ mod tests {
 
         let agent1_agent2_cfg = agent1_configs.get(agent2.agent_id()).unwrap();
         assert!(agent1_agent2_cfg.receive_video());
-        assert!(agent1_agent2_cfg.receive_audio());
 
         let agent4_configs = reader_configs
             .iter()
@@ -250,6 +308,5 @@ mod tests {
 
         let agent4_agent2_cfg = agent4_configs.get(agent2.agent_id()).unwrap();
         assert!(!agent4_agent2_cfg.receive_video());
-        assert!(!agent4_agent2_cfg.receive_audio());
     }
 }

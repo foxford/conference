@@ -167,7 +167,7 @@ impl RequestHandler for UpdateHandler {
                     let groups = db::group_agent::FindQuery::new(room.id())
                         .execute(&conn)?
                         .groups()
-                        .filter(&agent_id);
+                        .filter_by_agent(&agent_id);
                     let group_agents = groups.iter().flat_map(|i| i.agents()).collect::<Vec<_>>();
 
                     // Find RTCs owned by agents.

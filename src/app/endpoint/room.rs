@@ -700,7 +700,7 @@ impl RequestHandler for EnterHandler {
                     let group_agent = db::group_agent::FindQuery::new(room_id).execute(&conn)?;
 
                     let groups = group_agent.groups();
-                    let agent_exists = groups.exist(&agent_id);
+                    let agent_exists = groups.is_agent_exist(&agent_id);
 
                     if !agent_exists {
                         let changed_groups = groups.add_to_default_group(&agent_id);
@@ -736,13 +736,15 @@ impl RequestHandler for EnterHandler {
                 maybe_configs.and_then(|cfgs| maybe_backend.map(|backend| (cfgs, backend)))
             {
                 let items = configs
-                    .iter()
-                    .map(|cfg| UpdateReaderConfigRequestBodyConfigItem {
-                        reader_id: cfg.agent_id.to_owned(),
-                        stream_id: cfg.rtc_id,
-                        receive_video: cfg.availability,
-                        receive_audio: cfg.availability,
-                    })
+                    .into_iter()
+                    .map(
+                        |((rtc_id, agent_id), value)| UpdateReaderConfigRequestBodyConfigItem {
+                            reader_id: agent_id,
+                            stream_id: rtc_id,
+                            receive_video: value,
+                            receive_audio: value,
+                        },
+                    )
                     .collect();
 
                 let request = UpdateReaderConfigRequest {

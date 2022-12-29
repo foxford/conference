@@ -107,7 +107,7 @@ impl RequestHandler for Handler {
 
                 let mut groups = group_agent.groups();
                 if payload.within_group {
-                    groups = groups.filter(&agent_id);
+                    groups = groups.filter_by_agent(&agent_id);
                 }
 
                 Ok::<_, AppError>(groups)
