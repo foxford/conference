@@ -277,7 +277,7 @@ async fn handle_event_impl<C: Context>(
                 Some(TransactionKind::ServicePing) => Ok(Box::new(stream::empty())),
                 // Conference Stream has been uploaded to a storage backend (a confirmation)
                 Some(TransactionKind::UploadStream(ref tn)) => {
-                    Span::current().record("rtc_id", &tn.rtc_id.to_string().as_str());
+                    Span::current().record("rtc_id", tn.rtc_id.to_string().as_str());
 
                     // TODO: improve error handling
                     let plugin_data = resp

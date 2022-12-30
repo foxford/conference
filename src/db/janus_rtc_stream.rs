@@ -172,7 +172,7 @@ impl ListQuery {
         match self.active {
             None => (),
             Some(true) => q = q.filter(sql(ACTIVE_SQL)),
-            Some(false) => q = q.filter(sql(&format!("not {}", ACTIVE_SQL))),
+            Some(false) => q = q.filter(sql(&format!("not {ACTIVE_SQL}"))),
         }
         if let Some(offset) = self.offset {
             q = q.offset(offset);

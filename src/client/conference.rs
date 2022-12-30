@@ -16,7 +16,7 @@ pub enum Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -63,10 +63,7 @@ impl ConferenceClient for ConferenceHttpClient {
         response: Result<CreateResponseData, error::Error>,
         id: usize,
     ) -> Result<(), Error> {
-        let uri = format!(
-            "http://{}:{}/callbacks/stream",
-            replica_addr, INTERNAL_API_PORT
-        );
+        let uri = format!("http://{replica_addr}:{INTERNAL_API_PORT}/callbacks/stream",);
 
         let r = self
             .http

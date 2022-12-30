@@ -92,6 +92,7 @@ mod backend;
 mod client;
 mod config;
 mod db;
+mod outbox;
 #[allow(unused_imports)]
 mod schema;
 mod serde;

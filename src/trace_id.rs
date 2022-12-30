@@ -36,7 +36,7 @@ struct Visitor<'a>(&'a mut Option<String>);
 impl<'a> Visit for Visitor<'a> {
     fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
         if field.name() == "request_id" {
-            *self.0 = Some(format!("{:?}", value));
+            *self.0 = Some(format!("{value:?}"));
         }
     }
 }
@@ -106,7 +106,7 @@ where
 }
 
 impl WithContext {
-    fn with_context<'a>(&self, dispatch: &'a Dispatch, id: &span::Id, mut f: impl FnMut(&TraceId)) {
+    fn with_context(&self, dispatch: &Dispatch, id: &span::Id, mut f: impl FnMut(&TraceId)) {
         (self.0)(dispatch, id, &mut f)
     }
 }

@@ -170,7 +170,7 @@ pub fn update_event(
     object: db::janus_rtc_stream::Object,
     start_timestamp: DateTime<Utc>,
 ) -> ObjectUpdateEvent {
-    let uri = format!("rooms/{}/events", room_id);
+    let uri = format!("rooms/{room_id}/events");
     let timing = ShortTermTimingProperties::until_now(start_timestamp);
     let props = OutgoingEventProperties::new("rtc_stream.update", timing);
     OutgoingEvent::broadcast(object, props, &uri)

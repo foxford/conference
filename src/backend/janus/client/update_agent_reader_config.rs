@@ -1,11 +1,11 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
 use crate::db;
 
 use super::{HandleId, SessionId};
 
-#[derive(Serialize, Debug)]
+#[derive(Debug, Serialize)]
 pub struct UpdateReaderConfigRequest {
     pub session_id: SessionId,
     pub handle_id: HandleId,
@@ -27,7 +27,7 @@ impl UpdateReaderConfigRequestBody {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateReaderConfigRequestBodyConfigItem {
     pub reader_id: AgentId,
     pub stream_id: db::rtc::Id,

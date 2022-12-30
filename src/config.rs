@@ -31,14 +31,16 @@ pub struct Config {
     pub waitlist_epoch_duration: Duration,
     #[serde(with = "humantime_serde", default = "default_waitlist_timeout")]
     pub waitlist_timeout: Duration,
+    pub outbox: OutboxConfig,
+    pub nats: NatsConfig,
 }
 
 fn default_waitlist_epoch_duration() -> Duration {
-    std::time::Duration::from_secs(60)
+    Duration::from_secs(60)
 }
 
 fn default_waitlist_timeout() -> Duration {
-    std::time::Duration::from_secs(25)
+    Duration::from_secs(25)
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -93,5 +95,20 @@ pub struct MetricsConfig {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct MetricsHttpConfig {
-    pub bind_address: std::net::SocketAddr,
+    pub bind_address: SocketAddr,
+}
+
+#[derive(Copy, Clone, Debug, Deserialize)]
+pub struct OutboxConfig {
+    pub messages_per_try: i64,
+    #[serde(with = "crate::serde::duration_seconds")]
+    pub try_wake_interval: chrono::Duration,
+    #[serde(with = "crate::serde::duration_seconds")]
+    pub max_delivery_interval: chrono::Duration,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct NatsConfig {
+    pub url: String,
+    pub creds: String,
 }

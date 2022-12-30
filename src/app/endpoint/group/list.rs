@@ -1,3 +1,4 @@
+use crate::app::metrics::HistogramExt;
 use crate::{
     app::{
         context::{AppContext, Context},
@@ -69,41 +70,43 @@ impl RequestHandler for Handler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let conn = context.get_conn().await?;
+        let room_id = payload.room_id;
         let agent_id = reqp.as_agent_id().clone();
 
-        let groups = crate::util::spawn_blocking({
-            let room = helpers::find_room_by_id(
-                payload.room_id,
-                helpers::RoomTimeRequirement::NotClosed,
-                &conn,
-            )?;
-
-            tracing::Span::current().record(
-                "classroom_id",
-                &tracing::field::display(room.classroom_id()),
-            );
-
-            // Authorize classrooms.read on the tenant
-            let classroom_id = room.classroom_id().to_string();
-            let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
-
-            let authz_time = context
-                .authz()
-                .authorize(room.audience().into(), reqp, object, "read".into())
-                .await?;
-            context.metrics().observe_auth(authz_time);
-
-            if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-                return Err(anyhow!(
-                    "Getting groups is only available for rooms with owned RTC sharing policy"
-                ))
-                .error(AppErrorKind::InvalidPayload)?;
-            }
-
+        let room = crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
             move || {
-                let group_agent =
-                    db::group_agent::FindQuery::new(payload.room_id).execute(&conn)?;
+                helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)
+            }
+        })
+        .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
+
+        // Authorize classrooms.read on the tenant
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
+
+        let authz_time = context
+            .authz()
+            .authorize(room.audience().into(), reqp, object, "read".into())
+            .await?;
+        context.metrics().observe_auth(authz_time);
+
+        if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+            return Err(anyhow!(
+                "Getting groups is only available for rooms with owned RTC sharing policy"
+            ))
+            .error(AppErrorKind::InvalidPayload)?;
+        }
+
+        let groups = crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
+            move || {
+                let group_agent = db::group_agent::FindQuery::new(room_id).execute(&conn)?;
 
                 let mut groups = group_agent.groups();
                 if payload.within_group {
@@ -114,6 +117,12 @@ impl RequestHandler for Handler {
             }
         })
         .await?;
+
+        context
+            .metrics()
+            .request_duration
+            .group_list
+            .observe_timestamp(context.start_timestamp());
 
         Ok(Response::new(
             ResponseStatus::OK,
@@ -227,7 +236,16 @@ mod tests {
             })
             .unwrap();
 
-        let mut context = TestContext::new(db, TestAuthz::new());
+        // Allow agent to read the room.
+        let mut authz = TestAuthz::new();
+        let classroom_id = room.classroom_id().to_string();
+        authz.allow(
+            agent1.account_id(),
+            vec!["classrooms", &classroom_id],
+            "read",
+        );
+
+        let mut context = TestContext::new(db, authz);
         let payload = Payload {
             room_id: room.id(),
             within_group: false,
@@ -273,7 +291,16 @@ mod tests {
             })
             .unwrap();
 
-        let mut context = TestContext::new(db, TestAuthz::new());
+        // Allow agent to read the room.
+        let mut authz = TestAuthz::new();
+        let classroom_id = room.classroom_id().to_string();
+        authz.allow(
+            agent1.account_id(),
+            vec!["classrooms", &classroom_id],
+            "read",
+        );
+
+        let mut context = TestContext::new(db, authz);
         let payload = Payload {
             room_id: room.id(),
             within_group: false,
@@ -320,7 +347,16 @@ mod tests {
             })
             .unwrap();
 
-        let mut context = TestContext::new(db, TestAuthz::new());
+        // Allow agent to read the room.
+        let mut authz = TestAuthz::new();
+        let classroom_id = room.classroom_id().to_string();
+        authz.allow(
+            agent1.account_id(),
+            vec!["classrooms", &classroom_id],
+            "read",
+        );
+
+        let mut context = TestContext::new(db, authz);
         let payload = Payload {
             room_id: room.id(),
             within_group: true,

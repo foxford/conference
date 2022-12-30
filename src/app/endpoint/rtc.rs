@@ -137,7 +137,7 @@ impl RequestHandler for CreateHandler {
             }
         })
         .await?;
-        Span::current().record("rtc_id", &rtc.id().to_string().as_str());
+        Span::current().record("rtc_id", rtc.id().to_string().as_str());
 
         // Respond and broadcast to the room topic.
         let mut response = Response::new(
@@ -149,7 +149,7 @@ impl RequestHandler for CreateHandler {
 
         response.add_notification(
             "rtc.create",
-            &format!("rooms/{}/events", room_id),
+            &format!("rooms/{room_id}/events"),
             rtc,
             context.start_timestamp(),
         );
@@ -739,7 +739,7 @@ where
         );
 
         let current_span = Span::current();
-        current_span.record("sdp_type", &"offer");
+        current_span.record("sdp_type", "offer");
         let is_recvonly = endpoint::rtc_signal::is_sdp_recvonly(self.jsep.sdp.as_str())
             .context("Invalid JSEP format")
             .error(AppErrorKind::InvalidJsepFormat)?;
@@ -1250,7 +1250,8 @@ mod test {
             // Assert room closure is not unbounded
             let conn = context.db().get().expect("Failed to get conn");
 
-            let room = db::room::FindQuery::new(room.id())
+            let room = db::room::FindQuery::new()
+                .by_id(room.id())
                 .execute(&conn)
                 .expect("Db query failed")
                 .expect("Room must exist");

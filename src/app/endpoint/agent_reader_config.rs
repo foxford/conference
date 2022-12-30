@@ -447,8 +447,17 @@ mod tests {
                 })
                 .unwrap();
 
+            // Allow agent to read the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent1.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
+
             // Make agent_reader_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -622,8 +631,17 @@ mod tests {
                 })
                 .unwrap();
 
+            // Allow agent to read the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent1.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
+
             // Make agent_reader_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
 
             let payload = State {
                 room_id: room.id(),
@@ -658,8 +676,17 @@ mod tests {
                 .map(|conn| shared_helpers::insert_room_with_owned(&conn))
                 .unwrap();
 
+            // Allow agent to read the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
+
             // Make agent_reader_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
 
             let payload = State {
                 room_id: room.id(),
@@ -745,8 +772,17 @@ mod tests {
                 })
                 .unwrap();
 
+            // Allow agent to read the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
+
             // Make agent_reader_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
 
             let payload = State {
                 room_id: room.id(),
@@ -830,8 +866,17 @@ mod tests {
                 })
                 .unwrap();
 
+            // Allow agent to read the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent1.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
+
             // Make agent_reader_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -916,8 +961,17 @@ mod tests {
                 })
                 .unwrap();
 
+            // Allow agent to read the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent1.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
+
             // Make agent_reader_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -966,8 +1020,17 @@ mod tests {
                 .map(|conn| shared_helpers::insert_room_with_owned(&conn))
                 .unwrap();
 
+            // Allow agent to read the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
+
             // Make agent_reader_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1047,8 +1110,17 @@ mod tests {
                 })
                 .unwrap();
 
+            // Allow agent to read the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
+
             // Make agent_reader_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
 
             let payload = ReadRequest { room_id: room.id() };
 
