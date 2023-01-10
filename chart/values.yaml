@@ -14,28 +14,6 @@ app:
       cpu: 0.1
       memory: 50Mi
 
-  svc:
-    audience: foobar
-    credentials:
-      # foobar:
-      #   - subPath: private-key
-      #     mountPath: /path/to/foobar/private/key
-
-  audiences:
-    - audience: foobar
-      credentials:
-        # foobar-der-credentials:
-        #   - subPath: foobar-public-key
-        #     mountPath: /path/to/foobar/public/key
-      authn:
-        # key: path/to/public_key.p8.der
-      authz:
-        # type: http
-        # url: "https://authz.example.org/api/v1/authz"
-      s3: yandex
-
-  janusGroup:
-
 migrations:
   image:
     repository: cr.yandex/crp1of6bddata8ain3q5/conference-migration
@@ -67,18 +45,8 @@ clusterService:
     internal_http: 8081  # Janus registry
     metrics: 8888
 
-# internalService:
-#   ports:
-#     internal_http: 8081  # Janus registry
-
-ingress:
-  host: example.org
-
 tls:
   secretName: tls-certificates
-
-sentry:
-  dsn: "https://foobar.example.org/"
 
 serviceMonitor:
   labels:

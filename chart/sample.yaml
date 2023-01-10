@@ -1,0 +1,42 @@
+app:
+  svc:
+    audience: svc.test.net
+    credentials:
+      svc-pkcs8-der-credentials:
+        - subPath: svc.private_key
+          mountPath: /app/data/keys/svc.private_key.p8.der
+        - subPath: svc.public_key
+          mountPath: /app/data/keys/svc.public_key.p8.der
+    authz:
+      type: local
+      trusted:
+        - cron
+    authn:
+      key: /app/data/keys/svc.public_key.p8.der
+  audiences:
+    - audience: foo.bar
+      credentials:
+        foo-pkcs8-der-credentials:
+          - subPath: iam.foo.public_key
+            mountPath: /app/data/keys/iam.foo.public_key.p8.der
+      authn:
+        key: data/keys/iam.foo.public_key.p8.der
+      authz:
+        type: http
+        trusted:
+          - dispatcher
+      s3: yandex
+  janusGroup: webinar
+internalService:
+  annotations:
+    # 21600000 milliseconds == 6 hours
+    loadbalancer.openstack.org/timeout-client-data: "21600000"
+    loadbalancer.openstack.org/timeout-member-connect: "21600000"
+    loadbalancer.openstack.org/timeout-member-data: "21600000"
+    loadbalancer.openstack.org/subnet-id: test-test-test-test-test
+    service.beta.kubernetes.io/openstack-internal-load-balancer: "true"
+  ip: 10.10.10.10
+ingress:
+  host: test.net
+sentry:
+  dsn: https://test@foo.bar/123
