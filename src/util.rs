@@ -5,7 +5,7 @@ where
     T: serde::Serialize,
 {
     let s = serde_json::to_string(val)?;
-    let b = base64::encode(&s);
+    let b = base64::encode(s);
     Ok(b)
 }
 
