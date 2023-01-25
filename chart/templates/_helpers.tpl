@@ -35,11 +35,11 @@ Common labels
 */}}
 {{- define "conference.labels" -}}
 helm.sh/chart: {{ include "conference.chart" . }}
-{{ include "conference.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{ include "conference.selectorLabels" . }}
 {{- end }}
 
 {{/*
@@ -51,23 +51,34 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Short namespace.
+Tenant Service Audience
 */}}
-{{- define "conference.shortNamespace" -}}
-{{- $shortns := regexSplit "-" .Release.Namespace -1 | first }}
-{{- if has $shortns (list "production" "p") }}
-{{- else }}
-{{- $shortns }}
-{{- end }}
-{{- end }}
+{{- define "conference.tenantServiceAudience" -}}
+{{- $tenant := . -}}
+{{- list "svc" $tenant | join "." -}}
+{{- end -}}
 
 {{/*
-Audience Environment
+Tenant User Audience
 */}}
-{{- define "conference.audienceEnvironment" -}}
-{{- $v := regexReplaceAll "(s)(\\d\\d)" (include "conference.shortNamespace" .) "staging${2}" }}
-{{- $v := regexReplaceAll "(t)(\\d\\d)" $v "testing${2}" }}
-{{- $v }}
+{{- define "conference.tenantUserAudience" -}}
+{{- $tenant := . -}}
+{{- list "usr" $tenant | join "." -}}
+{{- end -}}
+
+{{/*
+Tenant Object Audience
+*/}}
+{{- define "conference.tenantObjectAudience" -}}
+{{- $namespace := index . 0 -}}
+{{- $tenant := index . 1 -}}
+{{- $env := regexSplit "-" $namespace -1 | first -}}
+{{- $devEnv := ""}}
+{{- if ne $env "p" }}
+{{- $devEnv = regexReplaceAll "(s)(\\d\\d)" $env "staging${2}" }}
+{{- $devEnv = regexReplaceAll "(t)(\\d\\d)" $devEnv "testing${2}" }}
+{{- end }}
+{{- list $devEnv $tenant | compact | join "." }}
 {{- end }}
 
 {{/*

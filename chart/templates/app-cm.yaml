@@ -29,8 +29,8 @@ data:
     max_message_size = 5000000
 
     [backend]
-    {{- $backend_id := list "janus-gateway" .Values.app.svc.audience | compact | join "." }}
-    id = {{ $backend_id | quote }}
+    {{- $backendId := list "janus-gateway" .Values.app.svc.audience | compact | join "." }}
+    id = {{ $backendId | quote }}
     default_timeout = 5
     stream_upload_timeout = 600
     transaction_watchdog_check_period = 1
@@ -56,38 +56,33 @@ data:
 
     {{- println "" }}
 
-    {{- with .Values.app.svc }}
     ##
     ## SVC
     ##
+    {{- with .Values.app.svc }}
     [id_token]
     algorithm = "ES256"
     key = "data/keys/svc.private_key.p8.der"
 
-    {{- $svc_audience := list .audience | compact | join "." }}
-    {{- with .authn }}
-    [authn.{{ $svc_audience | quote }}]
-    audience = [{{ $svc_audience | quote }}]
+    {{- println "" }}
+    [authn.{{ .audience | quote }}]
+    audience = [{{ .audience | quote }}]
     algorithm = "ES256"
-    key = {{ "key" | get . | quote }}
-    {{- end }}
+    key = {{ .authn.key | quote }}
 
     {{- println "" }}
-
-    {{- $svc_audience := list .audience | compact | join "." }}
-    {{- with .authz }}
-    [authz.{{ $svc_audience | quote }}]
-    type = {{ .type | quote }}
-    {{- if eq "local" .type }}
+    [authz.{{ .audience | quote }}]
+    type = {{ .authz.type | quote }}
+    {{- if eq "local" .authz.type }}
     trusted = [
-      {{- range $account_label := .trusted }}
+      {{- range $account_label := .authz.trusted }}
         {{ (list $account_label $.Values.app.svc.audience) | compact | join "." | quote }},
       {{- end }}
     ]
     {{- end }}
-    {{- if eq "localwhitelist" .type }}
-    [[authz.{{ $svc_audience | quote }}.records]]
-    {{- range $record := .records }}
+    {{- if eq "localwhitelist" .authz.type }}
+    [[authz.{{ $.Values.app.svc.audience | quote }}.records]]
+    {{- range $record := .authz.records }}
     subject_account_id = {{ get $record "subject_account_id" | quote }}
     object = [
       {{- range $o := get $record "object" }}
@@ -95,7 +90,6 @@ data:
       {{- end}}
     ]
     action = {{ get $record "action" | quote }}
-    {{- end }}
     {{- end }}
     {{- end }}
     {{- end }}
@@ -106,43 +100,41 @@ data:
     ##
     ## {{ .audience }}
     ##
-    {{- $svc_audience := list "svc" .audience | compact | join "." }}
-    {{- $usr_audience := list "usr" .audience | compact | join "." }}
-    {{- with .authn }}
-    [authn.{{ list "iam" $svc_audience | join "." | quote }}]
-    audience = [{{ $svc_audience | quote }}, {{ $usr_audience | quote }}]
+    {{- $tenantServiceAudience := include "conference.tenantServiceAudience" .audience }}
+    {{- $tenantUserAudience := include "conference.tenantUserAudience" .audience }}
+    {{- $tenantObjectAudience := include "conference.tenantObjectAudience" (list $.Release.Namespace .audience) }}
+    [authn.{{ list "iam" $tenantServiceAudience | join "." | quote }}]
+    audience = [{{ $tenantServiceAudience | quote }}, {{ $tenantUserAudience | quote }}]
     algorithm = "ES256"
-    key = {{ .key | quote }}
-    {{- end }}
+    key = {{ .authn.key | quote }}
 
-    {{- $ns_audience := list (include "conference.audienceEnvironment" $) .audience | compact | join "."  }}
     {{- println "" }}
 
     {{- with .authz }}
-    [authz.{{ $ns_audience | quote }}]
+    [authz.{{ $tenantObjectAudience | quote }}]
     type = {{ .type | quote }}
     {{- if eq "http" .type }}
-    {{- $default_authz_url := $ns_audience | list "http://dispatcher-cluster:8080/api/v1/authz/" | join "" }}
-    uri = {{ default $default_authz_url .uri | quote }}
+    {{- $defaultAuthzUrl := list "http://dispatcher-cluster:8080/api/v1/authz/" $tenantObjectAudience | join "" }}
+    uri = {{ default $defaultAuthzUrl .uri | quote }}
     algorithm = {{ default "ES256" .algorithm | quote }}
     key = {{ default "data/keys/svc.private_key.p8.der" .key | quote }}
     user_agent = {{ default $id .user_agent | quote }}
     max_retries = {{ default 3 .max_retries }}
     trusted = [
-      {{- range $account_label := .trusted }}
-        {{ (list $account_label $.Values.app.svc.audience) | compact | join "." | quote }},
+      {{- range $accountLabel := .trusted }}
+        {{ (list $accountLabel $.Values.app.svc.audience) | compact | join "." | quote }},
       {{- end }}
     ]
     {{- end }}
     {{- if eq "local" .type }}
     trusted = [
-      {{- range $account_label := .trusted }}
-        {{ $ns_audience | list $account_label | join "." | quote }},
+      {{- range $accountLabel := .trusted }}
+        {{ list $accountLabel $.Values.app.svc.audience  | join "." | quote }},
       {{- end }}
     ]
     {{- end }}
     {{- if eq "localwhitelist" .type }}
-    [[authz.{{ $ns_audience | quote }}.records]]
+    [[authz.{{ $tenantObjectAudience | quote }}.records]]
     {{- range $record := .records }}
     subject_account_id = {{ get $record "subject_account_id" | quote }}
     object = [
@@ -156,12 +148,12 @@ data:
     {{- end }}
     {{- println "" }}
 
-    [upload.shared.{{ $ns_audience | quote }}]
+    [upload.shared.{{ $tenantObjectAudience | quote }}]
     backend = {{ .s3 | quote }}
-    bucket = "origin.webinar.{{ $ns_audience }}"
+    bucket = "origin.webinar.{{ $tenantObjectAudience }}"
 
-    [upload.owned.{{ $ns_audience | quote }}]
+    [upload.owned.{{ $tenantObjectAudience | quote }}]
     backend = {{ .s3 | quote }}
-    bucket = "origin.minigroup.{{ $ns_audience }}"
+    bucket = "origin.minigroup.{{ $tenantObjectAudience }}"
     {{- println "" }}
     {{- end }}
