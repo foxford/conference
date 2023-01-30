@@ -4,6 +4,8 @@
 
 replicaCount: 2
 
+minReadySeconds: 5
+
 app:
   image:
     repository: cr.yandex/crp1of6bddata8ain3q5/conference
