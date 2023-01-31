@@ -6,6 +6,7 @@ metadata:
     {{- include "conference.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount | default 2 }}
+  minReadySeconds: {{ .Values.minReadySeconds }}
   serviceName: {{ include "conference.fullname" . }}-headless
   selector:
     matchLabels:
