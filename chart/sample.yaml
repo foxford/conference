@@ -1,4 +1,9 @@
+migrations:
+  image:
+    tag: "1.2.3"
 app:
+  image:
+    tag: "1.2.3"
   svc:
     audience: svc.test.net
     credentials:
