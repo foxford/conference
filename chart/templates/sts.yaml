@@ -26,7 +26,7 @@ spec:
         - name: regcred
       initContainers:
         - name: init-{{ .Chart.Name }}-migration
-          image: "{{ .Values.migrations.image.repository }}:{{ .Values.migrations.image.tag | default .Values.app.image.tag | default $.Chart.AppVersion }}"
+          image: "{{ .Values.migrations.image.repository }}:{{ .Values.migrations.image.tag | default .Values.app.image.tag }}"
           imagePullPolicy: IfNotPresent
           env:
             - name: DATABASE_URL
@@ -38,7 +38,7 @@ spec:
             {{- toYaml .Values.migrations.resources | nindent 12 }}
       containers:
         - name: {{ .Chart.Name }}
-          image: "{{ .Values.app.image.repository }}:{{ .Values.app.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.app.image.repository }}:{{ .Values.app.image.tag }}"
           imagePullPolicy: IfNotPresent
           livenessProbe:
             httpGet:
