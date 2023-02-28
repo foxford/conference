@@ -109,10 +109,10 @@ pub enum RequestParams<'a> {
 impl<'a> RequestParams<'a> {
     pub fn as_mqtt_params(&self) -> Result<&IncomingRequestProperties, error::Error> {
         match self {
-            RequestParams::Http { agent_id: _ } => Err(error::Error::new(
-                error::ErrorKind::AccessDenied,
-                anyhow::anyhow!("Trying convert http params into mqtt"),
-            )),
+            RequestParams::Http { agent_id: _ } => {
+                Err(anyhow::anyhow!("Trying convert http params into mqtt"))
+                    .error(error::ErrorKind::AccessDenied)
+            }
             RequestParams::MqttParams(p) => Ok(p),
         }
     }

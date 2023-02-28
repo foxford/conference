@@ -643,7 +643,7 @@ impl RequestHandler for EnterHandler {
             .mqtt_gateway_client()
             .create_subscription(subject.clone(), &object)
             .await
-            .map_err(|err| AppError::new(AppErrorKind::BrokerRequestFailed, err))?;
+            .error(AppErrorKind::BrokerRequestFailed)?;
 
         let room = crate::util::spawn_blocking({
             let subject = subject.clone();

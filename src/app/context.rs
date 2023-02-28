@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Context as AnyhowContext;
 use chrono::{DateTime, Utc};
 use diesel::{
     pg::PgConnection,
@@ -42,9 +43,7 @@ pub trait GlobalContext: Sync {
         async move {
             crate::util::spawn_blocking(move || {
                 db.get()
-                    .map_err(|err| {
-                        anyhow::Error::from(err).context("Failed to acquire DB connection")
-                    })
+                    .context("Failed to acquire DB connection")
                     .error(AppErrorKind::DbConnAcquisitionFailed)
             })
             .await

@@ -17,7 +17,7 @@ use crate::{
         rtc::SharingPolicy,
     },
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::stream;
@@ -315,7 +315,7 @@ fn upload_config<'a, C: Context>(
 
     config
         .get(room.audience())
-        .ok_or_else(|| anyhow!("Missing upload configuration for the room's audience"))
+        .context("Missing upload configuration for the room's audience")
         .error(AppErrorKind::ConfigKeyMissing)
 }
 

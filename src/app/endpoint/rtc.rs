@@ -233,7 +233,7 @@ impl RequestHandler for ReadHandler {
             db::rtc::FindQuery::new()
                 .id(payload.id)
                 .execute(&conn)?
-                .ok_or_else(|| anyhow!("RTC not found"))
+                .context("RTC not found")
                 .error(AppErrorKind::RtcNotFound)
         })
         .await?;
@@ -502,7 +502,7 @@ where
                         db::rtc::FindQuery::new()
                             .id(id)
                             .execute(&conn)?
-                            .ok_or_else(|| anyhow!("RTC not found"))
+                            .context("RTC not found")
                             .error(AppErrorKind::RtcNotFound)
                     })
                     .await?;
@@ -522,7 +522,7 @@ where
         let label = self
             .label
             .as_ref()
-            .ok_or_else(|| anyhow!("Missing label"))
+            .context("Missing label")
             .error(AppErrorKind::MessageParsingFailed)?
             .clone();
 
@@ -616,12 +616,12 @@ where
                 Some(backend_id) => db::janus_backend::FindQuery::new()
                     .id(backend_id)
                     .execute(&conn)?
-                    .ok_or_else(|| anyhow!("No backend found for stream"))
+                    .context("No backend found for stream")
                     .error(AppErrorKind::BackendNotFound)?,
                 None if group.as_deref() == Some("minigroup") => {
                     db::janus_backend::least_loaded(room.id(), group.as_deref(), &conn).transpose()
                     .or_else(|| db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn).transpose())
-                    .ok_or_else(|| anyhow!("No available backends"))
+                    .context("No available backends")
                     .error(AppErrorKind::NoAvailableBackends)??
                 }
                 None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn)? {
@@ -651,7 +651,7 @@ where
 
                             backend
                         })
-                        .ok_or_else(|| anyhow!("No available backends"))
+                        .context("No available backends")
                         .error(AppErrorKind::NoAvailableBackends)?,
                 },
             };
@@ -959,7 +959,7 @@ impl RequestHandler for ConnectHandler {
                         db::rtc::FindQuery::new()
                             .id(payload_id)
                             .execute(&conn)?
-                            .ok_or_else(|| anyhow!("RTC not found"))
+                            .context("RTC not found")
                             .error(AppErrorKind::RtcNotFound)
                     })
                     .await?;
@@ -1009,12 +1009,12 @@ impl RequestHandler for ConnectHandler {
                 Some(backend_id) => db::janus_backend::FindQuery::new()
                     .id(backend_id)
                     .execute(&conn)?
-                    .ok_or_else(|| anyhow!("No backend found for stream"))
+                    .context("No backend found for stream")
                     .error(AppErrorKind::BackendNotFound)?,
                 None if group.as_deref() == Some("minigroup") => {
                     db::janus_backend::least_loaded(room.id(), group.as_deref(), &conn).transpose()
                     .or_else(|| db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn).transpose())
-                    .ok_or_else(|| anyhow!("No available backends"))
+                    .context("No available backends")
                     .error(AppErrorKind::NoAvailableBackends)??
                 }
                 None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn)? {
@@ -1045,7 +1045,7 @@ impl RequestHandler for ConnectHandler {
 
                             backend
                         })
-                        .ok_or_else(|| anyhow!("No available backends"))
+                        .context("No available backends")
                         .error(AppErrorKind::NoAvailableBackends)?,
                 },
             };
