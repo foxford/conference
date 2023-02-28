@@ -313,7 +313,7 @@ mod test {
             .unwrap();
         // check if handle expired by timeout;
         tokio::time::sleep(Duration::from_secs(2)).await;
-        let _ping_response = context
+        context
             .janus_clients()
             .get_or_insert(&backend)?
             .service_ping(ServicePingRequest {
