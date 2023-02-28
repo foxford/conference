@@ -42,7 +42,7 @@ impl From<error::Error> for ErrorRepr {
     fn from(e: error::Error) -> Self {
         Self {
             kind: e.error_kind(),
-            detail: e.source().to_string(),
+            detail: e.detail(),
         }
     }
 }

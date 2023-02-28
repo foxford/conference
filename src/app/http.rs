@@ -118,16 +118,16 @@ pub fn build_router(
 
 impl IntoResponse for super::error::Error {
     fn into_response(self) -> Response {
-        let source = self.source().to_string();
+        let detail = self.detail();
         let err = svc_error::Error::builder()
             .status(self.status())
             .kind(self.kind(), self.title())
-            .detail(&source)
+            .detail(&detail)
             .build();
 
         let span = Span::current();
         span.record("kind", &self.kind());
-        span.record("detail", &source.as_str());
+        span.record("detail", &detail.as_str());
 
         let error =
             serde_json::to_string(&err).unwrap_or_else(|_| "Failed to serialize error".to_string());
