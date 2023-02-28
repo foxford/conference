@@ -17,7 +17,7 @@ use crate::{
         rtc::SharingPolicy,
     },
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::stream;
@@ -315,7 +315,7 @@ fn upload_config<'a, C: Context>(
 
     config
         .get(room.audience())
-        .ok_or_else(|| anyhow!("Missing upload configuration for the room's audience"))
+        .context("Missing upload configuration for the room's audience")
         .error(AppErrorKind::ConfigKeyMissing)
 }
 
@@ -447,10 +447,10 @@ mod test {
                     );
 
                     let room1 =
-                        shared_helpers::insert_closed_room_with_backend_id(&conn, &backend.id());
+                        shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
 
                     let room2 =
-                        shared_helpers::insert_closed_room_with_backend_id(&conn, &backend.id());
+                        shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
 
                     // Insert rtcs.
                     let rtcs = vec![
@@ -508,7 +508,7 @@ mod test {
                 })
                 .collect();
             context.janus_clients().remove_client(&backend);
-            assert!(messages.len() > 0);
+            assert!(!messages.is_empty());
             assert_eq!(recv_rtcs, rtcs);
         }
 

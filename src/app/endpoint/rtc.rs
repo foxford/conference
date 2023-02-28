@@ -233,7 +233,7 @@ impl RequestHandler for ReadHandler {
             db::rtc::FindQuery::new()
                 .id(payload.id)
                 .execute(&conn)?
-                .ok_or_else(|| anyhow!("RTC not found"))
+                .context("RTC not found")
                 .error(AppErrorKind::RtcNotFound)
         })
         .await?;
@@ -502,7 +502,7 @@ where
                         db::rtc::FindQuery::new()
                             .id(id)
                             .execute(&conn)?
-                            .ok_or_else(|| anyhow!("RTC not found"))
+                            .context("RTC not found")
                             .error(AppErrorKind::RtcNotFound)
                     })
                     .await?;
@@ -522,7 +522,7 @@ where
         let label = self
             .label
             .as_ref()
-            .ok_or_else(|| anyhow!("Missing label"))
+            .context("Missing label")
             .error(AppErrorKind::MessageParsingFailed)?
             .clone();
 
@@ -616,12 +616,12 @@ where
                 Some(backend_id) => db::janus_backend::FindQuery::new()
                     .id(backend_id)
                     .execute(&conn)?
-                    .ok_or_else(|| anyhow!("No backend found for stream"))
+                    .context("No backend found for stream")
                     .error(AppErrorKind::BackendNotFound)?,
                 None if group.as_deref() == Some("minigroup") => {
                     db::janus_backend::least_loaded(room.id(), group.as_deref(), &conn).transpose()
                     .or_else(|| db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn).transpose())
-                    .ok_or_else(|| anyhow!("No available backends"))
+                    .context("No available backends")
                     .error(AppErrorKind::NoAvailableBackends)??
                 }
                 None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn)? {
@@ -651,7 +651,7 @@ where
 
                             backend
                         })
-                        .ok_or_else(|| anyhow!("No available backends"))
+                        .context("No available backends")
                         .error(AppErrorKind::NoAvailableBackends)?,
                 },
             };
@@ -959,7 +959,7 @@ impl RequestHandler for ConnectHandler {
                         db::rtc::FindQuery::new()
                             .id(payload_id)
                             .execute(&conn)?
-                            .ok_or_else(|| anyhow!("RTC not found"))
+                            .context("RTC not found")
                             .error(AppErrorKind::RtcNotFound)
                     })
                     .await?;
@@ -1009,12 +1009,12 @@ impl RequestHandler for ConnectHandler {
                 Some(backend_id) => db::janus_backend::FindQuery::new()
                     .id(backend_id)
                     .execute(&conn)?
-                    .ok_or_else(|| anyhow!("No backend found for stream"))
+                    .context("No backend found for stream")
                     .error(AppErrorKind::BackendNotFound)?,
                 None if group.as_deref() == Some("minigroup") => {
                     db::janus_backend::least_loaded(room.id(), group.as_deref(), &conn).transpose()
                     .or_else(|| db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn).transpose())
-                    .ok_or_else(|| anyhow!("No available backends"))
+                    .context("No available backends")
                     .error(AppErrorKind::NoAvailableBackends)??
                 }
                 None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &conn)? {
@@ -1045,7 +1045,7 @@ impl RequestHandler for ConnectHandler {
 
                             backend
                         })
-                        .ok_or_else(|| anyhow!("No available backends"))
+                        .context("No available backends")
                         .error(AppErrorKind::NoAvailableBackends)?,
                 },
             };
@@ -1793,7 +1793,7 @@ mod test {
                         &conn, &janus.url, session_id, handle_id,
                     );
 
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, &backend2.id());
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
 
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
                     let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -1972,11 +1972,11 @@ mod test {
                             Bound::Excluded(now + Duration::hours(1)),
                         ))
                         .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .backend_id(&backend.id())
+                        .backend_id(backend.id())
                         .reserve(2)
                         .insert(&conn);
 
-                    let room2 = shared_helpers::insert_room_with_backend_id(&conn, &backend.id());
+                    let room2 = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
 
                     // Insert rtcs.
                     let rtc1 = factory::Rtc::new(room1.id()).insert(&conn);
@@ -2012,7 +2012,7 @@ mod test {
             // Allow user to read rtcs.
             for rtc in &[(&rtc1, &classroom_id1), (&rtc2, &classroom_id2)] {
                 let rtc_id = rtc.0.id().to_string();
-                let object = vec!["classrooms", &rtc.1, "rtcs", &rtc_id];
+                let object = vec!["classrooms", rtc.1, "rtcs", &rtc_id];
                 authz.allow(reader1.account_id(), object, "read");
             }
 
@@ -2035,7 +2035,7 @@ mod test {
             {
                 let conn = context.get_conn().await.expect("Failed to acquire db conn");
                 let row_count = db::agent::DeleteQuery::new()
-                    .agent_id(&reader1.agent_id())
+                    .agent_id(reader1.agent_id())
                     .room_id(rtc2.room_id())
                     .execute(&conn)
                     .expect("Failed to delete user from agents");
@@ -2156,7 +2156,7 @@ mod test {
                     .insert(&conn);
 
                     // Insert room and rtc.
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, &backend.id());
+                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
 
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 

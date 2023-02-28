@@ -643,7 +643,7 @@ impl RequestHandler for EnterHandler {
             .mqtt_gateway_client()
             .create_subscription(subject.clone(), &object)
             .await
-            .map_err(|err| AppError::new(AppErrorKind::BrokerRequestFailed, err))?;
+            .error(AppErrorKind::BrokerRequestFailed)?;
 
         let room = crate::util::spawn_blocking({
             let subject = subject.clone();
@@ -811,13 +811,13 @@ mod test {
             let classroom_id = Uuid::new_v4();
 
             let payload = CreateRequest {
-                time: time.clone(),
+                time,
                 audience: USR_AUDIENCE.to_owned(),
                 backend: None,
                 rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
                 reserve: Some(123),
                 tags: Some(json!({ "foo": "bar" })),
-                classroom_id: classroom_id,
+                classroom_id,
             };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)

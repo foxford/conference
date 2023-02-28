@@ -8,7 +8,7 @@ use crate::{
     db,
     db::room::Object as Room,
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use chrono::{DateTime, Duration, Utc};
 use diesel::pg::PgConnection;
 use serde::Serialize;
@@ -89,7 +89,7 @@ where
 {
     let room = query
         .execute(conn)?
-        .ok_or_else(|| anyhow!("Room not found"))
+        .context("Room not found")
         .error(AppErrorKind::RoomNotFound)?;
 
     match opening_requirement {

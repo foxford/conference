@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context as AnyhowContext, Result};
 use futures::stream;
 use serde::{Deserialize, Serialize};
 use svc_agent::{
@@ -116,10 +116,10 @@ async fn handle_event_impl<C: Context>(
                         .plugindata
                         .data
                         .as_ref()
-                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                        .context("Missing 'data' in the response")
                         .error(AppErrorKind::MessageParsingFailed)?
                         .get("status")
-                        .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                        .context("Missing 'status' in the response")
                         .error(AppErrorKind::MessageParsingFailed)
                         .and_then(|status| {
                             if status == "200" {
@@ -132,7 +132,7 @@ async fn handle_event_impl<C: Context>(
                         .and_then(|_| {
                             // Getting answer (as JSEP)
                             let jsep = jsep
-                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                                .context("Missing 'jsep' in the response")
                                 .error(AppErrorKind::MessageParsingFailed)?;
                             Ok(endpoint::rtc_signal::CreateResponseData::new(Some(jsep)))
                         });
@@ -198,10 +198,10 @@ async fn handle_event_impl<C: Context>(
                         .plugindata
                         .data
                         .as_ref()
-                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                        .context("Missing 'data' in the response")
                         .error(AppErrorKind::MessageParsingFailed)?
                         .get("status")
-                        .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                        .context("Missing 'status' in the response")
                         .error(AppErrorKind::MessageParsingFailed)
                         // We fail if the status isn't equal to 200
                         .and_then(|status| {
@@ -215,7 +215,7 @@ async fn handle_event_impl<C: Context>(
                         .and_then(|_| {
                             // Getting answer (as JSEP)
                             let jsep = jsep
-                                .ok_or_else(|| anyhow!("Missing 'jsep' in the response"))
+                                .context("Missing 'jsep' in the response")
                                 .error(AppErrorKind::MessageParsingFailed)?;
 
                             Ok(endpoint::rtc_signal::CreateResponseData::new(Some(jsep)))
@@ -279,17 +279,16 @@ async fn handle_event_impl<C: Context>(
                 Some(TransactionKind::UploadStream(ref tn)) => {
                     Span::current().record("rtc_id", &tn.rtc_id.to_string().as_str());
 
-                    // TODO: improve error handling
                     let plugin_data = resp
                         .plugindata
                         .data
-                        .ok_or_else(|| anyhow!("Missing 'data' in the response"))
+                        .context("Missing 'data' in the response")
                         .error(AppErrorKind::MessageParsingFailed)?;
 
                     let upload_stream = async {
                         let status = plugin_data
                             .get("status")
-                            .ok_or_else(|| anyhow!("Missing 'status' in the response"))
+                            .context("Missing 'status' in the response")
                             .error(AppErrorKind::MessageParsingFailed)?;
                         match status {
                             val if val == "200" => Ok(()),
@@ -311,11 +310,11 @@ async fn handle_event_impl<C: Context>(
                         }?;
                         let rtc_id = plugin_data
                             .get("id")
-                            .ok_or_else(|| anyhow!("Missing 'id' in response"))
+                            .context("Missing 'id' in response")
                             .error(AppErrorKind::MessageParsingFailed)
                             .and_then(|val| {
                                 serde_json::from_value::<db::rtc::Id>(val.clone())
-                                    .map_err(|err| anyhow!("Invalid value for 'id': {}", err))
+                                    .context("Invalid value for 'id'")
                                     .error(AppErrorKind::MessageParsingFailed)
                             })?;
 
@@ -329,13 +328,11 @@ async fn handle_event_impl<C: Context>(
 
                         let mjr_dumps_uris = plugin_data
                             .get("mjr_dumps_uris")
-                            .ok_or_else(|| anyhow!("Missing 'mjr_dumps_uris' in response"))
+                            .context("Missing 'mjr_dumps_uris' in response")
                             .error(AppErrorKind::MessageParsingFailed)
                             .and_then(|dumps| {
                                 serde_json::from_value::<Vec<String>>(dumps.clone())
-                                    .map_err(|err| {
-                                        anyhow!("Invalid value for 'dumps_uris': {}", err)
-                                    })
+                                    .context("Invalid value for 'dumps_uris'")
                                     .error(AppErrorKind::MessageParsingFailed)
                             })?;
 
@@ -353,7 +350,7 @@ async fn handle_event_impl<C: Context>(
                                 let rtc = rtc::FindQuery::new()
                                     .id(rtc_id)
                                     .execute(&conn)?
-                                    .ok_or_else(|| anyhow!("RTC not found"))
+                                    .context("RTC not found")
                                     .error(AppErrorKind::RtcNotFound)?;
 
                                 let room = endpoint::helpers::find_room_by_rtc_id(
@@ -413,14 +410,13 @@ async fn handle_event_impl<C: Context>(
                     let data = resp
                         .plugindata
                         .data
-                        .ok_or_else(|| anyhow!("Missing data int response"))
+                        .context("Missing data int response")
                         .error(AppErrorKind::MessageParsingFailed)?;
-                    let notification: SpeakingNotification = serde_json::from_value(data)
-                        .map_err(anyhow::Error::from)
-                        .error(AppErrorKind::MessageParsingFailed)?;
+                    let notification: SpeakingNotification =
+                        serde_json::from_value(data).error(AppErrorKind::MessageParsingFailed)?;
                     let opaque_id = resp
                         .opaque_id
-                        .ok_or_else(|| anyhow!("Missing opaque id"))
+                        .context("Missing opaque id")
                         .error(AppErrorKind::MessageParsingFailed)?;
                     let uri = format!("rooms/{}/events", opaque_id.room_id);
                     let timing = ShortTermTimingProperties::until_now(context.start_timestamp());

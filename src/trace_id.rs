@@ -106,7 +106,7 @@ where
 }
 
 impl WithContext {
-    fn with_context<'a>(&self, dispatch: &'a Dispatch, id: &span::Id, mut f: impl FnMut(&TraceId)) {
+    fn with_context(&self, dispatch: &'_ Dispatch, id: &span::Id, mut f: impl FnMut(&TraceId)) {
         (self.0)(dispatch, id, &mut f)
     }
 }

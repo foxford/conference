@@ -306,14 +306,14 @@ impl From<ErrorKind> for ErrorKindProperties {
 
 pub struct Error {
     kind: ErrorKind,
-    source: anyhow::Error,
+    source: Option<anyhow::Error>,
 }
 
 impl Error {
     pub fn new(kind: ErrorKind, source: impl Into<anyhow::Error>) -> Self {
         Self {
             kind,
-            source: source.into(),
+            source: Some(source.into()),
         }
     }
 
@@ -333,8 +333,11 @@ impl Error {
         self.kind.title()
     }
 
-    pub fn source(&self) -> &anyhow::Error {
-        &self.source
+    pub fn detail(&self) -> String {
+        match &self.source {
+            Some(s) => s.to_string(),
+            None => String::new(),
+        }
     }
 
     pub fn to_svc_error(&self) -> SvcError {
@@ -342,7 +345,7 @@ impl Error {
         SvcError::builder()
             .status(properties.status)
             .kind(properties.kind, properties.title)
-            .detail(&format!("{:?}", self.source))
+            .detail(&self.detail())
             .build()
     }
 
@@ -355,8 +358,8 @@ impl Error {
             .status(properties.status)
             .kind(properties.kind, properties.title)
             .detail(&format!(
-                "Error: {:?}, Trace: {:?}",
-                self.source,
+                "Error: {}, Trace: {:?}",
+                self.detail(),
                 SpanTrace::capture()
             ))
             .build();
@@ -378,13 +381,16 @@ impl fmt::Debug for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.kind, self.source)
+        match &self.source {
+            Some(s) => write!(f, "{}: {}", self.kind, s),
+            None => write!(f, "{}", self.kind),
+        }
     }
 }
 
 impl StdError for Error {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        Some(self.source.as_ref())
+        self.source.as_ref().map(|s| s.as_ref())
     }
 }
 
@@ -397,7 +403,7 @@ impl From<svc_authz::Error> for Error {
 
         Self {
             kind,
-            source: anyhow::Error::from(source),
+            source: Some(anyhow::Error::from(source)),
         }
     }
 }
@@ -406,7 +412,7 @@ impl From<diesel::result::Error> for Error {
     fn from(source: diesel::result::Error) -> Self {
         Self {
             kind: ErrorKind::DbQueryFailed,
-            source: anyhow::Error::from(source),
+            source: Some(anyhow::Error::from(source)),
         }
     }
 }

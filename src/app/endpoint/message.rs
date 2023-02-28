@@ -8,7 +8,7 @@ use crate::{
     },
     db,
 };
-use anyhow::anyhow;
+use anyhow::Context as AnyhowContext;
 use async_trait::async_trait;
 use futures::stream;
 use serde::{Deserialize, Serialize};
@@ -79,7 +79,7 @@ impl RequestHandler for UnicastHandler {
         let response_topic =
             Subscription::multicast_requests_from(&payload.agent_id, Some(API_VERSION))
                 .subscription_topic(context.agent_id(), API_VERSION)
-                .map_err(|err| anyhow!("Error building responses subscription topic: {}", err))
+                .context("Error building responses subscription topic")
                 .error(AppErrorKind::MessageBuildingFailed)?;
 
         let corr_data_payload = CorrelationDataPayload::new(mqtt_params.to_owned());

@@ -110,7 +110,7 @@ impl RequestHandler for CreateHandler {
             let rtc = db::rtc::FindQuery::new()
                 .id(handle_id.rtc_id())
                 .execute(&conn)?
-                .ok_or_else(|| anyhow!("RTC not found"))
+                .context("RTC not found")
                 .error(AppErrorKind::RtcNotFound)?;
 
             let room = helpers::find_room_by_id(
@@ -143,7 +143,7 @@ impl RequestHandler for CreateHandler {
             let janus_backend = db::janus_backend::FindQuery::new()
                 .id(handle_id.backend_id())
                 .execute(&conn)?
-                .ok_or_else(|| anyhow!("Backend not found"))
+                .context("Backend not found")
                 .error(AppErrorKind::BackendNotFound)?;
 
             if handle_id.janus_session_id() != janus_backend.session_id() {
@@ -155,7 +155,7 @@ impl RequestHandler for CreateHandler {
             let agent_connection =
                 db::agent_connection::FindQuery::new(&agent_id, rtc.id())
                     .execute(&conn)?
-                    .ok_or_else(|| anyhow!("Agent not connected"))
+                    .context("Agent not connected")
                     .error(AppErrorKind::AgentNotConnected)?;
 
             if handle_id.janus_handle_id() != agent_connection.handle_id() {
@@ -264,7 +264,7 @@ impl RequestHandler for CreateHandler {
                             let label = payload
                                 .label
                                 .as_ref()
-                                .ok_or_else(|| anyhow!("Missing label"))
+                                .context("Missing label")
                                 .error(AppErrorKind::MessageParsingFailed)?
                                 .clone();
 
@@ -475,7 +475,7 @@ impl<C: Context> Trickle<'_, C> {
             let rtc = db::rtc::FindQuery::new()
                 .id(handle_id.rtc_id())
                 .execute(&conn)?
-                .ok_or_else(|| anyhow!("RTC not found"))
+                .context("RTC not found")
                 .error(AppErrorKind::RtcNotFound)?;
 
             let room = helpers::find_room_by_id(
@@ -508,7 +508,7 @@ impl<C: Context> Trickle<'_, C> {
             let janus_backend = db::janus_backend::FindQuery::new()
                 .id(handle_id.backend_id())
                 .execute(&conn)?
-                .ok_or_else(|| anyhow!("Backend not found"))
+                .context("Backend not found")
                 .error(AppErrorKind::BackendNotFound)?;
 
             if handle_id.janus_session_id() != janus_backend.session_id() {
@@ -520,7 +520,7 @@ impl<C: Context> Trickle<'_, C> {
             let agent_connection =
                 db::agent_connection::FindQuery::new(&agent_id, rtc.id())
                     .execute(&conn)?
-                    .ok_or_else(|| anyhow!("Agent not connected"))
+                    .context("Agent not connected")
                     .error(AppErrorKind::AgentNotConnected)?;
 
             if handle_id.janus_handle_id() != agent_connection.handle_id() {

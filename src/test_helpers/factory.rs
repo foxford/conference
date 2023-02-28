@@ -384,10 +384,7 @@ impl<'a> Recording<'a> {
     }
 
     pub fn rtc(self, rtc: &'a db::rtc::Object) -> Self {
-        Self {
-            rtc: Some(rtc),
-            ..self
-        }
+        Self { rtc: Some(rtc) }
     }
 
     pub fn insert(&self, conn: &PgConnection) -> db::recording::Object {
