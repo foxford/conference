@@ -4,6 +4,10 @@ migrations:
 app:
   image:
     tag: "1.2.3"
+  resources:
+    limits:
+      cpu: 0.2
+      memory: 200Mi
   svc:
     audience: svc.test.net
     credentials:
