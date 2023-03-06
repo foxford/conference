@@ -186,9 +186,10 @@ async fn leave_room<C: Context>(
     agent_id: &AgentId,
     room_id: db::room::Id,
 ) -> StdResult<bool, AppError> {
-    let conn = context.get_conn().await?;
     let left = crate::util::spawn_blocking({
         let agent_id = agent_id.clone();
+
+        let conn = context.get_conn().await?;
         move || {
             let row_count = db::agent::DeleteQuery::new()
                 .agent_id(&agent_id)

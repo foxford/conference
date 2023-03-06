@@ -109,10 +109,11 @@ impl RequestHandler for CreateHandler {
             )
             .await?;
         context.metrics().observe_auth(authz_time);
+
         // Create a room.
-        let conn = context.get_conn().await?;
         let audience = payload.audience.clone();
         let room = crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
             move || {
                 let mut q = db::room::InsertQuery::new(
                     payload.time,
@@ -196,9 +197,9 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let conn = context.get_conn().await?;
-        let room = crate::util::spawn_blocking(move || {
-            helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)
+        let room = crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
+            move || helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)
         })
         .await?;
 
@@ -300,10 +301,11 @@ impl RequestHandler for UpdateHandler {
         } else {
             helpers::RoomTimeRequirement::Any
         };
-        let conn = context.get_conn().await?;
 
         let room = crate::util::spawn_blocking({
             let id = payload.id;
+
+            let conn = context.get_conn().await?;
             move || helpers::find_room_by_id(id, time_requirement, &conn)
         })
         .await?;
@@ -326,58 +328,59 @@ impl RequestHandler for UpdateHandler {
         let room_was_open = !room.is_closed();
 
         // Update room.
-        let conn = context.get_conn().await?;
-        let room =crate::util::spawn_blocking(move ||{
-
-            let time = match payload.time {
-                None => None,
-                Some(new_time) => {
-                    match new_time {
-                        (Bound::Included(o), Bound::Excluded(c)) if o < c => (),
-                        (Bound::Included(_), Bound::Unbounded) => (),
-                        _ => {
-                            return Err(anyhow!("Invalid room time"))
-                                .error(AppErrorKind::InvalidRoomTime)
-                        }
-                    };
-
-                    match room.time() {
-                        (_, Bound::Unbounded) => match new_time {
-                            (_, Bound::Excluded(_)) if room.infinite() => {
-                                return Err(anyhow!("Setting closing time is not allowed in this room since it's infinite"))
-                                .error(AppErrorKind::RoomTimeChangingForbidden);
+        let room = crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
+            move || {
+                let time = match payload.time {
+                    None => None,
+                    Some(new_time) => {
+                        match new_time {
+                            (Bound::Included(o), Bound::Excluded(c)) if o < c => (),
+                            (Bound::Included(_), Bound::Unbounded) => (),
+                            _ => {
+                                return Err(anyhow!("Invalid room time"))
+                                    .error(AppErrorKind::InvalidRoomTime)
                             }
-                            // Allow any change when no closing date specified.
-                            _  => Some(new_time)
-                        }
-                        (Bound::Included(o), Bound::Excluded(c)) if *c > Utc::now() => {
-                            match new_time {
-                                // Allow reschedule future closing.
-                                (_, Bound::Excluded(nc)) => {
-                                    let nc = std::cmp::max(nc, Utc::now());
-                                    Some((Bound::Included(*o), Bound::Excluded(nc)))
+                        };
+
+                        match room.time() {
+                            (_, Bound::Unbounded) => match new_time {
+                                (_, Bound::Excluded(_)) if room.infinite() => {
+                                    return Err(anyhow!("Setting closing time is not allowed in this room since it's infinite"))
+                                    .error(AppErrorKind::RoomTimeChangingForbidden);
                                 }
-                                _ => {
-                                    return Err(anyhow!("Setting unbounded closing time is not allowed in this room anymore"))
-                                        .error(AppErrorKind::RoomTimeChangingForbidden);
+                                // Allow any change when no closing date specified.
+                                _  => Some(new_time)
+                            }
+                            (Bound::Included(o), Bound::Excluded(c)) if *c > Utc::now() => {
+                                match new_time {
+                                    // Allow reschedule future closing.
+                                    (_, Bound::Excluded(nc)) => {
+                                        let nc = std::cmp::max(nc, Utc::now());
+                                        Some((Bound::Included(*o), Bound::Excluded(nc)))
+                                    }
+                                    _ => {
+                                        return Err(anyhow!("Setting unbounded closing time is not allowed in this room anymore"))
+                                            .error(AppErrorKind::RoomTimeChangingForbidden);
+                                    }
                                 }
                             }
-                        }
-                        _ => {
-                            return Err(anyhow!("Room has been already closed"))
-                                .error(AppErrorKind::RoomTimeChangingForbidden);
+                            _ => {
+                                return Err(anyhow!("Room has been already closed"))
+                                    .error(AppErrorKind::RoomTimeChangingForbidden);
+                            }
                         }
                     }
-                }
-            };
+                };
 
-            Ok::<_, AppError>(db::room::UpdateQuery::new(room.id())
-                .time(time)
-                .reserve(payload.reserve)
-                .tags(payload.tags)
-                .classroom_id(payload.classroom_id)
-                .host(payload.host.as_ref())
-                .execute(&conn)?)
+                Ok::<_, AppError>(db::room::UpdateQuery::new(room.id())
+                    .time(time)
+                    .reserve(payload.reserve)
+                    .tags(payload.tags)
+                    .classroom_id(payload.classroom_id)
+                    .host(payload.host.as_ref())
+                    .execute(&conn)?)
+            }
         }).await?;
 
         // Respond and broadcast to the audience topic.
@@ -401,10 +404,12 @@ impl RequestHandler for UpdateHandler {
                 let room = crate::util::spawn_blocking({
                     let room_id = room.id();
                     let agent = reqp.as_agent_id().to_owned();
+
                     let conn = context.get_conn().await?;
                     move || db::room::set_closed_by(room_id, &agent, &conn)
                 })
                 .await?;
+
                 response.add_notification(
                     "room.close",
                     &format!("rooms/{}/events", room.id()),
@@ -467,10 +472,10 @@ impl RequestHandler for CloseHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let conn = context.get_conn().await?;
-
         let room = crate::util::spawn_blocking({
             let id = payload.id;
+
+            let conn = context.get_conn().await?;
             move || {
                 helpers::find_room_by_id(
                     id,
@@ -505,6 +510,7 @@ impl RequestHandler for CloseHandler {
         let room = crate::util::spawn_blocking({
             let room_id = room.id();
             let agent = reqp.as_agent_id().to_owned();
+
             let conn = context.get_conn().await?;
             move || db::room::set_closed_by(room_id, &agent, &conn)
         })
@@ -598,9 +604,11 @@ impl RequestHandler for EnterHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let conn = context.get_conn().await?;
-        let room = crate::util::spawn_blocking(move || {
-            helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::NotClosed, &conn)
+        let room = crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
+            move || {
+                helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::NotClosed, &conn)
+            }
         })
         .await?;
 
@@ -621,10 +629,11 @@ impl RequestHandler for EnterHandler {
         context.metrics().observe_auth(authz_time);
 
         // Register agent in `in_progress` state.
-        let conn = context.get_conn().await?;
         crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let room_id = room.id();
+
+            let conn = context.get_conn().await?;
             move || db::agent::InsertQuery::new(&agent_id, room_id).execute(&conn)
         })
         .await?;
@@ -647,6 +656,7 @@ impl RequestHandler for EnterHandler {
 
         let room = crate::util::spawn_blocking({
             let subject = subject.clone();
+
             let conn = context.get_conn().await?;
             move || {
                 if room.host() == Some(&subject) {
@@ -700,9 +710,10 @@ impl RequestHandler for LeaveHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let mqtt_params = reqp.as_mqtt_params()?;
-        let conn = context.get_conn().await?;
         let (room, presence) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
+
+            let conn = context.get_conn().await?;
             move || {
                 let room =
                     helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)?;

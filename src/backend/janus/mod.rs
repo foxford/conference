@@ -65,34 +65,41 @@ async fn handle_event_impl<C: Context>(
 ) -> Result<MessageStream, AppError> {
     match payload {
         IncomingEvent::WebRtcUp(inev) => {
-            let conn = context.get_conn().await?;
-            let start_timestamp = context.start_timestamp();
-            crate::util::spawn_blocking(move || {
-                agent_connection::UpdateQuery::new(
-                    inev.sender,
-                    agent_connection::Status::Connected,
-                )
-                .execute(&conn)?;
+            crate::util::spawn_blocking({
+                let start_timestamp = context.start_timestamp();
 
-                // If the event relates to a publisher's handle,
-                // we will find the corresponding stream and send event w/ updated stream object
-                // to the room's topic.
-                if let Some(rtc_stream) = janus_rtc_stream::start(inev.opaque_id.stream_id, &conn)?
-                {
-                    let room = endpoint::helpers::find_room_by_rtc_id(
-                        rtc_stream.rtc_id(),
-                        endpoint::helpers::RoomTimeRequirement::Open,
-                        &conn,
-                    )?;
+                let conn = context.get_conn().await?;
+                move || {
+                    agent_connection::UpdateQuery::new(
+                        inev.sender,
+                        agent_connection::Status::Connected,
+                    )
+                    .execute(&conn)?;
 
-                    let event =
-                        endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp);
+                    // If the event relates to a publisher's handle,
+                    // we will find the corresponding stream and send event w/ updated stream object
+                    // to the room's topic.
+                    if let Some(rtc_stream) =
+                        janus_rtc_stream::start(inev.opaque_id.stream_id, &conn)?
+                    {
+                        let room = endpoint::helpers::find_room_by_rtc_id(
+                            rtc_stream.rtc_id(),
+                            endpoint::helpers::RoomTimeRequirement::Open,
+                            &conn,
+                        )?;
 
-                    Ok(Box::new(stream::once(std::future::ready(
-                        Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>
-                    ))) as MessageStream)
-                } else {
-                    Ok(Box::new(stream::empty()) as MessageStream)
+                        let event = endpoint::rtc_stream::update_event(
+                            room.id(),
+                            rtc_stream,
+                            start_timestamp,
+                        );
+
+                        Ok(Box::new(stream::once(std::future::ready(Box::new(event)
+                            as Box<dyn IntoPublishableMessage + Send + Sync + 'static>)))
+                            as MessageStream)
+                    } else {
+                        Ok(Box::new(stream::empty()) as MessageStream)
+                    }
                 }
             })
             .await
@@ -293,12 +300,15 @@ async fn handle_event_impl<C: Context>(
                         match status {
                             val if val == "200" => Ok(()),
                             val if val == "404" => {
-                                let conn = context.get_conn().await?;
-                                let rtc_id = tn.rtc_id;
-                                crate::util::spawn_blocking(move || {
-                                    recording::UpdateQuery::new(rtc_id)
-                                        .status(recording::Status::Missing)
-                                        .execute(&conn)
+                                crate::util::spawn_blocking({
+                                    let rtc_id = tn.rtc_id;
+
+                                    let conn = context.get_conn().await?;
+                                    move || {
+                                        recording::UpdateQuery::new(rtc_id)
+                                            .status(recording::Status::Missing)
+                                            .execute(&conn)
+                                    }
                                 })
                                 .await?;
 
@@ -339,9 +349,9 @@ async fn handle_event_impl<C: Context>(
                         let (room, rtcs_with_recs): (
                             room::Object,
                             Vec<(rtc::Object, Option<recording::Object>)>,
-                        ) = {
+                        ) = crate::util::spawn_blocking({
                             let conn = context.get_conn().await?;
-                            crate::util::spawn_blocking(move || {
+                            move || {
                                 recording::UpdateQuery::new(rtc_id)
                                     .status(recording::Status::Ready)
                                     .mjr_dumps_uris(mjr_dumps_uris)
@@ -363,9 +373,9 @@ async fn handle_event_impl<C: Context>(
                                     rtc::ListWithRecordingQuery::new(room.id()).execute(&conn)?;
 
                                 Ok::<_, AppError>((room, rtcs_with_recs))
-                            })
-                            .await?
-                        };
+                            }
+                        })
+                        .await?;
 
                         // Ensure that all rtcs with a recording have ready recording.
                         let room_done = rtcs_with_recs.iter().all(|(_rtc, maybe_recording)| {
@@ -447,38 +457,42 @@ async fn handle_hangup_detach<C: Context>(
     // If the event relates to the publisher's handle,
     // we will find the corresponding stream and send an event w/ updated stream object
     // to the room's topic.
-    let conn = context.get_conn().await?;
-    let start_timestamp = context.start_timestamp();
+    let stop_stream_evt = crate::util::spawn_blocking({
+        let start_timestamp = context.start_timestamp();
+        let stream_id = opaque_id.stream_id;
+        let room_id = opaque_id.room_id;
 
-    let stream_id = opaque_id.stream_id;
-    let room_id = opaque_id.room_id;
+        let conn = context.get_conn().await?;
+        move || {
+            match janus_rtc_stream::stop(stream_id, &conn)? {
+                Some(rtc_stream) => {
+                    // Publish the update event only if the stream object has been changed.
+                    // If there's no actual media stream, the object wouldn't contain its start time.
+                    if rtc_stream.time().is_some() {
+                        // Disconnect agents.
+                        agent_connection::BulkDisconnectByRtcQuery::new(rtc_stream.rtc_id())
+                            .execute(&conn)?;
 
-    let stop_stream_evt = crate::util::spawn_blocking(move || {
-        match janus_rtc_stream::stop(stream_id, &conn)? {
-            Some(rtc_stream) => {
-                // Publish the update event only if the stream object has been changed.
-                // If there's no actual media stream, the object wouldn't contain its start time.
-                if rtc_stream.time().is_some() {
-                    // Disconnect agents.
-                    agent_connection::BulkDisconnectByRtcQuery::new(rtc_stream.rtc_id())
-                        .execute(&conn)?;
+                        // Send rtc_stream.update event.
+                        let event = endpoint::rtc_stream::update_event(
+                            room_id,
+                            rtc_stream,
+                            start_timestamp,
+                        );
 
-                    // Send rtc_stream.update event.
-                    let event =
-                        endpoint::rtc_stream::update_event(room_id, rtc_stream, start_timestamp);
-
-                    let boxed_event =
-                        Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
-                    return Ok(Some(boxed_event));
+                        let boxed_event = Box::new(event)
+                            as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
+                        return Ok(Some(boxed_event));
+                    }
+                }
+                None => {
+                    // Disconnect just this agent.
+                    agent_connection::DisconnectSingleAgentQuery::new(handle_id).execute(&conn)?;
                 }
             }
-            None => {
-                // Disconnect just this agent.
-                agent_connection::DisconnectSingleAgentQuery::new(handle_id).execute(&conn)?;
-            }
-        }
 
-        Ok::<_, AppError>(None)
+            Ok::<_, AppError>(None)
+        }
     })
     .await?;
 

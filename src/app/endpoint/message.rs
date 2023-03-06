@@ -60,21 +60,22 @@ impl RequestHandler for UnicastHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let mqtt_params = reqp.as_mqtt_params()?;
-        {
-            let conn = context.get_conn().await?;
+        crate::util::spawn_blocking({
             let room_id = payload.room_id;
             let reqp_agent_id = reqp.as_agent_id().clone();
             let payload_agent_id = payload.agent_id.clone();
-            crate::util::spawn_blocking(move || {
+
+            let conn = context.get_conn().await?;
+            move || {
                 let room =
                     helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
 
                 helpers::check_room_presence(&room, &reqp_agent_id, &conn)?;
                 helpers::check_room_presence(&room, &payload_agent_id, &conn)?;
                 Ok::<_, AppError>(room)
-            })
-            .await?;
-        }
+            }
+        })
+        .await?;
 
         let response_topic =
             Subscription::multicast_requests_from(&payload.agent_id, Some(API_VERSION))
@@ -140,10 +141,11 @@ impl RequestHandler for BroadcastHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let room_id = payload.room_id;
+
+            let conn = context.get_conn().await?;
             move || {
                 let room =
                     helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
