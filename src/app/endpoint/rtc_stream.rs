@@ -95,9 +95,10 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let conn = context.get_conn().await?;
         let room = crate::util::spawn_blocking({
             let room_id = payload.room_id;
+
+            let conn = context.get_conn().await?;
             move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
@@ -125,25 +126,27 @@ impl RequestHandler for ListHandler {
             .await?;
         context.metrics().observe_auth(authz_time);
 
-        let conn = context.get_conn().await?;
-        let rtc_streams = crate::util::spawn_blocking(move || {
-            let mut query = db::janus_rtc_stream::ListQuery::new().room_id(payload.room_id);
+        let rtc_streams = crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
+            move || {
+                let mut query = db::janus_rtc_stream::ListQuery::new().room_id(payload.room_id);
 
-            if let Some(rtc_id) = payload.rtc_id {
-                query = query.rtc_id(rtc_id);
+                if let Some(rtc_id) = payload.rtc_id {
+                    query = query.rtc_id(rtc_id);
+                }
+
+                if let Some(time) = payload.time {
+                    query = query.time(time);
+                }
+
+                if let Some(offset) = payload.offset {
+                    query = query.offset(offset);
+                }
+
+                query = query.limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT));
+
+                query.execute(&conn)
             }
-
-            if let Some(time) = payload.time {
-                query = query.time(time);
-            }
-
-            if let Some(offset) = payload.offset {
-                query = query.offset(offset);
-            }
-
-            query = query.limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT));
-
-            query.execute(&conn)
         })
         .await?;
         context

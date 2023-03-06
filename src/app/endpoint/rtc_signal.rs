@@ -101,70 +101,71 @@ impl RequestHandler for CreateHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         // Validate RTC and room presence.
-        let conn = context.get_conn().await?;
         let (room, rtc, backend) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let handle_id = payload.handle_id.clone();
-            move ||{
 
-            let rtc = db::rtc::FindQuery::new()
-                .id(handle_id.rtc_id())
-                .execute(&conn)?
-                .context("RTC not found")
-                .error(AppErrorKind::RtcNotFound)?;
-
-            let room = helpers::find_room_by_id(
-                rtc.room_id(),
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?;
-
-            tracing::Span::current().record(
-                "room_id",
-                &tracing::field::display(room.id()),
-            );
-            tracing::Span::current().record(
-                "classroom_id",
-                &tracing::field::display(room.classroom_id()),
-            );
-
-            helpers::check_room_presence(&room, &agent_id, &conn)?;
-
-            // Validate backend and janus session id.
-            if let Some(backend_id) = room.backend_id() {
-                if handle_id.backend_id() != backend_id {
-                    return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
-                        .error(AppErrorKind::InvalidHandleId);
-                }
-            } else {
-                return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
-            }
-
-            let janus_backend = db::janus_backend::FindQuery::new()
-                .id(handle_id.backend_id())
-                .execute(&conn)?
-                .context("Backend not found")
-                .error(AppErrorKind::BackendNotFound)?;
-
-            if handle_id.janus_session_id() != janus_backend.session_id() {
-                return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
-                    .error(AppErrorKind::InvalidHandleId)?;
-            }
-
-            // Validate agent connection and handle id.
-            let agent_connection =
-                db::agent_connection::FindQuery::new(&agent_id, rtc.id())
+            let conn = context.get_conn().await?;
+            move || {
+                let rtc = db::rtc::FindQuery::new()
+                    .id(handle_id.rtc_id())
                     .execute(&conn)?
-                    .context("Agent not connected")
-                    .error(AppErrorKind::AgentNotConnected)?;
+                    .context("RTC not found")
+                    .error(AppErrorKind::RtcNotFound)?;
 
-            if handle_id.janus_handle_id() != agent_connection.handle_id() {
-                return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
-                    .error(AppErrorKind::InvalidHandleId)?;
+                let room = helpers::find_room_by_id(
+                    rtc.room_id(),
+                    helpers::RoomTimeRequirement::Open,
+                    &conn,
+                )?;
+
+                tracing::Span::current().record(
+                    "room_id",
+                    &tracing::field::display(room.id()),
+                );
+                tracing::Span::current().record(
+                    "classroom_id",
+                    &tracing::field::display(room.classroom_id()),
+                );
+
+                helpers::check_room_presence(&room, &agent_id, &conn)?;
+
+                // Validate backend and janus session id.
+                if let Some(backend_id) = room.backend_id() {
+                    if handle_id.backend_id() != backend_id {
+                        return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
+                            .error(AppErrorKind::InvalidHandleId);
+                    }
+                } else {
+                    return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
+                }
+
+                let janus_backend = db::janus_backend::FindQuery::new()
+                    .id(handle_id.backend_id())
+                    .execute(&conn)?
+                    .context("Backend not found")
+                    .error(AppErrorKind::BackendNotFound)?;
+
+                if handle_id.janus_session_id() != janus_backend.session_id() {
+                    return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
+                        .error(AppErrorKind::InvalidHandleId)?;
+                }
+
+                // Validate agent connection and handle id.
+                let agent_connection =
+                    db::agent_connection::FindQuery::new(&agent_id, rtc.id())
+                        .execute(&conn)?
+                        .context("Agent not connected")
+                        .error(AppErrorKind::AgentNotConnected)?;
+
+                if handle_id.janus_handle_id() != agent_connection.handle_id() {
+                    return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
+                        .error(AppErrorKind::InvalidHandleId)?;
+                }
+
+                Ok::<_, AppError>((room, rtc, janus_backend))
             }
-
-            Ok::<_, AppError>((room, rtc, janus_backend))
-        }}).await?;
+        }).await?;
 
         match payload.jsep {
             Jsep::OfferOrAnswer(JsonSdp { kind, ref sdp }) => {
@@ -268,11 +269,11 @@ impl RequestHandler for CreateHandler {
                                 .error(AppErrorKind::MessageParsingFailed)?
                                 .clone();
 
-                            let conn = context.get_conn().await?;
-
                             crate::util::spawn_blocking({
                                 let handle_id = payload.handle_id.clone();
                                 let agent_id = reqp.as_agent_id().clone();
+
+                                let conn = context.get_conn().await?;
                                 move || {
                                     db::janus_rtc_stream::InsertQuery::new(
                                         handle_id.rtc_stream_id(),
@@ -286,8 +287,10 @@ impl RequestHandler for CreateHandler {
                                 }
                             })
                             .await?;
+
                             let (writer_config, reader_config) = crate::util::spawn_blocking({
                                 let rtc_id = payload.handle_id.rtc_id();
+
                                 let conn = context.get_conn().await?;
                                 move || {
                                     Ok::<_, diesel::result::Error>((
@@ -466,70 +469,71 @@ struct Trickle<'a, C> {
 impl<C: Context> Trickle<'_, C> {
     async fn run(self) -> Result<(), AppError> {
         // Validate RTC and room presence.
-        let conn = self.ctx.get_conn().await?;
         let (room, backend) = crate::util::spawn_blocking({
             let agent_id = self.agent_id.clone();
             let handle_id = self.handle_id.clone();
 
-            move ||{
-            let rtc = db::rtc::FindQuery::new()
-                .id(handle_id.rtc_id())
-                .execute(&conn)?
-                .context("RTC not found")
-                .error(AppErrorKind::RtcNotFound)?;
-
-            let room = helpers::find_room_by_id(
-                rtc.room_id(),
-                helpers::RoomTimeRequirement::Open,
-                &conn,
-            )?;
-
-            tracing::Span::current().record(
-                "room_id",
-                &tracing::field::display(room.id()),
-            );
-            tracing::Span::current().record(
-                "classroom_id",
-                &tracing::field::display(room.classroom_id()),
-            );
-
-            helpers::check_room_presence(&room, &agent_id, &conn)?;
-
-            // Validate backend and janus session id.
-            if let Some(backend_id) = room.backend_id() {
-                if handle_id.backend_id() != backend_id {
-                    return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
-                        .error(AppErrorKind::InvalidHandleId);
-                }
-            } else {
-                return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
-            }
-
-            let janus_backend = db::janus_backend::FindQuery::new()
-                .id(handle_id.backend_id())
-                .execute(&conn)?
-                .context("Backend not found")
-                .error(AppErrorKind::BackendNotFound)?;
-
-            if handle_id.janus_session_id() != janus_backend.session_id() {
-                return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
-                    .error(AppErrorKind::InvalidHandleId)?;
-            }
-
-            // Validate agent connection and handle id.
-            let agent_connection =
-                db::agent_connection::FindQuery::new(&agent_id, rtc.id())
+            let conn = self.ctx.get_conn().await?;
+            move || {
+                let rtc = db::rtc::FindQuery::new()
+                    .id(handle_id.rtc_id())
                     .execute(&conn)?
-                    .context("Agent not connected")
-                    .error(AppErrorKind::AgentNotConnected)?;
+                    .context("RTC not found")
+                    .error(AppErrorKind::RtcNotFound)?;
 
-            if handle_id.janus_handle_id() != agent_connection.handle_id() {
-                return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
-                    .error(AppErrorKind::InvalidHandleId)?;
+                let room = helpers::find_room_by_id(
+                    rtc.room_id(),
+                    helpers::RoomTimeRequirement::Open,
+                    &conn,
+                )?;
+
+                tracing::Span::current().record(
+                    "room_id",
+                    &tracing::field::display(room.id()),
+                );
+                tracing::Span::current().record(
+                    "classroom_id",
+                    &tracing::field::display(room.classroom_id()),
+                );
+
+                helpers::check_room_presence(&room, &agent_id, &conn)?;
+
+                // Validate backend and janus session id.
+                if let Some(backend_id) = room.backend_id() {
+                    if handle_id.backend_id() != backend_id {
+                        return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
+                            .error(AppErrorKind::InvalidHandleId);
+                    }
+                } else {
+                    return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
+                }
+
+                let janus_backend = db::janus_backend::FindQuery::new()
+                    .id(handle_id.backend_id())
+                    .execute(&conn)?
+                    .context("Backend not found")
+                    .error(AppErrorKind::BackendNotFound)?;
+
+                if handle_id.janus_session_id() != janus_backend.session_id() {
+                    return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
+                        .error(AppErrorKind::InvalidHandleId)?;
+                }
+
+                // Validate agent connection and handle id.
+                let agent_connection =
+                    db::agent_connection::FindQuery::new(&agent_id, rtc.id())
+                        .execute(&conn)?
+                        .context("Agent not connected")
+                        .error(AppErrorKind::AgentNotConnected)?;
+
+                if handle_id.janus_handle_id() != agent_connection.handle_id() {
+                    return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
+                        .error(AppErrorKind::InvalidHandleId)?;
+                }
+
+                Ok::<_, AppError>((room, janus_backend))
             }
-
-            Ok::<_, AppError>((room, janus_backend))
-        }}).await?;
+        }).await?;
 
         let current_span = Span::current();
         current_span.record("sdp_type", &"ice_candidate");

@@ -100,20 +100,25 @@ impl RequestHandler for VacuumHandler {
             context.start_timestamp(),
             None,
         );
-        let conn = context.get_conn().await?;
-        let group = context.config().janus_group.clone();
-        let rooms = crate::util::spawn_blocking(move || {
-            db::room::finished_with_in_progress_recordings(&conn, group.as_deref())
+
+        let rooms = crate::util::spawn_blocking({
+            let group = context.config().janus_group.clone();
+
+            let conn = context.get_conn().await?;
+            move || db::room::finished_with_in_progress_recordings(&conn, group.as_deref())
         })
         .await?;
 
         for (room, recording, backend) in rooms.into_iter() {
-            let conn = context.get_conn().await?;
-            let room_id = room.id();
-            crate::util::spawn_blocking(move || {
-                db::agent::DeleteQuery::new()
-                    .room_id(room_id)
-                    .execute(&conn)
+            crate::util::spawn_blocking({
+                let room_id = room.id();
+
+                let conn = context.get_conn().await?;
+                move || {
+                    db::agent::DeleteQuery::new()
+                        .room_id(room_id)
+                        .execute(&conn)
+                }
             })
             .await?;
 
@@ -183,9 +188,10 @@ impl EventHandler for OrphanedRoomCloseHandler {
         let load_till = Utc::now()
             - chrono::Duration::from_std(context.config().orphaned_room_timeout)
                 .expect("Orphaned room timeout misconfigured");
-        let connection = context.get_conn().await?;
-        let timed_out = crate::util::spawn_blocking(move || {
-            db::orphaned_room::get_timed_out(load_till, &connection)
+
+        let timed_out = crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
+            move || db::orphaned_room::get_timed_out(load_till, &conn)
         })
         .await?;
 
@@ -194,13 +200,15 @@ impl EventHandler for OrphanedRoomCloseHandler {
         for (orphan, room) in timed_out {
             match room {
                 Some(room) if !room.is_closed() => {
-                    let connection = context.get_conn().await?;
-                    let close_task = crate::util::spawn_blocking(move || {
-                        let room = db::room::UpdateQuery::new(room.id())
-                            .time(Some((room.time().0, Bound::Excluded(Utc::now()))))
-                            .timed_out()
-                            .execute(&connection)?;
-                        Ok::<_, diesel::result::Error>(room)
+                    let close_task = crate::util::spawn_blocking({
+                        let conn = context.get_conn().await?;
+                        move || {
+                            let room = db::room::UpdateQuery::new(room.id())
+                                .time(Some((room.time().0, Bound::Excluded(Utc::now()))))
+                                .timed_out()
+                                .execute(&conn)?;
+                            Ok::<_, diesel::result::Error>(room)
+                        }
                     });
 
                     close_tasks.push(close_task)
@@ -236,10 +244,16 @@ impl EventHandler for OrphanedRoomCloseHandler {
                 }
             }
         }
-        let connection = context.get_conn().await?;
-        if let Err(err) = db::orphaned_room::remove_rooms(&closed_rooms, &connection) {
-            error!(?err, "Error removing rooms fron orphan table");
-        }
+
+        crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
+            move || {
+                if let Err(err) = db::orphaned_room::remove_rooms(&closed_rooms, &conn) {
+                    error!(?err, "Error removing rooms fron orphan table");
+                }
+            }
+        })
+        .await;
 
         Ok(Box::new(stream::iter(notifications)))
     }

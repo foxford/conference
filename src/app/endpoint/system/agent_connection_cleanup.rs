@@ -52,13 +52,15 @@ impl RequestHandler for Handler {
             None,
         );
 
-        let conn = context.get_conn().await?;
-        crate::util::spawn_blocking(move || {
-            // TODO: move to constant but chrono doesnt support const fns
-            db::agent_connection::CleanupNotConnectedQuery::new(
-                Utc::now() - chrono::Duration::minutes(2),
-            )
-            .execute(&conn)
+        crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
+            move || {
+                // TODO: move to constant but chrono doesnt support const fns
+                db::agent_connection::CleanupNotConnectedQuery::new(
+                    Utc::now() - chrono::Duration::minutes(2),
+                )
+                .execute(&conn)
+            }
         })
         .await?;
 

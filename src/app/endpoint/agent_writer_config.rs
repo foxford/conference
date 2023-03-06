@@ -177,10 +177,12 @@ impl RequestHandler for UpdateHandler {
             return Err(anyhow!("Too many items in `configs` list"))
                 .error(AppErrorKind::InvalidPayload)?;
         }
-        let conn = context.get_conn().await?;
+
         let room = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
             let room_id = payload.room_id;
+
+            let conn = context.get_conn().await?;
             move || {
                 let room =
                     helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
@@ -220,12 +222,12 @@ impl RequestHandler for UpdateHandler {
             Some(authz_time)
         };
 
-        let conn = context.get_conn().await?;
-
         let (rtc_writer_configs_with_rtcs, maybe_backend) = crate::util::spawn_blocking({
             let room_id = room.id();
             let backend_id = room.backend_id().cloned();
             let agent_id = reqp.as_agent_id().clone();
+
+            let conn = context.get_conn().await?;
             move || {
                 conn.transaction::<_, AppError, _>(|| {
                     // Find RTCs owned by agents.
@@ -389,9 +391,10 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let conn = context.get_conn().await?;
         let (room, rtc_writer_configs_with_rtcs) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
+
+            let conn = context.get_conn().await?;
             move || {
                 let room = helpers::find_room_by_id(
                     payload.room_id,

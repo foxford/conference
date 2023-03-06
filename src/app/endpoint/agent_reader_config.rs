@@ -127,9 +127,10 @@ impl RequestHandler for UpdateHandler {
                 .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let conn = context.get_conn().await?;
         let (room, rtc_reader_configs_with_rtcs, maybe_backend) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
+
+            let conn = context.get_conn().await?;
             move || {
                 let room = helpers::find_room_by_id(
                     payload.room_id,
@@ -290,10 +291,10 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let conn = context.get_conn().await?;
-
         let (room, rtc_reader_configs_with_rtcs) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
+
+            let conn = context.get_conn().await?;
             move || {
                 let room = helpers::find_room_by_id(
                     payload.room_id,
