@@ -143,7 +143,7 @@ impl<'a, C: Context> RtcCreate<'a, C> {
     async fn run(self) -> Result<RtcCreateResult, AppError> {
         let room = crate::util::spawn_blocking({
             let conn = self.ctx.get_conn().await?;
-            let room_id = self.room_id.clone();
+            let room_id = self.room_id;
             move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
         })
         .await?;
