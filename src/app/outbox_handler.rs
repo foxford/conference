@@ -20,19 +20,16 @@ pub fn run(
         loop {
             tokio::select! {
                 _ = check_interval.tick() => {
-                    loop {
-                        let pipeline = DieselPipeline::new(
-                            ctx.db().clone(),
-                            outbox_config.try_wake_interval,
-                            outbox_config.max_delivery_interval,
-                        );
-                        if let Err(err) = pipeline
-                            .run_multiple_stages::<AppStage, _>(ctx.clone(), outbox_config.messages_per_try)
-                            .await
-                        {
-                            error!(%err, "failed to handle stages");
-                            break;
-                        }
+                    let pipeline = DieselPipeline::new(
+                        ctx.db().clone(),
+                        outbox_config.try_wake_interval,
+                        outbox_config.max_delivery_interval,
+                    );
+                    if let Err(err) = pipeline
+                        .run_multiple_stages::<AppStage, _>(ctx.clone(), outbox_config.messages_per_try)
+                        .await
+                    {
+                        error!(%err, "failed to handle stages");
                     }
                 }
                 // Graceful shutdown

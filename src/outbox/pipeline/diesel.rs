@@ -191,12 +191,13 @@ impl super::Pipeline for Pipeline {
         loop {
             let conn = self.get_conn().await?;
 
-            conn.transaction(|| {
+            let result = conn.transaction(|| {
                 let records: Vec<(Object, T)> =
                     Self::load_multiple_records(&conn, records_per_try)?;
 
                 if records.is_empty() {
-                    return Ok::<_, Error>(());
+                    // Exit from the closure
+                    return Ok::<_, Error>(None);
                 }
 
                 for (record, stage) in records {
@@ -204,8 +205,13 @@ impl super::Pipeline for Pipeline {
                     let _ = self.handle_record(&conn, ctx.clone(), record, stage);
                 }
 
-                Ok(())
+                Ok(Some(()))
             })?;
+
+            // Break the loop if there are no records
+            if result.is_none() {
+                return Ok(());
+            }
         }
     }
 }
