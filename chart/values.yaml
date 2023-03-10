@@ -5,6 +5,11 @@
 replicaCount: 2
 
 minReadySeconds: 5
+preStopSleepSeconds: 5
+networkTester:
+  image:
+    repository: cr.yandex/crp1of6bddata8ain3q5/k8s-network-tester
+    tag: latest
 
 app:
   image:
