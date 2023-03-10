@@ -130,7 +130,10 @@ pub mod ts_seconds_bound_tuple {
         {
             let lt = match seq.next_element()? {
                 Some(Some(val)) => {
-                    let dt = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(val, 0), Utc);
+                    let dt = DateTime::<Utc>::from_utc(
+                        NaiveDateTime::from_timestamp_opt(val, 0).unwrap_or_default(),
+                        Utc,
+                    );
                     Bound::Included(dt)
                 }
                 Some(None) => Bound::Unbounded,
@@ -139,7 +142,10 @@ pub mod ts_seconds_bound_tuple {
 
             let rt = match seq.next_element()? {
                 Some(Some(val)) => {
-                    let dt = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(val, 0), Utc);
+                    let dt = DateTime::<Utc>::from_utc(
+                        NaiveDateTime::from_timestamp_opt(val, 0).unwrap_or_default(),
+                        Utc,
+                    );
                     Bound::Excluded(dt)
                 }
                 Some(None) => Bound::Unbounded,
@@ -202,13 +208,44 @@ pub mod ts_seconds_option_bound_tuple {
     }
 }
 
+pub(crate) mod duration_seconds {
+    use std::fmt;
+
+    use chrono::Duration;
+    use serde::de;
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Duration, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        d.deserialize_u64(SecondsDurationVisitor)
+    }
+
+    pub struct SecondsDurationVisitor;
+
+    impl<'de> de::Visitor<'de> for SecondsDurationVisitor {
+        type Value = Duration;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("duration (seconds)")
+        }
+
+        fn visit_u64<E>(self, seconds: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Duration::seconds(seconds as i64))
+        }
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod test {
     use std::ops::Bound;
 
-    use chrono::{DateTime, NaiveDateTime, Utc};
+    use chrono::{DateTime, Duration, NaiveDateTime, Utc};
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
@@ -303,7 +340,20 @@ mod test {
 
     fn now() -> DateTime<Utc> {
         let now = Utc::now();
-        let now = NaiveDateTime::from_timestamp(now.timestamp(), 0);
+        let now = NaiveDateTime::from_timestamp_opt(now.timestamp(), 0).unwrap_or_default();
         DateTime::from_utc(now, Utc)
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct TestSecondsDurationData {
+        #[serde(with = "crate::serde::duration_seconds")]
+        duration: Duration,
+    }
+
+    #[test]
+    fn duration_seconds() {
+        let val = json!({"duration": 123});
+        let data: TestSecondsDurationData = dbg!(serde_json::from_value(val).unwrap());
+        assert_eq!(data.duration, Duration::seconds(123))
     }
 }

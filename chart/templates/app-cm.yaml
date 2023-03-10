@@ -28,6 +28,15 @@ data:
     keep_alive = 15
     max_message_size = 5000000
 
+    [outbox]
+    messages_per_try = 20
+    try_wake_interval = 60 # 1 minute
+    max_delivery_interval = 86400 # 1 day
+    
+    [nats]
+    url = "nats://nats-back-front-internal-lb:4222"
+    creds = "nats.creds"
+
     [backend]
     {{- $backendId := list "janus-gateway" .Values.app.svc.audience | compact | join "." }}
     id = {{ $backendId | quote }}

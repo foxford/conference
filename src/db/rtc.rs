@@ -35,7 +35,7 @@ pub enum SharingPolicy {
 impl fmt::Display for SharingPolicy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let serialized = serde_json::to_string(self).map_err(|_| fmt::Error)?;
-        write!(f, "{}", serialized)
+        write!(f, "{serialized}")
     }
 }
 

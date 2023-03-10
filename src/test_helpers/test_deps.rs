@@ -26,7 +26,7 @@ impl LocalDeps {
         let node = self.docker.run(image);
         let connection_string = format!(
             "postgres://postgres:postgres@localhost:{}",
-            node.get_host_port(5432),
+            node.get_host_port_ipv4(5432),
         );
         PostgresHandle {
             connection_string,
@@ -48,7 +48,7 @@ impl LocalDeps {
         .with_wait_for(WaitFor::message_on_stdout("HTTP webserver started"));
         let node = self.docker.run(image);
         JanusHandle {
-            url: format!("http://localhost:{}/janus", node.get_host_port(8088)),
+            url: format!("http://localhost:{}/janus", node.get_host_port_ipv4(8088)),
             _container: node,
         }
     }

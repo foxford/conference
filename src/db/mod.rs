@@ -21,7 +21,7 @@ pub fn create_pool(url: &str, size: u32, idle_size: Option<u32>, timeout: u64) -
 }
 
 macro_rules! impl_jsonb {
-    ($name: ident) => {
+    ( $name:ident ) => {
         impl ::diesel::deserialize::FromSql<::diesel::sql_types::Jsonb, ::diesel::pg::Pg>
             for $name
         {

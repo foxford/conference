@@ -77,7 +77,7 @@ pub enum RoomBackend {
 impl fmt::Display for RoomBackend {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let serialized = serde_json::to_string(self).map_err(|_| fmt::Error)?;
-        write!(f, "{}", serialized)
+        write!(f, "{serialized}")
     }
 }
 
@@ -188,14 +188,18 @@ pub trait FindQueryable {
     fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct FindQuery {
-    id: Id,
+    id: Option<Id>,
 }
 
 impl FindQuery {
-    pub fn new(id: Id) -> Self {
-        Self { id }
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn by_id(self, id: Id) -> Self {
+        Self { id: Some(id) }
     }
 }
 
@@ -203,10 +207,13 @@ impl FindQueryable for FindQuery {
     fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
-        room::table
-            .filter(room::id.eq(self.id))
-            .get_result(conn)
-            .optional()
+        let mut query = room::table.into_boxed();
+
+        if let Some(id) = self.id {
+            query = query.filter(room::id.eq(id))
+        }
+
+        query.get_result(conn).optional()
     }
 }
 

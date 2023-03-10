@@ -110,6 +110,12 @@ pub async fn run(
         MqttGatewayHttpClient::new(token.clone(), config.mqtt_api_host_uri.clone());
     let conference_client = ConferenceHttpClient::new(token.clone());
 
+    let nats_cfg = &config.nats;
+    let nats_client = svc_nats_client::new(&nats_cfg.url, &nats_cfg.creds)
+        .await
+        .context("nats client")?;
+    let mqtt_client = crate::client::mqtt::new(agent.clone());
+
     let context = AppContext::new(
         config.clone(),
         authz,
@@ -118,6 +124,8 @@ pub async fn run(
         metrics.clone(),
         mqtt_gateway_client,
         conference_client,
+        mqtt_client,
+        nats_client,
     );
     let reg_handler = tokio::spawn(start_internal_api(
         config.janus_registry.clone(),
@@ -130,7 +138,8 @@ pub async fn run(
         Some(pool) => context.add_redis_pool(pool),
         None => context,
     };
-    let (graceful_tx, graceful_rx) = tokio::sync::oneshot::channel();
+    let (graceful_tx, graceful_rx) = tokio::sync::watch::channel(());
+    let mut shutdown_server_rx = graceful_rx.clone();
     let _http_task = tokio::spawn(
         axum::Server::bind(&config.http_addr)
             .serve(
@@ -142,9 +151,12 @@ pub async fn run(
                 .into_make_service(),
             )
             .with_graceful_shutdown(async move {
-                let _ = graceful_rx.await;
+                shutdown_server_rx.changed().await.ok();
             }),
     );
+
+    let ctx: Arc<dyn GlobalContext> = Arc::new(context.clone());
+    let outbox_handler = outbox_handler::run(ctx, graceful_rx.clone())?;
 
     // Message handler
     let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
@@ -180,6 +192,11 @@ pub async fn run(
         .janus_clients()
         .stop_polling();
     reg_handler.abort();
+
+    if let Err(err) = outbox_handler.await {
+        error!(%err, "failed to await outbox handler completion");
+    }
+
     tokio::time::sleep(Duration::from_secs(3)).await;
     info!(
         requests_left = metrics.running_requests_total.get(),
@@ -355,4 +372,6 @@ pub mod handle_id;
 pub mod http;
 pub mod message_handler;
 pub mod metrics;
+mod outbox_handler;
 pub mod service_utils;
+mod stage;

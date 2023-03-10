@@ -133,7 +133,10 @@ impl JanusClient {
         Ok(())
     }
 
-    async fn send_request<R: DeserializeOwned>(&self, body: impl Serialize) -> anyhow::Result<R> {
+    pub async fn send_request<R: DeserializeOwned>(
+        &self,
+        body: impl Serialize,
+    ) -> anyhow::Result<R> {
         let body = serde_json::to_vec(&body)?;
         let response = self
             .http

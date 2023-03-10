@@ -18,6 +18,15 @@ key = "data/keys/svc.private_key.p8.der.sample"
 type = "local"
 trusted = ["cron.svc.example.org"]
 
+[outbox]
+messages_per_try = 20
+try_wake_interval = 60 # 1 minute
+max_delivery_interval = 86400 # 1 day
+
+[nats]
+url = "localhost:4222"
+creds = "nats.creds"
+
 [mqtt]
 uri = "mqtt://192.168.99.100:1883"
 clean_session = false

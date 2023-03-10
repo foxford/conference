@@ -88,7 +88,7 @@ impl ResponseHandler for DeleteResponseHandler {
 
             let notification = helpers::build_notification(
                 "room.leave",
-                &format!("rooms/{}/events", room_id),
+                &format!("rooms/{room_id}/events"),
                 RoomEnterLeaveEvent::new(room_id, corr_data.subject.to_owned()),
                 corr_data.reqp.tracking(),
                 context.start_timestamp(),
@@ -130,7 +130,7 @@ impl EventHandler for DeleteEventHandler {
                 RoomEnterLeaveEvent::new(room_id, payload.subject.to_owned());
             let short_term_timing = ShortTermTimingProperties::until_now(context.start_timestamp());
             let props = evp.to_event("room.leave", short_term_timing);
-            let to_uri = format!("rooms/{}/events", room_id);
+            let to_uri = format!("rooms/{room_id}/events");
             let outgoing_event = OutgoingEvent::broadcast(outgoing_event_payload, props, &to_uri);
             let notification =
                 Box::new(outgoing_event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>;
@@ -226,7 +226,9 @@ fn make_orphaned_if_host_left(
     agent_left: &AgentId,
     connection: &PgConnection,
 ) -> StdResult<(), diesel::result::Error> {
-    let room = db::room::FindQuery::new(room_id).execute(connection)?;
+    let room = db::room::FindQuery::new()
+        .by_id(room_id)
+        .execute(connection)?;
     if room.as_ref().and_then(|x| x.host()) == Some(agent_left) {
         db::orphaned_room::upsert_room(room_id, Utc::now(), connection)?;
     }

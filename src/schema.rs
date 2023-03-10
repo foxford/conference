@@ -82,6 +82,21 @@ table! {
     use diesel::sql_types::*;
     use crate::db::sql::*;
 
+    outbox (entity_type, id) {
+        id -> Int8,
+        entity_type -> Text,
+        stage -> Jsonb,
+        delivery_deadline_at -> Timestamptz,
+        error_code -> Nullable<Int2>,
+        retry_count -> Int4,
+        created_at -> Timestamptz,
+    }
+}
+
+table! {
+    use diesel::sql_types::*;
+    use crate::db::sql::*;
+
     recording (rtc_id) {
         rtc_id -> Uuid,
         started_at -> Nullable<Timestamptz>,
@@ -184,6 +199,7 @@ allow_tables_to_appear_in_same_query!(
     janus_backend,
     janus_rtc_stream,
     orphaned_room,
+    outbox,
     recording,
     room,
     rtc,

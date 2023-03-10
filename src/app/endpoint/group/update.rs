@@ -1,31 +1,36 @@
 use crate::{
     app::{
-        context::{AppContext, Context},
+        context::{AppContext, GlobalContext},
         endpoint::{
             helpers,
             prelude::{AppError, AppErrorKind},
-            RequestHandler, RequestResult,
+            RequestResult,
         },
         error::ErrorExt,
         group_reader_config,
+        metrics::HistogramExt,
         service_utils::{RequestParams, Response},
+        stage::{self, video_group::VideoGroupUpdateJanusConfig, AppStage},
     },
     authz::AuthzObject,
-    backend::janus::client::update_agent_reader_config::{
-        UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
-        UpdateReaderConfigRequestBodyConfigItem,
-    },
+    backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
     db::{self, group_agent::Groups},
+    outbox::{
+        self,
+        pipeline::{diesel::Pipeline as DieselPipeline, Pipeline},
+    },
 };
-use anyhow::{anyhow, Context as AnyhowContext};
-use async_trait::async_trait;
+use anyhow::{anyhow, Context};
 use axum::{extract::Path, Extension, Json};
+use chrono::{DateTime, Utc};
 use diesel::Connection;
 use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
+use svc_conference_events::{EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
 use svc_utils::extractors::AgentIdExtractor;
+use tracing::error;
 
 #[derive(Deserialize)]
 pub struct Payload {
@@ -41,129 +46,162 @@ pub async fn update(
 ) -> RequestResult {
     tracing::Span::current().record("room_id", &tracing::field::display(room_id));
 
-    let request = Payload { room_id, groups };
-
     Handler::handle(
-        &mut ctx.start_message(),
-        request,
+        ctx,
+        Payload { room_id, groups },
         RequestParams::Http {
             agent_id: &agent_id,
         },
+        Utc::now(),
     )
     .await
 }
 
 pub struct Handler;
 
-#[async_trait]
-impl RequestHandler for Handler {
-    type Payload = Payload;
-    const ERROR_TITLE: &'static str = "Failed to update groups";
-
-    async fn handle<C: Context>(
-        context: &mut C,
-        payload: Self::Payload,
+impl Handler {
+    async fn handle(
+        context: Arc<dyn GlobalContext>,
+        payload: Payload,
         reqp: RequestParams<'_>,
+        start_timestamp: DateTime<Utc>,
     ) -> RequestResult {
-        let conn = context.get_conn().await?;
+        let outbox_config = context.config().clone().outbox;
 
-        let (room, configs, maybe_backend) = crate::util::spawn_blocking({
-            let groups = payload.groups;
-            let room = helpers::find_room_by_id(
-                payload.room_id,
-                helpers::RoomTimeRequirement::NotClosed,
-                &conn,
-            )?;
+        let Payload { room_id, groups } = payload;
 
-            tracing::Span::current().record(
-                "classroom_id",
-                &tracing::field::display(room.classroom_id()),
-            );
-
-            // Authorize classrooms.update on the tenant
-            let classroom_id = room.classroom_id().to_string();
-            let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
-
-            let authz_time = context
-                .authz()
-                .authorize(room.audience().into(), reqp, object, "update".into())
-                .await?;
-            context.metrics().observe_auth(authz_time);
-
-            if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-                return Err(anyhow!(
-                    "Updating groups is only available for rooms with owned RTC sharing policy"
-                ))
-                .error(AppErrorKind::InvalidPayload)?;
+        let room = crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
+            move || {
+                helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)
             }
+        })
+        .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
+
+        // Authorize classrooms.update on the tenant
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
+
+        let authz_time = context
+            .authz()
+            .authorize(room.audience().into(), reqp, object, "update".into())
+            .await?;
+        context.metrics().observe_auth(authz_time);
+
+        if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+            return Err(anyhow!(
+                "Updating groups is only available for rooms with owned RTC sharing policy"
+            ))
+            .error(AppErrorKind::InvalidPayload)?;
+        }
+
+        let backend_id = room
+            .backend_id()
+            .cloned()
+            .context("backend not found")
+            .error(AppErrorKind::BackendNotFound)?;
+
+        let event_id = crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
 
             move || {
-                let configs = conn.transaction(|| {
+                conn.transaction(|| {
+                    let existed_groups = db::group_agent::FindQuery::new(room.id())
+                        .execute(&conn)?
+                        .groups()
+                        .len();
+
+                    let timestamp = Utc::now().timestamp_nanos();
+                    let event = if existed_groups == 1 {
+                        VideoGroupEvent::Created {
+                            created_at: timestamp,
+                        }
+                    } else if existed_groups > 1 && groups.len() == 1 {
+                        VideoGroupEvent::Deleted {
+                            created_at: timestamp,
+                        }
+                    } else {
+                        VideoGroupEvent::Updated {
+                            created_at: timestamp,
+                        }
+                    };
+                    let event = Event::from(event);
+
                     db::group_agent::UpsertQuery::new(room.id(), &groups).execute(&conn)?;
 
                     // Update rtc_reader_configs
                     let configs = group_reader_config::update(&conn, room.id(), groups)?;
 
-                    Ok::<_, AppError>(configs)
-                })?;
+                    // Generate config items for janus
+                    let items = configs
+                        .into_iter()
+                        .map(|((rtc_id, agent_id), value)| {
+                            UpdateReaderConfigRequestBodyConfigItem {
+                                reader_id: agent_id,
+                                stream_id: rtc_id,
+                                receive_video: value,
+                                receive_audio: value,
+                            }
+                        })
+                        .collect();
 
-                // Find backend and send updates to it if present
-                let maybe_backend = match room.backend_id() {
-                    None => None,
-                    Some(backend_id) => db::janus_backend::FindQuery::new()
-                        .id(backend_id)
-                        .execute(&conn)?,
-                };
+                    let init_stage = VideoGroupUpdateJanusConfig::init(
+                        event,
+                        room.classroom_id(),
+                        room.id(),
+                        backend_id,
+                        items,
+                    );
 
-                Ok::<_, AppError>((room, configs, maybe_backend))
+                    let serialized_stage = serde_json::to_value(init_stage)
+                        .context("serialization failed")
+                        .error(AppErrorKind::OutboxStageSerializationFailed)?;
+
+                    let delivery_deadline_at =
+                        outbox::util::delivery_deadline_from_now(outbox_config.try_wake_interval);
+
+                    let event_id = outbox::db::diesel::InsertQuery::new(
+                        stage::video_group::ENTITY_TYPE,
+                        serialized_stage,
+                        delivery_deadline_at,
+                    )
+                    .execute(&conn)?;
+
+                    Ok::<_, AppError>(event_id)
+                })
             }
         })
         .await?;
 
-        // Send RTC reader configs to the janus server
-        if let Some(backend) = maybe_backend {
-            let items = configs
-                .into_iter()
-                .map(
-                    |((rtc_id, agent_id), value)| UpdateReaderConfigRequestBodyConfigItem {
-                        reader_id: agent_id,
-                        stream_id: rtc_id,
-                        receive_video: value,
-                        receive_audio: value,
-                    },
-                )
-                .collect();
-
-            let request = UpdateReaderConfigRequest {
-                session_id: backend.session_id(),
-                handle_id: backend.handle_id(),
-                body: UpdateReaderConfigRequestBody::new(items),
-            };
-            context
-                .janus_clients()
-                .get_or_insert(&backend)
-                .error(AppErrorKind::BackendClientCreationFailed)?
-                .reader_update(request)
-                .await
-                .context("Reader update")
-                .error(AppErrorKind::BackendRequestFailed)?
+        let pipeline = DieselPipeline::new(
+            context.db().clone(),
+            outbox_config.try_wake_interval,
+            outbox_config.max_delivery_interval,
+        );
+        if let Err(err) = pipeline
+            .run_single_stage::<AppStage, _>(context.clone(), event_id)
+            .await
+        {
+            error!(%err, "failed to complete stage");
         }
 
-        let mut response = Response::new(
+        context
+            .metrics()
+            .request_duration
+            .group_update
+            .observe_timestamp(start_timestamp);
+
+        Ok(Response::new(
             ResponseStatus::OK,
             json!({}),
-            context.start_timestamp(),
+            start_timestamp,
             None,
-        );
-
-        response.add_notification(
-            "group.update",
-            &format!("rooms/{}/events", room.id()),
-            json!({}),
-            context.start_timestamp(),
-        );
-
-        Ok(response)
+        ))
     }
 }
 
@@ -172,7 +210,7 @@ mod tests {
     use super::*;
     use crate::db::{group_agent::GroupItem, rtc::SharingPolicy as RtcSharingPolicy};
     use crate::test_helpers::{
-        factory, handle_request,
+        factory,
         prelude::{GlobalContext, TestAgent, TestAuthz, TestContext, TestDb},
         shared_helpers,
         test_deps::LocalDeps,
@@ -188,7 +226,7 @@ mod tests {
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-        let mut context = TestContext::new(db, TestAuthz::new());
+        let context = TestContext::new(db, TestAuthz::new());
 
         let payload = Payload {
             room_id: db::room::Id::random(),
@@ -196,9 +234,13 @@ mod tests {
         };
 
         // Assert error.
-        let err = handle_request::<Handler>(&mut context, &agent, payload)
+        let reqp = RequestParams::Http {
+            agent_id: &agent.agent_id(),
+        };
+        let err = Handler::handle(Arc::new(context), payload, reqp, Utc::now())
             .await
-            .expect_err("Unexpected group list success");
+            .err()
+            .expect("Unexpected group update success");
 
         assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
         assert_eq!(err.kind(), "room_not_found");
@@ -231,7 +273,7 @@ mod tests {
             })
             .unwrap();
 
-        let mut context = TestContext::new(db, TestAuthz::new());
+        let context = TestContext::new(db, TestAuthz::new());
 
         let payload = Payload {
             room_id: room.id(),
@@ -239,9 +281,13 @@ mod tests {
         };
 
         // Assert error.
-        let err = handle_request::<Handler>(&mut context, &agent, payload)
+        let reqp = RequestParams::Http {
+            agent_id: &agent.agent_id(),
+        };
+        let err = Handler::handle(Arc::new(context), payload, reqp, Utc::now())
             .await
-            .expect_err("Unexpected agent reader config read success");
+            .err()
+            .expect("Unexpected group update success");
 
         assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
         assert_eq!(err.kind(), "room_closed");
@@ -267,22 +313,35 @@ mod tests {
             })
             .unwrap();
 
-        let mut context = TestContext::new(db, TestAuthz::new());
+        // Allow agent to read the room.
+        let mut authz = TestAuthz::new();
+        let classroom_id = room.classroom_id().to_string();
+        authz.allow(
+            agent1.account_id(),
+            vec!["classrooms", &classroom_id],
+            "update",
+        );
+
+        let context = TestContext::new(db, authz);
         let payload = Payload {
             room_id: room.id(),
             groups: Groups::new(vec![]),
         };
 
         // Assert error.
-        let err = handle_request::<Handler>(&mut context, &agent1, payload)
+        let reqp = RequestParams::Http {
+            agent_id: &agent1.agent_id(),
+        };
+        let err = Handler::handle(Arc::new(context), payload, reqp, Utc::now())
             .await
-            .expect_err("Unexpected group list success");
+            .err()
+            .expect("Unexpected group update success");
 
         assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
         assert_eq!(err.kind(), "invalid_payload");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_group_agents() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
@@ -322,7 +381,16 @@ mod tests {
             })
             .unwrap();
 
-        let mut context = TestContext::new(db.clone(), TestAuthz::new());
+        // Allow agent to read the room.
+        let mut authz = TestAuthz::new();
+        let classroom_id = room.classroom_id().to_string();
+        authz.allow(
+            agent1.account_id(),
+            vec!["classrooms", &classroom_id],
+            "update",
+        );
+
+        let mut context = TestContext::new(db.clone(), authz);
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
 
@@ -334,7 +402,10 @@ mod tests {
             ]),
         };
 
-        handle_request::<Handler>(&mut context, &agent1, payload)
+        let reqp = RequestParams::Http {
+            agent_id: &agent1.agent_id(),
+        };
+        Handler::handle(Arc::new(context.clone()), payload, reqp, Utc::now())
             .await
             .expect("Group update failed");
 
@@ -384,7 +455,10 @@ mod tests {
             )]),
         };
 
-        handle_request::<Handler>(&mut context, &agent1, payload)
+        let reqp = RequestParams::Http {
+            agent_id: &agent1.agent_id(),
+        };
+        Handler::handle(Arc::new(context.clone()), payload, reqp, Utc::now())
             .await
             .expect("Group update failed");
 

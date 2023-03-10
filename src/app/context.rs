@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Context as AnyhowContext;
 use chrono::{DateTime, Utc};
@@ -9,13 +9,15 @@ use diesel::{
 use futures::{future::BoxFuture, FutureExt};
 
 use svc_agent::AgentId;
-
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
+use svc_nats_client::NatsClient;
 
 use crate::{
     app::error::{Error as AppError, ErrorExt, ErrorKind as AppErrorKind},
     backend::janus::client_pool::Clients,
-    client::{conference::ConferenceHttpClient, mqtt_gateway::MqttGatewayHttpClient},
+    client::{
+        conference::ConferenceHttpClient, mqtt::MqttClient, mqtt_gateway::MqttGatewayHttpClient,
+    },
     config::Config,
     db::ConnectionPool as Db,
 };
@@ -26,7 +28,7 @@ use super::metrics::Metrics;
 
 pub trait Context: GlobalContext + MessageContext {}
 
-pub trait GlobalContext: Sync {
+pub trait GlobalContext: Send + Sync {
     fn authz(&self) -> &Authz;
     fn config(&self) -> &Config;
     fn db(&self) -> &Db;
@@ -36,6 +38,8 @@ pub trait GlobalContext: Sync {
     fn metrics(&self) -> Arc<Metrics>;
     fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient;
     fn conference_client(&self) -> &ConferenceHttpClient;
+    fn mqtt_client(&self) -> Arc<Mutex<dyn MqttClient>>;
+    fn nats_client(&self) -> &dyn NatsClient;
     fn get_conn(
         &self,
     ) -> BoxFuture<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
@@ -69,10 +73,13 @@ pub struct AppContext {
     metrics: Arc<Metrics>,
     mqtt_gateway_client: MqttGatewayHttpClient,
     conference_client: ConferenceHttpClient,
+    mqtt_client: Arc<Mutex<dyn MqttClient>>,
+    notification_client: Arc<dyn NatsClient>,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl AppContext {
-    pub fn new(
+    pub fn new<N, M>(
         config: Config,
         authz: Authz,
         db: Db,
@@ -80,7 +87,13 @@ impl AppContext {
         metrics: Arc<Metrics>,
         mqtt_gateway_client: MqttGatewayHttpClient,
         conference_client: ConferenceHttpClient,
-    ) -> Self {
+        mqtt_client: M,
+        nats_client: N,
+    ) -> Self
+    where
+        N: NatsClient + 'static,
+        M: MqttClient + 'static,
+    {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
 
         Self {
@@ -93,6 +106,8 @@ impl AppContext {
             metrics,
             mqtt_gateway_client,
             conference_client,
+            mqtt_client: Arc::new(Mutex::new(mqtt_client)),
+            notification_client: Arc::new(nats_client),
         }
     }
 
@@ -125,12 +140,12 @@ impl GlobalContext for AppContext {
         &self.agent_id
     }
 
-    fn redis_pool(&self) -> &Option<RedisConnectionPool> {
-        &self.redis_pool
-    }
-
     fn janus_clients(&self) -> Clients {
         self.clients.clone()
+    }
+
+    fn redis_pool(&self) -> &Option<RedisConnectionPool> {
+        &self.redis_pool
     }
 
     fn metrics(&self) -> Arc<Metrics> {
@@ -143,6 +158,14 @@ impl GlobalContext for AppContext {
 
     fn conference_client(&self) -> &ConferenceHttpClient {
         &self.conference_client
+    }
+
+    fn mqtt_client(&self) -> Arc<Mutex<dyn MqttClient>> {
+        self.mqtt_client.clone()
+    }
+
+    fn nats_client(&self) -> &dyn NatsClient {
+        self.notification_client.as_ref()
     }
 }
 
@@ -179,12 +202,12 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.agent_id()
     }
 
-    fn redis_pool(&self) -> &Option<RedisConnectionPool> {
-        self.global_context.redis_pool()
-    }
-
     fn janus_clients(&self) -> Clients {
         self.global_context.janus_clients()
+    }
+
+    fn redis_pool(&self) -> &Option<RedisConnectionPool> {
+        self.global_context.redis_pool()
     }
 
     fn metrics(&self) -> Arc<Metrics> {
@@ -197,6 +220,14 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 
     fn conference_client(&self) -> &ConferenceHttpClient {
         self.global_context.conference_client()
+    }
+
+    fn mqtt_client(&self) -> Arc<Mutex<dyn MqttClient>> {
+        self.global_context.mqtt_client()
+    }
+
+    fn nats_client(&self) -> &dyn NatsClient {
+        self.global_context.nats_client()
     }
 }
 

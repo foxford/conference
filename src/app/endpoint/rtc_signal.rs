@@ -172,13 +172,13 @@ impl RequestHandler for CreateHandler {
                 match kind {
                     JsepType::Offer => {
                         let current_span = Span::current();
-                        current_span.record("sdp_type", &"offer");
+                        current_span.record("sdp_type", "offer");
                         let is_recvonly = is_sdp_recvonly(sdp)
                             .context("Invalid JSEP format")
                             .error(AppErrorKind::InvalidJsepFormat)?;
 
                         if is_recvonly {
-                            current_span.record("intent", &"read");
+                            current_span.record("intent", "read");
 
                             let reader_config = crate::util::spawn_blocking({
                                 let rtc_id = payload.handle_id.rtc_id();
@@ -264,7 +264,7 @@ impl RequestHandler for CreateHandler {
                                 }
                             }
                         } else {
-                            current_span.record("intent", &"update");
+                            current_span.record("intent", "update");
 
                             if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned
                                 && reqp.as_agent_id() != rtc.created_by()
@@ -403,8 +403,8 @@ impl RequestHandler for CreateHandler {
             }
             Jsep::IceCandidate(_) => {
                 let current_span = Span::current();
-                current_span.record("sdp_type", &"ice_candidate");
-                current_span.record("intent", &"read");
+                current_span.record("sdp_type", "ice_candidate");
+                current_span.record("intent", "read");
 
                 let _authz_time =
                     authorize(context, &payload.handle_id, reqp, "read", &room).await?;
@@ -552,8 +552,8 @@ impl<C: Context> Trickle<'_, C> {
         }).await?;
 
         let current_span = Span::current();
-        current_span.record("sdp_type", &"ice_candidate");
-        current_span.record("intent", &"read");
+        current_span.record("sdp_type", "ice_candidate");
+        current_span.record("intent", "read");
 
         let _authz_time =
             authorize(self.ctx, &self.handle_id, self.agent_id, "read", &room).await?;

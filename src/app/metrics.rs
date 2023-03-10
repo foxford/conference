@@ -36,6 +36,8 @@ make_static_metric! {
             agent_reader_config_update,
             agent_writer_config_read,
             agent_writer_config_update,
+            group_list,
+            group_update,
             message_broadcast,
             message_callback,
             message_unicast_request,
@@ -72,6 +74,7 @@ pub struct Metrics {
     pub total_requests: IntCounter,
     pub authorization_time: Histogram,
     pub running_requests_total: IntGauge,
+    pub outbox_errors: HashMap<u16, IntCounter>,
 }
 
 impl Metrics {
@@ -115,6 +118,15 @@ impl Metrics {
                 .get_metric_with_label_values(&["connection_error"])?,
             mqtt_disconnect: mqtt_errors.get_metric_with_label_values(&["disconnect"])?,
             mqtt_reconnection: mqtt_errors.get_metric_with_label_values(&["reconnect"])?,
+            outbox_errors: ErrorKind::into_enum_iter()
+                .map(|kind| {
+                    let code = kind.status().as_u16();
+                    Ok((
+                        code,
+                        IntCounter::new(format!("outbox_error_{code}"), "Outbox errors")?,
+                    ))
+                })
+                .collect::<anyhow::Result<_>>()?,
         })
     }
 
@@ -133,6 +145,12 @@ impl Metrics {
     /// This is helpful with HTTP.
     pub fn observe_app_error(&self, err: &ErrorKind) {
         if let Some(m) = self.app_results_errors.get(err) {
+            m.inc()
+        }
+    }
+
+    pub fn observe_outbox_error(&self, code: u16) {
+        if let Some(m) = self.outbox_errors.get(&code) {
             m.inc()
         }
     }

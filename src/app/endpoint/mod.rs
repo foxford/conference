@@ -59,7 +59,6 @@ request_routes!(
     "message.unicast" => message::UnicastHandler,
     "room.close" => room::CloseHandler,
     "room.create" => room::CreateHandler,
-    "room.enter" => room::EnterHandler,
     "room.leave" => room::LeaveHandler,
     "room.read" => room::ReadHandler,
     "room.update" => room::UpdateHandler,

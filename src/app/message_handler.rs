@@ -209,7 +209,7 @@ fn error_response(
 pub fn publish_message(agent: &mut Agent, message: Box<dyn IntoPublishableMessage>) {
     if let Err(err) = agent.publish_publishable(message) {
         error!(?err, "Failed to publish message");
-        AppError::new(AppErrorKind::PublishFailed, err).notify_sentry();
+        AppError::new(AppErrorKind::MqttPublishFailed, err).notify_sentry();
     }
 }
 

@@ -1,14 +1,16 @@
 use std::{
     net::{IpAddr, Ipv4Addr},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use httpmock::MockServer;
 use prometheus::Registry;
 use serde_json::json;
 use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
+use svc_nats_client::{Event, MessageStream, NatsClient, PublishError, SubscribeError};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -17,7 +19,9 @@ use crate::{
         metrics::Metrics,
     },
     backend::janus::{client::IncomingEvent, client_pool::Clients},
-    client::{conference::ConferenceHttpClient, mqtt_gateway::MqttGatewayHttpClient},
+    client::{
+        conference::ConferenceHttpClient, mqtt::MqttClient, mqtt_gateway::MqttGatewayHttpClient,
+    },
     config::Config,
     db::ConnectionPool as Db,
 };
@@ -46,6 +50,15 @@ fn build_config(mock: &MockServer) -> Config {
         "mqtt": {
             "uri": "mqtt://0.0.0.0:1883",
             "clean_session": false,
+        },
+        "outbox": {
+            "messages_per_try": 20,
+            "try_wake_interval": 60,
+            "max_delivery_interval": 86400,
+        },
+        "nats": {
+            "url": "nats://0.0.0.0:4222",
+            "creds": "nats.creds"
         },
         "metrics": {
             "http": {
@@ -87,6 +100,31 @@ fn build_config(mock: &MockServer) -> Config {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+struct TestNatsClient;
+
+#[async_trait]
+impl NatsClient for TestNatsClient {
+    async fn publish(&self, _event: &Event) -> Result<(), PublishError> {
+        Ok(())
+    }
+
+    async fn subscribe(
+        &self,
+        _stream: &str,
+        _consumer: &str,
+    ) -> Result<MessageStream, SubscribeError> {
+        unimplemented!()
+    }
+}
+
+struct TestMqttClient;
+
+impl MqttClient for TestMqttClient {
+    fn publish(&mut self, _label: &'static str, _path: &str) -> Result<(), svc_agent::Error> {
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub struct TestContext {
     config: Config,
@@ -97,6 +135,8 @@ pub struct TestContext {
     clients: Option<Clients>,
     mqtt_gateway_client: MqttGatewayHttpClient,
     conference_client: ConferenceHttpClient,
+    mqtt_client: Arc<Mutex<dyn MqttClient>>,
+    nats_client: Arc<dyn NatsClient>,
 }
 
 const WAITLIST_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
@@ -124,6 +164,8 @@ impl TestContext {
             clients: None,
             mqtt_gateway_client: MqttGatewayHttpClient::new("test".to_owned(), mqtt_api_host_uri),
             conference_client: ConferenceHttpClient::new("test".to_owned()),
+            mqtt_client: Arc::new(Mutex::new(TestMqttClient)),
+            nats_client: Arc::new(TestNatsClient {}) as Arc<dyn NatsClient>,
         }
     }
 
@@ -175,7 +217,7 @@ impl GlobalContext for TestContext {
         &None
     }
 
-    fn janus_clients(&self) -> crate::backend::janus::client_pool::Clients {
+    fn janus_clients(&self) -> Clients {
         self.clients
             .as_ref()
             .expect("You should initialise janus")
@@ -191,8 +233,16 @@ impl GlobalContext for TestContext {
         &self.mqtt_gateway_client
     }
 
-    fn conference_client(&self) -> &crate::client::conference::ConferenceHttpClient {
+    fn conference_client(&self) -> &ConferenceHttpClient {
         &self.conference_client
+    }
+
+    fn mqtt_client(&self) -> Arc<Mutex<dyn MqttClient>> {
+        self.mqtt_client.clone()
+    }
+
+    fn nats_client(&self) -> &dyn NatsClient {
+        self.nats_client.as_ref()
     }
 }
 
