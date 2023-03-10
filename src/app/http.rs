@@ -130,8 +130,8 @@ impl IntoResponse for super::error::Error {
             .build();
 
         let span = Span::current();
-        span.record("kind", &self.kind());
-        span.record("detail", &detail.as_str());
+        span.record("kind", self.kind());
+        span.record("detail", detail.as_str());
 
         let error =
             serde_json::to_string(&err).unwrap_or_else(|_| "Failed to serialize error".to_string());

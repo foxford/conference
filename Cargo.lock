@@ -60,6 +60,9 @@ name = "anyhow"
 version = "1.0.68"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2cb2f989d18dd141ab8ae82f64d1a8cdd37e0840f73a406896cf5e99502fab61"
+dependencies = [
+ "backtrace",
+]
 
 [[package]]
 name = "arrayvec"
@@ -562,7 +565,7 @@ dependencies = [
  "chrono",
  "config",
  "derive_more",
- "diesel 1.4.8",
+ "diesel",
  "diesel-derive-enum",
  "diesel-derive-newtype",
  "diesel_migrations",
@@ -596,7 +599,7 @@ dependencies = [
  "svc-authn",
  "svc-authz",
  "svc-conference-events",
- "svc-error 0.2.0",
+ "svc-error 0.4.2",
  "svc-nats-client",
  "svc-utils",
  "testcontainers",
@@ -917,21 +920,12 @@ dependencies = [
  "bitflags",
  "byteorder",
  "chrono",
- "diesel_derives 1.4.1",
+ "diesel_derives",
  "pq-sys",
  "r2d2",
  "serde_json",
  "uuid 0.6.5",
  "uuid 0.8.2",
-]
-
-[[package]]
-name = "diesel"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68c186a7418a2aac330bb76cde82f16c36b03a66fb91db32d20214311f9f6545"
-dependencies = [
- "diesel_derives 2.0.1",
 ]
 
 [[package]]
@@ -952,7 +946,7 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e844e8e6f65dcf27aa0b97d4234f974d93dfbf56816033d71b5e0c7eb701709f"
 dependencies = [
- "diesel 1.4.8",
+ "diesel",
  "proc-macro2 0.4.30",
  "quote 0.6.13",
  "syn 0.14.9",
@@ -964,18 +958,6 @@ version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45f5098f628d02a7a0f68ddba586fb61e80edec3bdc1be3b921f4ceec60858d3"
 dependencies = [
- "proc-macro2 1.0.50",
- "quote 1.0.23",
- "syn 1.0.107",
-]
-
-[[package]]
-name = "diesel_derives"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "143b758c91dbc3fe1fdcb0dba5bd13276c6a66422f2ef5795b58488248a310aa"
-dependencies = [
- "proc-macro-error",
  "proc-macro2 1.0.50",
  "quote 1.0.23",
  "syn 1.0.107",
@@ -2007,7 +1989,7 @@ version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b4fc84e4af020b837029e017966f86a1c2d5e83e64b589963d5047525995860"
 dependencies = [
- "diesel 1.4.8",
+ "diesel",
 ]
 
 [[package]]
@@ -2480,30 +2462,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
 
 [[package]]
-name = "proc-macro-error"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da25490ff9892aab3fcf7c36f08cfb902dd3e71ca0f9f9517bea02a73a5ce38c"
-dependencies = [
- "proc-macro-error-attr",
- "proc-macro2 1.0.50",
- "quote 1.0.23",
- "syn 1.0.107",
- "version_check",
-]
-
-[[package]]
-name = "proc-macro-error-attr"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1be40180e52ecc98ad80b184934baf3d0d29f979574e439af5a55274b35f869"
-dependencies = [
- "proc-macro2 1.0.50",
- "quote 1.0.23",
- "version_check",
-]
-
-[[package]]
 name = "proc-macro2"
 version = "0.4.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2959,7 +2917,7 @@ checksum = "546b9b6f76c26c60ffbcf0b7136e15169fe13d43949b4aadb7c1edc1c3f3a26f"
 dependencies = [
  "httpdate",
  "reqwest",
- "sentry-backtrace",
+ "sentry-backtrace 0.23.0",
  "sentry-contexts",
  "sentry-core 0.23.0",
  "sentry-panic",
@@ -2972,7 +2930,23 @@ version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17ad137b9df78294b98cab1a650bef237cc6c950e82e5ce164655e674d07c5cc"
 dependencies = [
- "sentry-core 0.29.1",
+ "httpdate",
+ "reqwest",
+ "sentry-anyhow",
+ "sentry-backtrace 0.29.3",
+ "sentry-core 0.29.3",
+ "tokio",
+]
+
+[[package]]
+name = "sentry-anyhow"
+version = "0.29.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a80510663e6b711de2eed521a95dc38435a0e5858397d1acec79185e4a44215b"
+dependencies = [
+ "anyhow",
+ "sentry-backtrace 0.29.3",
+ "sentry-core 0.29.3",
 ]
 
 [[package]]
@@ -2985,6 +2959,18 @@ dependencies = [
  "lazy_static",
  "regex",
  "sentry-core 0.23.0",
+]
+
+[[package]]
+name = "sentry-backtrace"
+version = "0.29.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ed6c0254d4cce319800609aa0d41b486ee57326494802045ff27434fc9a2030"
+dependencies = [
+ "backtrace",
+ "once_cell",
+ "regex",
+ "sentry-core 0.29.3",
 ]
 
 [[package]]
@@ -3018,13 +3004,13 @@ dependencies = [
 
 [[package]]
 name = "sentry-core"
-version = "0.29.1"
+version = "0.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4df9b9d8de2658a1ecd4e45f7b06c80c5dd97b891bfbc7c501186189b7e9bbdf"
+checksum = "b5acbd3da4255938cf0384b6b140e6c07ff65919c26e4d7a989d8d90ee88fa91"
 dependencies = [
  "once_cell",
  "rand",
- "sentry-types 0.29.1",
+ "sentry-types 0.29.3",
  "serde 1.0.152",
  "serde_json",
 ]
@@ -3035,7 +3021,7 @@ version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "692bf989f0c99f025e33d7f58e62822c3771f56d189698c66dcc863122255d95"
 dependencies = [
- "sentry-backtrace",
+ "sentry-backtrace 0.23.0",
  "sentry-core 0.23.0",
 ]
 
@@ -3056,9 +3042,9 @@ dependencies = [
 
 [[package]]
 name = "sentry-types"
-version = "0.29.1"
+version = "0.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccc95faa4078768a6bf8df45e2b894bbf372b3dbbfb364e9429c1c58ab7545c6"
+checksum = "10d8587b12c0b8211bb3066979ee57af6e8657e23cf439dc6c8581fd86de24e8"
 dependencies = [
  "debugid 0.8.0",
  "getrandom",
@@ -3540,7 +3526,7 @@ dependencies = [
  "async-channel",
  "base64 0.13.1",
  "chrono",
- "diesel 1.4.8",
+ "diesel",
  "http",
  "log",
  "rumqttc",
@@ -3558,7 +3544,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8e4f92a96e68ec103e1a94df3a5c36940941340f64fc28b774bfdc0959e31a7"
 dependencies = [
  "chrono",
- "diesel 1.4.8",
+ "diesel",
  "http",
  "jsonwebtoken",
  "serde 1.0.152",
@@ -3599,25 +3585,6 @@ dependencies = [
 
 [[package]]
 name = "svc-error"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45ba124380cab5b1acf1bb40fdb6159ee5be24f6c45b9f6f7b939c90a3f63bca"
-dependencies = [
- "crossbeam-channel",
- "diesel 2.0.2",
- "http",
- "once_cell",
- "r2d2",
- "sentry 0.29.1",
- "serde 1.0.152",
- "serde_derive",
- "svc-agent",
- "svc-authn",
- "svc-authz",
-]
-
-[[package]]
-name = "svc-error"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "601b25c55d2123e19b0d6981a8579f4811c12d3d883ad73c4d7e97119d1ee704"
@@ -3627,6 +3594,27 @@ dependencies = [
  "http",
  "serde 1.0.152",
  "serde_derive",
+]
+
+[[package]]
+name = "svc-error"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "720a00493b0ec0fe7e9e146216809c752133fec80fc27ddfdd609310e61bcfda"
+dependencies = [
+ "anyhow",
+ "crossbeam-channel",
+ "diesel",
+ "http",
+ "once_cell",
+ "r2d2",
+ "sentry 0.29.1",
+ "sentry-anyhow",
+ "serde 1.0.152",
+ "serde_derive",
+ "svc-agent",
+ "svc-authn",
+ "svc-authz",
 ]
 
 [[package]]

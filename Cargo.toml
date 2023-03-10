@@ -43,7 +43,7 @@ svc-authn = { version = "0.7", features = ["jose", "diesel"] }
 svc-authz = "0.11"
 #svc-conference-events = "0.1"
 svc-conference-events = { git = "https://github.com/foxford/svc-conference-events.git", branch = "from-slice" }
-svc-error = { version = "0.2", features = [
+svc-error = { version = "0.4.2", features = [
   "diesel",
   "r2d2",
   "svc-agent",

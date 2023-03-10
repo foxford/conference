@@ -1,10 +1,8 @@
-use std::{error::Error as StdError, fmt};
+use std::{error::Error as StdError, fmt, sync::Arc};
 
 use enum_iterator::IntoEnumIterator;
 use svc_agent::mqtt::ResponseStatus;
 use svc_error::{extension::sentry, Error as SvcError};
-use tracing::warn;
-use tracing_error::SpanTrace;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -334,14 +332,14 @@ impl From<ErrorKind> for ErrorKindProperties {
 
 pub struct Error {
     kind: ErrorKind,
-    source: Option<anyhow::Error>,
+    source: Option<Arc<anyhow::Error>>,
 }
 
 impl Error {
     pub fn new(kind: ErrorKind, source: impl Into<anyhow::Error>) -> Self {
         Self {
             kind,
-            source: Some(source.into()),
+            source: Some(Arc::new(source.into())),
         }
     }
 
@@ -381,20 +379,12 @@ impl Error {
         if !self.kind.is_notify_sentry() {
             return;
         }
-        let properties: ErrorKindProperties = self.kind.into();
-        let svc_err = SvcError::builder()
-            .status(properties.status)
-            .kind(properties.kind, properties.title)
-            .detail(&format!(
-                "Error: {}, Trace: {:?}",
-                self.detail(),
-                SpanTrace::capture()
-            ))
-            .build();
 
-        sentry::send(svc_err).unwrap_or_else(|err| {
-            warn!(?err, "Error sending error to Sentry");
-        });
+        if let Some(e) = &self.source {
+            if let Err(e) = sentry::send(e.clone()) {
+                tracing::error!("Failed to send error to sentry, reason = {:?}", e);
+            }
+        }
     }
 }
 
@@ -418,7 +408,7 @@ impl fmt::Display for Error {
 
 impl StdError for Error {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        self.source.as_ref().map(|s| s.as_ref())
+        self.source.as_ref().map(|s| s.as_ref().as_ref())
     }
 }
 
@@ -431,7 +421,7 @@ impl From<svc_authz::Error> for Error {
 
         Self {
             kind,
-            source: Some(anyhow::Error::from(source)),
+            source: Some(Arc::new(anyhow::Error::from(source))),
         }
     }
 }
@@ -440,7 +430,7 @@ impl From<diesel::result::Error> for Error {
     fn from(source: diesel::result::Error) -> Self {
         Self {
             kind: ErrorKind::DbQueryFailed,
-            source: Some(anyhow::Error::from(source)),
+            source: Some(Arc::new(anyhow::Error::from(source))),
         }
     }
 }
