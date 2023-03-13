@@ -1,5 +1,6 @@
 use svc_nats_client::EventId;
 
+pub mod config;
 pub mod db;
 pub mod pipeline;
 pub mod util;
