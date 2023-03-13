@@ -166,16 +166,15 @@ impl super::Pipeline for Pipeline {
                 let (record, stage): (Object, T) = Self::load_single_record(&conn, &id)?;
 
                 self.handle_record(&conn, ctx.clone(), record, stage)
-            });
+            })?;
 
             match result {
-                Ok(Some(next_id)) => {
+                Some(next_id) => {
                     id = next_id;
                 }
-                Ok(None) => {
+                None => {
                     break;
                 }
-                Err(err) => return Err(err),
             }
         }
 
@@ -191,18 +190,20 @@ impl super::Pipeline for Pipeline {
         loop {
             let conn = self.get_conn().await?;
 
-            let result = conn.transaction(|| {
+            let result = conn.transaction::<Option<()>, Error, _>(|| {
                 let records: Vec<(Object, T)> =
                     Self::load_multiple_records(&conn, records_per_try)?;
 
                 if records.is_empty() {
                     // Exit from the closure
-                    return Ok::<_, Error>(None);
+                    return Ok(None);
                 }
 
                 for (record, stage) in records {
                     // In case of error, we try to handle another record
-                    let _ = self.handle_record(&conn, ctx.clone(), record, stage);
+                    if let Err(err) = self.handle_record(&conn, ctx.clone(), record, stage) {
+                        tracing::error!(%err, "failed to handle stage");
+                    }
                 }
 
                 Ok(Some(()))
