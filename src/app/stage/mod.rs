@@ -7,7 +7,7 @@ use crate::{
             VideoGroupUpdateJanusConfig,
         },
     },
-    outbox::{StageError, StageHandle},
+    outbox::{error::StageError, StageHandle},
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -40,6 +40,8 @@ impl StageHandle for AppStage {
             if let Some(e) = err.error().downcast_ref::<Error>() {
                 e.notify_sentry();
             }
+
+            tracing::error!(%err, "failed to handle stage");
 
             ctx.metrics().observe_outbox_error(err.code());
         }

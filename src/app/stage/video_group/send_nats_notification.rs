@@ -5,7 +5,7 @@ use crate::{
         stage::{video_group::VideoGroupSendMqttNotification, AppStage},
     },
     db,
-    outbox::{StageError, StageHandle},
+    outbox::{error::StageError, StageHandle},
 };
 use anyhow::Context;
 use async_trait::async_trait;

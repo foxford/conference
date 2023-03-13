@@ -894,10 +894,9 @@ mod tests {
                 .expect_err("Unexpected agent reader config update success");
 
             assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
-            assert_eq!(err.kind(), "invalid_payload");
             assert_eq!(
-                err.source().to_string(),
-                format!("{} is in another group", agent2.agent_id())
+                err.to_string(),
+                format!("Invalid payload: {} is in another group", agent2.agent_id())
             );
 
             Ok(())

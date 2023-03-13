@@ -9,7 +9,7 @@ use crate::{
         UpdateReaderConfigRequestBodyConfigItem,
     },
     db,
-    outbox::{StageError, StageHandle},
+    outbox::{error::StageError, StageHandle},
 };
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;

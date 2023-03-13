@@ -1,7 +1,6 @@
 use crate::outbox::{
     db::diesel::Object,
-    pipeline::Error,
-    pipeline::{ErrorKind, PipelineError, PipelineErrorExt},
+    error::{Error, ErrorKind, PipelineError, PipelineErrorExt},
     EventId, StageHandle,
 };
 use anyhow::anyhow;
@@ -123,7 +122,7 @@ impl Pipeline {
             Ok(None) => {
                 crate::outbox::db::diesel::DeleteQuery::new(&id)
                     .execute(conn)
-                    .error(ErrorKind::DeserializationFailed)?;
+                    .error(ErrorKind::DeleteStageFailed)?;
 
                 Ok(None)
             }
@@ -201,9 +200,7 @@ impl super::Pipeline for Pipeline {
 
                 for (record, stage) in records {
                     // In case of error, we try to handle another record
-                    if let Err(err) = self.handle_record(&conn, ctx.clone(), record, stage) {
-                        tracing::error!(%err, "failed to handle stage");
-                    }
+                    _ = self.handle_record(&conn, ctx.clone(), record, stage);
                 }
 
                 Ok(Some(()))

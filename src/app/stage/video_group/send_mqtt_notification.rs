@@ -5,7 +5,7 @@ use crate::{
         stage::AppStage,
     },
     db,
-    outbox::{StageError, StageHandle},
+    outbox::{error::StageError, StageHandle},
 };
 use anyhow::anyhow;
 use async_trait::async_trait;

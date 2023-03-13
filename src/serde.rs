@@ -214,7 +214,7 @@ pub mod ts_seconds_option_bound_tuple {
 mod test {
     use std::ops::Bound;
 
-    use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+    use chrono::{DateTime, NaiveDateTime, Utc};
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
