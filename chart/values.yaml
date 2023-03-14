@@ -39,6 +39,8 @@ env:
   DATABASE_POOL_TIMEOUT: 5
   DATABASE_POOL_MAX_LIFETIME: 43200
 
+nats: {}
+
 clusterService:
   ports:
     http: 8080

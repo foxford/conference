@@ -7,7 +7,7 @@ use crate::{
     db,
     outbox::{error::StageError, StageHandle},
 };
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -50,6 +50,8 @@ impl StageHandle for VideoGroupSendNatsNotification {
             svc_nats_client::Event::new(subject, payload, id.to_owned(), ctx.agent_id().to_owned());
 
         ctx.nats_client()
+            .ok_or_else(|| anyhow!("nats client not found"))
+            .error(ErrorKind::NatsClientNotFound)?
             .publish(&event)
             .await
             .error(ErrorKind::NatsPublishFailed)?;

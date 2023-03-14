@@ -32,10 +32,13 @@ data:
     messages_per_try = 20
     try_wake_interval = 60 # 1 minute
     max_delivery_interval = 86400 # 1 day
-    
+
+    {{- with .Values.nats }}
+    {{- println "" }}
     [nats]
-    url = "nats://nats-back-front-internal-lb:4222"
-    creds = "nats.creds"
+    url = {{ .url | quote }}
+    creds = {{ .creds | quote }}
+    {{- end }}
 
     [backend]
     {{- $backendId := list "janus-gateway" .Values.app.svc.audience | compact | join "." }}

@@ -32,7 +32,7 @@ pub struct Config {
     #[serde(with = "humantime_serde", default = "default_waitlist_timeout")]
     pub waitlist_timeout: Duration,
     pub outbox: crate::outbox::config::Config,
-    pub nats: svc_nats_client::Config,
+    pub nats: Option<svc_nats_client::Config>,
 }
 
 fn default_waitlist_epoch_duration() -> Duration {

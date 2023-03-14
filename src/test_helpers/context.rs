@@ -136,7 +136,7 @@ pub struct TestContext {
     mqtt_gateway_client: MqttGatewayHttpClient,
     conference_client: ConferenceHttpClient,
     mqtt_client: Arc<Mutex<dyn MqttClient>>,
-    nats_client: Arc<dyn NatsClient>,
+    nats_client: Option<Arc<dyn NatsClient>>,
 }
 
 const WAITLIST_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
@@ -165,7 +165,7 @@ impl TestContext {
             mqtt_gateway_client: MqttGatewayHttpClient::new("test".to_owned(), mqtt_api_host_uri),
             conference_client: ConferenceHttpClient::new("test".to_owned()),
             mqtt_client: Arc::new(Mutex::new(TestMqttClient)),
-            nats_client: Arc::new(TestNatsClient {}) as Arc<dyn NatsClient>,
+            nats_client: Some(Arc::new(TestNatsClient {}) as Arc<dyn NatsClient>),
         }
     }
 
@@ -241,8 +241,8 @@ impl GlobalContext for TestContext {
         self.mqtt_client.clone()
     }
 
-    fn nats_client(&self) -> &dyn NatsClient {
-        self.nats_client.as_ref()
+    fn nats_client(&self) -> Option<&dyn NatsClient> {
+        self.nats_client.as_deref()
     }
 }
 

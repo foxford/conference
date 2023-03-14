@@ -110,10 +110,6 @@ pub async fn run(
         MqttGatewayHttpClient::new(token.clone(), config.mqtt_api_host_uri.clone());
     let conference_client = ConferenceHttpClient::new(token.clone());
 
-    let nats_cfg = &config.nats;
-    let nats_client = svc_nats_client::new(&nats_cfg.url, &nats_cfg.creds)
-        .await
-        .context("nats client")?;
     let mqtt_client = crate::client::mqtt::new(agent.clone());
 
     let context = AppContext::new(
@@ -125,8 +121,20 @@ pub async fn run(
         mqtt_gateway_client,
         conference_client,
         mqtt_client,
-        nats_client,
     );
+
+    let context = match &config.nats {
+        Some(cfg) => {
+            let nats_client = svc_nats_client::new(&cfg.url, &cfg.creds)
+                .await
+                .context("nats client")?;
+            info!("Connected to nats");
+
+            context.add_nats_client(nats_client)
+        }
+        None => context,
+    };
+
     let reg_handler = tokio::spawn(start_internal_api(
         config.janus_registry.clone(),
         context.janus_clients(),

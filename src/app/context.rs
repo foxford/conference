@@ -39,7 +39,7 @@ pub trait GlobalContext: Send + Sync {
     fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient;
     fn conference_client(&self) -> &ConferenceHttpClient;
     fn mqtt_client(&self) -> Arc<Mutex<dyn MqttClient>>;
-    fn nats_client(&self) -> &dyn NatsClient;
+    fn nats_client(&self) -> Option<&dyn NatsClient>;
     fn get_conn(
         &self,
     ) -> BoxFuture<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
@@ -74,12 +74,12 @@ pub struct AppContext {
     mqtt_gateway_client: MqttGatewayHttpClient,
     conference_client: ConferenceHttpClient,
     mqtt_client: Arc<Mutex<dyn MqttClient>>,
-    notification_client: Arc<dyn NatsClient>,
+    nats_client: Option<Arc<dyn NatsClient>>,
 }
 
 #[allow(clippy::too_many_arguments)]
 impl AppContext {
-    pub fn new<N, M>(
+    pub fn new<M>(
         config: Config,
         authz: Authz,
         db: Db,
@@ -88,10 +88,8 @@ impl AppContext {
         mqtt_gateway_client: MqttGatewayHttpClient,
         conference_client: ConferenceHttpClient,
         mqtt_client: M,
-        nats_client: N,
     ) -> Self
     where
-        N: NatsClient + 'static,
         M: MqttClient + 'static,
     {
         let agent_id = AgentId::new(&config.agent_label, config.id.to_owned());
@@ -107,13 +105,20 @@ impl AppContext {
             mqtt_gateway_client,
             conference_client,
             mqtt_client: Arc::new(Mutex::new(mqtt_client)),
-            notification_client: Arc::new(nats_client),
+            nats_client: None,
         }
     }
 
     pub fn add_redis_pool(self, pool: RedisConnectionPool) -> Self {
         Self {
             redis_pool: Some(pool),
+            ..self
+        }
+    }
+
+    pub fn add_nats_client(self, nats_client: impl NatsClient + 'static) -> Self {
+        Self {
+            nats_client: Some(Arc::new(nats_client)),
             ..self
         }
     }
@@ -164,8 +169,8 @@ impl GlobalContext for AppContext {
         self.mqtt_client.clone()
     }
 
-    fn nats_client(&self) -> &dyn NatsClient {
-        self.notification_client.as_ref()
+    fn nats_client(&self) -> Option<&dyn NatsClient> {
+        self.nats_client.as_deref()
     }
 }
 
@@ -226,7 +231,7 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.mqtt_client()
     }
 
-    fn nats_client(&self) -> &dyn NatsClient {
+    fn nats_client(&self) -> Option<&dyn NatsClient> {
         self.global_context.nats_client()
     }
 }
