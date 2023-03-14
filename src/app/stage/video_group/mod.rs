@@ -1,4 +1,4 @@
-pub use send_mqtt_notification::VideoGroupSendMqttNotification;
+pub use send_mqtt_notification::{VideoGroupSendMqttNotification, MQTT_NOTIFICATION_LABEL};
 pub use send_nats_notification::VideoGroupSendNatsNotification;
 pub use update_janus_config::VideoGroupUpdateJanusConfig;
 

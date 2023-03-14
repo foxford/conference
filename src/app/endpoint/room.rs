@@ -26,7 +26,11 @@ use crate::{
         group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::{self, video_group::VideoGroupUpdateJanusConfig, AppStage},
+        stage::{
+            self,
+            video_group::{VideoGroupUpdateJanusConfig, MQTT_NOTIFICATION_LABEL},
+            AppStage,
+        },
         API_VERSION,
     },
     authz::AuthzObject,
@@ -692,6 +696,8 @@ impl EnterHandler {
         })
         .await?;
 
+        let mut response = Response::new(ResponseStatus::OK, json!({}), start_timestamp, None);
+
         let ctx = context.clone();
         // Adds participants to the default group for minigroups
         let room_id = room.id();
@@ -775,22 +781,30 @@ impl EnterHandler {
             })
             .await?;
 
-            if let Some(event_id) = maybe_event_id {
-                let pipeline = DieselPipeline::new(
-                    ctx.db().clone(),
-                    outbox_config.try_wake_interval,
-                    outbox_config.max_delivery_interval,
-                );
-                if let Err(err) = pipeline
-                    .run_single_stage::<AppStage, _>(ctx, event_id)
-                    .await
-                {
-                    error!(%err, "failed to complete stage");
+            match maybe_event_id {
+                Some(event_id) => {
+                    let pipeline = DieselPipeline::new(
+                        ctx.db().clone(),
+                        outbox_config.try_wake_interval,
+                        outbox_config.max_delivery_interval,
+                    );
+                    if let Err(err) = pipeline
+                        .run_single_stage::<AppStage, _>(ctx, event_id)
+                        .await
+                    {
+                        error!(%err, "failed to complete stage");
+                    }
+                }
+                None => {
+                    response.add_notification(
+                        MQTT_NOTIFICATION_LABEL,
+                        &format!("rooms/{room_id}/events"),
+                        json!({}),
+                        start_timestamp,
+                    );
                 }
             }
         };
-
-        let mut response = Response::new(ResponseStatus::OK, json!({}), start_timestamp, None);
 
         response.add_notification(
             "room.enter",

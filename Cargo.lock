@@ -3620,7 +3620,7 @@ dependencies = [
 [[package]]
 name = "svc-nats-client"
 version = "0.1.0"
-source = "git+https://github.com/foxford/svc-nats-client.git?branch=impl-client#472119217b67967f0e7383725f5428a82c289922"
+source = "git+https://github.com/foxford/svc-nats-client.git?branch=impl-client#71eaeea8335367c41f1f5d8b2d40dd79868fe9b2"
 dependencies = [
  "async-nats",
  "async-trait",

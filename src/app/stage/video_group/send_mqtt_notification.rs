@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use svc_nats_client::EventId;
 
-const MQTT_NOTIFICATION_LABEL: &str = "video_group.update";
+pub const MQTT_NOTIFICATION_LABEL: &str = "video_group.update";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct VideoGroupSendMqttNotification {
