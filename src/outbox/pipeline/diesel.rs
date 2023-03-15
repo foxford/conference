@@ -1,6 +1,6 @@
 use crate::outbox::{
     db::diesel::Object,
-    error::{Error, ErrorKind, PipelineError, PipelineErrorExt},
+    error::{ErrorKind, PipelineError, PipelineErrorExt},
     EventId, StageHandle,
 };
 use anyhow::anyhow;
@@ -32,7 +32,9 @@ impl Pipeline {
         }
     }
 
-    async fn get_conn(&self) -> Result<PooledConnection<ConnectionManager<PgConnection>>, Error> {
+    async fn get_conn(
+        &self,
+    ) -> Result<PooledConnection<ConnectionManager<PgConnection>>, PipelineError> {
         let db = self.db.clone();
 
         tokio::task::spawn_blocking(move || db.get().error(ErrorKind::DbConnAcquisitionFailed))
@@ -40,7 +42,10 @@ impl Pipeline {
             .error(ErrorKind::DbConnAcquisitionFailed)?
     }
 
-    fn load_single_record<T>(conn: &PgConnection, id: &EventId) -> Result<(Object, T), Error>
+    fn load_single_record<T>(
+        conn: &PgConnection,
+        id: &EventId,
+    ) -> Result<(Object, T), PipelineError>
     where
         T: Serialize + DeserializeOwned,
     {
@@ -54,7 +59,7 @@ impl Pipeline {
     fn load_multiple_records<T>(
         conn: &PgConnection,
         records_per_try: i64,
-    ) -> Result<Vec<(Object, T)>, Error>
+    ) -> Result<Vec<(Object, T)>, PipelineError>
     where
         T: Serialize + DeserializeOwned,
     {
@@ -79,7 +84,7 @@ impl Pipeline {
         ctx: C,
         record: Object,
         stage: T,
-    ) -> Result<Option<EventId>, Error>
+    ) -> Result<Option<EventId>, PipelineError>
     where
         T: StageHandle<Context = C, Stage = T>,
         T: Clone + Serialize + DeserializeOwned,
@@ -142,15 +147,21 @@ impl Pipeline {
                 .execute(conn)
                 .error(ErrorKind::UpdateStageFailed)?;
 
-                Err(error.into())
+                Ok(None)
             }
         }
     }
 }
 
+impl From<diesel::result::Error> for PipelineError {
+    fn from(source: diesel::result::Error) -> Self {
+        PipelineError::new(ErrorKind::DbQueryFailed, Box::new(source))
+    }
+}
+
 #[async_trait::async_trait]
 impl super::Pipeline for Pipeline {
-    async fn run_single_stage<T, C>(&self, ctx: C, id: EventId) -> Result<(), Error>
+    async fn run_single_stage<T, C>(&self, ctx: C, id: EventId) -> Result<(), PipelineError>
     where
         T: StageHandle<Context = C, Stage = T>,
         T: Clone + Serialize + DeserializeOwned,
@@ -180,16 +191,27 @@ impl super::Pipeline for Pipeline {
         Ok(())
     }
 
-    async fn run_multiple_stages<T, C>(&self, ctx: C, records_per_try: i64) -> Result<(), Error>
+    async fn run_multiple_stages<T, C>(
+        &self,
+        ctx: C,
+        records_per_try: i64,
+    ) -> Result<(), Vec<PipelineError>>
     where
         T: StageHandle<Context = C, Stage = T>,
         T: Clone + Serialize + DeserializeOwned,
         C: Clone + Send + Sync + 'static,
     {
-        loop {
-            let conn = self.get_conn().await?;
+        let mut errors = Vec::new();
 
-            let result = conn.transaction::<Option<()>, Error, _>(|| {
+        loop {
+            let conn = match self.get_conn().await {
+                Ok(conn) => conn,
+                Err(err) => {
+                    return Err(vec![err]);
+                }
+            };
+
+            match conn.transaction::<Option<()>, PipelineError, _>(|| {
                 let records: Vec<(Object, T)> =
                     Self::load_multiple_records(&conn, records_per_try)?;
 
@@ -200,23 +222,26 @@ impl super::Pipeline for Pipeline {
 
                 for (record, stage) in records {
                     // In case of error, we try to handle another record
-                    _ = self.handle_record(&conn, ctx.clone(), record, stage);
+                    if let Err(err) = self.handle_record(&conn, ctx.clone(), record, stage) {
+                        errors.push(err)
+                    }
                 }
 
                 Ok(Some(()))
-            })?;
+            }) {
+                Ok(Some(())) => continue,
+                Ok(None) => {
+                    if !errors.is_empty() {
+                        return Err(errors);
+                    }
 
-            // Break the loop if there are no records
-            if result.is_none() {
-                return Ok(());
-            }
+                    // Break the loop if there are no records
+                    return Ok(());
+                }
+                Err(err) => {
+                    return Err(vec![err]);
+                }
+            };
         }
-    }
-}
-
-impl From<diesel::result::Error> for Error {
-    fn from(source: diesel::result::Error) -> Self {
-        let error = PipelineError::new(ErrorKind::DbQueryFailed, Box::new(source));
-        Self::PipelineError(error)
     }
 }

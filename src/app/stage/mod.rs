@@ -37,11 +37,11 @@ impl StageHandle for AppStage {
         };
 
         if let Err(ref err) = result {
+            tracing::error!(%err, "failed to handle stage");
+
             if let Some(e) = err.error().downcast_ref::<Error>() {
                 e.notify_sentry();
             }
-
-            tracing::error!(%err, "failed to handle stage");
 
             ctx.metrics().observe_outbox_error(err.code());
         }

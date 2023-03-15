@@ -1,5 +1,6 @@
 use std::{error::Error as StdError, fmt, sync::Arc};
 
+use crate::outbox::error::PipelineError;
 use enum_iterator::IntoEnumIterator;
 use svc_agent::mqtt::ResponseStatus;
 use svc_error::{extension::sentry, Error as SvcError};
@@ -56,6 +57,7 @@ pub enum ErrorKind {
     MqttPublishFailed,
     NatsPublishFailed,
     NatsClientNotFound,
+    OutboxPipelineError,
 }
 
 impl ErrorKind {
@@ -324,6 +326,12 @@ impl From<ErrorKind> for ErrorKindProperties {
                 title: "Nats client not found",
                 is_notify_sentry: true,
             },
+            ErrorKind::OutboxPipelineError => ErrorKindProperties {
+                status: ResponseStatus::FAILED_DEPENDENCY,
+                kind: "outbox pipeline error",
+                title: "Outbox pipeline error",
+                is_notify_sentry: true,
+            },
         }
     }
 }
@@ -444,5 +452,11 @@ pub trait ErrorExt<T> {
 impl<T, E: Into<anyhow::Error>> ErrorExt<T> for Result<T, E> {
     fn error(self, kind: ErrorKind) -> Result<T, Error> {
         self.map_err(|source| Error::new(kind, source.into()))
+    }
+}
+
+impl From<PipelineError> for Error {
+    fn from(error: PipelineError) -> Self {
+        Error::new(ErrorKind::OutboxPipelineError, error)
     }
 }

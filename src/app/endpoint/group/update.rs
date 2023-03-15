@@ -188,6 +188,7 @@ impl Handler {
             .await
         {
             error!(%err, "failed to complete stage");
+            AppError::from(err).notify_sentry();
         }
 
         context

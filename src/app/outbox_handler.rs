@@ -1,5 +1,5 @@
 use crate::{
-    app::{context::GlobalContext, stage::AppStage},
+    app::{context::GlobalContext, error::Error as AppError, stage::AppStage},
     outbox::pipeline::{diesel::Pipeline as DieselPipeline, Pipeline},
 };
 use std::sync::Arc;
@@ -25,11 +25,15 @@ pub fn run(
                         outbox_config.try_wake_interval,
                         outbox_config.max_delivery_interval,
                     );
-                    if let Err(err) = pipeline
+
+                    if let Err(errors) = pipeline
                         .run_multiple_stages::<AppStage, _>(ctx.clone(), outbox_config.messages_per_try)
                         .await
                     {
-                        error!(%err, "failed to handle stages");
+                        for err in errors {
+                            error!(%err, "failed to complete stage");
+                            AppError::from(err).notify_sentry();
+                        }
                     }
                 }
                 // Graceful shutdown

@@ -42,12 +42,12 @@ pub enum ErrorKind {
 }
 
 pub trait PipelineErrorExt<T> {
-    fn error(self, kind: ErrorKind) -> Result<T, Error>;
+    fn error(self, kind: ErrorKind) -> Result<T, PipelineError>;
 }
 
 impl<T, E: std::error::Error + Send + Sync + 'static> PipelineErrorExt<T> for Result<T, E> {
-    fn error(self, kind: ErrorKind) -> Result<T, Error> {
-        self.map_err(|source| PipelineError::new(kind, Box::new(source)).into())
+    fn error(self, kind: ErrorKind) -> Result<T, PipelineError> {
+        self.map_err(|source| PipelineError::new(kind, Box::new(source)))
     }
 }
 
@@ -71,13 +71,4 @@ impl std::fmt::Display for PipelineError {
             self.kind, self.error
         )
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-#[allow(clippy::enum_variant_names)]
-pub enum Error {
-    #[error(transparent)]
-    PipelineError(#[from] PipelineError),
-    #[error(transparent)]
-    StageError(#[from] StageError),
 }
