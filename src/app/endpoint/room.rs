@@ -20,7 +20,11 @@ use uuid::Uuid;
 use crate::{
     app::{
         context::{AppContext, Context},
-        endpoint::{prelude::*, subscription::CorrelationDataPayload},
+        endpoint::{
+            prelude::*,
+            rtc::{RtcCreate, RtcCreateResult},
+            subscription::CorrelationDataPayload,
+        },
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
         API_VERSION,
@@ -671,18 +675,39 @@ impl RequestHandler for EnterHandler {
         })
         .await?;
 
+        let RtcCreateResult {
+            rtc,
+            authz_time,
+            notification_label,
+            notification_topic,
+        } = RtcCreate {
+            ctx: context,
+            room_id: room.id(),
+            reqp,
+        }
+        .run()
+        .await?;
+
         let mut response = Response::new(
             ResponseStatus::OK,
             json!({}),
             context.start_timestamp(),
-            None,
+            Some(authz_time),
         );
+
         response.add_notification(
             "room.enter",
             &format!("rooms/{}/events", room_id),
             RoomEnterLeaveEvent::new(room.id(), subject),
             context.start_timestamp(),
         );
+        response.add_notification(
+            notification_label,
+            &notification_topic,
+            rtc,
+            context.start_timestamp(),
+        );
+
         context
             .metrics()
             .request_duration

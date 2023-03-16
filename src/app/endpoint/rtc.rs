@@ -126,21 +126,21 @@ impl RequestHandler for CreateHandler {
     }
 }
 
-struct RtcCreate<'a, C> {
-    ctx: &'a C,
-    room_id: db::room::Id,
-    reqp: RequestParams<'a>,
+pub struct RtcCreate<'a, C> {
+    pub ctx: &'a C,
+    pub room_id: db::room::Id,
+    pub reqp: RequestParams<'a>,
 }
 
-struct RtcCreateResult {
-    rtc: db::rtc::Object,
-    authz_time: Duration,
-    notification_label: &'static str,
-    notification_topic: String,
+pub struct RtcCreateResult {
+    pub rtc: db::rtc::Object,
+    pub authz_time: Duration,
+    pub notification_label: &'static str,
+    pub notification_topic: String,
 }
 
 impl<'a, C: Context> RtcCreate<'a, C> {
-    async fn run(self) -> Result<RtcCreateResult, AppError> {
+    pub async fn run(self) -> Result<RtcCreateResult, AppError> {
         let room = crate::util::spawn_blocking({
             let conn = self.ctx.get_conn().await?;
             let room_id = self.room_id;
@@ -188,11 +188,34 @@ impl<'a, C: Context> RtcCreate<'a, C> {
                         }
                     }
 
-                    db::rtc::InsertQuery::new(room.id(), &agent_id).execute(&conn)
+                    let r = db::rtc::InsertQuery::new(room.id(), &agent_id).execute(&conn);
+
+                    match r {
+                        Ok(v) => Ok(Some(v)),
+                        Err(err) => match err {
+                            // rtc exists
+                            diesel::result::Error::DatabaseError(
+                                diesel::result::DatabaseErrorKind::UniqueViolation,
+                                _info,
+                            ) => {
+                                let rtcs = db::rtc::ListQuery::new()
+                                    .room_id(room.id())
+                                    .created_by(&[&agent_id])
+                                    .execute(&conn)?;
+
+                                Ok(rtcs.into_iter().next())
+                            }
+                            err => Err(err),
+                        },
+                    }
                 })
             }
         })
         .await?;
+
+        let rtc = rtc
+            .context("Failed to get and create rtc")
+            .error(AppErrorKind::DbQueryFailed)?;
 
         let notification_topic = format!("rooms/{}/events", rtc.room_id());
         Ok(RtcCreateResult {
@@ -456,61 +479,6 @@ pub struct ConnectAndSignalPayload {
 pub struct ConnectAndSignalResult {
     handle_id: HandleId,
     jsep: Option<serde_json::Value>,
-}
-
-#[instrument(skip(ctx, payload), fields(
-    room_id = %room_id,
-    intent = %payload.intent,
-))]
-pub async fn create_and_signal(
-    Extension(ctx): Extension<Arc<AppContext>>,
-    AgentIdExtractor(agent_id): AgentIdExtractor,
-    Path(room_id): Path<db::room::Id>,
-    Json(payload): Json<ConnectAndSignalPayload>,
-) -> RequestResult {
-    let ctx = &mut ctx.start_message();
-
-    let RtcCreateResult {
-        rtc,
-        authz_time: rtc_create_authz_time,
-        notification_label,
-        notification_topic,
-    } = RtcCreate {
-        ctx,
-        room_id,
-        reqp: RequestParams::Http {
-            agent_id: &agent_id,
-        },
-    }
-    .run()
-    .await?;
-
-    let response = ConnectAndSignal {
-        ctx,
-        rtc_id: rtc.id(),
-        intent: payload.intent,
-        agent_id,
-        jsep: payload.jsep,
-        label: payload.label,
-    }
-    .run()
-    .await?;
-
-    let mut response = Response::new(
-        ResponseStatus::CREATED,
-        response,
-        ctx.start_timestamp(),
-        Some(rtc_create_authz_time),
-    );
-
-    response.add_notification(
-        notification_label,
-        &notification_topic,
-        rtc,
-        ctx.start_timestamp(),
-    );
-
-    Ok(response)
 }
 
 #[instrument(skip(ctx, payload), fields(
