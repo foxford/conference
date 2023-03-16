@@ -1592,6 +1592,11 @@ mod test {
                 vec!["classrooms", &classroom_id],
                 "read",
             );
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id, "rtcs"],
+                "create",
+            );
 
             // Make room.enter request.
             let mut context = TestContext::new(db, authz);
