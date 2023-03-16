@@ -4,12 +4,14 @@ use crate::{
 };
 use std::sync::Arc;
 use tokio::{sync::watch, task::JoinHandle, time::MissedTickBehavior};
-use tracing::error;
+use tracing::{error, info};
 
 pub fn run(
     ctx: Arc<dyn GlobalContext>,
     mut shutdown_rx: watch::Receiver<()>,
 ) -> anyhow::Result<JoinHandle<()>> {
+    info!("Outbox handler started");
+
     let outbox_config = ctx.config().outbox;
     let try_wake_interval = outbox_config.try_wake_interval.to_std()?;
 
