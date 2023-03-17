@@ -177,34 +177,26 @@ impl<'a, C: Context> RtcCreate<'a, C> {
 
             let conn = self.ctx.get_conn().await?;
             move || {
-                let rtcs = db::rtc::ListQuery::new()
-                    .room_id(room.id())
-                    .created_by(&[&agent_id])
-                    .execute(&conn)?;
+                conn.transaction::<_, diesel::result::Error, _>(|| {
+                    if let Some(max_room_duration) = max_room_duration {
+                        if !room.infinite() {
+                            if let (start, Bound::Unbounded) = room.time() {
+                                let new_time = (
+                                    *start,
+                                    Bound::Excluded(
+                                        Utc::now() + Duration::hours(max_room_duration),
+                                    ),
+                                );
 
-                match rtcs.into_iter().next() {
-                    Some(rtc) => Ok(rtc),
-                    None => conn.transaction::<_, diesel::result::Error, _>(|| {
-                        if let Some(max_room_duration) = max_room_duration {
-                            if !room.infinite() {
-                                if let (start, Bound::Unbounded) = room.time() {
-                                    let new_time = (
-                                        *start,
-                                        Bound::Excluded(
-                                            Utc::now() + Duration::hours(max_room_duration),
-                                        ),
-                                    );
-
-                                    db::room::UpdateQuery::new(room.id())
-                                        .time(Some(new_time))
-                                        .execute(&conn)?;
-                                }
+                                db::room::UpdateQuery::new(room.id())
+                                    .time(Some(new_time))
+                                    .execute(&conn)?;
                             }
                         }
+                    }
 
-                        db::rtc::InsertQuery::new(room.id(), &agent_id).execute(&conn)
-                    }),
-                }
+                    db::rtc::InsertQuery::new(room.id(), &agent_id).execute(&conn)
+                })
             }
         })
         .await?;
