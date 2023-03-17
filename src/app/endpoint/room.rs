@@ -675,24 +675,11 @@ impl RequestHandler for EnterHandler {
         })
         .await?;
 
-        let RtcCreateResult {
-            rtc,
-            authz_time,
-            notification_label,
-            notification_topic,
-        } = RtcCreate {
-            ctx: context,
-            room_id: room.id(),
-            reqp,
-        }
-        .run()
-        .await?;
-
         let mut response = Response::new(
             ResponseStatus::OK,
             json!({}),
             context.start_timestamp(),
-            Some(authz_time),
+            None,
         );
 
         response.add_notification(
@@ -701,12 +688,30 @@ impl RequestHandler for EnterHandler {
             RoomEnterLeaveEvent::new(room.id(), subject),
             context.start_timestamp(),
         );
-        response.add_notification(
-            notification_label,
-            &notification_topic,
-            rtc,
-            context.start_timestamp(),
-        );
+
+        if let RtcSharingPolicy::Owned = room.rtc_sharing_policy() {
+            let RtcCreateResult {
+                rtc,
+                authz_time,
+                notification_label,
+                notification_topic,
+            } = RtcCreate {
+                ctx: context,
+                room_id: room.id(),
+                reqp,
+            }
+            .run()
+            .await?;
+
+            response.set_authz_time(authz_time);
+
+            response.add_notification(
+                notification_label,
+                &notification_topic,
+                rtc,
+                context.start_timestamp(),
+            );
+        }
 
         context
             .metrics()
