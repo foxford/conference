@@ -690,27 +690,44 @@ impl RequestHandler for EnterHandler {
         );
 
         if let RtcSharingPolicy::Owned = room.rtc_sharing_policy() {
-            let RtcCreateResult {
-                rtc,
-                authz_time,
-                notification_label,
-                notification_topic,
-            } = RtcCreate {
-                ctx: context,
-                room: Ok(room.clone()),
-                reqp,
-            }
-            .run()
+            let rtc = crate::util::spawn_blocking({
+                let conn = context.get_conn().await?;
+                let room_id = room.id();
+                let agent_id = reqp.as_agent_id().clone();
+                move || {
+                    let rtcs = db::rtc::ListQuery::new()
+                        .room_id(room_id)
+                        .created_by(&[&agent_id])
+                        .execute(&conn)?;
+
+                    Ok::<_, AppError>(rtcs.into_iter().next())
+                }
+            })
             .await?;
 
-            response.set_authz_time(authz_time);
+            if let None = rtc {
+                let RtcCreateResult {
+                    rtc,
+                    authz_time,
+                    notification_label,
+                    notification_topic,
+                } = RtcCreate {
+                    ctx: context,
+                    room: Ok(room.clone()),
+                    reqp,
+                }
+                .run()
+                .await?;
 
-            response.add_notification(
-                notification_label,
-                &notification_topic,
-                rtc,
-                context.start_timestamp(),
-            );
+                response.set_authz_time(authz_time);
+
+                response.add_notification(
+                    notification_label,
+                    &notification_topic,
+                    rtc,
+                    context.start_timestamp(),
+                );
+            }
         }
 
         context
