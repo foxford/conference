@@ -697,7 +697,7 @@ impl RequestHandler for EnterHandler {
                 notification_topic,
             } = RtcCreate {
                 ctx: context,
-                room_id: room.id(),
+                room: Ok(room.clone()),
                 reqp,
             }
             .run()

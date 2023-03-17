@@ -94,7 +94,7 @@ impl RequestHandler for CreateHandler {
             notification_topic,
         } = RtcCreate {
             ctx: context,
-            room_id: payload.room_id,
+            room: Err(payload.room_id),
             reqp,
         }
         .run()
@@ -128,7 +128,7 @@ impl RequestHandler for CreateHandler {
 
 pub struct RtcCreate<'a, C> {
     pub ctx: &'a C,
-    pub room_id: db::room::Id,
+    pub room: Result<db::room::Object, db::room::Id>,
     pub reqp: RequestParams<'a>,
 }
 
@@ -141,12 +141,19 @@ pub struct RtcCreateResult {
 
 impl<'a, C: Context> RtcCreate<'a, C> {
     pub async fn run(self) -> Result<RtcCreateResult, AppError> {
-        let room = crate::util::spawn_blocking({
-            let conn = self.ctx.get_conn().await?;
-            let room_id = self.room_id;
-            move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
-        })
-        .await?;
+        let room = match self.room {
+            Ok(room) => room,
+            Err(room_id) => {
+                crate::util::spawn_blocking({
+                    let conn = self.ctx.get_conn().await?;
+                    let room_id = room_id;
+                    move || {
+                        helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
+                    }
+                })
+                .await?
+            }
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -170,52 +177,37 @@ impl<'a, C: Context> RtcCreate<'a, C> {
 
             let conn = self.ctx.get_conn().await?;
             move || {
-                conn.transaction::<_, diesel::result::Error, _>(|| {
-                    if let Some(max_room_duration) = max_room_duration {
-                        if !room.infinite() {
-                            if let (start, Bound::Unbounded) = room.time() {
-                                let new_time = (
-                                    *start,
-                                    Bound::Excluded(
-                                        Utc::now() + Duration::hours(max_room_duration),
-                                    ),
-                                );
+                let rtcs = db::rtc::ListQuery::new()
+                    .room_id(room.id())
+                    .created_by(&[&agent_id])
+                    .execute(&conn)?;
 
-                                db::room::UpdateQuery::new(room.id())
-                                    .time(Some(new_time))
-                                    .execute(&conn)?;
+                match rtcs.into_iter().next() {
+                    Some(rtc) => Ok(rtc),
+                    None => conn.transaction::<_, diesel::result::Error, _>(|| {
+                        if let Some(max_room_duration) = max_room_duration {
+                            if !room.infinite() {
+                                if let (start, Bound::Unbounded) = room.time() {
+                                    let new_time = (
+                                        *start,
+                                        Bound::Excluded(
+                                            Utc::now() + Duration::hours(max_room_duration),
+                                        ),
+                                    );
+
+                                    db::room::UpdateQuery::new(room.id())
+                                        .time(Some(new_time))
+                                        .execute(&conn)?;
+                                }
                             }
                         }
-                    }
 
-                    let r = db::rtc::InsertQuery::new(room.id(), &agent_id).execute(&conn);
-
-                    match r {
-                        Ok(v) => Ok(Some(v)),
-                        Err(err) => match err {
-                            // rtc exists
-                            diesel::result::Error::DatabaseError(
-                                diesel::result::DatabaseErrorKind::UniqueViolation,
-                                _info,
-                            ) => {
-                                let rtcs = db::rtc::ListQuery::new()
-                                    .room_id(room.id())
-                                    .created_by(&[&agent_id])
-                                    .execute(&conn)?;
-
-                                Ok(rtcs.into_iter().next())
-                            }
-                            err => Err(err),
-                        },
-                    }
-                })
+                        db::rtc::InsertQuery::new(room.id(), &agent_id).execute(&conn)
+                    }),
+                }
             }
         })
         .await?;
-
-        let rtc = rtc
-            .context("Failed to get and create rtc")
-            .error(AppErrorKind::DbQueryFailed)?;
 
         let notification_topic = format!("rooms/{}/events", rtc.room_id());
         Ok(RtcCreateResult {
