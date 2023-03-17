@@ -705,7 +705,7 @@ impl RequestHandler for EnterHandler {
             })
             .await?;
 
-            if let None = rtc {
+            if rtc.is_none() {
                 let RtcCreateResult {
                     rtc,
                     authz_time,
