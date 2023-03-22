@@ -15,7 +15,7 @@ use tracing::{warn, Span};
 
 use crate::{
     app::{
-        context::{AppContext, Context, MessageContext, GlobalContext},
+        context::{AppContext, Context, GlobalContext, MessageContext},
         endpoint,
         endpoint::prelude::*,
         handle_id::HandleId,
