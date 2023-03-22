@@ -100,7 +100,7 @@ impl RequestHandler for CreateHandler {
         .run()
         .await?;
 
-        Span::current().record("rtc_id", &rtc.id().to_string().as_str());
+        Span::current().record("rtc_id", rtc.id().to_string().as_str());
 
         // Respond and broadcast to the room topic.
         let mut response = Response::new(
