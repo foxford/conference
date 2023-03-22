@@ -56,3 +56,6 @@ tls:
 serviceMonitor:
   labels:
     release: kube-prometheus-stack
+
+ingress:
+  class: nginx
