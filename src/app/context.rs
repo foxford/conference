@@ -56,6 +56,52 @@ pub trait GlobalContext: Send + Sync {
     }
 }
 
+impl GlobalContext for Arc<dyn GlobalContext> {
+    fn authz(&self) -> &Authz {
+        self.as_ref().authz()
+    }
+
+    fn config(&self) -> &Config {
+        self.as_ref().config()
+    }
+
+    fn db(&self) -> &Db {
+        self.as_ref().db()
+    }
+
+    fn agent_id(&self) -> &AgentId {
+        self.as_ref().agent_id()
+    }
+
+    fn janus_clients(&self) -> Clients {
+        self.as_ref().janus_clients()
+    }
+
+    fn redis_pool(&self) -> &Option<RedisConnectionPool> {
+        self.as_ref().redis_pool()
+    }
+
+    fn metrics(&self) -> Arc<Metrics> {
+        self.as_ref().metrics()
+    }
+
+    fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient {
+        self.as_ref().mqtt_gateway_client()
+    }
+
+    fn conference_client(&self) -> &ConferenceHttpClient {
+        self.as_ref().conference_client()
+    }
+
+    fn mqtt_client(&self) -> Arc<Mutex<dyn MqttClient>> {
+        self.as_ref().mqtt_client()
+    }
+
+    fn nats_client(&self) -> Option<&dyn NatsClient> {
+        self.as_ref().nats_client()
+    }
+}
+
 pub trait MessageContext: Send {
     fn start_timestamp(&self) -> DateTime<Utc>;
 }

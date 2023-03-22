@@ -22,7 +22,11 @@ use uuid::Uuid;
 use crate::{
     app::{
         context::{AppContext, Context, GlobalContext},
-        endpoint::{prelude::*, subscription::CorrelationDataPayload},
+        endpoint::{
+            prelude::*,
+            rtc::{RtcCreate, RtcCreateResult},
+            subscription::CorrelationDataPayload,
+        },
         group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
@@ -703,6 +707,45 @@ impl EnterHandler {
         let room_id = room.id();
         let outbox_config = ctx.config().clone().outbox;
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
+            let rtc = crate::util::spawn_blocking({
+                let conn = context.get_conn().await?;
+                let room_id = room.id();
+                let agent_id = reqp.as_agent_id().clone();
+                move || {
+                    let rtcs = db::rtc::ListQuery::new()
+                        .room_id(room_id)
+                        .created_by(&[&agent_id])
+                        .execute(&conn)?;
+
+                    Ok::<_, AppError>(rtcs.into_iter().next())
+                }
+            })
+            .await?;
+
+            if rtc.is_none() {
+                let RtcCreateResult {
+                    rtc,
+                    authz_time,
+                    notification_label,
+                    notification_topic,
+                } = RtcCreate {
+                    ctx: &context,
+                    room: Ok(room.clone()),
+                    reqp,
+                }
+                .run()
+                .await?;
+
+                response.set_authz_time(authz_time);
+
+                response.add_notification(
+                    notification_label,
+                    &notification_topic,
+                    rtc,
+                    start_timestamp,
+                );
+            }
+
             let agent_id = reqp.as_agent_id().clone();
             let conn = ctx.get_conn().await?;
 
@@ -1744,6 +1787,11 @@ mod test {
                 agent.account_id(),
                 vec!["classrooms", &classroom_id],
                 "read",
+            );
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id, "rtcs"],
+                "create",
             );
 
             // Make room.enter request.
