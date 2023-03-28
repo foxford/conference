@@ -765,7 +765,8 @@ where
 
         let answer = if is_recvonly {
             let request = ReadStreamRequest {
-                body: ReadStreamRequestBody::new(handle_id.rtc_id(), self.agent_id.clone()),
+                // body: ReadStreamRequestBody::new(handle_id.rtc_id(), self.agent_id.clone()),
+                body: ReadStreamRequestBody::new(db::rtc::Id::random(), self.agent_id.clone()),
                 handle_id: handle_id.janus_handle_id(),
                 session_id: handle_id.janus_session_id(),
                 jsep,
