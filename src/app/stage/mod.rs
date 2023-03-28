@@ -30,23 +30,11 @@ impl StageHandle for AppStage {
     type Stage = AppStage;
 
     async fn handle(&self, ctx: &Self::Context, id: &EventId) -> Result<Option<Self>, StageError> {
-        let result = match self {
+        match self {
             AppStage::VideoGroupUpdateJanusConfig(s) => s.handle(ctx, id).await,
             AppStage::VideoGroupSendNatsNotification(s) => s.handle(ctx, id).await,
             AppStage::VideoGroupSendMqttNotification(s) => s.handle(ctx, id).await,
-        };
-
-        if let Err(ref err) = result {
-            tracing::error!(%err, "failed to handle stage");
-
-            if let Some(e) = err.error().downcast_ref::<Error>() {
-                e.notify_sentry();
-            }
-
-            ctx.metrics().observe_outbox_error(err.code());
         }
-
-        result
     }
 }
 

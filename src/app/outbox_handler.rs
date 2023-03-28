@@ -1,6 +1,9 @@
 use crate::{
     app::{context::GlobalContext, error::Error as AppError, stage::AppStage},
-    outbox::pipeline::{diesel::Pipeline as DieselPipeline, Pipeline},
+    outbox::{
+        error::ErrorKind,
+        pipeline::{diesel::Pipeline as DieselPipeline, Pipeline},
+    },
 };
 use std::sync::Arc;
 use tokio::{sync::watch, task::JoinHandle, time::MissedTickBehavior};
@@ -33,6 +36,10 @@ pub fn run(
                         .await
                     {
                         for err in errors {
+                            if let ErrorKind::StageError(code) = err.kind {
+                                ctx.metrics().observe_outbox_error(code);
+                            }
+
                             error!(%err, "failed to complete stage");
                             AppError::from(err).notify_sentry();
                         }

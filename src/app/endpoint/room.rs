@@ -48,6 +48,7 @@ use crate::{
     },
     outbox::{
         self,
+        error::ErrorKind,
         pipeline::{diesel::Pipeline as DieselPipeline, Pipeline},
     },
 };
@@ -835,6 +836,10 @@ impl EnterHandler {
                         .run_single_stage::<AppStage, _>(ctx, event_id)
                         .await
                     {
+                        if let ErrorKind::StageError(code) = err.kind {
+                            context.metrics().observe_outbox_error(code);
+                        }
+
                         error!(%err, "failed to complete stage");
                         AppError::from(err).notify_sentry();
                     }

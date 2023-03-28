@@ -1,3 +1,5 @@
+use std::vec::IntoIter;
+
 pub type ErrorCode = u16;
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -21,10 +23,6 @@ impl StageError {
     pub fn code(&self) -> ErrorCode {
         self.code
     }
-
-    pub fn error(&self) -> &BoxError {
-        &self.error
-    }
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -39,6 +37,7 @@ pub enum ErrorKind {
     UpdateStageFailed,
     InsertStageFailed,
     RunningStageFailed,
+    StageError(ErrorCode),
 }
 
 pub trait PipelineErrorExt<T> {
@@ -53,7 +52,7 @@ impl<T, E: std::error::Error + Send + Sync + 'static> PipelineErrorExt<T> for Re
 
 #[derive(Debug, thiserror::Error)]
 pub struct PipelineError {
-    kind: ErrorKind,
+    pub kind: ErrorKind,
     error: BoxError,
 }
 
@@ -70,5 +69,45 @@ impl std::fmt::Display for PipelineError {
             "pipeline error, kind: {:?}, error: {:?}",
             self.kind, self.error
         )
+    }
+}
+
+pub struct PipelineErrors(Vec<PipelineError>);
+
+impl PipelineErrors {
+    pub fn new() -> Self {
+        PipelineErrors(vec![])
+    }
+
+    pub fn add(&mut self, error: PipelineError) {
+        self.0.push(error);
+    }
+
+    pub fn is_not_empty(&self) -> bool {
+        !self.0.is_empty()
+    }
+}
+
+impl From<PipelineError> for PipelineErrors {
+    fn from(error: PipelineError) -> Self {
+        PipelineErrors(vec![error])
+    }
+}
+
+impl IntoIterator for PipelineErrors {
+    type Item = PipelineError;
+    type IntoIter = IntoIter<PipelineError>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl From<StageError> for PipelineError {
+    fn from(error: StageError) -> Self {
+        PipelineError {
+            kind: ErrorKind::StageError(error.code),
+            error: error.error,
+        }
     }
 }

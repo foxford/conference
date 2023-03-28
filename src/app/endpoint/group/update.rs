@@ -17,6 +17,7 @@ use crate::{
     db::{self, group_agent::Groups},
     outbox::{
         self,
+        error::ErrorKind,
         pipeline::{diesel::Pipeline as DieselPipeline, Pipeline},
     },
 };
@@ -183,10 +184,15 @@ impl Handler {
             outbox_config.try_wake_interval,
             outbox_config.max_delivery_interval,
         );
+
         if let Err(err) = pipeline
             .run_single_stage::<AppStage, _>(context.clone(), event_id)
             .await
         {
+            if let ErrorKind::StageError(code) = err.kind {
+                context.metrics().observe_outbox_error(code);
+            }
+
             error!(%err, "failed to complete stage");
             AppError::from(err).notify_sentry();
         }

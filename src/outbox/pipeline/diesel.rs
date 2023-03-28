@@ -1,6 +1,6 @@
 use crate::outbox::{
     db::diesel::Object,
-    error::{ErrorKind, PipelineError, PipelineErrorExt},
+    error::{ErrorKind, PipelineError, PipelineErrorExt, PipelineErrors},
     EventId, StageHandle,
 };
 use anyhow::anyhow;
@@ -147,7 +147,7 @@ impl Pipeline {
                 .execute(conn)
                 .error(ErrorKind::UpdateStageFailed)?;
 
-                Ok(None)
+                Err(error.into())
             }
         }
     }
@@ -195,23 +195,18 @@ impl super::Pipeline for Pipeline {
         &self,
         ctx: C,
         records_per_try: i64,
-    ) -> Result<(), Vec<PipelineError>>
+    ) -> Result<(), PipelineErrors>
     where
         T: StageHandle<Context = C, Stage = T>,
         T: Clone + Serialize + DeserializeOwned,
         C: Clone + Send + Sync + 'static,
     {
-        let mut errors = Vec::new();
+        let mut errors = PipelineErrors::new();
 
         loop {
-            let conn = match self.get_conn().await {
-                Ok(conn) => conn,
-                Err(err) => {
-                    return Err(vec![err]);
-                }
-            };
+            let conn = self.get_conn().await?;
 
-            match conn.transaction::<Option<()>, PipelineError, _>(|| {
+            let result = conn.transaction::<Option<()>, PipelineError, _>(|| {
                 let records: Vec<(Object, T)> =
                     Self::load_multiple_records(&conn, records_per_try)?;
 
@@ -223,25 +218,21 @@ impl super::Pipeline for Pipeline {
                 for (record, stage) in records {
                     // In case of error, we try to handle another record
                     if let Err(err) = self.handle_record(&conn, ctx.clone(), record, stage) {
-                        errors.push(err)
+                        errors.add(err);
                     }
                 }
 
                 Ok(Some(()))
-            }) {
-                Ok(Some(())) => continue,
-                Ok(None) => {
-                    if !errors.is_empty() {
-                        return Err(errors);
-                    }
+            })?;
 
-                    // Break the loop if there are no records
-                    return Ok(());
+            if result.is_none() {
+                if errors.is_not_empty() {
+                    return Err(errors);
                 }
-                Err(err) => {
-                    return Err(vec![err]);
-                }
-            };
+
+                // Break the loop if there are no records
+                return Ok(());
+            }
         }
     }
 }

@@ -1,4 +1,7 @@
-use crate::outbox::{error::PipelineError, StageHandle};
+use crate::outbox::{
+    error::{PipelineError, PipelineErrors},
+    StageHandle,
+};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use svc_nats_client::EventId;
@@ -17,7 +20,7 @@ pub trait Pipeline {
         &self,
         ctx: C,
         records_per_try: i64,
-    ) -> Result<(), Vec<PipelineError>>
+    ) -> Result<(), PipelineErrors>
     where
         T: StageHandle<Context = C, Stage = T>,
         T: Clone + Serialize + DeserializeOwned,
