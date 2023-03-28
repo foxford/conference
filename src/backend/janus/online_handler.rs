@@ -19,7 +19,7 @@ use hyper::{
 use serde::{Deserialize, Serialize};
 use svc_agent::{AccountId, AgentId};
 use svc_authn::{jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config};
-use tracing::error;
+use tracing::{error, info};
 
 use super::client_pool::Clients;
 
@@ -149,6 +149,7 @@ pub async fn start_internal_api(
                             let callback: StreamCallback = serde_json::from_slice(
                                 &hyper::body::to_bytes(req.into_body()).await?,
                             )?;
+                            info!(?callback, "[waitlist] stream callback");
 
                             clients
                                 .stream_waitlist()

@@ -9,7 +9,7 @@ use svc_agent::{
     Addressable, AgentId,
 };
 use svc_error::Error as SvcError;
-use tracing::{error, Span};
+use tracing::{error, info, Span};
 
 use self::client::{
     create_handle::OpaqueId, transactions::TransactionKind, HandleId, IncomingEvent,
@@ -178,6 +178,7 @@ async fn handle_event_impl<C: Context>(
                             replica_addr,
                         } => {
                             let own_ip_addr = context.janus_clients().own_ip_addr();
+                            info!(%id, %replica_addr, %own_ip_addr, "create stream [waitlist]");
 
                             if own_ip_addr == replica_addr {
                                 if let Err(err) = context
@@ -258,6 +259,7 @@ async fn handle_event_impl<C: Context>(
                         },
                         client::read_stream::ReadStreamTransaction::Http { id, replica_addr } => {
                             let own_ip_addr = context.janus_clients().own_ip_addr();
+                            info!(%id, %replica_addr, %own_ip_addr, "read stream [waitlist]");
 
                             if own_ip_addr == replica_addr {
                                 if let Err(err) = context
