@@ -3,6 +3,10 @@ name: Deploy
 on:
   workflow_dispatch:
     inputs:
+      cluster:
+        description: 'Select cluster'
+        required: false
+        default: 'dev'
       namespace:
         type: choice
         description: 'Select namespace'
@@ -23,6 +27,7 @@ jobs:
   deploy:
     uses: foxford/reusable-workflows/.github/workflows/deploy-via-flux.yml@master
     with:
+      cluster: ${{ inputs.cluster }}
       namespace: ${{ inputs.namespace }}
       version: ${{ inputs.version }}
     secrets:
