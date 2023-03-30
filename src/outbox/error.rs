@@ -86,6 +86,10 @@ impl PipelineErrors {
     pub fn is_not_empty(&self) -> bool {
         !self.0.is_empty()
     }
+
+    pub fn append(&mut self, mut errors: PipelineErrors) {
+        self.0.append(errors.0.as_mut())
+    }
 }
 
 impl From<PipelineError> for PipelineErrors {
@@ -109,5 +113,12 @@ impl From<StageError> for PipelineError {
             kind: ErrorKind::StageError(error.code),
             error: error.error,
         }
+    }
+}
+
+impl From<diesel::result::Error> for PipelineErrors {
+    fn from(source: diesel::result::Error) -> Self {
+        let error = PipelineError::new(ErrorKind::DbQueryFailed, Box::new(source));
+        PipelineErrors(vec![error])
     }
 }

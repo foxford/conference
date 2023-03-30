@@ -348,7 +348,7 @@ mod tests {
         assert_eq!(err.kind(), "invalid_payload");
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn update_group_agents() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();

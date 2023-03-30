@@ -1,11 +1,12 @@
 use std::{
     net::{IpAddr, Ipv4Addr},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use httpmock::MockServer;
+use parking_lot::Mutex;
 use prometheus::Registry;
 use serde_json::json;
 use svc_agent::AgentId;

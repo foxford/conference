@@ -2119,7 +2119,7 @@ mod test {
             assert_eq!(group_agent.groups().len(), 1);
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn create_reader_configs() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
