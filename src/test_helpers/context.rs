@@ -10,7 +10,9 @@ use prometheus::Registry;
 use serde_json::json;
 use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
-use svc_nats_client::{Event, MessageStream, NatsClient, PublishError, SubscribeError};
+use svc_nats_client::{
+    Event, Message, MessageStream, NatsClient, PublishError, SubscribeError, TermMessageError,
+};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -108,11 +110,11 @@ impl NatsClient for TestNatsClient {
         Ok(())
     }
 
-    async fn subscribe(
-        &self,
-        _stream: &str,
-        _consumer: &str,
-    ) -> Result<MessageStream, SubscribeError> {
+    async fn subscribe(&self) -> Result<MessageStream, SubscribeError> {
+        unimplemented!()
+    }
+
+    async fn term_message(&self, _message: Message) -> Result<(), TermMessageError> {
         unimplemented!()
     }
 }

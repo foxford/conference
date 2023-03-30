@@ -125,7 +125,7 @@ pub async fn run(
 
     let context = match &config.nats {
         Some(cfg) => {
-            let nats_client = svc_nats_client::new(&cfg.url, &cfg.creds)
+            let nats_client = svc_nats_client::Client::new(cfg.clone())
                 .await
                 .context("nats client")?;
             info!("Connected to nats");
