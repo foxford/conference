@@ -188,18 +188,14 @@ pub trait FindQueryable {
     fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error>;
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct FindQuery {
-    id: Option<Id>,
+    id: Id,
 }
 
 impl FindQuery {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn by_id(self, id: Id) -> Self {
-        Self { id: Some(id) }
+    pub fn new(id: Id) -> Self {
+        Self { id }
     }
 }
 
@@ -207,13 +203,10 @@ impl FindQueryable for FindQuery {
     fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
-        let mut query = room::table.into_boxed();
-
-        if let Some(id) = self.id {
-            query = query.filter(room::id.eq(id))
-        }
-
-        query.get_result(conn).optional()
+        room::table
+            .filter(room::id.eq(self.id))
+            .get_result(conn)
+            .optional()
     }
 }
 

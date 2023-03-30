@@ -226,9 +226,7 @@ fn make_orphaned_if_host_left(
     agent_left: &AgentId,
     connection: &PgConnection,
 ) -> StdResult<(), diesel::result::Error> {
-    let room = db::room::FindQuery::new()
-        .by_id(room_id)
-        .execute(connection)?;
+    let room = db::room::FindQuery::new(room_id).execute(connection)?;
     if room.as_ref().and_then(|x| x.host()) == Some(agent_left) {
         db::orphaned_room::upsert_room(room_id, Utc::now(), connection)?;
     }

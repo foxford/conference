@@ -1340,8 +1340,7 @@ mod test {
             // Assert room closure is not unbounded
             let conn = context.db().get().expect("Failed to get conn");
 
-            let room = db::room::FindQuery::new()
-                .by_id(room.id())
+            let room = db::room::FindQuery::new(room.id())
                 .execute(&conn)
                 .expect("Db query failed")
                 .expect("Room must exist");

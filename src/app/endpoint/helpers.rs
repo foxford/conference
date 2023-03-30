@@ -66,7 +66,7 @@ pub fn find_room_by_id(
     opening_requirement: RoomTimeRequirement,
     conn: &PgConnection,
 ) -> Result<db::room::Object, AppError> {
-    let query = db::room::FindQuery::new().by_id(id);
+    let query = db::room::FindQuery::new(id);
     find_room(query, opening_requirement, conn)
 }
 
