@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::Context as AnyhowContext;
 use chrono::{DateTime, Utc};
@@ -7,6 +7,7 @@ use diesel::{
     r2d2::{ConnectionManager, PooledConnection},
 };
 use futures::{future::BoxFuture, FutureExt};
+use parking_lot::Mutex;
 
 use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};

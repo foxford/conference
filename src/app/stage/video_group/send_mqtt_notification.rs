@@ -1,13 +1,12 @@
 use crate::{
     app::{
         context::GlobalContext,
-        error::{Error, ErrorExt, ErrorKind},
+        error::{ErrorExt, ErrorKind},
         stage::AppStage,
     },
     db,
     outbox::{error::StageError, StageHandle},
 };
-use anyhow::anyhow;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -30,17 +29,10 @@ impl StageHandle for VideoGroupSendMqttNotification {
         ctx: &Self::Context,
         _id: &EventId,
     ) -> Result<Option<Self::Stage>, StageError> {
-        let mqtt_client = ctx.mqtt_client();
-        let mut client = mqtt_client.lock().map_err(|err| {
-            Error::new(
-                ErrorKind::MqttPublishFailed,
-                anyhow!("failed to get mqtt client: {err}"),
-            )
-        })?;
-
         let topic = format!("rooms/{}/events", self.room_id);
 
-        client
+        ctx.mqtt_client()
+            .lock()
             .publish(MQTT_NOTIFICATION_LABEL, &topic)
             .error(ErrorKind::MqttPublishFailed)?;
 
