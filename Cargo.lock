@@ -537,6 +537,7 @@ dependencies = [
  "diesel-derive-enum",
  "diesel-derive-newtype",
  "diesel_migrations",
+ "either",
  "enum-iterator",
  "futures",
  "futures-channel",

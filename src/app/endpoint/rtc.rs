@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 
+use either::Either;
 use serde::{Deserialize, Serialize};
 use std::{fmt, ops::Bound, sync::Arc};
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId, Authenticable};
@@ -94,7 +95,7 @@ impl RequestHandler for CreateHandler {
             notification_topic,
         } = RtcCreate {
             ctx: context,
-            room: Err(payload.room_id),
+            room: Either::Right(payload.room_id),
             reqp,
         }
         .run()
@@ -128,7 +129,7 @@ impl RequestHandler for CreateHandler {
 
 pub struct RtcCreate<'a, C> {
     pub ctx: &'a C,
-    pub room: Result<db::room::Object, db::room::Id>,
+    pub room: Either<db::room::Object, db::room::Id>,
     pub reqp: RequestParams<'a>,
 }
 
@@ -142,8 +143,8 @@ pub struct RtcCreateResult {
 impl<'a, C: Context> RtcCreate<'a, C> {
     pub async fn run(self) -> Result<RtcCreateResult, AppError> {
         let room = match self.room {
-            Ok(room) => room,
-            Err(room_id) => {
+            Either::Left(room) => room,
+            Either::Right(room_id) => {
                 crate::util::spawn_blocking({
                     let conn = self.ctx.get_conn().await?;
                     let room_id = room_id;

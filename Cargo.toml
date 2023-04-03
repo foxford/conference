@@ -60,6 +60,7 @@ tracing-subscriber = "0.2"
 uuid = { version = "0.6", features = ["v4", "serde"] }
 webrtc-sdp = "0.3"
 lazy_static = "1.4.0"
+either = "1.7"
 
 [features]
 local_ip = ["local-ip-address"]
