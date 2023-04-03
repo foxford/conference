@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 
+use either::Either;
 use serde::{Deserialize, Serialize};
 use std::{fmt, ops::Bound, sync::Arc};
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId, Authenticable};
@@ -87,13 +88,73 @@ impl RequestHandler for CreateHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let room = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                helpers::find_room_by_id(payload.room_id, helpers::RoomTimeRequirement::Open, &conn)
-            }
-        })
+        let RtcCreateResult {
+            rtc,
+            authz_time,
+            notification_label,
+            notification_topic,
+        } = RtcCreate {
+            ctx: context,
+            room: Either::Right(payload.room_id),
+            reqp,
+        }
+        .run()
         .await?;
+
+        Span::current().record("rtc_id", &rtc.id().to_string().as_str());
+
+        // Respond and broadcast to the room topic.
+        let mut response = Response::new(
+            ResponseStatus::CREATED,
+            rtc.clone(),
+            context.start_timestamp(),
+            Some(authz_time),
+        );
+
+        response.add_notification(
+            notification_label,
+            &notification_topic,
+            rtc,
+            context.start_timestamp(),
+        );
+        context
+            .metrics()
+            .request_duration
+            .rtc_create
+            .observe_timestamp(context.start_timestamp());
+
+        Ok(response)
+    }
+}
+
+pub struct RtcCreate<'a, C> {
+    pub ctx: &'a C,
+    pub room: Either<db::room::Object, db::room::Id>,
+    pub reqp: RequestParams<'a>,
+}
+
+pub struct RtcCreateResult {
+    pub rtc: db::rtc::Object,
+    pub authz_time: Duration,
+    pub notification_label: &'static str,
+    pub notification_topic: String,
+}
+
+impl<'a, C: Context> RtcCreate<'a, C> {
+    pub async fn run(self) -> Result<RtcCreateResult, AppError> {
+        let room = match self.room {
+            Either::Left(room) => room,
+            Either::Right(room_id) => {
+                crate::util::spawn_blocking({
+                    let conn = self.ctx.get_conn().await?;
+                    let room_id = room_id;
+                    move || {
+                        helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
+                    }
+                })
+                .await?
+            }
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -104,18 +165,18 @@ impl RequestHandler for CreateHandler {
         let classroom_id = room.classroom_id().to_string();
         let object = AuthzObject::new(&["classrooms", &classroom_id, "rtcs"]).into();
 
-        let authz_time = context
+        let authz_time = self
+            .ctx
             .authz()
-            .authorize(room.audience().into(), reqp, object, "create".into())
+            .authorize(room.audience().into(), self.reqp, object, "create".into())
             .await?;
 
         // Create an rtc.
-        let max_room_duration = context.config().max_room_duration;
-        let room_id = room.id();
+        let max_room_duration = self.ctx.config().max_room_duration;
         let rtc = crate::util::spawn_blocking({
-            let agent_id = reqp.as_agent_id().clone();
+            let agent_id = self.reqp.as_agent_id().clone();
 
-            let conn = context.get_conn().await?;
+            let conn = self.ctx.get_conn().await?;
             move || {
                 conn.transaction::<_, diesel::result::Error, _>(|| {
                     if let Some(max_room_duration) = max_room_duration {
@@ -140,29 +201,14 @@ impl RequestHandler for CreateHandler {
             }
         })
         .await?;
-        Span::current().record("rtc_id", &rtc.id().to_string().as_str());
 
-        // Respond and broadcast to the room topic.
-        let mut response = Response::new(
-            ResponseStatus::CREATED,
-            rtc.clone(),
-            context.start_timestamp(),
-            Some(authz_time),
-        );
-
-        response.add_notification(
-            "rtc.create",
-            &format!("rooms/{}/events", room_id),
+        let notification_topic = format!("rooms/{}/events", rtc.room_id());
+        Ok(RtcCreateResult {
             rtc,
-            context.start_timestamp(),
-        );
-        context
-            .metrics()
-            .request_duration
-            .rtc_create
-            .observe_timestamp(context.start_timestamp());
-
-        Ok(response)
+            authz_time,
+            notification_label: "rtc.create",
+            notification_topic,
+        })
     }
 }
 
@@ -430,13 +476,11 @@ pub async fn connect_and_signal(
     Path(rtc_id): Path<db::rtc::Id>,
     Json(payload): Json<ConnectAndSignalPayload>,
 ) -> RequestResult {
-    tracing::Span::current().record("rtc_id", &tracing::field::display(rtc_id));
-
     let ctx = &mut ctx.start_message();
 
     let response = ConnectAndSignal {
         ctx,
-        id: rtc_id,
+        rtc_id,
         intent: payload.intent,
         agent_id,
         jsep: payload.jsep,
@@ -455,7 +499,7 @@ pub async fn connect_and_signal(
 
 struct ConnectAndSignal<'a, C> {
     ctx: &'a mut C,
-    id: db::rtc::Id,
+    rtc_id: db::rtc::Id,
     intent: ConnectIntent,
     agent_id: AgentId,
     jsep: JsonSdp,
@@ -467,7 +511,7 @@ where
     C: Context,
 {
     async fn authz(&self, room: &db::room::Object) -> Result<(), AppError> {
-        let rtc_id = self.id.to_string();
+        let rtc_id = self.rtc_id.to_string();
         let classroom_id = room.classroom_id().to_string();
         let object = AuthzObject::new(&["classrooms", &classroom_id, "rtcs", &rtc_id]).into();
 
@@ -505,7 +549,7 @@ where
             RtcSharingPolicy::Owned => {
                 if self.intent == ConnectIntent::Write {
                     // Check that the RTC is owned by the same agent.
-                    let id = self.id;
+                    let id = self.rtc_id;
 
                     let rtc_object = crate::util::spawn_blocking({
                         let conn = self.ctx.get_conn().await?;
@@ -587,7 +631,7 @@ where
     }
 
     async fn run(self) -> Result<ConnectAndSignalResult, AppError> {
-        let payload_id = self.id;
+        let payload_id = self.rtc_id;
         let room = crate::util::spawn_blocking({
             let conn = self.ctx.get_conn().await?;
             move || {
@@ -596,6 +640,7 @@ where
         })
         .await?;
 
+        tracing::Span::current().record("rtc_id", &tracing::field::display(self.rtc_id));
         tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
         tracing::Span::current().record(
             "classroom_id",
@@ -607,7 +652,7 @@ where
         let backend = crate::util::spawn_blocking({
             // Choose backend to connect.
             let group = self.ctx.config().janus_group.clone();
-            let id = self.id;
+            let id = self.rtc_id;
             let intent = self.intent;
             let backend_span = tracing::info_span!("finding_backend");
             let room = room.clone();
@@ -861,7 +906,7 @@ where
         // which are not really bound to anything.
         if let ConnectIntent::Write = self.intent {
             crate::util::spawn_blocking({
-                let id = self.id;
+                let id = self.rtc_id;
                 let conn = self.ctx.get_conn().await?;
 
                 move || {

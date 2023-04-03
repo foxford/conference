@@ -20,7 +20,11 @@ use uuid::Uuid;
 use crate::{
     app::{
         context::{AppContext, Context},
-        endpoint::{prelude::*, subscription::CorrelationDataPayload},
+        endpoint::{
+            prelude::*,
+            rtc::{RtcCreate, RtcCreateResult},
+            subscription::CorrelationDataPayload,
+        },
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
         API_VERSION,
@@ -677,12 +681,55 @@ impl RequestHandler for EnterHandler {
             context.start_timestamp(),
             None,
         );
+
         response.add_notification(
             "room.enter",
             &format!("rooms/{}/events", room_id),
             RoomEnterLeaveEvent::new(room.id(), subject),
             context.start_timestamp(),
         );
+
+        if let RtcSharingPolicy::Owned = room.rtc_sharing_policy() {
+            let rtc = crate::util::spawn_blocking({
+                let conn = context.get_conn().await?;
+                let room_id = room.id();
+                let agent_id = reqp.as_agent_id().clone();
+                move || {
+                    let rtcs = db::rtc::ListQuery::new()
+                        .room_id(room_id)
+                        .created_by(&[&agent_id])
+                        .execute(&conn)?;
+
+                    Ok::<_, AppError>(rtcs.into_iter().next())
+                }
+            })
+            .await?;
+
+            if rtc.is_none() {
+                let RtcCreateResult {
+                    rtc,
+                    authz_time,
+                    notification_label,
+                    notification_topic,
+                } = RtcCreate {
+                    ctx: context,
+                    room: either::Either::Left(room.clone()),
+                    reqp,
+                }
+                .run()
+                .await?;
+
+                response.set_authz_time(authz_time);
+
+                response.add_notification(
+                    notification_label,
+                    &notification_topic,
+                    rtc,
+                    context.start_timestamp(),
+                );
+            }
+        }
+
         context
             .metrics()
             .request_duration
@@ -1566,6 +1613,11 @@ mod test {
                 agent.account_id(),
                 vec!["classrooms", &classroom_id],
                 "read",
+            );
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id, "rtcs"],
+                "create",
             );
 
             // Make room.enter request.

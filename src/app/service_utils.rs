@@ -87,6 +87,10 @@ impl Response {
     ) {
         self.notifications.push(message)
     }
+
+    pub fn set_authz_time(&mut self, authz_time: Duration) {
+        self.authz_time = Some(authz_time);
+    }
 }
 
 impl IntoResponse for Response {
