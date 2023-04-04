@@ -4,11 +4,11 @@ use axum::{
     extract::{Extension, Path, Query},
     Json,
 };
-use chrono::{Duration, Utc};
+use chrono::Duration;
 
 use either::Either;
 use serde::{Deserialize, Serialize};
-use std::{fmt, ops::Bound, sync::Arc};
+use std::{fmt, sync::Arc};
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId, Authenticable};
 use svc_utils::extractors::AgentIdExtractor;
 
@@ -17,8 +17,8 @@ use tracing::{warn, Span};
 use crate::{
     app::{
         context::{AppContext, Context, MessageContext},
-        endpoint,
         endpoint::prelude::*,
+        endpoint::{self, rtc_signal::start_rtc_stream},
         handle_id::HandleId,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
@@ -172,33 +172,11 @@ impl<'a, C: Context> RtcCreate<'a, C> {
             .await?;
 
         // Create an rtc.
-        let max_room_duration = self.ctx.config().max_room_duration;
         let rtc = crate::util::spawn_blocking({
             let agent_id = self.reqp.as_agent_id().clone();
 
             let conn = self.ctx.get_conn().await?;
-            move || {
-                conn.transaction::<_, diesel::result::Error, _>(|| {
-                    if let Some(max_room_duration) = max_room_duration {
-                        if !room.infinite() {
-                            if let (start, Bound::Unbounded) = room.time() {
-                                let new_time = (
-                                    *start,
-                                    Bound::Excluded(
-                                        Utc::now() + Duration::hours(max_room_duration),
-                                    ),
-                                );
-
-                                db::room::UpdateQuery::new(room.id())
-                                    .time(Some(new_time))
-                                    .execute(&conn)?;
-                            }
-                        }
-                    }
-
-                    db::rtc::InsertQuery::new(room.id(), &agent_id).execute(&conn)
-                })
-            }
+            move || db::rtc::InsertQuery::new(room.id(), &agent_id).execute(&conn)
         })
         .await?;
 
@@ -574,36 +552,6 @@ where
         Ok(())
     }
 
-    async fn start_rtc_stream(&self, handle_id: &HandleId) -> Result<(), AppError> {
-        let label = self
-            .label
-            .as_ref()
-            .context("Missing label")
-            .error(AppErrorKind::MessageParsingFailed)?
-            .clone();
-
-        crate::util::spawn_blocking({
-            let handle_id = handle_id.clone();
-            let agent_id = self.agent_id.clone();
-
-            let conn = self.ctx.get_conn().await?;
-            move || {
-                db::janus_rtc_stream::InsertQuery::new(
-                    handle_id.rtc_stream_id(),
-                    handle_id.janus_handle_id(),
-                    handle_id.rtc_id(),
-                    handle_id.backend_id(),
-                    &label,
-                    &agent_id,
-                )
-                .execute(&conn)
-            }
-        })
-        .await?;
-
-        Ok(())
-    }
-
     async fn fetch_reader_writer_configs(
         &self,
         handle_id: &HandleId,
@@ -845,7 +793,7 @@ where
             // We've checked that the RTC is owned by the same agent earlier.
 
             let (_, (writer_config, reader_config)) = tokio::try_join!(
-                self.start_rtc_stream(&handle_id),
+                start_rtc_stream(self.ctx, &handle_id, &self.agent_id, &self.label, &room),
                 self.fetch_reader_writer_configs(&handle_id),
             )?;
 

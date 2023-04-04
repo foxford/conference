@@ -22,11 +22,12 @@ use crate::{
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
 use axum::{Extension, Json};
-use chrono::Duration;
+use chrono::{Duration, Utc};
 
+use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use std::{result::Result as StdResult, sync::Arc};
+use std::{ops::Bound, result::Result as StdResult, sync::Arc};
 use svc_agent::{
     mqtt::{OutgoingResponse, ResponseStatus},
     Addressable, AgentId, Authenticable,
@@ -89,6 +90,61 @@ pub struct CreateRequest {
 }
 
 pub struct CreateHandler;
+
+pub async fn start_rtc_stream<C: Context>(
+    ctx: &C,
+    handle_id: &HandleId,
+    agent_id: &AgentId,
+    label: &Option<String>,
+    room: &db::room::Object,
+) -> Result<(), AppError> {
+    let label = label
+        .as_ref()
+        .context("Missing label")
+        .error(AppErrorKind::MessageParsingFailed)?
+        .clone();
+
+    crate::util::spawn_blocking({
+        let handle_id = handle_id.clone();
+        let agent_id = agent_id.clone();
+        let room = room.clone();
+
+        let max_room_duration = ctx.config().max_room_duration;
+        let conn = ctx.get_conn().await?;
+
+        move || {
+            conn.transaction(|| {
+                if let Some(max_room_duration) = max_room_duration {
+                    if !room.infinite() {
+                        if let (start, Bound::Unbounded) = room.time() {
+                            let new_time = (
+                                *start,
+                                Bound::Excluded(Utc::now() + Duration::hours(max_room_duration)),
+                            );
+
+                            db::room::UpdateQuery::new(room.id())
+                                .time(Some(new_time))
+                                .execute(&conn)?;
+                        }
+                    }
+                }
+
+                db::janus_rtc_stream::InsertQuery::new(
+                    handle_id.rtc_stream_id(),
+                    handle_id.janus_handle_id(),
+                    handle_id.rtc_id(),
+                    handle_id.backend_id(),
+                    &label,
+                    &agent_id,
+                )
+                .execute(&conn)
+            })
+        }
+    })
+    .await?;
+
+    Ok(())
+}
 
 #[async_trait]
 impl RequestHandler for CreateHandler {
@@ -262,30 +318,13 @@ impl RequestHandler for CreateHandler {
                                     .await?;
 
                             // Updating the Real-Time Connection state
-                            let label = payload
-                                .label
-                                .as_ref()
-                                .context("Missing label")
-                                .error(AppErrorKind::MessageParsingFailed)?
-                                .clone();
-
-                            crate::util::spawn_blocking({
-                                let handle_id = payload.handle_id.clone();
-                                let agent_id = reqp.as_agent_id().clone();
-
-                                let conn = context.get_conn().await?;
-                                move || {
-                                    db::janus_rtc_stream::InsertQuery::new(
-                                        handle_id.rtc_stream_id(),
-                                        handle_id.janus_handle_id(),
-                                        handle_id.rtc_id(),
-                                        handle_id.backend_id(),
-                                        &label,
-                                        &agent_id,
-                                    )
-                                    .execute(&conn)
-                                }
-                            })
+                            start_rtc_stream(
+                                context,
+                                &payload.handle_id,
+                                reqp.as_agent_id(),
+                                &payload.label,
+                                &room,
+                            )
                             .await?;
 
                             let (writer_config, reader_config) = crate::util::spawn_blocking({
