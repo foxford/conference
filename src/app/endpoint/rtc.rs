@@ -1173,16 +1173,10 @@ impl RequestHandler for ConnectHandler {
 #[cfg(test)]
 mod test {
     mod create {
-        use std::ops::Bound;
-
         use crate::{
-            db::{
-                room::FindQueryable,
-                rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy},
-            },
+            db::rtc::Object as Rtc,
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
-        use chrono::{SubsecRound, Utc};
 
         use super::super::*;
 
@@ -1224,59 +1218,6 @@ mod test {
             assert!(topic.ends_with(&format!("/rooms/{}/events", room.id())));
             assert_eq!(evp.label(), "rtc.create");
             assert_eq!(rtc.room_id(), room.id());
-        }
-
-        #[tokio::test]
-        async fn create_in_unbounded_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let mut authz = TestAuthz::new();
-
-            // Insert a room.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(Utc::now().trunc_subsecs(0)),
-                            Bound::Unbounded,
-                        ))
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .insert(&conn)
-                })
-                .unwrap();
-
-            // Allow user to create rtcs in the room.
-            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let classroom_id = room.classroom_id().to_string();
-            let object = vec!["classrooms", &classroom_id, "rtcs"];
-            authz.allow(agent.account_id(), object, "create");
-
-            // Make rtc.create request.
-            let mut context = TestContext::new(db, authz);
-            let payload = CreateRequest { room_id: room.id() };
-
-            let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
-                .await
-                .expect("Rtc creation failed");
-
-            // Assert response.
-            let (rtc, respp, _) = find_response::<Rtc>(messages.as_slice());
-            assert_eq!(respp.status(), ResponseStatus::CREATED);
-            assert_eq!(rtc.room_id(), room.id());
-
-            // Assert room closure is not unbounded
-            let conn = context.db().get().expect("Failed to get conn");
-
-            let room = db::room::FindQuery::new(room.id())
-                .execute(&conn)
-                .expect("Db query failed")
-                .expect("Room must exist");
-
-            assert_ne!(room.time().1, Bound::Unbounded);
         }
 
         #[tokio::test]

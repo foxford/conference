@@ -656,7 +656,7 @@ mod test {
     mod create {
         use std::ops::Bound;
 
-        use chrono::Utc;
+        use chrono::{SubsecRound, Utc};
         use diesel::prelude::*;
         use serde::Deserialize;
         use serde_json::json;
@@ -1766,6 +1766,81 @@ a=rtcp-fb:120 ccm fir
             assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
             assert_eq!(err.kind(), "access_denied");
             Ok(())
+        }
+
+        #[tokio::test]
+        async fn create_in_unbounded_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+            let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
+            let mut authz = TestAuthz::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            // Insert room with backend and rtc and an agent connection.
+            let (backend, rtc, agent_connection, room) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
+                    let room = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(Utc::now().trunc_subsecs(0)),
+                            Bound::Unbounded,
+                        ))
+                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                        .backend_id(backend.id())
+                        .insert(&conn);
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+
+                    let (_, agent_connection) = shared_helpers::insert_connected_to_handle_agent(
+                        &conn,
+                        agent.agent_id(),
+                        rtc.room_id(),
+                        rtc.id(),
+                        user_handle,
+                    );
+                    (backend, rtc, agent_connection, room)
+                })
+                .unwrap();
+            // Allow user to update the rtc.
+            let rtc_id = rtc.id().to_string();
+            let classroom_id = room.classroom_id().to_string();
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object.clone(), "update");
+
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+            context.with_janus(tx);
+            let rtc_stream_id = db::janus_rtc_stream::Id::random();
+            let handle_id = HandleId::new(
+                rtc_stream_id,
+                rtc.id(),
+                agent_connection.handle_id(),
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
+
+            let payload = CreateRequest {
+                handle_id: handle_id.clone(),
+                jsep,
+                label: Some(String::from("whatever")),
+                agent_label: None,
+            };
+
+            handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Rtc signal creation failed");
+
+            assert_ne!(room.time().1, Bound::Unbounded);
         }
     }
 }
