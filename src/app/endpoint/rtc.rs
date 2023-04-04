@@ -1173,6 +1173,8 @@ impl RequestHandler for ConnectHandler {
 #[cfg(test)]
 mod test {
     mod create {
+        use std::ops::Bound;
+
         use crate::{
             db::{
                 room::FindQueryable,
