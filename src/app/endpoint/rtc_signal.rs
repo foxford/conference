@@ -669,7 +669,7 @@ mod test {
                 transactions::{Transaction, TransactionKind},
                 IncomingEvent, SessionId,
             },
-            db::rtc::SharingPolicy as RtcSharingPolicy,
+            db::{room::FindQueryable, rtc::SharingPolicy as RtcSharingPolicy},
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
 
@@ -1840,6 +1840,11 @@ a=rtcp-fb:120 ccm fir
                 .await
                 .expect("Rtc signal creation failed");
 
+            let conn = context.get_conn().await.unwrap();
+            let room = db::room::FindQuery::new(room.id())
+                .execute(&conn)
+                .unwrap()
+                .unwrap();
             assert_ne!(room.time().1, Bound::Unbounded);
         }
     }
