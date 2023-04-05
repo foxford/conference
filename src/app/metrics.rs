@@ -74,7 +74,7 @@ pub struct Metrics {
     pub total_requests: IntCounter,
     pub authorization_time: Histogram,
     pub running_requests_total: IntGauge,
-    pub outbox_errors: HashMap<u16, IntCounter>,
+    pub outbox_errors: HashMap<String, IntCounter>,
 }
 
 impl Metrics {
@@ -94,12 +94,15 @@ impl Metrics {
             Opts::new("mqtt_messages", "Mqtt message types"),
             &["status"],
         )?;
+        let outbox_stats =
+            IntCounterVec::new(Opts::new("outbox_stats", "Outbox stats"), &["kind"])?;
         registry.register(Box::new(mqtt_errors.clone()))?;
         registry.register(Box::new(request_duration.clone()))?;
         registry.register(Box::new(request_stats.clone()))?;
         registry.register(Box::new(total_requests.clone()))?;
         registry.register(Box::new(authorization_time.clone()))?;
         registry.register(Box::new(running_requests_total.clone()))?;
+        registry.register(Box::new(outbox_stats.clone()))?;
         Ok(Self {
             request_duration: RequestDuration::from(&request_duration),
             total_requests,
@@ -120,10 +123,10 @@ impl Metrics {
             mqtt_reconnection: mqtt_errors.get_metric_with_label_values(&["reconnect"])?,
             outbox_errors: ErrorKind::into_enum_iter()
                 .map(|kind| {
-                    let code = kind.status().as_u16();
+                    let kind = kind.kind();
                     Ok((
-                        code,
-                        IntCounter::new(format!("outbox_error_{code}"), "Outbox errors")?,
+                        kind.into(),
+                        outbox_stats.get_metric_with_label_values(&[kind])?,
                     ))
                 })
                 .collect::<anyhow::Result<_>>()?,
@@ -149,8 +152,8 @@ impl Metrics {
         }
     }
 
-    pub fn observe_outbox_error(&self, code: u16) {
-        if let Some(m) = self.outbox_errors.get(&code) {
+    pub fn observe_outbox_error(&self, kind: &str) {
+        if let Some(m) = self.outbox_errors.get(kind) {
             m.inc()
         }
     }

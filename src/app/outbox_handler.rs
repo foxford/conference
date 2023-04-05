@@ -36,8 +36,8 @@ pub fn run(
                         .await
                     {
                         for err in errors {
-                            if let ErrorKind::StageError(code) = err.kind {
-                                ctx.metrics().observe_outbox_error(code);
+                            if let ErrorKind::StageError(kind) = &err.kind {
+                                ctx.metrics().observe_outbox_error(kind);
                             }
 
                             error!(%err, "failed to complete stage");

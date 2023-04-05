@@ -124,7 +124,7 @@ impl Pipeline {
                 crate::outbox::db::diesel::UpdateQuery::new(
                     &id,
                     delivery_deadline_at,
-                    error.code() as i16,
+                    error.kind(),
                 )
                 .execute(conn)
                 .error(ErrorKind::UpdateStageFailed)?;

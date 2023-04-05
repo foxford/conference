@@ -1,27 +1,26 @@
 use std::vec::IntoIter;
 
-pub type ErrorCode = u16;
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Debug, thiserror::Error)]
 pub struct StageError {
-    code: ErrorCode,
+    kind: String,
     error: BoxError,
 }
 
 impl std::fmt::Display for StageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "stage error, code: {}, error: {}", self.code, self.error)
+        write!(f, "stage error, kind: {}, error: {}", self.kind, self.error)
     }
 }
 
 impl StageError {
-    pub fn new(code: ErrorCode, error: BoxError) -> Self {
-        Self { code, error }
+    pub fn new(kind: String, error: BoxError) -> Self {
+        Self { kind, error }
     }
 
-    pub fn code(&self) -> ErrorCode {
-        self.code
+    pub fn kind(&self) -> &str {
+        &self.kind
     }
 }
 
@@ -36,8 +35,7 @@ pub enum ErrorKind {
     DeleteStageFailed,
     UpdateStageFailed,
     InsertStageFailed,
-    RunningStageFailed,
-    StageError(ErrorCode),
+    StageError(String),
 }
 
 pub trait PipelineErrorExt<T> {
@@ -110,7 +108,7 @@ impl IntoIterator for PipelineErrors {
 impl From<StageError> for PipelineError {
     fn from(error: StageError) -> Self {
         PipelineError {
-            kind: ErrorKind::StageError(error.code),
+            kind: ErrorKind::StageError(error.kind),
             error: error.error,
         }
     }

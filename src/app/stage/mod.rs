@@ -40,6 +40,6 @@ impl StageHandle for AppStage {
 
 impl From<Error> for StageError {
     fn from(error: Error) -> Self {
-        StageError::new(error.error_kind().status().as_u16(), Box::new(error))
+        StageError::new(error.error_kind().kind().into(), Box::new(error))
     }
 }

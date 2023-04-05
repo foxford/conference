@@ -10,7 +10,7 @@ type AllColumns = (
     outbox::entity_type,
     outbox::stage,
     outbox::delivery_deadline_at,
-    outbox::error_code,
+    outbox::error_kind,
     outbox::retry_count,
     outbox::created_at,
 );
@@ -20,7 +20,7 @@ const ALL_COLUMNS: AllColumns = (
     outbox::entity_type,
     outbox::stage,
     outbox::delivery_deadline_at,
-    outbox::error_code,
+    outbox::error_kind,
     outbox::retry_count,
     outbox::created_at,
 );
@@ -34,7 +34,7 @@ pub struct Object {
     stage: JsonValue,
     #[serde(with = "ts_seconds")]
     delivery_deadline_at: DateTime<Utc>,
-    error_code: Option<i16>,
+    error_kind: Option<String>,
     retry_count: i32,
     #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
@@ -122,15 +122,15 @@ impl<'a> InsertQuery<'a> {
 pub struct UpdateQuery<'a> {
     id: &'a EventId,
     delivery_deadline_at: DateTime<Utc>,
-    error_code: i16,
+    error_kind: &'a str,
 }
 
 impl<'a> UpdateQuery<'a> {
-    pub fn new(id: &'a EventId, delivery_deadline_at: DateTime<Utc>, error_code: i16) -> Self {
+    pub fn new(id: &'a EventId, delivery_deadline_at: DateTime<Utc>, error_kind: &'a str) -> Self {
         Self {
             id,
             delivery_deadline_at,
-            error_code,
+            error_kind,
         }
     }
 

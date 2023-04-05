@@ -87,7 +87,7 @@ table! {
         entity_type -> Text,
         stage -> Jsonb,
         delivery_deadline_at -> Timestamptz,
-        error_code -> Nullable<Int2>,
+        error_kind -> Nullable<Text>,
         retry_count -> Int4,
         created_at -> Timestamptz,
     }
