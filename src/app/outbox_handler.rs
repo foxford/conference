@@ -22,7 +22,7 @@ pub fn run(
         let mut check_interval = tokio::time::interval(try_wake_interval);
         check_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-        loop {
+        'outer: loop {
             tokio::select! {
                 _ = check_interval.tick() => {
                     let pipeline = DieselPipeline::new(
@@ -31,23 +31,41 @@ pub fn run(
                         outbox_config.max_delivery_interval,
                     );
 
-                    if let Err(errors) = pipeline
-                        .run_multiple_stages::<AppStage, _>(ctx.clone(), outbox_config.messages_per_try)
-                        .await
-                    {
-                        for err in errors {
-                            if let ErrorKind::StageError(kind) = &err.kind {
-                                ctx.metrics().observe_outbox_error(kind);
-                            }
+                    'inner: loop {
+                        let result = pipeline
+                            .run_multiple_stages::<AppStage, _>(ctx.clone(), outbox_config.messages_per_try)
+                            .await;
 
-                            error!(%err, "failed to complete stage");
-                            AppError::from(err).notify_sentry();
+                        match result {
+                            Ok(maybe_errors) => match maybe_errors {
+                                None => {
+                                    break 'inner;
+                                }
+                                Some(errors) => {
+                                    for err in errors {
+                                        if let ErrorKind::StageError(kind) = &err.kind {
+                                            ctx.metrics().observe_outbox_error(kind);
+                                        }
+
+                                        error!(%err, "failed to complete stage");
+                                        AppError::from(err).notify_sentry();
+                                    }
+
+                                    continue 'inner;
+                                }
+                            },
+                            Err(err) => {
+                                error!(%err);
+                                AppError::from(err).notify_sentry();
+
+                                break 'inner;
+                            }
                         }
                     }
                 }
                 // Graceful shutdown
                 _ = shutdown_rx.changed() => {
-                    break;
+                    break 'outer;
                 }
             }
         }

@@ -20,7 +20,7 @@ pub trait Pipeline {
         &self,
         ctx: C,
         records_per_try: i64,
-    ) -> Result<(), PipelineErrors>
+    ) -> Result<Option<PipelineErrors>, PipelineError>
     where
         T: StageHandle<Context = C, Stage = T>,
         T: Clone + Serialize + DeserializeOwned,

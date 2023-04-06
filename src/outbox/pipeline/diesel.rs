@@ -186,61 +186,41 @@ impl super::Pipeline for Pipeline {
         &self,
         ctx: C,
         records_per_try: i64,
-    ) -> Result<(), PipelineErrors>
+    ) -> Result<Option<PipelineErrors>, PipelineError>
     where
         T: StageHandle<Context = C, Stage = T>,
         T: Clone + Serialize + DeserializeOwned,
         C: Clone + Send + Sync + 'static,
     {
-        let mut all_errors = PipelineErrors::new();
+        crate::util::spawn_blocking({
+            let ctx = ctx.clone();
+            let db = self.db.clone();
+            let this = self.clone();
+            let mut errors = PipelineErrors::new();
 
-        loop {
-            let result = crate::util::spawn_blocking({
-                let ctx = ctx.clone();
-                let db = self.db.clone();
-                let this = self.clone();
-                let mut errors = PipelineErrors::new();
+            move || {
+                let conn = db.get().error(ErrorKind::DbConnAcquisitionFailed)?; // -> pipeline error
 
-                move || {
-                    let conn = db.get().error(ErrorKind::DbConnAcquisitionFailed)?;
+                conn.transaction::<_, PipelineError, _>(|| {
+                    let records: Vec<(Object, T)> =
+                        Self::load_multiple_records(&conn, records_per_try)?; // -> pipeline error
 
-                    conn.transaction::<_, PipelineErrors, _>(|| {
-                        let records: Vec<(Object, T)> =
-                            Self::load_multiple_records(&conn, records_per_try)?;
-
-                        if records.is_empty() {
-                            // Exit from the closure
-                            return Ok(None);
-                        }
-
-                        for (record, stage) in records {
-                            // In case of error, we try to handle another record
-                            if let Err(err) = this.handle_record(&conn, &ctx, record, stage) {
-                                errors.add(err);
-                            }
-                        }
-
-                        Ok(Some(errors))
-                    })
-                }
-            })
-            .await?;
-
-            match result {
-                None => {
-                    if all_errors.is_not_empty() {
-                        return Err(all_errors);
+                    if records.is_empty() {
+                        // Exit from the closure
+                        return Ok(None);
                     }
 
-                    // Break the loop if there are no records
-                    return Ok(());
-                }
-                Some(errors) => {
-                    all_errors.append(errors);
+                    for (record, stage) in records {
+                        // In case of error, we try to handle another record
+                        if let Err(err) = this.handle_record(&conn, &ctx, record, stage) {
+                            errors.add(err);
+                        }
+                    }
 
-                    continue;
-                }
+                    Ok(Some(errors))
+                })
             }
-        }
+        })
+        .await
     }
 }

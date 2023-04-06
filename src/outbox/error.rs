@@ -80,14 +80,6 @@ impl PipelineErrors {
     pub fn add(&mut self, error: PipelineError) {
         self.0.push(error);
     }
-
-    pub fn is_not_empty(&self) -> bool {
-        !self.0.is_empty()
-    }
-
-    pub fn append(&mut self, mut errors: PipelineErrors) {
-        self.0.append(errors.0.as_mut())
-    }
 }
 
 impl From<PipelineError> for PipelineErrors {
