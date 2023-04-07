@@ -3589,7 +3589,8 @@ dependencies = [
 [[package]]
 name = "svc-conference-events"
 version = "0.2.0"
-source = "git+https://github.com/foxford/svc-conference-events.git?branch=from-slice#b324fbead59d22d1d456117a3efc70adfb89c3e3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9185e72a1486f9edf5d66e03a13e8e5cc514e1a579506ce4954b14c2c62a783"
 dependencies = [
  "serde 1.0.152",
  "serde_json",

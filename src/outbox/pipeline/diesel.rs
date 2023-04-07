@@ -1,6 +1,7 @@
 use crate::outbox::{
     db::diesel::Object,
     error::{ErrorKind, PipelineError, PipelineErrorExt, PipelineErrors},
+    pipeline::MultipleStagePipelineResult,
     EventId, StageHandle,
 };
 use chrono::Duration;
@@ -186,7 +187,7 @@ impl super::Pipeline for Pipeline {
         &self,
         ctx: C,
         records_per_try: i64,
-    ) -> Result<Option<PipelineErrors>, PipelineError>
+    ) -> Result<MultipleStagePipelineResult, PipelineErrors>
     where
         T: StageHandle<Context = C, Stage = T>,
         T: Clone + Serialize + DeserializeOwned,
@@ -199,15 +200,15 @@ impl super::Pipeline for Pipeline {
             let mut errors = PipelineErrors::new();
 
             move || {
-                let conn = db.get().error(ErrorKind::DbConnAcquisitionFailed)?; // -> pipeline error
+                let conn = db.get().error(ErrorKind::DbConnAcquisitionFailed)?;
 
-                conn.transaction::<_, PipelineError, _>(|| {
+                conn.transaction::<_, PipelineErrors, _>(|| {
                     let records: Vec<(Object, T)> =
-                        Self::load_multiple_records(&conn, records_per_try)?; // -> pipeline error
+                        Self::load_multiple_records(&conn, records_per_try)?;
 
                     if records.is_empty() {
                         // Exit from the closure
-                        return Ok(None);
+                        return Ok(MultipleStagePipelineResult::Done);
                     }
 
                     for (record, stage) in records {
@@ -217,7 +218,11 @@ impl super::Pipeline for Pipeline {
                         }
                     }
 
-                    Ok(Some(errors))
+                    if !errors.is_empty() {
+                        return Err(errors);
+                    }
+
+                    Ok(MultipleStagePipelineResult::Continue)
                 })
             }
         })

@@ -2,12 +2,12 @@ use crate::{
     app::{context::GlobalContext, error::Error as AppError, stage::AppStage},
     outbox::{
         error::ErrorKind,
-        pipeline::{diesel::Pipeline as DieselPipeline, Pipeline},
+        pipeline::{diesel::Pipeline as DieselPipeline, MultipleStagePipelineResult, Pipeline},
     },
 };
 use std::sync::Arc;
 use tokio::{sync::watch, task::JoinHandle, time::MissedTickBehavior};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub fn run(
     ctx: Arc<dyn GlobalContext>,
@@ -22,7 +22,7 @@ pub fn run(
         let mut check_interval = tokio::time::interval(try_wake_interval);
         check_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-        'outer: loop {
+        loop {
             tokio::select! {
                 _ = check_interval.tick() => {
                     let pipeline = DieselPipeline::new(
@@ -31,41 +31,35 @@ pub fn run(
                         outbox_config.max_delivery_interval,
                     );
 
-                    'inner: loop {
+                    loop {
                         let result = pipeline
                             .run_multiple_stages::<AppStage, _>(ctx.clone(), outbox_config.messages_per_try)
                             .await;
 
                         match result {
-                            Ok(maybe_errors) => match maybe_errors {
-                                None => {
-                                    break 'inner;
-                                }
-                                Some(errors) => {
-                                    for err in errors {
-                                        if let ErrorKind::StageError(kind) = &err.kind {
-                                            ctx.metrics().observe_outbox_error(kind);
-                                        }
-
-                                        error!(%err, "failed to complete stage");
-                                        AppError::from(err).notify_sentry();
+                            Ok(pipeline_result) => match pipeline_result {
+                                MultipleStagePipelineResult::Done => break,
+                                MultipleStagePipelineResult::Continue => continue,
+                            },
+                            Err(errors) => {
+                                for err in errors {
+                                    if let ErrorKind::StageError(kind) = &err.kind {
+                                        ctx.metrics().observe_outbox_error(kind);
                                     }
 
-                                    continue 'inner;
+                                    error!(%err, "failed to complete stage");
+                                    AppError::from(err).notify_sentry();
                                 }
-                            },
-                            Err(err) => {
-                                error!(%err);
-                                AppError::from(err).notify_sentry();
 
-                                break 'inner;
+                                break;
                             }
                         }
                     }
                 }
                 // Graceful shutdown
                 _ = shutdown_rx.changed() => {
-                    break 'outer;
+                    warn!("Outbox handler completes its work");
+                    break;
                 }
             }
         }

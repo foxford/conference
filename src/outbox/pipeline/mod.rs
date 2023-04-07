@@ -8,6 +8,11 @@ use svc_nats_client::EventId;
 
 pub mod diesel;
 
+pub enum MultipleStagePipelineResult {
+    Continue,
+    Done,
+}
+
 #[async_trait::async_trait]
 pub trait Pipeline {
     async fn run_single_stage<T, C>(&self, ctx: C, id: EventId) -> Result<(), PipelineError>
@@ -20,7 +25,7 @@ pub trait Pipeline {
         &self,
         ctx: C,
         records_per_try: i64,
-    ) -> Result<Option<PipelineErrors>, PipelineError>
+    ) -> Result<MultipleStagePipelineResult, PipelineErrors>
     where
         T: StageHandle<Context = C, Stage = T>,
         T: Clone + Serialize + DeserializeOwned,

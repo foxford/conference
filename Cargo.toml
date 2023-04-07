@@ -42,8 +42,7 @@ signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 svc-agent = { version = "0.19", features = ["diesel"] }
 svc-authn = { version = "0.7", features = ["jose", "diesel"] }
 svc-authz = "0.11"
-#svc-conference-events = "0.1"
-svc-conference-events = { git = "https://github.com/foxford/svc-conference-events.git", branch = "from-slice" }
+svc-conference-events = "0.2"
 svc-error = { version = "0.4.2", features = [
   "diesel",
   "r2d2",
