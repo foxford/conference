@@ -3634,15 +3634,17 @@ dependencies = [
 [[package]]
 name = "svc-nats-client"
 version = "0.1.0"
-source = "git+https://github.com/foxford/svc-nats-client.git?branch=impl-client#fa0ebb6f1009f7ead6865e792249b032f14d7c6f"
+source = "git+https://github.com/foxford/svc-nats-client.git?branch=impl-client#fbe5743b56107981cd336cdf5ec1a4d1a2748649"
 dependencies = [
  "anyhow",
  "async-nats",
  "async-trait",
  "futures",
  "humantime-serde",
+ "reqwest",
  "serde 1.0.152",
  "svc-agent",
+ "svc-error 0.4.2",
  "thiserror",
  "tracing",
  "uuid 0.8.2",
@@ -4592,9 +4594,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize_derive"
-version = "1.4.1"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25588073e5216b50bca71d61cb8595cdb9745e87032a58c199730def2862c934"
+checksum = "ce36e65b0d2999d2aafac989fb249189a141aee1f53c612c1f37d72631959f69"
 dependencies = [
  "proc-macro2 1.0.54",
  "quote 1.0.26",

@@ -115,7 +115,7 @@ impl NatsClient for TestNatsClient {
         unimplemented!()
     }
 
-    async fn term_message(&self, _message: Message) -> Result<(), TermMessageError> {
+    async fn terminate(&self, _message: Message) -> Result<(), TermMessageError> {
         unimplemented!()
     }
 }
