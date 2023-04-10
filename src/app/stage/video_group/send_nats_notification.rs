@@ -46,8 +46,13 @@ impl StageHandle for VideoGroupSendNatsNotification {
             id.entity_type().to_string(),
         );
 
-        let event =
-            svc_nats_client::Event::new(subject, payload, id.to_owned(), ctx.agent_id().to_owned());
+        let event = svc_nats_client::event::Builder::new(
+            subject,
+            payload,
+            id.to_owned(),
+            ctx.agent_id().to_owned(),
+        )
+        .build();
 
         ctx.nats_client()
             .ok_or_else(|| anyhow!("nats client not found"))

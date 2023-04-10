@@ -3634,7 +3634,8 @@ dependencies = [
 [[package]]
 name = "svc-nats-client"
 version = "0.1.0"
-source = "git+https://github.com/foxford/svc-nats-client.git?branch=impl-client#fbe5743b56107981cd336cdf5ec1a4d1a2748649"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7deb7c3dff073750c31aed6519c2a272ad35cc69d00425030b9177df711d6942"
 dependencies = [
  "anyhow",
  "async-nats",
