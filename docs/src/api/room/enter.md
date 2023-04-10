@@ -1,7 +1,7 @@
 # Enter
 
-Subscribe to the room's events.
-
+Subscribe to the room's events. Creates RTC for the agent upon entering
+a minigroup.
 
 
 ## Request

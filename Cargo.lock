@@ -567,7 +567,7 @@ dependencies = [
 
 [[package]]
 name = "conference"
-version = "0.6.56"
+version = "0.6.58"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -582,6 +582,7 @@ dependencies = [
  "diesel_migrations",
  "dotenv",
  "dyn-clone",
+ "either",
  "enum-iterator",
  "futures",
  "futures-channel",

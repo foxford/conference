@@ -2,7 +2,7 @@
 authors = ["Andrei Nesterov <ae.nesterov@gmail.com>"]
 edition = "2018"
 name = "conference"
-version = "0.6.56"
+version = "0.6.58"
 
 [dependencies]
 anyhow = "1"
@@ -16,6 +16,7 @@ diesel = { version = "1", features = ["postgres", "uuid", "chrono", "serde_json"
 diesel-derive-enum = { version = "1", features = ["postgres"] }
 diesel-derive-newtype = "0.1"
 dyn-clone = "1.0.10"
+either = "1.7"
 enum-iterator = "0.7"
 futures = "0.3"
 futures-channel = "0.3"

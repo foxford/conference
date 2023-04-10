@@ -22,11 +22,12 @@ use crate::{
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
 use axum::{Extension, Json};
-use chrono::Duration;
+use chrono::{Duration, Utc};
 
+use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use std::{result::Result as StdResult, sync::Arc};
+use std::{ops::Bound, result::Result as StdResult, sync::Arc};
 use svc_agent::{
     mqtt::{OutgoingResponse, ResponseStatus},
     Addressable, AgentId, Authenticable,
@@ -89,6 +90,61 @@ pub struct CreateRequest {
 }
 
 pub struct CreateHandler;
+
+pub async fn start_rtc_stream<C: Context>(
+    ctx: &C,
+    handle_id: &HandleId,
+    agent_id: &AgentId,
+    label: &Option<String>,
+    room: &db::room::Object,
+) -> Result<(), AppError> {
+    let label = label
+        .as_ref()
+        .context("Missing label")
+        .error(AppErrorKind::MessageParsingFailed)?
+        .clone();
+
+    crate::util::spawn_blocking({
+        let handle_id = handle_id.clone();
+        let agent_id = agent_id.clone();
+        let room = room.clone();
+
+        let max_room_duration = ctx.config().max_room_duration;
+        let conn = ctx.get_conn().await?;
+
+        move || {
+            conn.transaction(|| {
+                if let Some(max_room_duration) = max_room_duration {
+                    if !room.infinite() {
+                        if let (start, Bound::Unbounded) = room.time() {
+                            let new_time = (
+                                *start,
+                                Bound::Excluded(Utc::now() + Duration::hours(max_room_duration)),
+                            );
+
+                            db::room::UpdateQuery::new(room.id())
+                                .time(Some(new_time))
+                                .execute(&conn)?;
+                        }
+                    }
+                }
+
+                db::janus_rtc_stream::InsertQuery::new(
+                    handle_id.rtc_stream_id(),
+                    handle_id.janus_handle_id(),
+                    handle_id.rtc_id(),
+                    handle_id.backend_id(),
+                    &label,
+                    &agent_id,
+                )
+                .execute(&conn)
+            })
+        }
+    })
+    .await?;
+
+    Ok(())
+}
 
 #[async_trait]
 impl RequestHandler for CreateHandler {
@@ -278,30 +334,13 @@ impl RequestHandler for CreateHandler {
                                     .await?;
 
                             // Updating the Real-Time Connection state
-                            let label = payload
-                                .label
-                                .as_ref()
-                                .context("Missing label")
-                                .error(AppErrorKind::MessageParsingFailed)?
-                                .clone();
-
-                            crate::util::spawn_blocking({
-                                let handle_id = payload.handle_id.clone();
-                                let agent_id = reqp.as_agent_id().clone();
-
-                                let conn = context.get_conn().await?;
-                                move || {
-                                    db::janus_rtc_stream::InsertQuery::new(
-                                        handle_id.rtc_stream_id(),
-                                        handle_id.janus_handle_id(),
-                                        handle_id.rtc_id(),
-                                        handle_id.backend_id(),
-                                        &label,
-                                        &agent_id,
-                                    )
-                                    .execute(&conn)
-                                }
-                            })
+                            start_rtc_stream(
+                                context,
+                                &payload.handle_id,
+                                reqp.as_agent_id(),
+                                &payload.label,
+                                &room,
+                            )
                             .await?;
 
                             let (writer_config, reader_config) = crate::util::spawn_blocking({
@@ -633,7 +672,7 @@ mod test {
     mod create {
         use std::ops::Bound;
 
-        use chrono::Utc;
+        use chrono::{SubsecRound, Utc};
         use diesel::prelude::*;
         use serde::Deserialize;
         use serde_json::json;
@@ -646,7 +685,7 @@ mod test {
                 transactions::{Transaction, TransactionKind},
                 IncomingEvent, SessionId,
             },
-            db::rtc::SharingPolicy as RtcSharingPolicy,
+            db::{room::FindQueryable, rtc::SharingPolicy as RtcSharingPolicy},
             test_helpers::{prelude::*, test_deps::LocalDeps},
         };
 
@@ -1743,6 +1782,86 @@ a=rtcp-fb:120 ccm fir
             assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
             assert_eq!(err.kind(), "access_denied");
             Ok(())
+        }
+
+        #[tokio::test]
+        async fn create_in_unbounded_room() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+            let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
+            let mut authz = TestAuthz::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            // Insert room with backend and rtc and an agent connection.
+            let (backend, rtc, agent_connection, room) = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
+                    let room = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((
+                            Bound::Included(Utc::now().trunc_subsecs(0)),
+                            Bound::Unbounded,
+                        ))
+                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                        .backend_id(backend.id())
+                        .insert(&conn);
+                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+
+                    let (_, agent_connection) = shared_helpers::insert_connected_to_handle_agent(
+                        &conn,
+                        agent.agent_id(),
+                        rtc.room_id(),
+                        rtc.id(),
+                        user_handle,
+                    );
+                    (backend, rtc, agent_connection, room)
+                })
+                .unwrap();
+            // Allow user to update the rtc.
+            let rtc_id = rtc.id().to_string();
+            let classroom_id = room.classroom_id().to_string();
+            let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
+            authz.allow(agent.account_id(), object.clone(), "update");
+
+            // Make rtc_signal.create request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+            context.with_janus(tx);
+            let rtc_stream_id = db::janus_rtc_stream::Id::random();
+            let handle_id = HandleId::new(
+                rtc_stream_id,
+                rtc.id(),
+                agent_connection.handle_id(),
+                backend.session_id(),
+                backend.id().to_owned(),
+            );
+            let jsep = serde_json::from_value::<Jsep>(json!({ "type": "offer", "sdp": SDP_OFFER }))
+                .expect("Failed to build JSEP");
+
+            let payload = CreateRequest {
+                handle_id: handle_id.clone(),
+                jsep,
+                label: Some(String::from("whatever")),
+                agent_label: None,
+            };
+
+            handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Rtc signal creation failed");
+
+            let conn = context.get_conn().await.unwrap();
+            let room = db::room::FindQuery::new(room.id())
+                .execute(&conn)
+                .unwrap()
+                .unwrap();
+            assert_ne!(room.time().1, Bound::Unbounded);
         }
     }
 }

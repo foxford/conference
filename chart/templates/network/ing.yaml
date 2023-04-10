@@ -3,9 +3,9 @@ kind: Ingress
 metadata:
   name: {{ include "conference.fullname" . }}
   annotations:
-    kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
+  ingressClassName: {{ .Values.ingress.class | quote }}
   tls:
     - hosts:
         - {{ .Values.ingress.host | quote }}
