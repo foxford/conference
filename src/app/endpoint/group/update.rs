@@ -62,7 +62,7 @@ pub struct Handler;
 
 impl Handler {
     async fn handle(
-        context: Arc<dyn GlobalContext>,
+        context: Arc<dyn GlobalContext + Send>,
         payload: Payload,
         reqp: RequestParams<'_>,
         start_timestamp: DateTime<Utc>,

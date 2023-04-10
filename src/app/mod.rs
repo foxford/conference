@@ -163,7 +163,7 @@ pub async fn run(
             }),
     );
 
-    let ctx: Arc<dyn GlobalContext> = Arc::new(context.clone());
+    let ctx: Arc<dyn GlobalContext + Send> = Arc::new(context.clone());
     let outbox_handler = outbox_handler::run(ctx, graceful_rx.clone())?;
 
     // Message handler

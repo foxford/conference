@@ -51,7 +51,7 @@ impl VideoGroupUpdateJanusConfig {
 
 #[async_trait]
 impl StageHandle for VideoGroupUpdateJanusConfig {
-    type Context = Arc<dyn GlobalContext>;
+    type Context = Arc<dyn GlobalContext + Send>;
     type Stage = AppStage;
 
     async fn handle(

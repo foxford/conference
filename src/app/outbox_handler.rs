@@ -10,7 +10,7 @@ use tokio::{sync::watch, task::JoinHandle, time::MissedTickBehavior};
 use tracing::{error, info, warn};
 
 pub fn run(
-    ctx: Arc<dyn GlobalContext>,
+    ctx: Arc<dyn GlobalContext + Send>,
     mut shutdown_rx: watch::Receiver<()>,
 ) -> anyhow::Result<JoinHandle<()>> {
     info!("Outbox handler started");
