@@ -704,15 +704,53 @@ impl EnterHandler {
         let mut response = Response::new(ResponseStatus::OK, json!({}), start_timestamp, None);
 
         let ctx = context.clone();
-        // Adds participants to the default group for minigroups
         let room_id = room.id();
         let outbox_config = ctx.config().clone().outbox;
-        let rtc_sharing_policy = room.rtc_sharing_policy();
-        if rtc_sharing_policy == db::rtc::SharingPolicy::Owned {
+        if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
+            let rtc = crate::util::spawn_blocking({
+                let conn = context.get_conn().await?;
+                let room_id = room.id();
+                let agent_id = reqp.as_agent_id().clone();
+                move || {
+                    let rtcs = db::rtc::ListQuery::new()
+                        .room_id(room_id)
+                        .created_by(&[&agent_id])
+                        .execute(&conn)?;
+
+                    Ok::<_, AppError>(rtcs.into_iter().next())
+                }
+            })
+            .await?;
+
+            if rtc.is_none() {
+                let RtcCreateResult {
+                    rtc,
+                    authz_time,
+                    notification_label,
+                    notification_topic,
+                } = RtcCreate {
+                    ctx: &context,
+                    room: either::Either::Left(room.clone()),
+                    reqp,
+                }
+                .run()
+                .await?;
+
+                response.set_authz_time(authz_time);
+
+                response.add_notification(
+                    notification_label,
+                    &notification_topic,
+                    rtc,
+                    start_timestamp,
+                );
+            }
+
             let agent_id = reqp.as_agent_id().clone();
             let conn = ctx.get_conn().await?;
             let room = room.clone();
 
+            // Adds participants to the default group for minigroups
             let maybe_event_id = crate::util::spawn_blocking(move || {
                 let maybe_event_id = conn.transaction(|| {
                     let group_agent = db::group_agent::FindQuery::new(room_id).execute(&conn)?;
@@ -824,47 +862,6 @@ impl EnterHandler {
             RoomEnterLeaveEvent::new(room_id, subject),
             start_timestamp,
         );
-
-        if let RtcSharingPolicy::Owned = rtc_sharing_policy {
-            let rtc = crate::util::spawn_blocking({
-                let conn = context.get_conn().await?;
-                let room_id = room.id();
-                let agent_id = reqp.as_agent_id().clone();
-                move || {
-                    let rtcs = db::rtc::ListQuery::new()
-                        .room_id(room_id)
-                        .created_by(&[&agent_id])
-                        .execute(&conn)?;
-
-                    Ok::<_, AppError>(rtcs.into_iter().next())
-                }
-            })
-            .await?;
-
-            if rtc.is_none() {
-                let RtcCreateResult {
-                    rtc,
-                    authz_time,
-                    notification_label,
-                    notification_topic,
-                } = RtcCreate {
-                    ctx: &context,
-                    room: either::Either::Left(room.clone()),
-                    reqp,
-                }
-                .run()
-                .await?;
-
-                response.set_authz_time(authz_time);
-
-                response.add_notification(
-                    notification_label,
-                    &notification_topic,
-                    rtc,
-                    start_timestamp,
-                );
-            }
-        }
 
         context
             .metrics()
