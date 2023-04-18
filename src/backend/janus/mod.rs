@@ -9,7 +9,7 @@ use svc_agent::{
     Addressable, AgentId,
 };
 use svc_error::Error as SvcError;
-use tracing::{error, Span};
+use tracing::{error, info, Span};
 
 use self::client::{
     create_handle::OpaqueId, transactions::TransactionKind, HandleId, IncomingEvent,
@@ -400,6 +400,11 @@ async fn handle_event_impl<C: Context>(
                                         .then(|| (recording, rtc))
                                 });
 
+                        info!(
+                            class_id = %room.classroom_id(),
+                            room_id = %room.id(),
+                            "sending room.upload event"
+                        );
                         // Send room.upload event.
                         let event = endpoint::system::upload_event(context, &room, recs_with_rtcs)?;
 
