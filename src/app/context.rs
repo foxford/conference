@@ -39,7 +39,7 @@ pub trait GlobalContext: Sync {
     fn metrics(&self) -> Arc<Metrics>;
     fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient;
     fn conference_client(&self) -> &ConferenceHttpClient;
-    fn mqtt_client(&self) -> Arc<Mutex<dyn MqttClient>>;
+    fn mqtt_client(&self) -> &Mutex<dyn MqttClient>;
     fn nats_client(&self) -> Option<&dyn NatsClient>;
     fn get_conn(
         &self,
@@ -94,7 +94,7 @@ impl GlobalContext for Arc<dyn GlobalContext + Send> {
         self.as_ref().conference_client()
     }
 
-    fn mqtt_client(&self) -> Arc<Mutex<dyn MqttClient>> {
+    fn mqtt_client(&self) -> &Mutex<dyn MqttClient> {
         self.as_ref().mqtt_client()
     }
 
@@ -212,8 +212,8 @@ impl GlobalContext for AppContext {
         &self.conference_client
     }
 
-    fn mqtt_client(&self) -> Arc<Mutex<dyn MqttClient>> {
-        self.mqtt_client.clone()
+    fn mqtt_client(&self) -> &Mutex<dyn MqttClient> {
+        self.mqtt_client.as_ref()
     }
 
     fn nats_client(&self) -> Option<&dyn NatsClient> {
@@ -274,7 +274,7 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.conference_client()
     }
 
-    fn mqtt_client(&self) -> Arc<Mutex<dyn MqttClient>> {
+    fn mqtt_client(&self) -> &Mutex<dyn MqttClient> {
         self.global_context.mqtt_client()
     }
 

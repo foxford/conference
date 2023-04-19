@@ -240,8 +240,8 @@ impl GlobalContext for TestContext {
         &self.conference_client
     }
 
-    fn mqtt_client(&self) -> Arc<Mutex<dyn MqttClient>> {
-        self.mqtt_client.clone()
+    fn mqtt_client(&self) -> &Mutex<dyn MqttClient> {
+        self.mqtt_client.as_ref()
     }
 
     fn nats_client(&self) -> Option<&dyn NatsClient> {
