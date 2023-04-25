@@ -5,7 +5,7 @@ use crate::db;
 
 use super::{HandleId, SessionId};
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize, Debug)]
 pub struct UpdateReaderConfigRequest {
     pub session_id: SessionId,
     pub handle_id: HandleId,

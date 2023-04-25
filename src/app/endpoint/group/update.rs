@@ -320,7 +320,7 @@ mod tests {
             })
             .unwrap();
 
-        // Allow agent to read the room.
+        // Allow agent to update the room.
         let mut authz = TestAuthz::new();
         let classroom_id = room.classroom_id().to_string();
         authz.allow(
@@ -388,7 +388,7 @@ mod tests {
             })
             .unwrap();
 
-        // Allow agent to read the room.
+        // Allow agent to update the room.
         let mut authz = TestAuthz::new();
         let classroom_id = room.classroom_id().to_string();
         authz.allow(

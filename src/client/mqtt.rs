@@ -1,8 +1,10 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::json;
-use svc_agent::mqtt::{Agent, OutgoingEvent, OutgoingEventProperties, ShortTermTimingProperties};
-use svc_agent::Error;
+use svc_agent::{
+    mqtt::{Agent, OutgoingEvent, OutgoingEventProperties, ShortTermTimingProperties},
+    Error,
+};
 
 #[async_trait]
 pub trait MqttClient: Send + Sync {

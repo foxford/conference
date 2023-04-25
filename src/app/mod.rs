@@ -371,15 +371,16 @@ async fn start_metrics_collector(registry: Registry, bind_addr: SocketAddr) -> a
     Ok(())
 }
 
-pub mod cluster_ip;
+mod cluster_ip;
 pub mod context;
 pub mod endpoint;
 pub mod error;
-pub mod group_reader_config;
 pub mod handle_id;
 pub mod http;
 pub mod message_handler;
 pub mod metrics;
-mod outbox_handler;
 pub mod service_utils;
+
+mod group_reader_config;
+mod outbox_handler;
 mod stage;

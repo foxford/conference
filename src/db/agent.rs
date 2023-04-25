@@ -111,8 +111,8 @@ impl<'a> ListQuery<'a> {
             .into_boxed()
             .filter(agent::status.eq(Status::Ready));
 
-        if let Some(agent_ids) = self.agent_id {
-            q = q.filter(agent::agent_id.eq(agent_ids));
+        if let Some(agent_id) = self.agent_id {
+            q = q.filter(agent::agent_id.eq(agent_id));
         }
 
         if let Some(room_id) = self.room_id {

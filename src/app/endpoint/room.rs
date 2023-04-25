@@ -746,83 +746,86 @@ impl EnterHandler {
                 );
             }
 
-            let agent_id = reqp.as_agent_id().clone();
-            let conn = ctx.get_conn().await?;
-            let room = room.clone();
-
             // Adds participants to the default group for minigroups
-            let maybe_event_id = crate::util::spawn_blocking(move || {
-                let maybe_event_id = conn.transaction(|| {
-                    let group_agent = db::group_agent::FindQuery::new(room_id).execute(&conn)?;
+            let maybe_event_id = crate::util::spawn_blocking({
+                let agent_id = reqp.as_agent_id().clone();
+                let room = room.clone();
+                let conn = ctx.get_conn().await?;
 
-                    let groups = group_agent.groups();
-                    let agent_exists = groups.is_agent_exist(&agent_id);
+                move || {
+                    let maybe_event_id = conn.transaction(|| {
+                        let group_agent =
+                            db::group_agent::FindQuery::new(room_id).execute(&conn)?;
 
-                    if !agent_exists {
-                        let changed_groups = groups.add_to_default_group(&agent_id);
-                        db::group_agent::UpsertQuery::new(room_id, &changed_groups)
-                            .execute(&conn)?;
+                        let groups = group_agent.groups();
+                        let agent_exists = groups.is_agent_exist(&agent_id);
 
-                        // Check the number of groups, and if there are more than 1,
-                        // then create RTC reader configs for participants from other groups
-                        if groups.len() > 1 {
-                            let backend_id = room
-                                .backend_id()
-                                .cloned()
-                                .context("backend not found")
-                                .error(AppErrorKind::BackendNotFound)?;
+                        if !agent_exists {
+                            let changed_groups = groups.add_to_default_group(&agent_id);
+                            db::group_agent::UpsertQuery::new(room_id, &changed_groups)
+                                .execute(&conn)?;
 
-                            let configs =
-                                group_reader_config::update(&conn, room_id, changed_groups)?;
+                            // Check the number of groups, and if there are more than 1,
+                            // then create RTC reader configs for participants from other groups
+                            if groups.len() > 1 {
+                                let backend_id = room
+                                    .backend_id()
+                                    .cloned()
+                                    .context("backend not found")
+                                    .error(AppErrorKind::BackendNotFound)?;
 
-                            // Generate configs for janus
-                            let items = configs
-                                .into_iter()
-                                .map(|((rtc_id, agent_id), value)| {
-                                    UpdateReaderConfigRequestBodyConfigItem {
-                                        reader_id: agent_id,
-                                        stream_id: rtc_id,
-                                        receive_video: value,
-                                        receive_audio: value,
-                                    }
-                                })
-                                .collect();
+                                let configs =
+                                    group_reader_config::update(&conn, room_id, changed_groups)?;
 
-                            let timestamp = Utc::now().timestamp_nanos();
-                            let event = Event::from(VideoGroupEvent::Updated {
-                                created_at: timestamp,
-                            });
-                            let init_stage = VideoGroupUpdateJanusConfig::init(
-                                event,
-                                room.classroom_id(),
-                                room.id(),
-                                backend_id,
-                                items,
-                            );
+                                // Generate configs for janus
+                                let items = configs
+                                    .into_iter()
+                                    .map(|((rtc_id, agent_id), value)| {
+                                        UpdateReaderConfigRequestBodyConfigItem {
+                                            reader_id: agent_id,
+                                            stream_id: rtc_id,
+                                            receive_video: value,
+                                            receive_audio: value,
+                                        }
+                                    })
+                                    .collect();
 
-                            let serialized_stage = serde_json::to_value(init_stage)
-                                .context("serialization failed")
-                                .error(AppErrorKind::OutboxStageSerializationFailed)?;
+                                let timestamp = Utc::now().timestamp_nanos();
+                                let event = Event::from(VideoGroupEvent::Updated {
+                                    created_at: timestamp,
+                                });
+                                let init_stage = VideoGroupUpdateJanusConfig::init(
+                                    event,
+                                    room.classroom_id(),
+                                    room.id(),
+                                    backend_id,
+                                    items,
+                                );
 
-                            let delivery_deadline_at = outbox::util::delivery_deadline_from_now(
-                                outbox_config.try_wake_interval,
-                            );
+                                let serialized_stage = serde_json::to_value(init_stage)
+                                    .context("serialization failed")
+                                    .error(AppErrorKind::OutboxStageSerializationFailed)?;
 
-                            let event_id = outbox::db::diesel::InsertQuery::new(
-                                stage::video_group::ENTITY_TYPE,
-                                serialized_stage,
-                                delivery_deadline_at,
-                            )
-                            .execute(&conn)?;
+                                let delivery_deadline_at = outbox::util::delivery_deadline_from_now(
+                                    outbox_config.try_wake_interval,
+                                );
 
-                            return Ok(Some(event_id));
+                                let event_id = outbox::db::diesel::InsertQuery::new(
+                                    stage::video_group::ENTITY_TYPE,
+                                    serialized_stage,
+                                    delivery_deadline_at,
+                                )
+                                .execute(&conn)?;
+
+                                return Ok(Some(event_id));
+                            }
                         }
-                    }
 
-                    Ok::<_, AppError>(None)
-                })?;
+                        Ok::<_, AppError>(None)
+                    })?;
 
-                Ok::<_, AppError>(maybe_event_id)
+                    Ok::<_, AppError>(maybe_event_id)
+                }
             })
             .await?;
 
@@ -1103,12 +1106,12 @@ mod test {
                 .get()
                 .expect("Failed to get DB connection");
 
-            let group = db::group_agent::FindQuery::new(room.id())
+            let group_agent = db::group_agent::FindQuery::new(room.id())
                 .execute(&conn)
                 .expect("failed to get group");
 
             let groups = Groups::new(vec![GroupItem::new(0, vec![])]);
-            assert_eq!(group.groups(), groups);
+            assert_eq!(group_agent.groups(), groups);
         }
     }
 

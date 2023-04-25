@@ -1,4 +1,3 @@
-use crate::app::metrics::HistogramExt;
 use crate::{
     app::{
         context::{AppContext, Context},
@@ -8,6 +7,7 @@ use crate::{
             RequestHandler, RequestResult,
         },
         error::ErrorExt,
+        metrics::HistogramExt,
         service_utils::{RequestParams, Response},
     },
     authz::AuthzObject,
@@ -136,9 +136,11 @@ impl RequestHandler for Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::group_agent::{GroupItem, Groups};
     use crate::{
-        db::rtc::SharingPolicy as RtcSharingPolicy,
+        db::{
+            group_agent::{GroupItem, Groups},
+            rtc::SharingPolicy as RtcSharingPolicy,
+        },
         test_helpers::{
             factory, find_response, handle_request,
             prelude::{TestAgent, TestAuthz, TestContext, TestDb},

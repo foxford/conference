@@ -15,7 +15,6 @@ derive_more = "0.99"
 diesel = { version = "1", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2", "uuidv07"] }
 diesel-derive-enum = { version = "1", features = ["postgres"] }
 diesel-derive-newtype = "0.1"
-dyn-clone = "1.0.10"
 either = "1.7"
 enum-iterator = "0.7"
 futures = "0.3"
