@@ -39,7 +39,7 @@ signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 svc-agent = { version = "0.19", features = ["diesel"] }
 svc-authn = { version = "0.7", features = ["jose", "diesel"] }
 svc-authz = "0.11"
-svc-error = { version = "0.2", features = [
+svc-error = { version = "0.3", features = [
   "diesel",
   "r2d2",
   "svc-agent",
