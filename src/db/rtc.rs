@@ -10,12 +10,9 @@ use diesel::{pg::PgConnection, result::Error};
 use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
-use uuid::Uuid;
 
 use super::{recording::Object as Recording, room::Object as Room};
 use crate::schema::{recording, rtc};
-use derive_more::{Display, FromStr};
-use diesel_derive_newtype::DieselNewType;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -24,17 +21,7 @@ pub type AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
 pub const ALL_COLUMNS: AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
 
 ////////////////////////////////////////////////////////////////////////////////
-
-#[derive(
-    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
-)]
-pub struct Id(Uuid);
-
-impl Id {
-    pub fn random() -> Self {
-        Id(Uuid::new_v4())
-    }
-}
+pub type Id = db::id::Id;
 
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -48,7 +35,7 @@ pub enum SharingPolicy {
 impl fmt::Display for SharingPolicy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let serialized = serde_json::to_string(self).map_err(|_| fmt::Error)?;
-        write!(f, "{}", serialized)
+        write!(f, "{serialized}")
     }
 }
 

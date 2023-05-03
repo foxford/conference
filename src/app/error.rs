@@ -1,10 +1,9 @@
-use std::{error::Error as StdError, fmt};
+use std::{error::Error as StdError, fmt, sync::Arc};
 
+use crate::outbox::error::PipelineError;
 use enum_iterator::IntoEnumIterator;
 use svc_agent::mqtt::ResponseStatus;
 use svc_error::{extension::sentry, Error as SvcError};
-use tracing::warn;
-use tracing_error::SpanTrace;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -54,6 +53,11 @@ pub enum ErrorKind {
     RtcNotFound,
     MethodNotSupported,
     JanusResponseTimeout,
+    OutboxStageSerializationFailed,
+    MqttPublishFailed,
+    NatsPublishFailed,
+    NatsClientNotFound,
+    OutboxPipelineError,
 }
 
 impl ErrorKind {
@@ -298,6 +302,36 @@ impl From<ErrorKind> for ErrorKindProperties {
                 title: "Janus response timeout",
                 is_notify_sentry: true,
             },
+            ErrorKind::OutboxStageSerializationFailed => ErrorKindProperties {
+                status: ResponseStatus::UNPROCESSABLE_ENTITY,
+                kind: "outbox_stage_serialization_failed",
+                title: "Outbox stage serialization failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::MqttPublishFailed => ErrorKindProperties {
+                status: ResponseStatus::UNPROCESSABLE_ENTITY,
+                kind: "mqtt_publish_failed",
+                title: "Mqtt publish failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::NatsPublishFailed => ErrorKindProperties {
+                status: ResponseStatus::UNPROCESSABLE_ENTITY,
+                kind: "nats_publish_failed",
+                title: "Nats publish failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::NatsClientNotFound => ErrorKindProperties {
+                status: ResponseStatus::FAILED_DEPENDENCY,
+                kind: "nats_client_not_found",
+                title: "Nats client not found",
+                is_notify_sentry: true,
+            },
+            ErrorKind::OutboxPipelineError => ErrorKindProperties {
+                status: ResponseStatus::FAILED_DEPENDENCY,
+                kind: "outbox pipeline error",
+                title: "Outbox pipeline error",
+                is_notify_sentry: true,
+            },
         }
     }
 }
@@ -306,14 +340,14 @@ impl From<ErrorKind> for ErrorKindProperties {
 
 pub struct Error {
     kind: ErrorKind,
-    source: Option<anyhow::Error>,
+    source: Option<Arc<anyhow::Error>>,
 }
 
 impl Error {
     pub fn new(kind: ErrorKind, source: impl Into<anyhow::Error>) -> Self {
         Self {
             kind,
-            source: Some(source.into()),
+            source: Some(Arc::new(source.into())),
         }
     }
 
@@ -353,20 +387,12 @@ impl Error {
         if !self.kind.is_notify_sentry() {
             return;
         }
-        let properties: ErrorKindProperties = self.kind.into();
-        let svc_err = SvcError::builder()
-            .status(properties.status)
-            .kind(properties.kind, properties.title)
-            .detail(&format!(
-                "Error: {}, Trace: {:?}",
-                self.detail(),
-                SpanTrace::capture()
-            ))
-            .build();
 
-        sentry::send(svc_err).unwrap_or_else(|err| {
-            warn!(?err, "Error sending error to Sentry");
-        });
+        if let Some(e) = &self.source {
+            if let Err(e) = sentry::send(e.clone()) {
+                tracing::error!("Failed to send error to sentry, reason = {:?}", e);
+            }
+        }
     }
 }
 
@@ -390,7 +416,7 @@ impl fmt::Display for Error {
 
 impl StdError for Error {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        self.source.as_ref().map(|s| s.as_ref())
+        self.source.as_ref().map(|s| s.as_ref().as_ref())
     }
 }
 
@@ -403,7 +429,7 @@ impl From<svc_authz::Error> for Error {
 
         Self {
             kind,
-            source: Some(anyhow::Error::from(source)),
+            source: Some(Arc::new(anyhow::Error::from(source))),
         }
     }
 }
@@ -412,7 +438,7 @@ impl From<diesel::result::Error> for Error {
     fn from(source: diesel::result::Error) -> Self {
         Self {
             kind: ErrorKind::DbQueryFailed,
-            source: Some(anyhow::Error::from(source)),
+            source: Some(Arc::new(anyhow::Error::from(source))),
         }
     }
 }
@@ -426,5 +452,11 @@ pub trait ErrorExt<T> {
 impl<T, E: Into<anyhow::Error>> ErrorExt<T> for Result<T, E> {
     fn error(self, kind: ErrorKind) -> Result<T, Error> {
         self.map_err(|source| Error::new(kind, source.into()))
+    }
+}
+
+impl From<PipelineError> for Error {
+    fn from(error: PipelineError) -> Self {
+        Error::new(ErrorKind::OutboxPipelineError, error)
     }
 }

@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
-
+use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::{ops::Bound, sync::Arc};
@@ -13,28 +13,45 @@ use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Authenticable, Subscription,
 };
+use svc_conference_events::{EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
 use svc_utils::extractors::AgentIdExtractor;
-
+use tracing::error;
+use tracing_attributes::instrument;
 use uuid::Uuid;
 
 use crate::{
     app::{
-        context::{AppContext, Context},
+        context::{AppContext, Context, GlobalContext},
         endpoint::{
             prelude::*,
             rtc::{RtcCreate, RtcCreateResult},
             subscription::CorrelationDataPayload,
         },
+        group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
+        stage::{
+            self,
+            video_group::{VideoGroupUpdateJanusConfig, MQTT_NOTIFICATION_LABEL},
+            AppStage,
+        },
         API_VERSION,
     },
     authz::AuthzObject,
+    backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
     client::mqtt_gateway::MqttGatewayClient,
-    db,
-    db::{room::RoomBackend, rtc::SharingPolicy as RtcSharingPolicy},
+    db::{
+        self,
+        group_agent::{GroupItem, Groups},
+        room::RoomBackend,
+        rtc::SharingPolicy as RtcSharingPolicy,
+    },
+    outbox::{
+        self,
+        error::ErrorKind,
+        pipeline::{diesel::Pipeline as DieselPipeline, Pipeline},
+    },
 };
-use tracing_attributes::instrument;
 
 use super::subscription::RoomEnterLeaveEvent;
 
@@ -139,6 +156,17 @@ impl RequestHandler for CreateHandler {
         })
         .await?;
 
+        // Create a default group for minigroups
+        if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
+            let conn = context.get_conn().await?;
+            crate::util::spawn_blocking({
+                let room_id = room.id();
+                let groups = Groups::new(vec![GroupItem::new(0, vec![])]);
+                move || db::group_agent::UpsertQuery::new(room_id, &groups).execute(&conn)
+            })
+            .await?;
+        }
+
         tracing::Span::current().record(
             "classroom_id",
             &tracing::field::display(room.classroom_id()),
@@ -155,7 +183,7 @@ impl RequestHandler for CreateHandler {
 
         response.add_notification(
             "room.create",
-            &format!("audiences/{}/events", audience),
+            &format!("audiences/{audience}/events"),
             room,
             context.start_timestamp(),
         );
@@ -166,7 +194,7 @@ impl RequestHandler for CreateHandler {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ReadRequest {
     id: db::room::Id,
 }
@@ -586,11 +614,12 @@ pub async fn enter(
         .unwrap_or(agent_id);
 
     EnterHandler::handle(
-        &mut ctx.start_message(),
-        request,
+        ctx,
+        request.clone(),
         RequestParams::Http {
             agent_id: &agent_id,
         },
+        Utc::now(),
     )
     .await
 }
@@ -598,15 +627,12 @@ pub async fn enter(
 pub type EnterRequest = ReadRequest;
 pub struct EnterHandler;
 
-#[async_trait]
-impl RequestHandler for EnterHandler {
-    type Payload = EnterRequest;
-    const ERROR_TITLE: &'static str = "Failed to enter room";
-
-    async fn handle<C: Context>(
-        context: &mut C,
-        payload: Self::Payload,
+impl EnterHandler {
+    async fn handle(
+        context: Arc<dyn GlobalContext + Send>,
+        payload: EnterRequest,
         reqp: RequestParams<'_>,
+        start_timestamp: DateTime<Utc>,
     ) -> RequestResult {
         let room = crate::util::spawn_blocking({
             let conn = context.get_conn().await?;
@@ -675,21 +701,12 @@ impl RequestHandler for EnterHandler {
         })
         .await?;
 
-        let mut response = Response::new(
-            ResponseStatus::OK,
-            json!({}),
-            context.start_timestamp(),
-            None,
-        );
+        let mut response = Response::new(ResponseStatus::OK, json!({}), start_timestamp, None);
 
-        response.add_notification(
-            "room.enter",
-            &format!("rooms/{}/events", room_id),
-            RoomEnterLeaveEvent::new(room.id(), subject),
-            context.start_timestamp(),
-        );
-
-        if let RtcSharingPolicy::Owned = room.rtc_sharing_policy() {
+        let ctx = context.clone();
+        let room_id = room.id();
+        let outbox_config = ctx.config().clone().outbox;
+        if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
             let rtc = crate::util::spawn_blocking({
                 let conn = context.get_conn().await?;
                 let room_id = room.id();
@@ -712,7 +729,7 @@ impl RequestHandler for EnterHandler {
                     notification_label,
                     notification_topic,
                 } = RtcCreate {
-                    ctx: context,
+                    ctx: &context,
                     room: either::Either::Left(room.clone()),
                     reqp,
                 }
@@ -725,16 +742,135 @@ impl RequestHandler for EnterHandler {
                     notification_label,
                     &notification_topic,
                     rtc,
-                    context.start_timestamp(),
+                    start_timestamp,
                 );
             }
-        }
+
+            // Adds participants to the default group for minigroups
+            let maybe_event_id = crate::util::spawn_blocking({
+                let agent_id = reqp.as_agent_id().clone();
+                let room = room.clone();
+                let conn = ctx.get_conn().await?;
+
+                move || {
+                    let maybe_event_id = conn.transaction(|| {
+                        let group_agent =
+                            db::group_agent::FindQuery::new(room_id).execute(&conn)?;
+
+                        let groups = group_agent.groups();
+                        let agent_exists = groups.is_agent_exist(&agent_id);
+
+                        if !agent_exists {
+                            let changed_groups = groups.add_to_default_group(&agent_id);
+                            db::group_agent::UpsertQuery::new(room_id, &changed_groups)
+                                .execute(&conn)?;
+
+                            // Check the number of groups, and if there are more than 1,
+                            // then create RTC reader configs for participants from other groups
+                            if groups.len() > 1 {
+                                let backend_id = room
+                                    .backend_id()
+                                    .cloned()
+                                    .context("backend not found")
+                                    .error(AppErrorKind::BackendNotFound)?;
+
+                                let configs =
+                                    group_reader_config::update(&conn, room_id, changed_groups)?;
+
+                                // Generate configs for janus
+                                let items = configs
+                                    .into_iter()
+                                    .map(|((rtc_id, agent_id), value)| {
+                                        UpdateReaderConfigRequestBodyConfigItem {
+                                            reader_id: agent_id,
+                                            stream_id: rtc_id,
+                                            receive_video: value,
+                                            receive_audio: value,
+                                        }
+                                    })
+                                    .collect();
+
+                                let timestamp = Utc::now().timestamp_nanos();
+                                let event = Event::from(VideoGroupEvent::Updated {
+                                    created_at: timestamp,
+                                });
+                                let init_stage = VideoGroupUpdateJanusConfig::init(
+                                    event,
+                                    room.classroom_id(),
+                                    room.id(),
+                                    backend_id,
+                                    items,
+                                );
+
+                                let serialized_stage = serde_json::to_value(init_stage)
+                                    .context("serialization failed")
+                                    .error(AppErrorKind::OutboxStageSerializationFailed)?;
+
+                                let delivery_deadline_at = outbox::util::delivery_deadline_from_now(
+                                    outbox_config.try_wake_interval,
+                                );
+
+                                let event_id = outbox::db::diesel::InsertQuery::new(
+                                    stage::video_group::ENTITY_TYPE,
+                                    serialized_stage,
+                                    delivery_deadline_at,
+                                )
+                                .execute(&conn)?;
+
+                                return Ok(Some(event_id));
+                            }
+                        }
+
+                        Ok::<_, AppError>(None)
+                    })?;
+
+                    Ok::<_, AppError>(maybe_event_id)
+                }
+            })
+            .await?;
+
+            match maybe_event_id {
+                Some(event_id) => {
+                    let pipeline = DieselPipeline::new(
+                        ctx.db().clone(),
+                        outbox_config.try_wake_interval,
+                        outbox_config.max_delivery_interval,
+                    );
+                    if let Err(err) = pipeline
+                        .run_single_stage::<AppStage, _>(ctx, event_id)
+                        .await
+                    {
+                        if let ErrorKind::StageError(kind) = &err.kind {
+                            context.metrics().observe_outbox_error(kind);
+                        }
+
+                        error!(%err, "failed to complete stage");
+                        AppError::from(err).notify_sentry();
+                    }
+                }
+                None => {
+                    response.add_notification(
+                        MQTT_NOTIFICATION_LABEL,
+                        &format!("rooms/{room_id}/events"),
+                        json!({}),
+                        start_timestamp,
+                    );
+                }
+            }
+        };
+
+        response.add_notification(
+            "room.enter",
+            &format!("rooms/{room_id}/events"),
+            RoomEnterLeaveEvent::new(room_id, subject),
+            start_timestamp,
+        );
 
         context
             .metrics()
             .request_duration
             .room_enter
-            .observe_timestamp(context.start_timestamp());
+            .observe_timestamp(start_timestamp);
 
         Ok(response)
     }
@@ -845,6 +981,7 @@ mod test {
         use chrono::Utc;
         use serde_json::json;
 
+        use crate::db::group_agent::{GroupItem, Groups};
         use crate::{
             db::room::Object as Room,
             test_helpers::{prelude::*, test_deps::LocalDeps},
@@ -921,7 +1058,7 @@ mod test {
                 rtc_sharing_policy: Some(db::rtc::SharingPolicy::Shared),
                 reserve: None,
                 tags: None,
-                classroom_id: uuid::Uuid::new_v4(),
+                classroom_id: Uuid::new_v4(),
             };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -930,6 +1067,51 @@ mod test {
 
             assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
             assert_eq!(err.kind(), "access_denied");
+        }
+
+        #[tokio::test]
+        async fn create_default_group() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            // Allow user to create rooms.
+            let mut authz = TestAuthz::new();
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            authz.allow(agent.account_id(), vec!["classrooms"], "create");
+
+            // Make room.create request.
+            let mut context = TestContext::new(db.clone(), authz);
+            let time = (Bound::Unbounded, Bound::Unbounded);
+            let classroom_id = Uuid::new_v4();
+
+            let payload = CreateRequest {
+                time: time.clone(),
+                audience: USR_AUDIENCE.to_owned(),
+                backend: None,
+                rtc_sharing_policy: Some(db::rtc::SharingPolicy::Owned),
+                reserve: Some(123),
+                tags: Some(json!({ "foo": "bar" })),
+                classroom_id,
+            };
+
+            let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
+                .await
+                .expect("Room creation failed");
+
+            let (room, _, _) = find_response::<Room>(messages.as_slice());
+
+            let conn = db
+                .connection_pool()
+                .get()
+                .expect("Failed to get DB connection");
+
+            let group_agent = db::group_agent::FindQuery::new(room.id())
+                .execute(&conn)
+                .expect("failed to get group");
+
+            let groups = Groups::new(vec![GroupItem::new(0, vec![])]);
+            assert_eq!(group_agent.groups(), groups);
         }
     }
 
@@ -1583,6 +1765,7 @@ mod test {
     }
 
     mod enter {
+        use crate::db::group_agent::{GroupItem, Groups};
         use chrono::{Duration, Utc};
 
         use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
@@ -1621,10 +1804,13 @@ mod test {
             );
 
             // Make room.enter request.
-            let mut context = TestContext::new(db, authz);
+            let context = TestContext::new(db, authz);
             let payload = EnterRequest { id: room.id() };
 
-            handle_request::<EnterHandler>(&mut context, &agent, payload)
+            let reqp = RequestParams::Http {
+                agent_id: &agent.agent_id(),
+            };
+            EnterHandler::handle(Arc::new(context), payload, reqp, Utc::now())
                 .await
                 .expect("Room entrance failed");
         }
@@ -1645,12 +1831,16 @@ mod test {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let context = TestContext::new(db, TestAuthz::new());
             let payload = EnterRequest { id: room.id() };
 
-            let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
+            let reqp = RequestParams::Http {
+                agent_id: &agent.agent_id(),
+            };
+            let err = EnterHandler::handle(Arc::new(context), payload, reqp, Utc::now())
                 .await
-                .expect_err("Unexpected success on room entering");
+                .err()
+                .expect("Unexpected success on room entering");
 
             assert_eq!(err.status(), ResponseStatus::FORBIDDEN);
             assert_eq!(err.kind(), "access_denied");
@@ -1663,14 +1853,18 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let context = TestContext::new(db, TestAuthz::new());
             let payload = EnterRequest {
                 id: db::room::Id::random(),
             };
 
-            let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
+            let reqp = RequestParams::Http {
+                agent_id: &agent.agent_id(),
+            };
+            let err = EnterHandler::handle(Arc::new(context), payload, reqp, Utc::now())
                 .await
-                .expect_err("Unexpected success on room entering");
+                .err()
+                .expect("Unexpected success on room entering");
 
             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
             assert_eq!(err.kind(), "room_not_found");
@@ -1703,12 +1897,16 @@ mod test {
             );
 
             // Make room.enter request.
-            let mut context = TestContext::new(db, authz);
+            let context = TestContext::new(db, authz);
             let payload = EnterRequest { id: room.id() };
 
-            let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
+            let reqp = RequestParams::Http {
+                agent_id: &agent.agent_id(),
+            };
+            let err = EnterHandler::handle(Arc::new(context), payload, reqp, Utc::now())
                 .await
-                .expect_err("Unexpected success on room entering");
+                .err()
+                .expect("Unexpected success on room entering");
 
             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
             assert_eq!(err.kind(), "room_closed");
@@ -1744,12 +1942,16 @@ mod test {
             );
 
             // Make room.enter request.
-            let mut context = TestContext::new(db, authz);
+            let context = TestContext::new(db, authz);
             let payload = EnterRequest { id: room.id() };
 
-            let err = handle_request::<EnterHandler>(&mut context, &agent, payload)
+            let reqp = RequestParams::Http {
+                agent_id: &agent.agent_id(),
+            };
+            let err = EnterHandler::handle(Arc::new(context), payload, reqp, Utc::now())
                 .await
-                .expect_err("Unexpected success on room entering");
+                .err()
+                .expect("Unexpected success on room entering");
 
             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
             assert_eq!(err.kind(), "room_closed");
@@ -1788,12 +1990,227 @@ mod test {
             );
 
             // Make room.enter request.
-            let mut context = TestContext::new(db, authz);
+            let context = TestContext::new(db, authz);
             let payload = EnterRequest { id: room.id() };
 
-            handle_request::<EnterHandler>(&mut context, &agent, payload)
+            let reqp = RequestParams::Http {
+                agent_id: &agent.agent_id(),
+            };
+            EnterHandler::handle(Arc::new(context), payload, reqp, Utc::now())
                 .await
                 .expect("Room entrance failed");
+        }
+
+        #[tokio::test]
+        async fn add_new_participant_to_default_group() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                // Create room.
+                let room = shared_helpers::insert_room_with_owned(&conn);
+
+                factory::GroupAgent::new(room.id(), Groups::new(vec![GroupItem::new(0, vec![])]))
+                    .upsert(&conn);
+
+                room
+            };
+
+            // Allow agent to subscribe to the rooms' events.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id, "rtcs"],
+                "create",
+            );
+
+            // Make room.enter request.
+            let context = TestContext::new(db.clone(), authz);
+            let payload = EnterRequest { id: room.id() };
+
+            let reqp = RequestParams::Http {
+                agent_id: &agent.agent_id(),
+            };
+            EnterHandler::handle(Arc::new(context), payload, reqp, Utc::now())
+                .await
+                .expect("Room entrance failed");
+
+            let conn = db
+                .connection_pool()
+                .get()
+                .expect("Failed to get DB connection");
+
+            let group_agent = db::group_agent::FindQuery::new(room.id())
+                .execute(&conn)
+                .expect("failed to find a group agent");
+
+            let groups = Groups::new(vec![GroupItem::new(0, vec![agent.agent_id().clone()])]);
+            assert_eq!(group_agent.groups(), groups);
+        }
+
+        #[tokio::test]
+        async fn existed_participant_in_group() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            let room = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                // Create room.
+                let room = shared_helpers::insert_room_with_owned(&conn);
+
+                factory::GroupAgent::new(
+                    room.id(),
+                    Groups::new(vec![GroupItem::new(0, vec![agent.agent_id().clone()])]),
+                )
+                .upsert(&conn);
+
+                room
+            };
+
+            // Allow agent to subscribe to the rooms' events.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id, "rtcs"],
+                "create",
+            );
+
+            // Make room.enter request.
+            let context = TestContext::new(db.clone(), authz);
+            let payload = EnterRequest { id: room.id() };
+
+            let reqp = RequestParams::Http {
+                agent_id: &agent.agent_id(),
+            };
+            EnterHandler::handle(Arc::new(context), payload, reqp, Utc::now())
+                .await
+                .expect("Room entrance failed");
+
+            let conn = db
+                .connection_pool()
+                .get()
+                .expect("Failed to get DB connection");
+
+            let group_agent = db::group_agent::FindQuery::new(room.id())
+                .execute(&conn)
+                .expect("failed to get group agents");
+
+            assert_eq!(group_agent.groups().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn create_reader_configs() {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+            let db = TestDb::with_local_postgres(&postgres);
+            let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
+            let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
+
+            let (room, backend) = {
+                let conn = db
+                    .connection_pool()
+                    .get()
+                    .expect("Failed to get DB connection");
+
+                let backend =
+                    shared_helpers::insert_janus_backend(&conn, &janus.url, session_id, handle_id);
+
+                let room = factory::Room::new()
+                    .audience(USR_AUDIENCE)
+                    .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                    .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                    .backend_id(backend.id())
+                    .insert(&conn);
+
+                factory::GroupAgent::new(
+                    room.id(),
+                    Groups::new(vec![
+                        GroupItem::new(0, vec![]),
+                        GroupItem::new(1, vec![agent1.agent_id().clone()]),
+                    ]),
+                )
+                .upsert(&conn);
+
+                vec![&agent1, &agent2].iter().for_each(|agent| {
+                    factory::Rtc::new(room.id())
+                        .created_by(agent.agent_id().to_owned())
+                        .insert(&conn);
+                });
+
+                (room, backend)
+            };
+
+            // Allow agent to subscribe to the rooms' events.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent2.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
+
+            // Make room.enter request.
+            let mut context = TestContext::new(db.clone(), authz);
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+            context.with_janus(tx);
+
+            let payload = EnterRequest { id: room.id() };
+
+            let reqp = RequestParams::Http {
+                agent_id: &agent2.agent_id(),
+            };
+            EnterHandler::handle(Arc::new(context.clone()), payload, reqp, Utc::now())
+                .await
+                .expect("Room entrance failed");
+
+            let conn = db
+                .connection_pool()
+                .get()
+                .expect("Failed to get DB connection");
+
+            let group_agent = db::group_agent::FindQuery::new(room.id())
+                .execute(&conn)
+                .expect("failed to get group agents");
+
+            assert_eq!(group_agent.groups().len(), 2);
+
+            let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(
+                room.id(),
+                &[agent1.agent_id(), agent2.agent_id()],
+            )
+            .execute(&conn)
+            .expect("failed to get rtc reader configs");
+
+            assert_eq!(reader_configs.len(), 2);
+
+            context.janus_clients().remove_client(&backend);
         }
     }
 

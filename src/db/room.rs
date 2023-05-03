@@ -22,8 +22,6 @@ use crate::{
     },
     schema::{janus_backend, recording, room, rtc},
 };
-use derive_more::{Display, FromStr};
-use diesel_derive_newtype::DieselNewType;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -64,17 +62,7 @@ const ALL_COLUMNS: AllColumns = (
 );
 
 ////////////////////////////////////////////////////////////////////////////////
-
-#[derive(
-    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
-)]
-pub struct Id(Uuid);
-
-impl Id {
-    pub fn random() -> Self {
-        Id(Uuid::new_v4())
-    }
-}
+pub type Id = db::id::Id;
 
 // Deprecated in favor of `crate::db::rtc::SharingPolicy`.
 #[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
@@ -89,7 +77,7 @@ pub enum RoomBackend {
 impl fmt::Display for RoomBackend {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let serialized = serde_json::to_string(self).map_err(|_| fmt::Error)?;
-        write!(f, "{}", serialized)
+        write!(f, "{serialized}")
     }
 }
 

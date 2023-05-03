@@ -36,6 +36,8 @@ make_static_metric! {
             agent_reader_config_update,
             agent_writer_config_read,
             agent_writer_config_update,
+            group_list,
+            group_update,
             message_broadcast,
             message_callback,
             message_unicast_request,
@@ -72,6 +74,7 @@ pub struct Metrics {
     pub total_requests: IntCounter,
     pub authorization_time: Histogram,
     pub running_requests_total: IntGauge,
+    pub outbox_errors: HashMap<String, IntCounter>,
 }
 
 impl Metrics {
@@ -91,12 +94,15 @@ impl Metrics {
             Opts::new("mqtt_messages", "Mqtt message types"),
             &["status"],
         )?;
+        let outbox_stats =
+            IntCounterVec::new(Opts::new("outbox_stats", "Outbox stats"), &["kind"])?;
         registry.register(Box::new(mqtt_errors.clone()))?;
         registry.register(Box::new(request_duration.clone()))?;
         registry.register(Box::new(request_stats.clone()))?;
         registry.register(Box::new(total_requests.clone()))?;
         registry.register(Box::new(authorization_time.clone()))?;
         registry.register(Box::new(running_requests_total.clone()))?;
+        registry.register(Box::new(outbox_stats.clone()))?;
         Ok(Self {
             request_duration: RequestDuration::from(&request_duration),
             total_requests,
@@ -115,6 +121,15 @@ impl Metrics {
                 .get_metric_with_label_values(&["connection_error"])?,
             mqtt_disconnect: mqtt_errors.get_metric_with_label_values(&["disconnect"])?,
             mqtt_reconnection: mqtt_errors.get_metric_with_label_values(&["reconnect"])?,
+            outbox_errors: ErrorKind::into_enum_iter()
+                .map(|kind| {
+                    let kind = kind.kind();
+                    Ok((
+                        kind.into(),
+                        outbox_stats.get_metric_with_label_values(&[kind])?,
+                    ))
+                })
+                .collect::<anyhow::Result<_>>()?,
         })
     }
 
@@ -133,6 +148,12 @@ impl Metrics {
     /// This is helpful with HTTP.
     pub fn observe_app_error(&self, err: &ErrorKind) {
         if let Some(m) = self.app_results_errors.get(err) {
+            m.inc()
+        }
+    }
+
+    pub fn observe_outbox_error(&self, kind: &str) {
+        if let Some(m) = self.outbox_errors.get(kind) {
             m.inc()
         }
     }

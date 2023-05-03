@@ -19,3 +19,4 @@ App.toml
 .vscode
 deploy
 .env
+nats.creds

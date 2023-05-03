@@ -16,8 +16,6 @@ use crate::app::{endpoint::helpers, error::ErrorExt};
 
 use super::error;
 
-// use svc_authn::token::jws_compact::extract::decode_jws_compact_with_config;
-
 pub struct Response {
     notifications: Vec<Box<dyn IntoPublishableMessage + Send + Sync + 'static>>,
     status: StatusCode,
@@ -139,15 +137,3 @@ impl<'a> Authenticable for RequestParams<'a> {
         }
     }
 }
-
-// fn extract_token(headers: &HeaderMap) -> Option<&str> {
-//     headers.get("Authorization")?.to_str().ok();
-//     let token = token
-//         .map(|s| s.replace("Bearer ", ""))
-//         .unwrap_or_else(|| "".to_string());
-
-//     let claims = decode_jws_compact_with_config::<String>(&token, &self.config.authn)?.claims;
-//     let account = AccountId::new(claims.subject(), claims.audience());
-
-//     Ok(account)
-// }

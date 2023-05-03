@@ -28,6 +28,17 @@ table! {
     use diesel::sql_types::*;
     use crate::db::sql::*;
 
+    group_agent (id) {
+        id -> Uuid,
+        room_id -> Uuid,
+        groups -> Jsonb,
+    }
+}
+
+table! {
+    use diesel::sql_types::*;
+    use crate::db::sql::*;
+
     janus_backend (id) {
         id -> Agent_id,
         handle_id -> Int8,
@@ -64,6 +75,21 @@ table! {
     orphaned_room (id) {
         id -> Uuid,
         host_left_at -> Timestamptz,
+    }
+}
+
+table! {
+    use diesel::sql_types::*;
+    use crate::db::sql::*;
+
+    outbox (entity_type, id) {
+        id -> Int8,
+        entity_type -> Text,
+        stage -> Jsonb,
+        delivery_deadline_at -> Timestamptz,
+        error_kind -> Nullable<Text>,
+        retry_count -> Int4,
+        created_at -> Timestamptz,
     }
 }
 
@@ -156,6 +182,7 @@ table! {
 joinable!(agent -> room (room_id));
 joinable!(agent_connection -> agent (agent_id));
 joinable!(agent_connection -> rtc (rtc_id));
+joinable!(group_agent -> room (room_id));
 joinable!(janus_rtc_stream -> janus_backend (backend_id));
 joinable!(janus_rtc_stream -> rtc (rtc_id));
 joinable!(orphaned_room -> room (id));
@@ -168,9 +195,11 @@ joinable!(rtc_writer_config_snapshot -> rtc (rtc_id));
 allow_tables_to_appear_in_same_query!(
     agent,
     agent_connection,
+    group_agent,
     janus_backend,
     janus_rtc_stream,
     orphaned_room,
+    outbox,
     recording,
     room,
     rtc,

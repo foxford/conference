@@ -7,15 +7,12 @@ use diesel::{pg::PgConnection, result::Error};
 use serde::{Deserialize, Serialize};
 use std::ops::Bound;
 use svc_agent::AgentId;
-use uuid::Uuid;
 
 use crate::{
     backend::janus::client::HandleId,
     db,
     schema::{janus_rtc_stream, rtc},
 };
-use derive_more::{Display, FromStr};
-use diesel_derive_newtype::DieselNewType;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -45,16 +42,7 @@ const ALL_COLUMNS: AllColumns = (
 );
 
 ////////////////////////////////////////////////////////////////////////////////
-#[derive(
-    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
-)]
-pub struct Id(Uuid);
-
-impl Id {
-    pub fn random() -> Self {
-        Id(Uuid::new_v4())
-    }
-}
+pub type Id = db::id::Id;
 
 #[derive(Debug, Deserialize, Serialize, Identifiable, Queryable, QueryableByName, Associations)]
 #[table_name = "janus_rtc_stream"]
@@ -184,7 +172,7 @@ impl ListQuery {
         match self.active {
             None => (),
             Some(true) => q = q.filter(sql(ACTIVE_SQL)),
-            Some(false) => q = q.filter(sql(&format!("not {}", ACTIVE_SQL))),
+            Some(false) => q = q.filter(sql(&format!("not {ACTIVE_SQL}"))),
         }
         if let Some(offset) = self.offset {
             q = q.offset(offset);

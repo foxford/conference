@@ -54,6 +54,10 @@ pub fn build_router(
             "/rooms/:id/rtcs",
             get(endpoint::rtc::list).post(endpoint::rtc::create),
         )
+        .route(
+            "/rooms/:id/groups",
+            get(endpoint::group::list).post(endpoint::group::update),
+        )
         .route("/rtcs/:id", get(endpoint::rtc::read))
         .route("/rtcs/:id/streams", post(endpoint::rtc::connect))
         .route("/rooms/:id/streams", get(endpoint::rtc_stream::list))
@@ -126,8 +130,8 @@ impl IntoResponse for super::error::Error {
             .build();
 
         let span = Span::current();
-        span.record("kind", &self.kind());
-        span.record("detail", &detail.as_str());
+        span.record("kind", self.kind());
+        span.record("detail", detail.as_str());
 
         let error =
             serde_json::to_string(&err).unwrap_or_else(|_| "Failed to serialize error".to_string());

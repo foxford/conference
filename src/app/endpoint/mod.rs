@@ -59,7 +59,11 @@ request_routes!(
     "message.unicast" => message::UnicastHandler,
     "room.close" => room::CloseHandler,
     "room.create" => room::CreateHandler,
-    "room.enter" => room::EnterHandler,
+    // todo delete later unused routes
+    // We comment this line, because we want to use the outbox crate in the
+    // `room::EnterHandler` function and in order to do that, we need to pass
+    // the context as `Arc<dyn GlobalContext>`
+    // "room.enter" => room::EnterHandler,
     "room.leave" => room::LeaveHandler,
     "room.read" => room::ReadHandler,
     "room.update" => room::UpdateHandler,
@@ -176,6 +180,7 @@ event_routes!(
 pub mod agent;
 pub mod agent_reader_config;
 pub mod agent_writer_config;
+pub mod group;
 pub mod helpers;
 pub mod message;
 pub mod room;

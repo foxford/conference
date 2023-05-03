@@ -10,6 +10,9 @@ use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter}
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    #[cfg(feature = "dotenv")]
+    dotenv::dotenv()?;
+
     let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
     let subscriber = tracing_subscriber::fmt::layer()
         .with_writer(non_blocking)
@@ -89,6 +92,7 @@ mod backend;
 mod client;
 mod config;
 mod db;
+mod outbox;
 #[allow(unused_imports)]
 mod schema;
 mod serde;

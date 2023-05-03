@@ -7,12 +7,12 @@ use crate::{
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
     },
+    authz::AuthzObject,
     backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
         UpdateReaderConfigRequestBodyConfigItem,
     },
-    db,
-    db::{rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},
+    db::{self, rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},
     diesel::Connection,
 };
 use anyhow::{anyhow, Context as AnyhowContext};
@@ -127,33 +127,53 @@ impl RequestHandler for UpdateHandler {
                 .error(AppErrorKind::InvalidPayload)?;
         }
 
+        let State { room_id, configs } = payload;
+
+        let room = crate::util::spawn_blocking({
+            let conn = context.get_conn().await?;
+            move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
+        })
+        .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
+
+        if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+            return Err(anyhow!(
+                "Agent reader config is available only for rooms with owned RTC sharing policy"
+            ))
+            .error(AppErrorKind::InvalidPayload)?;
+        }
+
+        // Authorize classrooms.update on the tenant
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
+
+        let authz_time = context
+            .authz()
+            .authorize(room.audience().into(), reqp, object, "update".into())
+            .await?;
+        context.metrics().observe_auth(authz_time);
+
         let (room, rtc_reader_configs_with_rtcs, maybe_backend) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
 
             let conn = context.get_conn().await?;
+            helpers::check_room_presence(&room, &agent_id, &conn)?;
+
             move || {
-                let room = helpers::find_room_by_id(
-                    payload.room_id,
-                    helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
-
-                if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-                    return Err(anyhow!(
-                    "Agent reader config is available only for rooms with owned RTC sharing policy"
-                ))
-                    .error(AppErrorKind::InvalidPayload)?;
-                }
-
-                helpers::check_room_presence(&room, &agent_id, &conn)?;
-
                 let rtc_reader_configs_with_rtcs = conn.transaction::<_, AppError, _>(|| {
+                    // An agent can create/update reader configs only for agents in the same group
+                    let groups = db::group_agent::FindQuery::new(room.id())
+                        .execute(&conn)?
+                        .groups()
+                        .filter_by_agent(&agent_id);
+                    let group_agents = groups.iter().flat_map(|i| i.agents()).collect::<Vec<_>>();
+
                     // Find RTCs owned by agents.
-                    let agent_ids = payload
-                        .configs
-                        .iter()
-                        .map(|c| &c.agent_id)
-                        .collect::<Vec<_>>();
+                    let agent_ids = configs.iter().map(|c| &c.agent_id).collect::<Vec<_>>();
 
                     let rtcs = db::rtc::ListQuery::new()
                         .room_id(room.id())
@@ -166,13 +186,21 @@ impl RequestHandler for UpdateHandler {
                         .collect::<HashMap<_, _>>();
 
                     // Create or update the config.
-                    for state_config_item in payload.configs {
+                    for state_config_item in configs {
                         let rtc_id = agents_to_rtcs
                             .get(&state_config_item.agent_id)
                             .ok_or_else(|| {
                                 anyhow!("{} has no owned RTC", state_config_item.agent_id)
                             })
                             .error(AppErrorKind::InvalidPayload)?;
+
+                        if !group_agents.contains(&&state_config_item.agent_id) {
+                            return Err(anyhow!(
+                                "{} is in another group",
+                                state_config_item.agent_id
+                            ))
+                            .error(AppErrorKind::InvalidPayload)?;
+                        }
 
                         let mut q = db::rtc_reader_config::UpsertQuery::new(*rtc_id, &agent_id);
 
@@ -189,7 +217,7 @@ impl RequestHandler for UpdateHandler {
 
                     // Retrieve state data.
                     let rtc_reader_configs_with_rtcs =
-                        db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &agent_id)
+                        db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &[&agent_id])
                             .execute(&conn)?;
 
                     Ok(rtc_reader_configs_with_rtcs)
@@ -206,11 +234,6 @@ impl RequestHandler for UpdateHandler {
             }
         })
         .await?;
-
-        tracing::Span::current().record(
-            "classroom_id",
-            &tracing::field::display(room.classroom_id()),
-        );
 
         if let Some(backend) = maybe_backend {
             let items = rtc_reader_configs_with_rtcs
@@ -291,17 +314,34 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let (room, rtc_reader_configs_with_rtcs) = crate::util::spawn_blocking({
-            let agent_id = reqp.as_agent_id().clone();
-
+        let room = crate::util::spawn_blocking({
             let conn = context.get_conn().await?;
             move || {
-                let room = helpers::find_room_by_id(
-                    payload.room_id,
-                    helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
+                helpers::find_room_by_id(payload.room_id, helpers::RoomTimeRequirement::Open, &conn)
+            }
+        })
+        .await?;
 
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
+
+        // Authorize classrooms.read on the tenant
+        let classroom_id = room.classroom_id().to_string();
+        let object = AuthzObject::new(&["classrooms", &classroom_id]).into();
+
+        let authz_time = context
+            .authz()
+            .authorize(room.audience().into(), reqp, object, "read".into())
+            .await?;
+        context.metrics().observe_auth(authz_time);
+
+        let (room, rtc_reader_configs_with_rtcs) = crate::util::spawn_blocking({
+            let agent_id = reqp.as_agent_id().clone();
+            let conn = context.get_conn().await?;
+
+            move || {
                 if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
                     return Err(anyhow!(
                     "Agent reader config is available only for rooms with owned RTC sharing policy"
@@ -312,17 +352,12 @@ impl RequestHandler for ReadHandler {
                 helpers::check_room_presence(&room, &agent_id, &conn)?;
 
                 let rtc_reader_configs_with_rtcs =
-                    db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &agent_id)
+                    db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &[&agent_id])
                         .execute(&conn)?;
                 Ok::<_, AppError>((room, rtc_reader_configs_with_rtcs))
             }
         })
         .await?;
-
-        tracing::Span::current().record(
-            "classroom_id",
-            &tracing::field::display(room.classroom_id()),
-        );
 
         context
             .metrics()
@@ -346,6 +381,7 @@ mod tests {
     mod update {
         use std::ops::Bound;
 
+        use crate::db::group_agent::{GroupItem, Groups};
         use crate::{
             db::rtc::SharingPolicy as RtcSharingPolicy,
             test_helpers::{prelude::*, test_deps::LocalDeps},
@@ -394,12 +430,33 @@ mod tests {
                         })
                         .collect::<Vec<_>>();
 
+                    let groups = Groups::new(vec![GroupItem::new(
+                        0,
+                        vec![
+                            agent1.agent_id().clone(),
+                            agent2.agent_id().clone(),
+                            agent3.agent_id().clone(),
+                            agent4.agent_id().clone(),
+                        ],
+                    )]);
+
+                    factory::GroupAgent::new(room.id(), groups).upsert(&conn);
+
                     (room, backend, rtcs)
                 })
                 .unwrap();
 
+            // Allow agent to update the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent1.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
+
             // Make agent_reader_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -563,12 +620,27 @@ mod tests {
                     shared_helpers::insert_agent(&conn, agent1.agent_id(), room.id());
                     shared_helpers::insert_agent(&conn, agent2.agent_id(), room.id());
 
+                    factory::GroupAgent::new(
+                        room.id(),
+                        Groups::new(vec![GroupItem::new(0, vec![])]),
+                    )
+                    .upsert(&conn);
+
                     room
                 })
                 .unwrap();
 
+            // Allow agent to update the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent1.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
+
             // Make agent_reader_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
 
             let payload = State {
                 room_id: room.id(),
@@ -603,8 +675,17 @@ mod tests {
                 .map(|conn| shared_helpers::insert_room_with_owned(&conn))
                 .unwrap();
 
+            // Allow agent to update the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
+
             // Make agent_reader_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
 
             let payload = State {
                 room_id: room.id(),
@@ -690,8 +771,17 @@ mod tests {
                 })
                 .unwrap();
 
+            // Allow agent to update the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
+
             // Make agent_reader_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
 
             let payload = State {
                 room_id: room.id(),
@@ -729,6 +819,86 @@ mod tests {
 
             assert_eq!(err.status(), ResponseStatus::NOT_FOUND);
             assert_eq!(err.kind(), "room_not_found");
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn agent_in_another_group() -> std::io::Result<()> {
+            let local_deps = LocalDeps::new();
+            let postgres = local_deps.run_postgres();
+            let janus = local_deps.run_janus();
+            let db = TestDb::with_local_postgres(&postgres);
+            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+            let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
+            let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
+
+            // Insert a room with agents and RTCs.
+            let room = db
+                .connection_pool()
+                .get()
+                .map(|conn| {
+                    let backend = shared_helpers::insert_janus_backend(
+                        &conn, &janus.url, session_id, handle_id,
+                    );
+                    let room = factory::Room::new()
+                        .audience(USR_AUDIENCE)
+                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                        .backend_id(backend.id())
+                        .insert(&conn);
+
+                    for agent in &[&agent1, &agent2] {
+                        shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+                    }
+
+                    factory::Rtc::new(room.id())
+                        .created_by(agent2.agent_id().to_owned())
+                        .insert(&conn);
+
+                    factory::GroupAgent::new(
+                        room.id(),
+                        Groups::new(vec![GroupItem::new(0, vec![agent1.agent_id().clone()])]),
+                    )
+                    .upsert(&conn);
+
+                    room
+                })
+                .unwrap();
+
+            // Allow agent to update the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent1.account_id(),
+                vec!["classrooms", &classroom_id],
+                "update",
+            );
+
+            // Make agent_reader_config.update request.
+            let mut context = TestContext::new(db, authz);
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+            context.with_janus(tx);
+
+            let payload = State {
+                room_id: room.id(),
+                configs: vec![StateConfigItem {
+                    agent_id: agent2.agent_id().to_owned(),
+                    receive_video: Some(true),
+                    receive_audio: Some(false),
+                }],
+            };
+
+            // Assert error.
+            let err = handle_request::<UpdateHandler>(&mut context, &agent1, payload)
+                .await
+                .expect_err("Unexpected agent reader config update success");
+
+            assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
+            assert_eq!(
+                err.to_string(),
+                format!("Invalid payload: {} is in another group", agent2.agent_id())
+            );
+
             Ok(())
         }
     }
@@ -789,8 +959,17 @@ mod tests {
                 })
                 .unwrap();
 
+            // Allow agent to read the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent1.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
+
             // Make agent_reader_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -839,8 +1018,17 @@ mod tests {
                 .map(|conn| shared_helpers::insert_room_with_owned(&conn))
                 .unwrap();
 
+            // Allow agent to read the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
+
             // Make agent_reader_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -920,8 +1108,17 @@ mod tests {
                 })
                 .unwrap();
 
+            // Allow agent to read the room.
+            let mut authz = TestAuthz::new();
+            let classroom_id = room.classroom_id().to_string();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id],
+                "read",
+            );
+
             // Make agent_reader_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, authz);
 
             let payload = ReadRequest { room_id: room.id() };
 
