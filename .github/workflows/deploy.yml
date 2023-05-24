@@ -13,6 +13,7 @@ on:
         options:
         - s01-classroom-foxford
         - s01-minigroup-foxford
+        - s01-minigroup-b2g
         - s01-webinar-foxford
         - s01-webinar-b2g
         - t01
