@@ -83,8 +83,7 @@ impl Pipeline {
         C: Clone + Send + Sync + 'static,
     {
         let ctx = ctx.clone();
-        let id = record.id();
-        let event_id = id.clone();
+        let event_id = record.id();
         let rt = tokio::runtime::Handle::current();
         // The `block_on` function in this case doesn't block the main thread of tokio,
         // because it's called inside the `spawn_blocking` function call.
@@ -92,7 +91,7 @@ impl Pipeline {
 
         match result {
             Ok(Some(next_stage)) => {
-                let record = crate::outbox::db::diesel::DeleteQuery::new(&id)
+                let record = crate::outbox::db::diesel::DeleteQuery::new(&event_id)
                     .execute(conn)
                     .error(ErrorKind::DeleteStageFailed)?;
 
@@ -110,7 +109,7 @@ impl Pipeline {
                 Ok(Some(event_id))
             }
             Ok(None) => {
-                crate::outbox::db::diesel::DeleteQuery::new(&id)
+                crate::outbox::db::diesel::DeleteQuery::new(&event_id)
                     .execute(conn)
                     .error(ErrorKind::DeleteStageFailed)?;
 
@@ -125,7 +124,7 @@ impl Pipeline {
                 );
 
                 crate::outbox::db::diesel::UpdateQuery::new(
-                    &id,
+                    &event_id,
                     delivery_deadline_at,
                     error.kind(),
                 )
