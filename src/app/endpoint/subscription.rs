@@ -68,7 +68,7 @@ impl ResponseHandler for DeleteResponseHandler {
     type CorrelationData = CorrelationDataPayload;
 
     #[instrument(skip(context, _payload, respp, corr_data))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         _payload: Self::Payload,
         respp: &IncomingResponseProperties,
@@ -118,7 +118,7 @@ pub struct DeleteEventHandler;
 impl EventHandler for DeleteEventHandler {
     type Payload = DeleteEventPayload;
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         evp: &IncomingEventProperties,

@@ -54,7 +54,7 @@ impl RequestHandler for UnicastHandler {
     const ERROR_TITLE: &'static str = "Failed to send unicast message";
 
     #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -136,7 +136,7 @@ impl RequestHandler for BroadcastHandler {
     const ERROR_TITLE: &'static str = "Failed to send broadcast message";
 
     #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -190,7 +190,7 @@ impl ResponseHandler for UnicastResponseHandler {
     type CorrelationData = CorrelationDataPayload;
 
     #[instrument(skip(context, payload, respp, corr_data))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         respp: &IncomingResponseProperties,

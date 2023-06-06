@@ -29,7 +29,7 @@ use super::metrics::Metrics;
 
 pub trait Context: GlobalContext + MessageContext {}
 
-pub trait GlobalContext: Sync {
+pub trait GlobalContext {
     fn authz(&self) -> &Authz;
     fn config(&self) -> &Config;
     fn db(&self) -> &Db;
@@ -57,7 +57,7 @@ pub trait GlobalContext: Sync {
     }
 }
 
-impl GlobalContext for Arc<dyn GlobalContext + Send> {
+impl GlobalContext for Arc<dyn GlobalContext> {
     fn authz(&self) -> &Authz {
         self.as_ref().authz()
     }
@@ -103,7 +103,7 @@ impl GlobalContext for Arc<dyn GlobalContext + Send> {
     }
 }
 
-pub trait MessageContext: Send {
+pub trait MessageContext {
     fn start_timestamp(&self) -> DateTime<Utc>;
 }
 

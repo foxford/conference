@@ -108,7 +108,7 @@ impl RequestHandler for CreateHandler {
     type Payload = CreateRequest;
     const ERROR_TITLE: &'static str = "Failed to create room";
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -224,7 +224,7 @@ impl RequestHandler for ReadHandler {
     type Payload = ReadRequest;
     const ERROR_TITLE: &'static str = "Failed to read room";
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -322,7 +322,7 @@ impl RequestHandler for UpdateHandler {
     type Payload = UpdateRequest;
     const ERROR_TITLE: &'static str = "Failed to update room";
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -499,7 +499,7 @@ impl RequestHandler for CloseHandler {
     type Payload = CloseRequest;
     const ERROR_TITLE: &'static str = "Failed to close room";
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -629,7 +629,7 @@ pub struct EnterHandler;
 
 impl EnterHandler {
     async fn handle(
-        context: Arc<dyn GlobalContext + Send>,
+        context: Arc<dyn GlobalContext + Send + Sync>,
         payload: EnterRequest,
         reqp: RequestParams<'_>,
         start_timestamp: DateTime<Utc>,
@@ -729,7 +729,7 @@ impl EnterHandler {
                     notification_label,
                     notification_topic,
                 } = RtcCreate {
-                    ctx: &context,
+                    ctx: context.as_ref(),
                     room: either::Either::Left(room.clone()),
                     reqp,
                 }
@@ -887,7 +887,7 @@ impl RequestHandler for LeaveHandler {
     const ERROR_TITLE: &'static str = "Failed to leave room";
 
     #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,

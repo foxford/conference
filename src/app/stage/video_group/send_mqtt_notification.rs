@@ -21,7 +21,7 @@ pub struct VideoGroupSendMqttNotification {
 
 #[async_trait]
 impl StageHandle for VideoGroupSendMqttNotification {
-    type Context = Arc<dyn GlobalContext + Send>;
+    type Context = Arc<dyn GlobalContext + Send + Sync>;
     type Stage = AppStage;
 
     async fn handle(

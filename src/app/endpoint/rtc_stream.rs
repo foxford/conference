@@ -90,7 +90,7 @@ impl RequestHandler for ListHandler {
     const ERROR_TITLE: &'static str = "Failed to list rtc streams";
 
     #[instrument(skip(context, payload, reqp), fields(rtc_id = ?payload.rtc_id, room_id = %payload.room_id))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,

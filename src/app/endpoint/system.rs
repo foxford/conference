@@ -76,7 +76,7 @@ impl RequestHandler for VacuumHandler {
     const ERROR_TITLE: &'static str = "Failed to vacuum system";
 
     #[instrument(skip(context, _payload, reqp))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         _payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -168,7 +168,7 @@ impl EventHandler for OrphanedRoomCloseHandler {
     type Payload = OrphanedRoomCloseEvent;
 
     #[instrument(skip(context, _payload))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         _payload: Self::Payload,
         evp: &IncomingEventProperties,

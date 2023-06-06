@@ -65,7 +65,7 @@ impl RequestHandler for Handler {
     type Payload = Payload;
     const ERROR_TITLE: &'static str = "Failed to get groups";
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,

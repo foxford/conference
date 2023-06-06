@@ -221,7 +221,7 @@ pub fn publish_message(agent: &mut Agent, message: Box<dyn IntoPublishableMessag
 // We just need to specify the payload type and specific logic.
 
 pub trait RequestEnvelopeHandler<'async_trait> {
-    fn handle_envelope<C: Context>(
+    fn handle_envelope<C: Context + Send + Sync>(
         context: &'async_trait mut C,
         req: &'async_trait IncomingRequest<String>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>>;
@@ -233,7 +233,7 @@ pub trait RequestEnvelopeHandler<'async_trait> {
 impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
     RequestEnvelopeHandler<'async_trait> for H
 {
-    fn handle_envelope<C: Context>(
+    fn handle_envelope<C: Context + Send + Sync>(
         context: &'async_trait mut C,
         req: &'async_trait IncomingRequest<String>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>>
@@ -241,7 +241,7 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
         Self: Sync + 'async_trait,
     {
         // The actual implementation.
-        async fn handle_envelope<H: endpoint::RequestHandler, C: Context>(
+        async fn handle_envelope<H: endpoint::RequestHandler, C: Context + Sync + Send>(
             context: &mut C,
             req: &IncomingRequest<String>,
         ) -> MessageStream {
@@ -287,7 +287,7 @@ impl<'async_trait, H: 'async_trait + Sync + endpoint::RequestHandler>
 }
 
 pub trait ResponseEnvelopeHandler<'async_trait, CD> {
-    fn handle_envelope<C: Context>(
+    fn handle_envelope<C: Context + Send + Sync>(
         context: &'async_trait mut C,
         envelope: &'async_trait IncomingResponse<String>,
         corr_data: &'async_trait CD,
@@ -298,13 +298,13 @@ pub trait ResponseEnvelopeHandler<'async_trait, CD> {
 impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
     ResponseEnvelopeHandler<'async_trait, H::CorrelationData> for H
 {
-    fn handle_envelope<C: Context>(
+    fn handle_envelope<C: Context + Send + Sync>(
         context: &'async_trait mut C,
         response: &'async_trait IncomingResponse<String>,
         corr_data: &'async_trait H::CorrelationData,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>> {
         // The actual implementation.
-        async fn handle_envelope<H: endpoint::ResponseHandler, C: Context>(
+        async fn handle_envelope<H: endpoint::ResponseHandler, C: Context + Send + Sync>(
             context: &mut C,
             response: &IncomingResponse<String>,
             corr_data: &H::CorrelationData,
@@ -336,7 +336,7 @@ impl<'async_trait, H: 'async_trait + endpoint::ResponseHandler>
 }
 
 pub trait EventEnvelopeHandler<'async_trait> {
-    fn handle_envelope<C: Context>(
+    fn handle_envelope<C: Context + Send + Sync>(
         context: &'async_trait mut C,
         event: &'async_trait IncomingEvent<String>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>>;
@@ -346,12 +346,12 @@ pub trait EventEnvelopeHandler<'async_trait> {
 impl<'async_trait, H: 'async_trait + endpoint::EventHandler> EventEnvelopeHandler<'async_trait>
     for H
 {
-    fn handle_envelope<C: Context>(
+    fn handle_envelope<C: Context + Send + Sync>(
         context: &'async_trait mut C,
         event: &'async_trait IncomingEvent<String>,
     ) -> Pin<Box<dyn Future<Output = MessageStream> + Send + 'async_trait>> {
         // The actual implementation.
-        async fn handle_envelope<H: endpoint::EventHandler, C: Context>(
+        async fn handle_envelope<H: endpoint::EventHandler, C: Context + Send + Sync>(
             context: &mut C,
             event: &IncomingEvent<String>,
         ) -> MessageStream {

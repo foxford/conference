@@ -83,7 +83,7 @@ impl RequestHandler for CreateHandler {
     type Payload = CreateRequest;
     const ERROR_TITLE: &'static str = "Failed to create rtc";
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -127,7 +127,7 @@ impl RequestHandler for CreateHandler {
     }
 }
 
-pub struct RtcCreate<'a, C> {
+pub struct RtcCreate<'a, C: ?Sized> {
     pub ctx: &'a C,
     pub room: Either<db::room::Object, db::room::Id>,
     pub reqp: RequestParams<'a>,
@@ -140,7 +140,7 @@ pub struct RtcCreateResult {
     pub notification_topic: String,
 }
 
-impl<'a, C: GlobalContext> RtcCreate<'a, C> {
+impl<'a, C: GlobalContext + ?Sized> RtcCreate<'a, C> {
     pub async fn run(self) -> Result<RtcCreateResult, AppError> {
         let room = match self.room {
             Either::Left(room) => room,
@@ -223,7 +223,7 @@ impl RequestHandler for ReadHandler {
     const ERROR_TITLE: &'static str = "Failed to read rtc";
 
     #[instrument(skip(context, payload, reqp), fields(room_id = %payload.id))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -337,7 +337,7 @@ impl RequestHandler for ListHandler {
     const ERROR_TITLE: &'static str = "Failed to list rtcs";
 
     #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -951,7 +951,7 @@ impl RequestHandler for ConnectHandler {
         rtc_id = %payload.id,
         intent = %payload.intent,
     ))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
