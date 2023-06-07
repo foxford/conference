@@ -20,6 +20,23 @@ pub fn create_pool(url: &str, size: u32, idle_size: Option<u32>, timeout: u64) -
     Arc::new(pool)
 }
 
+pub async fn create_pool_sqlx(
+    url: &str,
+    size: u32,
+    idle_size: Option<u32>,
+    timeout: u64,
+    max_lifetime: u64,
+) -> sqlx::PgPool {
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(size)
+        .min_connections(idle_size.unwrap_or(1))
+        .acquire_timeout(Duration::from_secs(timeout))
+        .max_lifetime(Duration::from_secs(max_lifetime))
+        .connect(url)
+        .await
+        .expect("Failed to create sqlx database pool")
+}
+
 macro_rules! impl_jsonb {
     ( $name:ident ) => {
         impl ::diesel::deserialize::FromSql<::diesel::sql_types::Jsonb, ::diesel::pg::Pg>

@@ -169,7 +169,7 @@ mod tests {
             );
 
             // Make agent.list request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -205,7 +205,7 @@ mod tests {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -247,7 +247,7 @@ mod tests {
             );
 
             // Make agent.list request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -269,7 +269,7 @@ mod tests {
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: db::room::Id::random(),

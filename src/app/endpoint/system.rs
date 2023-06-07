@@ -383,7 +383,7 @@ mod test {
             authz.set_audience(SVC_AUDIENCE);
             let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
             authz.allow(agent.account_id(), vec!["system"], "update");
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let connection = context.get_conn().await?;
             let opened_room = shared_helpers::insert_room(&connection);
             let opened_room2 = shared_helpers::insert_room(&connection);
@@ -494,7 +494,7 @@ mod test {
             authz.allow(agent.account_id(), vec!["system"], "update");
 
             // Make system.vacuum request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx.clone());
             let payload = VacuumRequest {};
@@ -536,7 +536,7 @@ mod test {
 
             // Make system.vacuum request.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let payload = VacuumRequest {};
 
             let err = handle_request::<VacuumHandler>(&mut context, &agent, payload)

@@ -159,7 +159,7 @@ mod tests {
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-        let mut context = TestContext::new(db, TestAuthz::new());
+        let mut context = TestContext::new(db, TestAuthz::new()).await;
 
         let payload = Payload {
             room_id: db::room::Id::random(),
@@ -202,7 +202,7 @@ mod tests {
             })
             .unwrap();
 
-        let mut context = TestContext::new(db, TestAuthz::new());
+        let mut context = TestContext::new(db, TestAuthz::new()).await;
 
         let payload = Payload {
             room_id: room.id(),
@@ -247,7 +247,7 @@ mod tests {
             "read",
         );
 
-        let mut context = TestContext::new(db, authz);
+        let mut context = TestContext::new(db, authz).await;
         let payload = Payload {
             room_id: room.id(),
             within_group: false,
@@ -302,7 +302,7 @@ mod tests {
             "read",
         );
 
-        let mut context = TestContext::new(db, authz);
+        let mut context = TestContext::new(db, authz).await;
         let payload = Payload {
             room_id: room.id(),
             within_group: false,
@@ -358,7 +358,7 @@ mod tests {
             "read",
         );
 
-        let mut context = TestContext::new(db, authz);
+        let mut context = TestContext::new(db, authz).await;
         let payload = Payload {
             room_id: room.id(),
             within_group: true,

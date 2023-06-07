@@ -230,6 +230,7 @@ pub mod agent;
 pub mod authz;
 pub mod context;
 pub mod db;
+pub mod db_sqlx;
 pub mod factory;
 pub mod outgoing_envelope;
 pub mod shared_helpers;

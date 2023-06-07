@@ -52,6 +52,8 @@ async fn main() -> Result<()> {
         crate::db::create_pool(&url, size, idle_size, timeout)
     };
 
+    let db_sqlx = create_db().await;
+
     let (redis_pool, authz_cache) = if let Some("1") = var("CACHE_ENABLED").ok().as_deref() {
         let url = var("CACHE_URL").expect("CACHE_URL must be specified");
 
@@ -83,7 +85,41 @@ async fn main() -> Result<()> {
         (None, None)
     };
 
-    app::run(&db, redis_pool, authz_cache).await
+    app::run(&db, db_sqlx, redis_pool, authz_cache).await
+}
+
+async fn create_db() -> sqlx::PgPool {
+    let url = var("DATABASE_URL").expect("DATABASE_URL must be specified");
+
+    let size = var("DATABASE_POOL_SIZE")
+        .map(|val| {
+            val.parse::<u32>()
+                .expect("Error converting DATABASE_POOL_SIZE variable into u32")
+        })
+        .unwrap_or(5);
+
+    let idle_size = var("DATABASE_POOL_IDLE_SIZE")
+        .map(|val| {
+            val.parse::<u32>()
+                .expect("Error converting DATABASE_POOL_IDLE_SIZE variable into u32")
+        })
+        .ok();
+
+    let timeout = var("DATABASE_POOL_TIMEOUT")
+        .map(|val| {
+            val.parse::<u64>()
+                .expect("Error converting DATABASE_POOL_TIMEOUT variable into u64")
+        })
+        .unwrap_or(5);
+
+    let max_lifetime = var("DATABASE_POOL_MAX_LIFETIME")
+        .map(|val| {
+            val.parse::<u64>()
+                .expect("Error converting DATABASE_POOL_MAX_LIFETIME variable into u64")
+        })
+        .unwrap_or(1800);
+
+    crate::db::create_pool_sqlx(&url, size, idle_size, timeout, max_lifetime).await
 }
 
 mod app;

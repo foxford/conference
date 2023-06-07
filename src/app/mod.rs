@@ -35,6 +35,7 @@ pub const API_VERSION: &str = "v1";
 
 pub async fn run(
     db: &ConnectionPool,
+    db_sqlx: sqlx::PgPool,
     redis_pool: Option<RedisConnectionPool>,
     authz_cache: Option<Box<RedisCache>>,
 ) -> Result<()> {
@@ -116,6 +117,7 @@ pub async fn run(
         config.clone(),
         authz,
         db.clone(),
+        db_sqlx,
         clients.clone(),
         metrics.clone(),
         mqtt_gateway_client,

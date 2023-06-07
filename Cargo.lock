@@ -607,6 +607,7 @@ dependencies = [
  "serde_json",
  "signal-hook",
  "signal-hook-tokio",
+ "sqlx",
  "svc-agent",
  "svc-authn",
  "svc-authz",
@@ -1012,6 +1013,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dirs"
+version = "4.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca3aa72a6f96ea37bbc5aa912f6788242832f75369bdfdadcb0e38423f100059"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
 name = "dirs-next"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1019,6 +1029,17 @@ checksum = "b98cf8ebf19c3d1b223e151f99a4f9f0690dca41414773390fc824184ac833e1"
 dependencies = [
  "cfg-if 1.0.0",
  "dirs-sys-next",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b1d1d91c932ef41c0f2663aa8b0ca0342d444d842c06914aa0a7e352d0bada6"
+dependencies = [
+ "libc",
+ "redox_users",
+ "winapi",
 ]
 
 [[package]]
@@ -1076,6 +1097,9 @@ name = "either"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90e5c1c8368803113bf0c9584fc495a58b86dc8a29edbf8fe877d21d9507e797"
+dependencies = [
+ "serde 1.0.152",
+]
 
 [[package]]
 name = "ena"
@@ -1414,6 +1438,15 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hkdf"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "791a029f6b9fc27657f6f188ec6e5e43f6911f6f878e0dc5501396e09809d437"
+dependencies = [
+ "hmac",
+]
 
 [[package]]
 name = "hmac"
@@ -1982,6 +2015,15 @@ name = "matchit"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73cbba799671b762df5a175adf59ce145165747bb891505c43d09aefbbf38beb"
+
+[[package]]
+name = "md-5"
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6365506850d44bff6e2fbcb5176cf63650e48bd45ef2fe2665ae1570e0f4b9ca"
+dependencies = [
+ "digest 0.10.6",
+]
 
 [[package]]
 name = "memchr"
@@ -3420,11 +3462,13 @@ checksum = "dcbc16ddba161afc99e14d1713a453747a2b07fc097d2009f4c300ec99286105"
 dependencies = [
  "ahash",
  "atoi",
+ "base64 0.13.1",
  "bitflags",
  "byteorder",
  "bytes",
  "crc",
  "crossbeam-queue",
+ "dirs",
  "dotenvy",
  "either",
  "event-listener",
@@ -3434,14 +3478,21 @@ dependencies = [
  "futures-util",
  "hashlink",
  "hex",
+ "hkdf",
+ "hmac",
  "indexmap",
  "itoa 1.0.5",
  "libc",
  "log",
+ "md-5",
  "memchr",
  "once_cell",
  "paste",
  "percent-encoding",
+ "rand",
+ "serde 1.0.152",
+ "serde_json",
+ "sha1 0.10.5",
  "sha2 0.10.6",
  "smallvec",
  "sqlformat",
@@ -3450,6 +3501,7 @@ dependencies = [
  "thiserror",
  "tokio-stream",
  "url",
+ "whoami",
 ]
 
 [[package]]
@@ -3461,9 +3513,12 @@ dependencies = [
  "dotenvy",
  "either",
  "heck",
+ "hex",
  "once_cell",
  "proc-macro2 1.0.54",
  "quote 1.0.26",
+ "serde 1.0.152",
+ "serde_json",
  "sha2 0.10.6",
  "sqlx-core",
  "sqlx-rt",
@@ -4446,6 +4501,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d743fdedc5c64377b5fc2bc036b01c7fd642205a0d96356034ae3404d49eb7fb"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "whoami"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c70234412ca409cc04e864e89523cb0fc37f5e1344ebed5a3ebf4192b6b9f68"
+dependencies = [
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

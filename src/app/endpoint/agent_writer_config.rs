@@ -504,7 +504,7 @@ mod tests {
             authz.allow(agent1.account_id(), object, "update");
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -724,7 +724,7 @@ mod tests {
                 .unwrap();
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -748,7 +748,7 @@ mod tests {
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let configs = (0..(MAX_STATE_CONFIGS_LEN + 1))
                 .map(|i| {
@@ -795,7 +795,7 @@ mod tests {
                 .unwrap();
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -840,7 +840,7 @@ mod tests {
                 .unwrap();
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -882,7 +882,7 @@ mod tests {
                 .unwrap();
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -908,7 +908,7 @@ mod tests {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -987,7 +987,7 @@ mod tests {
                 .unwrap();
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1045,7 +1045,7 @@ mod tests {
                 .unwrap();
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1087,7 +1087,7 @@ mod tests {
                 .unwrap();
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1126,7 +1126,7 @@ mod tests {
                 .unwrap();
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1147,7 +1147,7 @@ mod tests {
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest {
                 room_id: db::room::Id::random(),

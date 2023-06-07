@@ -242,7 +242,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc_stream.list request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = ListRequest {
                 room_id: rtc.room_id(),
@@ -294,7 +294,7 @@ mod test {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -319,7 +319,7 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: db::room::Id::random(),

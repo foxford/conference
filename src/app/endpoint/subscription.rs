@@ -269,7 +269,7 @@ mod tests {
             };
 
             // Send subscription.delete response.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let reqp = build_reqp(agent.agent_id(), "room.leave");
             let room_id = room.id().to_string();
 
@@ -344,7 +344,7 @@ mod tests {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let room_id = room.id().to_string();
 
             let corr_data = CorrelationDataPayload {
@@ -376,7 +376,7 @@ mod tests {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let room_id = db::room::Id::random().to_string();
 
             let corr_data = CorrelationDataPayload {
@@ -444,7 +444,7 @@ mod tests {
             };
 
             // Send subscription.delete event.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let room_id = room.id().to_string();
 
             let payload = DeleteEventPayload {
@@ -505,7 +505,7 @@ mod tests {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let room_id = room.id().to_string();
 
             let payload = DeleteEventPayload {

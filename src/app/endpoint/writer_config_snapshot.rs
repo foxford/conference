@@ -160,7 +160,7 @@ mod tests {
                 .unwrap();
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -215,7 +215,7 @@ mod tests {
                 .unwrap();
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -236,7 +236,7 @@ mod tests {
             let db = TestDb::with_local_postgres(&postgres);
             // Make agent_writer_config.read request.
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest {
                 room_id: db::room::Id::random(),

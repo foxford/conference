@@ -780,7 +780,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             authz.allow(agent.account_id(), object.clone(), "update");
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             let rtc_stream_id = db::janus_rtc_stream::Id::random();
@@ -872,7 +872,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -963,7 +963,7 @@ a=rtcp-fb:120 ccm fir
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1058,7 +1058,7 @@ a=rtcp-fb:120 ccm fir
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -1128,7 +1128,7 @@ a=rtcp-fb:120 ccm fir
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1186,7 +1186,7 @@ a=rtcp-fb:120 ccm fir
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1249,7 +1249,7 @@ a=rtcp-fb:120 ccm fir
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1317,7 +1317,7 @@ a=rtcp-fb:120 ccm fir
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1376,7 +1376,7 @@ a=rtcp-fb:120 ccm fir
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1430,7 +1430,7 @@ a=rtcp-fb:120 ccm fir
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1485,7 +1485,7 @@ a=rtcp-fb:120 ccm fir
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1547,7 +1547,7 @@ a=rtcp-fb:120 ccm fir
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1619,7 +1619,7 @@ a=rtcp-fb:120 ccm fir
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1683,7 +1683,7 @@ a=rtcp-fb:120 ccm fir
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1755,7 +1755,7 @@ a=rtcp-fb:120 ccm fir
                 .unwrap();
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1831,7 +1831,7 @@ a=rtcp-fb:120 ccm fir
             authz.allow(agent.account_id(), object.clone(), "update");
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             let rtc_stream_id = db::janus_rtc_stream::Id::random();

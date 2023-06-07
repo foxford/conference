@@ -1220,7 +1220,7 @@ mod test {
             authz.allow(agent.account_id(), object, "create");
 
             // Make rtc.create request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1246,7 +1246,7 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = CreateRequest {
                 room_id: db::room::Id::random(),
             };
@@ -1280,7 +1280,7 @@ mod test {
             authz.allow(agent.account_id(), object, "create");
 
             // Make rtc.create request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1326,7 +1326,7 @@ mod test {
             authz.allow(agent2.account_id(), object, "create");
 
             // Make two rtc.create requests.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let messages1 = handle_request::<CreateHandler>(&mut context, &agent1, payload)
@@ -1372,7 +1372,7 @@ mod test {
             authz.allow(agent.account_id(), object, "create");
 
             // Make the first rtc.create request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1412,7 +1412,7 @@ mod test {
                 .unwrap();
 
             // Make rtc.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1465,7 +1465,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.read request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let payload = ReadRequest { id: rtc.id() };
 
             let messages = handle_request::<ReadHandler>(&mut context, &agent, payload)
@@ -1495,7 +1495,7 @@ mod test {
                 shared_helpers::insert_rtc(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = ReadRequest { id: rtc.id() };
 
             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
@@ -1513,7 +1513,7 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = ReadRequest {
                 id: db::rtc::Id::random(),
             };
@@ -1568,7 +1568,7 @@ mod test {
             authz.allow(agent.account_id(), object, "list");
 
             // Make rtc.list request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = ListRequest {
                 room_id: rtc.room_id(),
@@ -1604,7 +1604,7 @@ mod test {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -1627,7 +1627,7 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: db::room::Id::random(),
@@ -1730,7 +1730,7 @@ mod test {
             let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object, "read");
 
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             // Make rtc.connect request.
@@ -1789,7 +1789,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -1889,7 +1889,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -1998,7 +1998,7 @@ mod test {
             }
 
             // Connect to the rtc in the room without reserve.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2090,7 +2090,7 @@ mod test {
             authz.allow(reader.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2172,7 +2172,7 @@ mod test {
             authz.allow(reader2.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2242,7 +2242,7 @@ mod test {
             authz.allow(writer.account_id(), object, "update");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2424,7 +2424,7 @@ mod test {
             // Make an rtc.connect request.
             // Despite none of the backends are capable to host the reserve it should
             // select the least loaded one.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2580,7 +2580,7 @@ mod test {
                 authz.allow(new_reader.account_id(), object, "read");
             }
 
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2666,7 +2666,7 @@ mod test {
             authz.allow(agent.account_id(), object, "update");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2724,7 +2724,7 @@ mod test {
             authz.allow(agent.account_id(), object, "update");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2786,7 +2786,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2865,7 +2865,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Configure the app to the `right` janus group.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             context.config_mut().janus_group = Some(String::from("right"));
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_grouped_janus("right", tx);
@@ -2905,7 +2905,7 @@ mod test {
                 shared_helpers::insert_rtc(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ConnectRequest {
                 id: rtc.id(),
@@ -2927,7 +2927,7 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ConnectRequest {
                 id: db::rtc::Id::random(),

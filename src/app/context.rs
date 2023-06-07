@@ -33,6 +33,7 @@ pub trait GlobalContext {
     fn authz(&self) -> &Authz;
     fn config(&self) -> &Config;
     fn db(&self) -> &Db;
+    fn db_sqlx(&self) -> &sqlx::PgPool;
     fn agent_id(&self) -> &AgentId;
     fn janus_clients(&self) -> Clients;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
@@ -68,6 +69,10 @@ impl GlobalContext for Arc<dyn GlobalContext> {
 
     fn db(&self) -> &Db {
         self.as_ref().db()
+    }
+
+    fn db_sqlx(&self) -> &sqlx::PgPool {
+        self.as_ref().db_sqlx()
     }
 
     fn agent_id(&self) -> &AgentId {
@@ -114,6 +119,7 @@ pub struct AppContext {
     config: Arc<Config>,
     authz: Authz,
     db: Db,
+    db_sqlx: sqlx::PgPool,
     agent_id: AgentId,
     redis_pool: Option<RedisConnectionPool>,
     clients: Clients,
@@ -130,6 +136,7 @@ impl AppContext {
         config: Config,
         authz: Authz,
         db: Db,
+        db_sqlx: sqlx::PgPool,
         clients: Clients,
         metrics: Arc<Metrics>,
         mqtt_gateway_client: MqttGatewayHttpClient,
@@ -153,6 +160,7 @@ impl AppContext {
             conference_client,
             mqtt_client: Arc::new(Mutex::new(mqtt_client)),
             nats_client: None,
+            db_sqlx,
         }
     }
 
@@ -186,6 +194,10 @@ impl GlobalContext for AppContext {
 
     fn db(&self) -> &Db {
         &self.db
+    }
+
+    fn db_sqlx(&self) -> &sqlx::PgPool {
+        &self.db_sqlx
     }
 
     fn agent_id(&self) -> &AgentId {
@@ -248,6 +260,10 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
 
     fn db(&self) -> &Db {
         self.global_context.db()
+    }
+
+    fn db_sqlx(&self) -> &sqlx::PgPool {
+        self.global_context.db_sqlx()
     }
 
     fn agent_id(&self) -> &AgentId {

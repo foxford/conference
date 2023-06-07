@@ -285,7 +285,7 @@ mod test {
         let postgres = local_deps.run_postgres();
         let janus = local_deps.run_janus();
         let db = TestDb::with_local_postgres(&postgres);
-        let mut context = TestContext::new(db, TestAuthz::new());
+        let mut context = TestContext::new(db, TestAuthz::new()).await;
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
         let rng = rand::thread_rng();
@@ -332,7 +332,7 @@ mod test {
         let postgres = local_deps.run_postgres();
         let janus = local_deps.run_janus();
         let db = TestDb::with_local_postgres(&postgres);
-        let mut context = TestContext::new(db, TestAuthz::new());
+        let mut context = TestContext::new(db, TestAuthz::new()).await;
         let conn = context.get_conn().await?;
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);

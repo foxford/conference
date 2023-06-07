@@ -1001,7 +1001,7 @@ mod test {
             authz.allow(agent.account_id(), vec!["classrooms"], "create");
 
             // Make room.create request.
-            let mut context = TestContext::new(db.clone(), authz);
+            let mut context = TestContext::new(db.clone(), authz).await;
             let time = (Bound::Unbounded, Bound::Unbounded);
             let classroom_id = Uuid::new_v4();
 
@@ -1047,7 +1047,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             // Make room.create request.
@@ -1081,7 +1081,7 @@ mod test {
             authz.allow(agent.account_id(), vec!["classrooms"], "create");
 
             // Make room.create request.
-            let mut context = TestContext::new(db.clone(), authz);
+            let mut context = TestContext::new(db.clone(), authz).await;
             let time = (Bound::Unbounded, Bound::Unbounded);
             let classroom_id = Uuid::new_v4();
 
@@ -1150,7 +1150,7 @@ mod test {
             );
 
             // Make room.read request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let payload = ReadRequest { id: room.id() };
 
             let messages = handle_request::<ReadHandler>(&mut context, &agent, payload)
@@ -1181,7 +1181,7 @@ mod test {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = ReadRequest { id: room.id() };
 
             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
@@ -1199,7 +1199,7 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = ReadRequest {
                 id: db::room::Id::random(),
             };
@@ -1259,7 +1259,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let classroom_id = Uuid::new_v4();
 
             let time = (
@@ -1331,7 +1331,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
 
             let time = (
                 Bound::Included(now + Duration::hours(3)),
@@ -1387,7 +1387,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
 
             let time = (
                 Bound::Included(now - Duration::hours(1)),
@@ -1465,7 +1465,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
 
             let time = (
                 Bound::Included(now - Duration::hours(1)),
@@ -1493,7 +1493,7 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = UpdateRequest {
                 id: db::room::Id::random(),
@@ -1529,7 +1529,7 @@ mod test {
                 shared_helpers::insert_closed_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = UpdateRequest {
                 id: room.id(),
@@ -1592,7 +1592,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = CloseRequest { id: room.id() };
 
@@ -1647,7 +1647,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = CloseRequest { id: room.id() };
 
@@ -1690,7 +1690,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = CloseRequest { id: room.id() };
 
@@ -1720,7 +1720,7 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = CloseRequest {
                 id: db::room::Id::random(),
@@ -1751,7 +1751,7 @@ mod test {
                 shared_helpers::insert_closed_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = CloseRequest { id: room.id() };
 
@@ -1804,7 +1804,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db, authz);
+            let context = TestContext::new(db, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1831,7 +1831,7 @@ mod test {
                 shared_helpers::insert_room(&conn)
             };
 
-            let context = TestContext::new(db, TestAuthz::new());
+            let context = TestContext::new(db, TestAuthz::new()).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1853,7 +1853,7 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let context = TestContext::new(db, TestAuthz::new());
+            let context = TestContext::new(db, TestAuthz::new()).await;
             let payload = EnterRequest {
                 id: db::room::Id::random(),
             };
@@ -1897,7 +1897,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db, authz);
+            let context = TestContext::new(db, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1942,7 +1942,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db, authz);
+            let context = TestContext::new(db, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1990,7 +1990,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db, authz);
+            let context = TestContext::new(db, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -2038,7 +2038,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db.clone(), authz);
+            let context = TestContext::new(db.clone(), authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -2101,7 +2101,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db.clone(), authz);
+            let context = TestContext::new(db.clone(), authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -2177,7 +2177,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let mut context = TestContext::new(db.clone(), authz);
+            let mut context = TestContext::new(db.clone(), authz).await;
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2241,7 +2241,7 @@ mod test {
             };
 
             // Make room.leave request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = LeaveRequest { id: room.id() };
 
             let messages = handle_request::<LeaveHandler>(&mut context, &agent, payload)
@@ -2283,7 +2283,7 @@ mod test {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = LeaveRequest { id: room.id() };
 
             let err = handle_request::<LeaveHandler>(&mut context, &agent, payload)
@@ -2300,7 +2300,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = LeaveRequest {
                 id: db::room::Id::random(),
             };
