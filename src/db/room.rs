@@ -27,6 +27,22 @@ use crate::{
 
 pub type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
+#[derive(sqlx::Type)]
+#[sqlx(transparent)]
+pub struct TimeSqlx(sqlx::postgres::types::PgRange<DateTime<Utc>>);
+
+impl From<Time> for TimeSqlx {
+    fn from(value: Time) -> Self {
+        Self(sqlx::postgres::types::PgRange::from(value))
+    }
+}
+
+impl From<TimeSqlx> for Time {
+    fn from(value: TimeSqlx) -> Self {
+        (value.0.start, value.0.end)
+    }
+}
+
 type AllColumns = (
     room::id,
     room::time,
@@ -65,7 +81,7 @@ const ALL_COLUMNS: AllColumns = (
 pub type Id = db::id::Id;
 
 // Deprecated in favor of `crate::db::rtc::SharingPolicy`.
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
 #[DieselType = "Room_backend"]
 // This is not just `Backend` because of clash with `diesel::backend::Backend`.
@@ -126,6 +142,44 @@ pub struct Object {
     closed_by: Option<AgentId>,
     #[serde(skip)]
     infinite: bool,
+}
+
+pub struct ObjectSqlx {
+    id: Id,
+    time: TimeSqlx,
+    audience: String,
+    created_at: DateTime<Utc>,
+    backend: RoomBackend,
+    reserve: Option<i32>,
+    tags: JsonValue,
+    backend_id: Option<AgentId>,
+    rtc_sharing_policy: RtcSharingPolicy,
+    classroom_id: sqlx::types::Uuid,
+    host: Option<AgentId>,
+    timed_out: bool,
+    closed_by: Option<AgentId>,
+    infinite: bool,
+}
+
+impl From<ObjectSqlx> for Object {
+    fn from(o: ObjectSqlx) -> Self {
+        Self {
+            id: o.id,
+            time: o.time.into(),
+            audience: o.audience,
+            created_at: o.created_at,
+            backend: o.backend,
+            reserve: o.reserve,
+            tags: o.tags,
+            backend_id: o.backend_id,
+            rtc_sharing_policy: o.rtc_sharing_policy,
+            classroom_id: sqlx_to_uuid(o.classroom_id),
+            host: o.host,
+            timed_out: o.timed_out,
+            closed_by: o.closed_by,
+            infinite: o.infinite,
+        }
+    }
 }
 
 impl Object {
@@ -424,6 +478,59 @@ impl<'a> UpdateQuery<'a> {
 
         diesel::update(self).set(self).get_result(conn)
     }
+
+    pub async fn execute_sqlx(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            ObjectSqlx,
+            r#"
+            UPDATE room
+            SET
+                backend_id   = COALESCE($2, backend_id),
+                time         = COALESCE($3, time),
+                reserve      = COALESCE($4, reserve),
+                tags         = COALESCE($5, tags),
+                classroom_id = COALESCE($6, classroom_id),
+                host         = COALESCE($7, host),
+                timed_out    = COALESCE($8, timed_out)
+            WHERE
+                id = $1
+            RETURNING
+                id as "id: Id",
+                backend_id as "backend_id: AgentId",
+                time as "time: TimeSqlx",
+                reserve,
+                tags,
+                classroom_id,
+                host as "host: AgentId",
+                timed_out,
+                audience,
+                created_at,
+                backend as "backend: RoomBackend",
+                rtc_sharing_policy as "rtc_sharing_policy: RtcSharingPolicy",
+                infinite,
+                closed_by as "closed_by: AgentId"
+            "#,
+            self.id as db::room::Id,
+            self.backend_id as Option<&AgentId>,
+            self.time.map(TimeSqlx::from) as Option<TimeSqlx>,
+            self.reserve.flatten(),
+            self.tags,
+            self.classroom_id.map(uuid_to_sqlx),
+            self.host as Option<&AgentId>,
+            self.timed_out
+        )
+        .fetch_one(conn)
+        .await
+        .map(Object::from)
+    }
+}
+
+fn uuid_to_sqlx(uuid: Uuid) -> sqlx::types::Uuid {
+    sqlx::types::Uuid::from_u128_le(uuid.to_u128_le())
+}
+
+fn sqlx_to_uuid(uuid: sqlx::types::Uuid) -> Uuid {
+    Uuid::from_u128_le(uuid.to_u128_le())
 }
 
 ////////////////////////////////////////////////////////////////////////////////

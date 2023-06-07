@@ -166,7 +166,7 @@ impl RequestHandler for UpdateHandler {
                 None => None,
                 Some(backend_id) => {
                     db::janus_backend::FindQuery::new(backend_id)
-                        .execute_sqlx(&mut conn)
+                        .execute(&mut conn)
                         .await?
                 }
             };

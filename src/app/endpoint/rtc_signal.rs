@@ -163,7 +163,7 @@ impl RequestHandler for CreateHandler {
 
             let mut conn = context.get_conn_sqlx().await?;
             let janus_backend = db::janus_backend::FindQuery::new(handle_id.backend_id())
-                    .execute_sqlx(&mut conn)
+                    .execute(&mut conn)
                     .await?
                     .context("Backend not found")
                     .error(AppErrorKind::BackendNotFound)?;
@@ -531,7 +531,7 @@ impl<C: Context> Trickle<'_, C> {
 
             let mut conn = self.ctx.get_conn_sqlx().await?;
             let janus_backend = db::janus_backend::FindQuery::new(handle_id.backend_id())
-                .execute_sqlx(&mut conn)
+                .execute(&mut conn)
                 .await?
                 .context("Backend not found")
                 .error(AppErrorKind::BackendNotFound)?;

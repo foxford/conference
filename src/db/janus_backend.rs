@@ -90,19 +90,7 @@ impl<'a> FindQuery<'a> {
         Self { id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        janus_backend::table
-            .find(self.id)
-            .get_result(conn)
-            .optional()
-    }
-
-    pub async fn execute_sqlx(
-        &self,
-        conn: &mut sqlx::PgConnection,
-    ) -> sqlx::Result<Option<Object>> {
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
         sqlx::query_as!(
             Object,
             r#"
@@ -238,232 +226,242 @@ impl<'a> DeleteQuery<'a> {
 // - optional room reserve;
 // - writer's bitrate;
 // - possible multiple RTCs in each room.
-const MOST_LOADED_SQL: &str = r#"
-    WITH
-        room_load AS (
-            SELECT
-                a.room_id,
-                SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
-            FROM agent AS a
-            INNER JOIN agent_connection AS ac
-            ON ac.agent_id = a.id
-            LEFT JOIN rtc_writer_config AS rwc
-            ON rwc.rtc_id = ac.rtc_id
-            GROUP BY a.room_id
-        ),
-        active_room AS (
-            SELECT *
-            FROM room
-            WHERE backend_id IS NOT NULL
-            AND   time @> NOW()
-        ),
-        janus_backend_load AS (
-            SELECT
-                backend_id,
-                SUM(GREATEST(taken, reserve)) AS load
-            FROM (
-                SELECT DISTINCT ON(backend_id, room_id)
-                    ar.backend_id,
-                    ar.id                   AS room_id,
-                    COALESCE(rl.taken, 0)   AS taken,
-                    COALESCE(ar.reserve, 0) AS reserve
-                FROM active_room AS ar
-                LEFT JOIN room_load AS rl
-                ON rl.room_id = ar.id
-            ) AS sub
-            GROUP BY backend_id
-        )
-    SELECT jb.*
-    FROM janus_backend AS jb
-    LEFT JOIN janus_backend_load AS jbl
-    ON jbl.backend_id = jb.id
-    LEFT JOIN room AS r2
-    ON 1 = 1
-    WHERE r2.id = $1
-    AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) >= COALESCE(r2.reserve, 1)
-    AND   jb.api_version = $2
-    AND   ($3 IS NULL OR jb."group" = $3)
-    ORDER BY COALESCE(jbl.load, 0) DESC, RANDOM()
-    LIMIT 1
-"#;
-
-pub fn most_loaded(
+pub async fn most_loaded_sqlx(
     room_id: db::room::Id,
     group: Option<&str>,
-    conn: &PgConnection,
-) -> Result<Option<Object>, Error> {
-    use diesel::{
-        prelude::*,
-        sql_types::{Nullable, Text, Uuid},
-    };
-
-    diesel::sql_query(MOST_LOADED_SQL)
-        .bind::<Uuid, _>(room_id)
-        .bind::<Text, _>(JANUS_API_VERSION)
-        .bind::<Nullable<Text>, _>(group)
-        .get_result(conn)
-        .optional()
+    conn: &mut sqlx::PgConnection,
+) -> sqlx::Result<Option<Object>> {
+    sqlx::query_as!(
+        Object,
+        r#"
+        WITH
+            room_load AS (
+                SELECT
+                    a.room_id,
+                    SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
+                FROM agent AS a
+                INNER JOIN agent_connection AS ac
+                ON ac.agent_id = a.id
+                LEFT JOIN rtc_writer_config AS rwc
+                ON rwc.rtc_id = ac.rtc_id
+                GROUP BY a.room_id
+            ),
+            active_room AS (
+                SELECT *
+                FROM room
+                WHERE backend_id IS NOT NULL
+                AND   time @> NOW()
+            ),
+            janus_backend_load AS (
+                SELECT
+                    backend_id,
+                    SUM(GREATEST(taken, reserve)) AS load
+                FROM (
+                    SELECT DISTINCT ON(backend_id, room_id)
+                        ar.backend_id,
+                        ar.id                   AS room_id,
+                        COALESCE(rl.taken, 0)   AS taken,
+                        COALESCE(ar.reserve, 0) AS reserve
+                    FROM active_room AS ar
+                    LEFT JOIN room_load AS rl
+                    ON rl.room_id = ar.id
+                ) AS sub
+                GROUP BY backend_id
+            )
+        SELECT
+            jb.id as "id: AgentId",
+            jb.handle_id as "handle_id: HandleId",
+            jb.session_id as "session_id: SessionId",
+            jb.created_at,
+            jb.capacity,
+            jb.balancer_capacity,
+            jb.api_version,
+            jb."group",
+            jb.janus_url
+        FROM janus_backend AS jb
+        LEFT JOIN janus_backend_load AS jbl
+        ON jbl.backend_id = jb.id
+        LEFT JOIN room AS r2
+        ON 1 = 1
+        WHERE r2.id = $1
+        AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) >= COALESCE(r2.reserve, 1)
+        AND   jb.api_version = $2
+        AND   ($3::text IS NULL OR jb."group" = $3::text)
+        ORDER BY COALESCE(jbl.load, 0) DESC, RANDOM()
+        LIMIT 1
+        "#,
+        room_id as db::room::Id,
+        JANUS_API_VERSION,
+        group,
+    ).fetch_optional(conn).await
 }
 
 // The same as above but finds the least loaded backend instead without considering the reserve.
-const LEAST_LOADED_SQL: &str = r#"
-    WITH
-        room_load AS (
-            SELECT
-                a.room_id,
-                SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
-            FROM agent AS a
-            INNER JOIN agent_connection AS ac
-            ON ac.agent_id = a.id
-            LEFT JOIN rtc_writer_config AS rwc
-            ON rwc.rtc_id = ac.rtc_id
-            GROUP BY a.room_id
-        ),
-        active_room AS (
-            SELECT *
-            FROM room
-            WHERE backend_id IS NOT NULL
-            AND   time @> NOW()
-        ),
-        janus_backend_load AS (
-            SELECT
-                backend_id,
-                SUM(taken) AS load
-            FROM (
-                SELECT DISTINCT ON(backend_id, room_id)
-                    ar.backend_id,
-                    ar.id                 AS room_id,
-                    COALESCE(rl.taken, 0) AS taken
-                FROM active_room AS ar
-                LEFT JOIN room_load AS rl
-                ON rl.room_id = ar.id
-            ) AS sub
-            GROUP BY backend_id
-        ),
-        least_loaded AS (
-            SELECT jb.*
-            FROM janus_backend AS jb
-            LEFT JOIN janus_backend_load AS jbl
-            ON jbl.backend_id = jb.id
-            LEFT JOIN room AS r2
-            ON 1 = 1
-            WHERE r2.id = $1
-            AND   jb.api_version = $2
-            AND   ($3 IS NULL OR jb."group" = $3)
-            ORDER BY
-                COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC
-            LIMIT 3
-        )
-    SELECT * FROM least_loaded
-    ORDER BY RANDOM()
-    LIMIT 1
-"#;
-
-pub fn least_loaded(
+pub async fn least_loaded_sqlx(
     room_id: db::room::Id,
     group: Option<&str>,
-    conn: &PgConnection,
-) -> Result<Option<Object>, Error> {
-    use diesel::{
-        prelude::*,
-        sql_types::{Nullable, Text, Uuid},
-    };
-
-    diesel::sql_query(LEAST_LOADED_SQL)
-        .bind::<Uuid, _>(room_id)
-        .bind::<Text, _>(JANUS_API_VERSION)
-        .bind::<Nullable<Text>, _>(group)
-        .get_result(conn)
-        .optional()
+    conn: &mut sqlx::PgConnection,
+) -> sqlx::Result<Option<Object>> {
+    sqlx::query_as!(
+        Object,
+        r#"
+        WITH
+            room_load AS (
+                SELECT
+                    a.room_id,
+                    SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
+                FROM agent AS a
+                INNER JOIN agent_connection AS ac
+                ON ac.agent_id = a.id
+                LEFT JOIN rtc_writer_config AS rwc
+                ON rwc.rtc_id = ac.rtc_id
+                GROUP BY a.room_id
+            ),
+            active_room AS (
+                SELECT *
+                FROM room
+                WHERE backend_id IS NOT NULL
+                AND   time @> NOW()
+            ),
+            janus_backend_load AS (
+                SELECT
+                    backend_id,
+                    SUM(taken) AS load
+                FROM (
+                    SELECT DISTINCT ON(backend_id, room_id)
+                        ar.backend_id,
+                        ar.id                 AS room_id,
+                        COALESCE(rl.taken, 0) AS taken
+                    FROM active_room AS ar
+                    LEFT JOIN room_load AS rl
+                    ON rl.room_id = ar.id
+                ) AS sub
+                GROUP BY backend_id
+            ),
+            least_loaded AS (
+                SELECT jb.*
+                FROM janus_backend AS jb
+                LEFT JOIN janus_backend_load AS jbl
+                ON jbl.backend_id = jb.id
+                LEFT JOIN room AS r2
+                ON 1 = 1
+                WHERE r2.id = $1
+                AND   jb.api_version = $2
+                AND   ($3::text IS NULL OR jb."group" = $3::text)
+                ORDER BY
+                    COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC
+                LIMIT 3
+            )
+        SELECT
+            id as "id: AgentId",
+            handle_id as "handle_id: HandleId",
+            session_id as "session_id: SessionId",
+            created_at,
+            capacity,
+            balancer_capacity,
+            api_version,
+            "group",
+            janus_url
+        FROM least_loaded
+        ORDER BY RANDOM()
+        LIMIT 1
+        "#,
+        room_id as db::room::Id,
+        JANUS_API_VERSION,
+        group,
+    )
+    .fetch_optional(conn)
+    .await
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// Similar to the previous one but returns the number of free slots for the room on the backend
-// that hosts the active stream for the given RTC.
-const FREE_CAPACITY_SQL: &str = r#"
-    WITH
-        room_load AS (
-            SELECT
-                a.room_id,
-                SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
-            FROM agent AS a
-            INNER JOIN agent_connection AS ac
-            ON ac.agent_id = a.id
-            LEFT JOIN rtc_writer_config AS rwc
-            ON rwc.rtc_id = ac.rtc_id
-            GROUP BY a.room_id
-        ),
-        active_room AS (
-            SELECT *
-            FROM room
-            WHERE backend_id IS NOT NULL
-            AND   time @> NOW()
-        ),
-        janus_backend_load AS (
-            SELECT
-                backend_id,
-                SUM(taken) AS total_taken,
-                SUM(reserve) AS total_reserve,
-                SUM(GREATEST(taken, reserve)) AS load
-            FROM (
-                SELECT DISTINCT ON(backend_id, room_id)
-                    ar.backend_id,
-                    ar.id                   AS room_id,
-                    COALESCE(rl.taken, 0)   AS taken,
-                    COALESCE(ar.reserve, 0) AS reserve
-                FROM active_room AS ar
-                LEFT JOIN room_load AS rl
-                ON rl.room_id = ar.id
-            ) AS sub
-            GROUP BY backend_id
-        )
-    SELECT
-        (
-            CASE
-                WHEN COALESCE(jb.capacity, 2147483647) <= COALESCE(jbl.total_taken, 0) THEN 0
-                ELSE (
-                    GREATEST(
-                        (
-                            CASE
-                                WHEN COALESCE(ar.reserve, 0) > COALESCE(rl.taken, 0)
-                                    THEN LEAST(
-                                        COALESCE(ar.reserve, 0) - COALESCE(rl.taken, 0),
-                                        COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.total_taken, 0)
-                                    )
-                                ELSE
-                                    GREATEST(COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.load, 0), 0)
-                            END
-                        ),
-                    1)
-                )
-            END
-        )::INT AS free_capacity
-    FROM rtc
-    LEFT JOIN active_room AS ar
-    ON ar.id = rtc.room_id
-    LEFT JOIN room_load as rl
-    ON rl.room_id = rtc.room_id
-    LEFT JOIN janus_backend AS jb
-    ON jb.id = ar.backend_id
-    LEFT JOIN janus_backend_load AS jbl
-    ON jbl.backend_id = jb.id
-    WHERE rtc.id = $1
-"#;
-
-#[derive(QueryableByName)]
 struct FreeCapacityQueryRow {
-    #[sql_type = "diesel::sql_types::Integer"]
     free_capacity: i32,
 }
 
-pub fn free_capacity(rtc_id: db::rtc::Id, conn: &PgConnection) -> Result<i32, Error> {
-    use diesel::{prelude::*, sql_types::Uuid};
-
-    diesel::sql_query(FREE_CAPACITY_SQL)
-        .bind::<Uuid, _>(rtc_id)
-        .get_result::<FreeCapacityQueryRow>(conn)
-        .map(|row| row.free_capacity)
+// Similar to the previous one but returns the number of free slots for the room on the backend
+// that hosts the active stream for the given RTC.
+pub async fn free_capacity_sqlx(
+    rtc_id: db::rtc::Id,
+    conn: &mut sqlx::PgConnection,
+) -> sqlx::Result<i32> {
+    sqlx::query_as!(
+        FreeCapacityQueryRow,
+        r#"
+        WITH
+            room_load AS (
+                SELECT
+                    a.room_id,
+                    SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
+                FROM agent AS a
+                INNER JOIN agent_connection AS ac
+                ON ac.agent_id = a.id
+                LEFT JOIN rtc_writer_config AS rwc
+                ON rwc.rtc_id = ac.rtc_id
+                GROUP BY a.room_id
+            ),
+            active_room AS (
+                SELECT *
+                FROM room
+                WHERE backend_id IS NOT NULL
+                AND   time @> NOW()
+            ),
+            janus_backend_load AS (
+                SELECT
+                    backend_id,
+                    SUM(taken) AS total_taken,
+                    SUM(reserve) AS total_reserve,
+                    SUM(GREATEST(taken, reserve)) AS load
+                FROM (
+                    SELECT DISTINCT ON(backend_id, room_id)
+                        ar.backend_id,
+                        ar.id                   AS room_id,
+                        COALESCE(rl.taken, 0)   AS taken,
+                        COALESCE(ar.reserve, 0) AS reserve
+                    FROM active_room AS ar
+                    LEFT JOIN room_load AS rl
+                    ON rl.room_id = ar.id
+                ) AS sub
+                GROUP BY backend_id
+            )
+        SELECT
+            (
+                CASE
+                    WHEN COALESCE(jb.capacity, 2147483647) <= COALESCE(jbl.total_taken, 0) THEN 0
+                    ELSE (
+                        GREATEST(
+                            (
+                                CASE
+                                    WHEN COALESCE(ar.reserve, 0) > COALESCE(rl.taken, 0)
+                                        THEN LEAST(
+                                            COALESCE(ar.reserve, 0) - COALESCE(rl.taken, 0),
+                                            COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.total_taken, 0)
+                                        )
+                                    ELSE
+                                        GREATEST(COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.load, 0), 0)
+                                END
+                            ),
+                        1)
+                    )
+                END
+            )::INT AS "free_capacity!: i32"
+        FROM rtc
+        LEFT JOIN active_room AS ar
+        ON ar.id = rtc.room_id
+        LEFT JOIN room_load as rl
+        ON rl.room_id = rtc.room_id
+        LEFT JOIN janus_backend AS jb
+        ON jb.id = ar.backend_id
+        LEFT JOIN janus_backend_load AS jbl
+        ON jbl.backend_id = jb.id
+        WHERE rtc.id = $1
+        "#,
+        rtc_id as db::room::Id,
+        )
+        .fetch_one(conn)
+        .await
+        .map(|r| r.free_capacity)
 }
 
 ////////////////////////////////////////////////////////////////////////////////

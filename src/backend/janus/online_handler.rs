@@ -192,7 +192,7 @@ async fn handle_online(
     let backend_id = event.agent_id.clone();
     let mut conn = db_sqlx.acquire().await?;
     let existing_backend = db::janus_backend::FindQuery::new(&backend_id)
-        .execute_sqlx(&mut conn)
+        .execute(&mut conn)
         .await?;
 
     let janus_client = JanusClient::new(&event.janus_url)?;
@@ -316,7 +316,7 @@ mod test {
 
         let mut conn = context.get_conn_sqlx().await?;
         let backend = db::janus_backend::FindQuery::new(backend_id.agent_id())
-            .execute_sqlx(&mut conn)
+            .execute(&mut conn)
             .await?
             .unwrap();
         // check if handle expired by timeout;
@@ -365,7 +365,7 @@ mod test {
 
         let mut conn = context.get_conn_sqlx().await?;
         let new_backend = db::janus_backend::FindQuery::new(backend.id())
-            .execute_sqlx(&mut conn)
+            .execute(&mut conn)
             .await?
             .unwrap();
         assert_eq!(backend, new_backend);
