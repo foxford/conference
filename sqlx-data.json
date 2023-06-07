@@ -1,0 +1,613 @@
+{
+  "db": "PostgreSQL",
+  "30a8ff598a9feeb9b2677c41237589fa57a9c922eff998f21f5c6ded6a33a39e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimeSqlx",
+          "ordinal": 2,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "reserve",
+          "ordinal": 3,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tags",
+          "ordinal": 4,
+          "type_info": "Json"
+        },
+        {
+          "name": "classroom_id",
+          "ordinal": 5,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "timed_out",
+          "ordinal": 7,
+          "type_info": "Bool"
+        },
+        {
+          "name": "audience",
+          "ordinal": 8,
+          "type_info": "Text"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 9,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend: RoomBackend",
+          "ordinal": 10,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          }
+        },
+        {
+          "name": "rtc_sharing_policy: RtcSharingPolicy",
+          "ordinal": 11,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          }
+        },
+        {
+          "name": "infinite",
+          "ordinal": 12,
+          "type_info": "Bool"
+        },
+        {
+          "name": "closed_by: AgentId",
+          "ordinal": 13,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "TstzRange",
+          "Int4",
+          "Json",
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Bool"
+        ]
+      }
+    },
+    "query": "\n            UPDATE room\n            SET\n                backend_id   = COALESCE($2, backend_id),\n                time         = COALESCE($3, time),\n                reserve      = COALESCE($4, reserve),\n                tags         = COALESCE($5, tags),\n                classroom_id = COALESCE($6, classroom_id),\n                host         = COALESCE($7, host),\n                timed_out    = COALESCE($8, timed_out)\n            WHERE\n                id = $1\n            RETURNING\n                id as \"id: Id\",\n                backend_id as \"backend_id: AgentId\",\n                time as \"time: TimeSqlx\",\n                reserve,\n                tags,\n                classroom_id,\n                host as \"host: AgentId\",\n                timed_out,\n                audience,\n                created_at,\n                backend as \"backend: RoomBackend\",\n                rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n                infinite,\n                closed_by as \"closed_by: AgentId\"\n            "
+  },
+  "5e4f1a0ad6671a957465da1cc7a5a10b158160b3e87ea613712b153dbf3d338f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: AgentId",
+          "ordinal": 0,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "session_id: SessionId",
+          "ordinal": 2,
+          "type_info": "Int8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "capacity",
+          "ordinal": 4,
+          "type_info": "Int4"
+        },
+        {
+          "name": "balancer_capacity",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "api_version",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "group",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "janus_url",
+          "ordinal": 8,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Record"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id as \"id: AgentId\",\n                handle_id as \"handle_id: HandleId\",\n                session_id as \"session_id: SessionId\",\n                created_at,\n                capacity,\n                balancer_capacity,\n                api_version,\n                \"group\",\n                janus_url\n            FROM janus_backend\n            WHERE\n                id = $1\n            LIMIT 1\n            "
+  },
+  "7a1be1815f97d69529318ee73e3327473de9a057311ee43a129488a1b41e7eda": {
+    "describe": {
+      "columns": [
+        {
+          "name": "free_capacity!: i32",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        WITH\n            room_load AS (\n                SELECT\n                    a.room_id,\n                    SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken\n                FROM agent AS a\n                INNER JOIN agent_connection AS ac\n                ON ac.agent_id = a.id\n                LEFT JOIN rtc_writer_config AS rwc\n                ON rwc.rtc_id = ac.rtc_id\n                GROUP BY a.room_id\n            ),\n            active_room AS (\n                SELECT *\n                FROM room\n                WHERE backend_id IS NOT NULL\n                AND   time @> NOW()\n            ),\n            janus_backend_load AS (\n                SELECT\n                    backend_id,\n                    SUM(taken) AS total_taken,\n                    SUM(reserve) AS total_reserve,\n                    SUM(GREATEST(taken, reserve)) AS load\n                FROM (\n                    SELECT DISTINCT ON(backend_id, room_id)\n                        ar.backend_id,\n                        ar.id                   AS room_id,\n                        COALESCE(rl.taken, 0)   AS taken,\n                        COALESCE(ar.reserve, 0) AS reserve\n                    FROM active_room AS ar\n                    LEFT JOIN room_load AS rl\n                    ON rl.room_id = ar.id\n                ) AS sub\n                GROUP BY backend_id\n            )\n        SELECT\n            (\n                CASE\n                    WHEN COALESCE(jb.capacity, 2147483647) <= COALESCE(jbl.total_taken, 0) THEN 0\n                    ELSE (\n                        GREATEST(\n                            (\n                                CASE\n                                    WHEN COALESCE(ar.reserve, 0) > COALESCE(rl.taken, 0)\n                                        THEN LEAST(\n                                            COALESCE(ar.reserve, 0) - COALESCE(rl.taken, 0),\n                                            COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.total_taken, 0)\n                                        )\n                                    ELSE\n                                        GREATEST(COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.load, 0), 0)\n                                END\n                            ),\n                        1)\n                    )\n                END\n            )::INT AS \"free_capacity!: i32\"\n        FROM rtc\n        LEFT JOIN active_room AS ar\n        ON ar.id = rtc.room_id\n        LEFT JOIN room_load as rl\n        ON rl.room_id = rtc.room_id\n        LEFT JOIN janus_backend AS jb\n        ON jb.id = ar.backend_id\n        LEFT JOIN janus_backend_load AS jbl\n        ON jbl.backend_id = jb.id\n        WHERE rtc.id = $1\n        "
+  },
+  "a98a31979c9024d3b49ee9ef99f64b83a9d717135868eef937cc3f45e890979f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: AgentId",
+          "ordinal": 0,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "session_id: SessionId",
+          "ordinal": 2,
+          "type_info": "Int8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "capacity",
+          "ordinal": 4,
+          "type_info": "Int4"
+        },
+        {
+          "name": "balancer_capacity",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "api_version",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "group",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "janus_url",
+          "ordinal": 8,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n        WITH\n            room_load AS (\n                SELECT\n                    a.room_id,\n                    SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken\n                FROM agent AS a\n                INNER JOIN agent_connection AS ac\n                ON ac.agent_id = a.id\n                LEFT JOIN rtc_writer_config AS rwc\n                ON rwc.rtc_id = ac.rtc_id\n                GROUP BY a.room_id\n            ),\n            active_room AS (\n                SELECT *\n                FROM room\n                WHERE backend_id IS NOT NULL\n                AND   time @> NOW()\n            ),\n            janus_backend_load AS (\n                SELECT\n                    backend_id,\n                    SUM(GREATEST(taken, reserve)) AS load\n                FROM (\n                    SELECT DISTINCT ON(backend_id, room_id)\n                        ar.backend_id,\n                        ar.id                   AS room_id,\n                        COALESCE(rl.taken, 0)   AS taken,\n                        COALESCE(ar.reserve, 0) AS reserve\n                    FROM active_room AS ar\n                    LEFT JOIN room_load AS rl\n                    ON rl.room_id = ar.id\n                ) AS sub\n                GROUP BY backend_id\n            )\n        SELECT\n            jb.id as \"id: AgentId\",\n            jb.handle_id as \"handle_id: HandleId\",\n            jb.session_id as \"session_id: SessionId\",\n            jb.created_at,\n            jb.capacity,\n            jb.balancer_capacity,\n            jb.api_version,\n            jb.\"group\",\n            jb.janus_url\n        FROM janus_backend AS jb\n        LEFT JOIN janus_backend_load AS jbl\n        ON jbl.backend_id = jb.id\n        LEFT JOIN room AS r2\n        ON 1 = 1\n        WHERE r2.id = $1\n        AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) >= COALESCE(r2.reserve, 1)\n        AND   jb.api_version = $2\n        AND   ($3::text IS NULL OR jb.\"group\" = $3::text)\n        ORDER BY COALESCE(jbl.load, 0) DESC, RANDOM()\n        LIMIT 1\n        "
+  },
+  "f8a30af947d51edc8af110a348fa6f23ac9c6f602bc42367bdfc70a5be704d5d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: AgentId",
+          "ordinal": 0,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "session_id: SessionId",
+          "ordinal": 2,
+          "type_info": "Int8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "capacity",
+          "ordinal": 4,
+          "type_info": "Int4"
+        },
+        {
+          "name": "balancer_capacity",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "api_version",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "group",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "janus_url",
+          "ordinal": 8,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n        WITH\n            room_load AS (\n                SELECT\n                    a.room_id,\n                    SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken\n                FROM agent AS a\n                INNER JOIN agent_connection AS ac\n                ON ac.agent_id = a.id\n                LEFT JOIN rtc_writer_config AS rwc\n                ON rwc.rtc_id = ac.rtc_id\n                GROUP BY a.room_id\n            ),\n            active_room AS (\n                SELECT *\n                FROM room\n                WHERE backend_id IS NOT NULL\n                AND   time @> NOW()\n            ),\n            janus_backend_load AS (\n                SELECT\n                    backend_id,\n                    SUM(taken) AS load\n                FROM (\n                    SELECT DISTINCT ON(backend_id, room_id)\n                        ar.backend_id,\n                        ar.id                 AS room_id,\n                        COALESCE(rl.taken, 0) AS taken\n                    FROM active_room AS ar\n                    LEFT JOIN room_load AS rl\n                    ON rl.room_id = ar.id\n                ) AS sub\n                GROUP BY backend_id\n            ),\n            least_loaded AS (\n                SELECT jb.*\n                FROM janus_backend AS jb\n                LEFT JOIN janus_backend_load AS jbl\n                ON jbl.backend_id = jb.id\n                LEFT JOIN room AS r2\n                ON 1 = 1\n                WHERE r2.id = $1\n                AND   jb.api_version = $2\n                AND   ($3::text IS NULL OR jb.\"group\" = $3::text)\n                ORDER BY\n                    COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC\n                LIMIT 3\n            )\n        SELECT\n            id as \"id: AgentId\",\n            handle_id as \"handle_id: HandleId\",\n            session_id as \"session_id: SessionId\",\n            created_at,\n            capacity,\n            balancer_capacity,\n            api_version,\n            \"group\",\n            janus_url\n        FROM least_loaded\n        ORDER BY RANDOM()\n        LIMIT 1\n        "
+  }
+}
