@@ -161,6 +161,13 @@ impl RequestHandler for CreateHandler {
             let agent_id = reqp.as_agent_id().clone();
             let handle_id = payload.handle_id.clone();
 
+            let mut conn = context.get_conn_sqlx().await?;
+            let janus_backend = db::janus_backend::FindQuery::new(handle_id.backend_id())
+                    .execute_sqlx(&mut conn)
+                    .await?
+                    .context("Backend not found")
+                    .error(AppErrorKind::BackendNotFound)?;
+
             let conn = context.get_conn().await?;
             move || {
                 let rtc = db::rtc::FindQuery::new()
@@ -195,12 +202,6 @@ impl RequestHandler for CreateHandler {
                 } else {
                     return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
                 }
-
-                let janus_backend = db::janus_backend::FindQuery::new()
-                    .id(handle_id.backend_id())
-                    .execute(&conn)?
-                    .context("Backend not found")
-                    .error(AppErrorKind::BackendNotFound)?;
 
                 if handle_id.janus_session_id() != janus_backend.session_id() {
                     return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
@@ -528,6 +529,13 @@ impl<C: Context> Trickle<'_, C> {
             let agent_id = self.agent_id.clone();
             let handle_id = self.handle_id.clone();
 
+            let mut conn = self.ctx.get_conn_sqlx().await?;
+            let janus_backend = db::janus_backend::FindQuery::new(handle_id.backend_id())
+                .execute_sqlx(&mut conn)
+                .await?
+                .context("Backend not found")
+                .error(AppErrorKind::BackendNotFound)?;
+
             let conn = self.ctx.get_conn().await?;
             move || {
                 let rtc = db::rtc::FindQuery::new()
@@ -562,12 +570,6 @@ impl<C: Context> Trickle<'_, C> {
                 } else {
                     return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
                 }
-
-                let janus_backend = db::janus_backend::FindQuery::new()
-                    .id(handle_id.backend_id())
-                    .execute(&conn)?
-                    .context("Backend not found")
-                    .error(AppErrorKind::BackendNotFound)?;
 
                 if handle_id.janus_session_id() != janus_backend.session_id() {
                     return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))

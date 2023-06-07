@@ -56,6 +56,18 @@ pub trait GlobalContext {
         }
         .boxed()
     }
+    fn get_conn_sqlx(
+        &self,
+    ) -> BoxFuture<Result<sqlx::pool::PoolConnection<sqlx::Postgres>, AppError>> {
+        let db = self.db_sqlx().clone();
+        async move {
+            db.acquire()
+                .await
+                .context("failed to acquire DB connection")
+                .error(AppErrorKind::DbConnAcquisitionFailed)
+        }
+        .boxed()
+    }
 }
 
 impl GlobalContext for Arc<dyn GlobalContext> {

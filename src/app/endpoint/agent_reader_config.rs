@@ -160,6 +160,17 @@ impl RequestHandler for UpdateHandler {
         let (room, rtc_reader_configs_with_rtcs, maybe_backend) = crate::util::spawn_blocking({
             let agent_id = reqp.as_agent_id().clone();
 
+            let mut conn = context.get_conn_sqlx().await?;
+            // Find backend and send updates to it if present.
+            let maybe_backend = match room.backend_id() {
+                None => None,
+                Some(backend_id) => {
+                    db::janus_backend::FindQuery::new(backend_id)
+                        .execute_sqlx(&mut conn)
+                        .await?
+                }
+            };
+
             let conn = context.get_conn().await?;
             helpers::check_room_presence(&room, &agent_id, &conn)?;
 
@@ -223,13 +234,6 @@ impl RequestHandler for UpdateHandler {
                     Ok(rtc_reader_configs_with_rtcs)
                 })?;
 
-                // Find backend and send updates to it if present.
-                let maybe_backend = match room.backend_id() {
-                    None => None,
-                    Some(backend_id) => db::janus_backend::FindQuery::new()
-                        .id(backend_id)
-                        .execute(&conn)?,
-                };
                 Ok::<_, AppError>((room, rtc_reader_configs_with_rtcs, maybe_backend))
             }
         })

@@ -443,6 +443,15 @@ impl From<diesel::result::Error> for Error {
     }
 }
 
+impl From<sqlx::Error> for Error {
+    fn from(value: sqlx::Error) -> Self {
+        Self {
+            kind: ErrorKind::DbQueryFailed,
+            source: Some(Arc::new(anyhow::anyhow!(value))),
+        }
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 pub trait ErrorExt<T> {

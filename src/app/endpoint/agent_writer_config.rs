@@ -227,6 +227,17 @@ impl RequestHandler for UpdateHandler {
             let backend_id = room.backend_id().cloned();
             let agent_id = reqp.as_agent_id().clone();
 
+            let mut conn = context.get_conn_sqlx().await?;
+            // Find backend and send updates to it if present.
+            let maybe_backend = match &backend_id {
+                None => None,
+                Some(backend_id) => {
+                    db::janus_backend::FindQuery::new(backend_id)
+                        .execute_sqlx(&mut conn)
+                        .await?
+                }
+            };
+
             let conn = context.get_conn().await?;
             move || {
                 conn.transaction::<_, AppError, _>(|| {
@@ -289,13 +300,6 @@ impl RequestHandler for UpdateHandler {
                 // Retrieve state data.
                 let rtc_writer_configs_with_rtcs =
                     db::rtc_writer_config::ListWithRtcQuery::new(room_id).execute(&conn)?;
-                // Find backend and send updates to it if present.
-                let maybe_backend = match &backend_id {
-                    None => None,
-                    Some(backend_id) => db::janus_backend::FindQuery::new()
-                        .id(backend_id)
-                        .execute(&conn)?,
-                };
 
                 Ok::<_, AppError>((rtc_writer_configs_with_rtcs, maybe_backend))
             }

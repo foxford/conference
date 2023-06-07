@@ -82,27 +82,49 @@ impl Object {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct FindQuery<'a> {
-    id: Option<&'a AgentId>,
+    id: &'a AgentId,
 }
 
 impl<'a> FindQuery<'a> {
-    pub fn new() -> Self {
-        Self { id: None }
-    }
-
-    pub fn id(self, id: &'a AgentId) -> Self {
-        Self { id: Some(id) }
+    pub fn new(id: &'a AgentId) -> Self {
+        Self { id }
     }
 
     pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
         use diesel::prelude::*;
 
-        match self.id {
-            Some(ref id) => janus_backend::table.find(id).get_result(conn).optional(),
-            None => Err(Error::QueryBuilderError(
-                "id parameter is required parameter of the query".into(),
-            )),
-        }
+        janus_backend::table
+            .find(self.id)
+            .get_result(conn)
+            .optional()
+    }
+
+    pub async fn execute_sqlx(
+        &self,
+        conn: &mut sqlx::PgConnection,
+    ) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                id as "id: AgentId",
+                handle_id as "handle_id: HandleId",
+                session_id as "session_id: SessionId",
+                created_at,
+                capacity,
+                balancer_capacity,
+                api_version,
+                "group",
+                janus_url
+            FROM janus_backend
+            WHERE
+                id = $1
+            LIMIT 1
+            "#,
+            self.id as &AgentId
+        )
+        .fetch_optional(conn)
+        .await
     }
 }
 

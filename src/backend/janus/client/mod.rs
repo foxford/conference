@@ -210,7 +210,19 @@ pub enum IceCandidateSdp {
 }
 
 #[derive(
-    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
+    Debug,
+    Deserialize,
+    Serialize,
+    Display,
+    Copy,
+    Clone,
+    DieselNewType,
+    Hash,
+    PartialEq,
+    Eq,
+    FromStr,
+    sqlx::Encode,
+    sqlx::Decode,
 )]
 pub struct HandleId(i64);
 
@@ -225,7 +237,19 @@ impl HandleId {
 }
 
 #[derive(
-    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
+    Debug,
+    Deserialize,
+    Serialize,
+    Display,
+    Copy,
+    Clone,
+    DieselNewType,
+    Hash,
+    PartialEq,
+    Eq,
+    FromStr,
+    sqlx::Encode,
+    sqlx::Decode,
 )]
 pub struct SessionId(i64);
 

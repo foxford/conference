@@ -621,8 +621,7 @@ where
                 // 4. Reconnecting as writer with existing `backend_id`. Select it to avoid partitioning
                 //    of the record across multiple servers.
                 let backend = match room.backend_id() {
-                    Some(backend_id) => db::janus_backend::FindQuery::new()
-                        .id(backend_id)
+                    Some(backend_id) => db::janus_backend::FindQuery::new(backend_id)
                         .execute(&conn)?
                         .context("No backend found for stream")
                         .error(AppErrorKind::BackendNotFound)?,
@@ -1041,8 +1040,7 @@ impl RequestHandler for ConnectHandler {
                 // 4. Reconnecting as writer with existing `backend_id`. Select it to avoid partitioning
                 //    of the record across multiple servers.
                 let backend = match room.backend_id() {
-                    Some(backend_id) => db::janus_backend::FindQuery::new()
-                        .id(backend_id)
+                    Some(backend_id) => db::janus_backend::FindQuery::new(backend_id)
                         .execute(&conn)?
                         .context("No backend found for stream")
                         .error(AppErrorKind::BackendNotFound)?,

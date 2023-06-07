@@ -39,8 +39,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 signal-hook = "0.3.6"
 signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
-sqlx = { version = "0.6", features = ["offline", "postgres", "runtime-tokio-native-tls"] }
-svc-agent = { version = "0.19", features = ["diesel"] }
+sqlx = { version = "0.6", features = ["offline", "postgres", "chrono", "runtime-tokio-native-tls"] }
+svc-agent = { version = "0.19", features = ["diesel", "sqlx"] }
 svc-authn = { version = "0.7", features = ["jose", "diesel"] }
 svc-authz = "0.11"
 svc-conference-events = "0.2"

@@ -141,6 +141,7 @@ pub async fn run(
         config.janus_registry.clone(),
         context.janus_clients(),
         context.db().clone(),
+        context.db_sqlx().clone(),
         config.authn.clone(),
     ));
 

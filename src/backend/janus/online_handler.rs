@@ -72,6 +72,7 @@ pub async fn start_internal_api(
     janus_registry: JanusRegistry,
     clients: Clients,
     db: ConnectionPool,
+    db_sqlx: sqlx::PgPool,
     authn: ConfigMap,
 ) -> anyhow::Result<()> {
     let token = janus_registry.token.clone();
@@ -80,12 +81,14 @@ pub async fn start_internal_api(
     let service = make_service_fn(move |_| {
         let clients = clients.clone();
         let db = db.clone();
+        let db_sqlx = db_sqlx.clone();
         let token = token.clone();
         let authn = authn.clone();
 
         std::future::ready::<Result<_, hyper::Error>>(Ok(service_fn(move |req| {
             let clients = clients.clone();
             let db = db.clone();
+            let db_sqlx = db_sqlx.clone();
             let token = token.clone();
             let authn = authn.clone();
 
@@ -107,7 +110,7 @@ pub async fn start_internal_api(
                             let online: Online = serde_json::from_slice(
                                 &hyper::body::to_bytes(req.into_body()).await?,
                             )?;
-                            handle_online(online, clients, db).await?;
+                            handle_online(online, clients, db, db_sqlx).await?;
                             Ok::<_, anyhow::Error>(Response::builder().body(Body::empty())?)
                         };
                         Ok::<_, String>(handle.await.unwrap_or_else(|err| {
@@ -180,19 +183,18 @@ pub async fn start_internal_api(
     Ok(())
 }
 
-async fn handle_online(event: Online, clients: Clients, db: ConnectionPool) -> Result<()> {
-    let existing_backend = crate::util::spawn_blocking({
-        let backend_id = event.agent_id.clone();
-        let db = db.clone();
-        move || {
-            let conn = db.get()?;
-            let janus = db::janus_backend::FindQuery::new()
-                .id(&backend_id)
-                .execute(&conn)?;
-            Ok::<_, anyhow::Error>(janus)
-        }
-    })
-    .await?;
+async fn handle_online(
+    event: Online,
+    clients: Clients,
+    db: ConnectionPool,
+    db_sqlx: sqlx::PgPool,
+) -> Result<()> {
+    let backend_id = event.agent_id.clone();
+    let mut conn = db_sqlx.acquire().await?;
+    let existing_backend = db::janus_backend::FindQuery::new(&backend_id)
+        .execute_sqlx(&mut conn)
+        .await?;
+
     let janus_client = JanusClient::new(&event.janus_url)?;
     if let Some(backend) = existing_backend {
         let ping_response = janus_client
@@ -304,12 +306,18 @@ mod test {
             janus_url: janus.url.clone(),
         };
 
-        handle_online(event, context.janus_clients(), context.db().clone()).await?;
+        handle_online(
+            event,
+            context.janus_clients(),
+            context.db().clone(),
+            context.db_sqlx().clone(),
+        )
+        .await?;
 
-        let conn = context.get_conn().await?;
-        let backend = db::janus_backend::FindQuery::new()
-            .id(backend_id.agent_id())
-            .execute(&conn)?
+        let mut conn = context.get_conn_sqlx().await?;
+        let backend = db::janus_backend::FindQuery::new(backend_id.agent_id())
+            .execute_sqlx(&mut conn)
+            .await?
             .unwrap();
         // check if handle expired by timeout;
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -347,11 +355,18 @@ mod test {
             janus_url: janus.url.clone(),
         };
 
-        handle_online(event, context.janus_clients(), context.db().clone()).await?;
+        handle_online(
+            event,
+            context.janus_clients(),
+            context.db().clone(),
+            context.db_sqlx().clone(),
+        )
+        .await?;
 
-        let new_backend = db::janus_backend::FindQuery::new()
-            .id(backend.id())
-            .execute(&conn)?
+        let mut conn = context.get_conn_sqlx().await?;
+        let new_backend = db::janus_backend::FindQuery::new(backend.id())
+            .execute_sqlx(&mut conn)
+            .await?
             .unwrap();
         assert_eq!(backend, new_backend);
         context.janus_clients().remove_client(&backend);

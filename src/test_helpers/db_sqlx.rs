@@ -1,7 +1,7 @@
 use std::env::var;
 
-use sqlx::postgres::{PgPool, PgPoolOptions, Postgres};
-use sqlx::{pool::PoolConnection, Executor};
+use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::Executor;
 use tokio::sync::OnceCell;
 
 static DB_TRUNCATE: OnceCell<bool> = OnceCell::const_new();
@@ -38,12 +38,5 @@ impl TestDb {
             })
             .await;
         Self { pool }
-    }
-
-    pub async fn get_conn(&self) -> PoolConnection<Postgres> {
-        self.pool
-            .acquire()
-            .await
-            .expect("Failed to get DB connection")
     }
 }
