@@ -329,12 +329,16 @@ mod test {
         let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
         let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
-        let conn = context.get_conn().await?;
+
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
         let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
+        let mut conn = context.get_conn_sqlx().await?;
         let backend =
-            shared_helpers::insert_janus_backend(&conn, &janus.url, session_id, handle_id);
+            shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                .await;
+
         let event = Online {
             agent_id: backend.id().clone(),
             capacity: Some(1),
@@ -345,7 +349,6 @@ mod test {
 
         handle_online(event, context.janus_clients(), context.db_sqlx().clone()).await?;
 
-        let mut conn = context.get_conn_sqlx().await?;
         let new_backend = db::janus_backend::FindQuery::new(backend.id())
             .execute(&mut conn)
             .await?

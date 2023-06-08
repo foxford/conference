@@ -752,14 +752,16 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
+
             // Insert room with backend and rtc and an agent connection.
             let (backend, rtc, agent_connection, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -851,17 +853,20 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend and rtc and an agent connection.
             let (backend, rtc, agent_connection) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -943,17 +948,20 @@ a=rtcp-fb:120 ccm fir
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend and rtc and an agent connection.
             let (backend, rtc, agent_connection) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -1032,14 +1040,16 @@ a=rtcp-fb:120 ccm fir
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
+
             // Insert room with backend and rtc and an agent connection.
             let (backend, rtc, agent_connection, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -1111,17 +1121,20 @@ a=rtcp-fb:120 ccm fir
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend and rtc and an agent connection.
             let (backend, rtc, agent_connection) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -1178,20 +1191,21 @@ a=rtcp-fb:120 ccm fir
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend and entered agent.
-            let backend = db
-                .connection_pool()
+            db.connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    backend
                 })
                 .unwrap();
 
@@ -1233,17 +1247,20 @@ a=rtcp-fb:120 ccm fir
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend and RTC and an RTC in another room.
             let (backend, rtc, agent_connection) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -1297,17 +1314,28 @@ a=rtcp-fb:120 ccm fir
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
+            let other_backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend, rtc and connected agent and another backend.
             let (backend, rtc, agent_connection) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -1318,12 +1346,6 @@ a=rtcp-fb:120 ccm fir
                         rtc.id(),
                     );
 
-                    let other_backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
                     (other_backend, rtc, agent_connection)
                 })
                 .unwrap();
@@ -1427,17 +1449,20 @@ a=rtcp-fb:120 ccm fir
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend, rtc and connected agent and another backend.
             let (backend, rtc) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
                     (backend, rtc)
@@ -1482,17 +1507,20 @@ a=rtcp-fb:120 ccm fir
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend, rtc and entered agent.
             let (backend, rtc) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
@@ -1538,17 +1566,20 @@ a=rtcp-fb:120 ccm fir
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend, rtc and a connect agent.
             let (backend, rtc) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -1603,17 +1634,20 @@ a=rtcp-fb:120 ccm fir
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::random(),
+            )
+            .await;
+
             // Insert room with backend, rtc and 2 connect agents.
             let (backend, rtc, agent2_connection) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::random(),
-                    );
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
@@ -1675,17 +1709,20 @@ a=rtcp-fb:120 ccm fir
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert closed room with backend, rtc and connected agent.
             let (backend, rtc, agent_connection) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
                     let room =
                         shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
 
@@ -1743,17 +1780,20 @@ a=rtcp-fb:120 ccm fir
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let now = Utc::now();
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend, rtc owned by agent2 and connect agent1.
             let (backend, rtc, agent_connection) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
                         .time((Bound::Included(now), Bound::Unbounded))
@@ -1819,14 +1859,16 @@ a=rtcp-fb:120 ccm fir
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
+
             // Insert room with backend and rtc and an agent connection.
             let (backend, rtc, agent_connection, room) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
                         .time((

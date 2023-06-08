@@ -363,13 +363,15 @@ mod tests {
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
+        let mut conn = db_sqlx.get_conn().await;
+        let backend =
+            shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                .await;
+
         let (room, backend) = db
             .connection_pool()
             .get()
             .map(|conn| {
-                let backend =
-                    shared_helpers::insert_janus_backend(&conn, &janus.url, session_id, handle_id);
-
                 let room = factory::Room::new()
                     .audience(USR_AUDIENCE)
                     .time((Bound::Included(Utc::now()), Bound::Unbounded))

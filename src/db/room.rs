@@ -570,14 +570,14 @@ mod tests {
 
             let mut conn_sqlx = db_sqlx.get_conn().await;
 
-            let backend1 = shared_helpers::insert_janus_backend_sqlx(
+            let backend1 = shared_helpers::insert_janus_backend(
                 &mut conn_sqlx,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
             )
             .await;
-            let backend2 = shared_helpers::insert_janus_backend_sqlx(
+            let backend2 = shared_helpers::insert_janus_backend(
                 &mut conn_sqlx,
                 "test",
                 SessionId::random(),
@@ -623,29 +623,34 @@ mod tests {
             }
         }
 
-        #[test]
-        fn selects_appropriate_backend_by_group() {
+        #[tokio::test]
+        async fn selects_appropriate_backend_by_group() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
-            let pool = db.connection_pool();
-            let conn = pool.get().expect("Failed to get db connection");
+            let mut conn = db_sqlx.get_conn().await;
 
             let backend1 = shared_helpers::insert_janus_backend_with_group(
-                &conn,
+                &mut conn,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
                 "webinar",
-            );
+            )
+            .await;
             let backend2 = shared_helpers::insert_janus_backend_with_group(
-                &conn,
+                &mut conn,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
                 "minigroup",
-            );
+            )
+            .await;
+
+            let pool = db.connection_pool();
+            let conn = pool.get().expect("Failed to get db connection");
 
             let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
             let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());

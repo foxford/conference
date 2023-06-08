@@ -1659,19 +1659,20 @@ mod test {
             let mut authz = TestAuthz::new();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
+            let mut conn = db_sqlx.get_conn().await;
+            // Insert janus backends.
+            let backend1 =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
+            let backend2 =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
+
             // Insert an rtc and janus backend.
             let (rtc, classroom_id, backend, agent) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    // Insert janus backends.
-                    let backend1 = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
-                    let backend2 = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
-
                     // The first backend has an active agent.
                     let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
 
@@ -1757,18 +1758,19 @@ mod test {
             let mut authz = TestAuthz::new();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
+            let mut conn = db_sqlx.get_conn().await;
+            let _backend1 =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
+            let backend2 =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
+
             // Insert an rtc and janus backend.
             let (rtc, classroom_id, backend, agent) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let _backend1 = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
-                    let backend2 = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
-
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
 
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
@@ -1827,7 +1829,7 @@ mod test {
             let backend1 =
                 factory::JanusBackend::new(backend1_id, handle_id, session_id, janus.url.clone())
                     .capacity(20)
-                    .insert_sqlx(&mut conn)
+                    .insert(&mut conn)
                     .await;
 
             // The second backend is too small but has no load.
@@ -1838,7 +1840,7 @@ mod test {
 
             factory::JanusBackend::new(backend2_id, handle_id, session_id, janus.url.clone())
                 .capacity(5)
-                .insert_sqlx(&mut conn)
+                .insert(&mut conn)
                 .await;
 
             let (rtc, classroom_id, backend, agent) = db
@@ -1928,7 +1930,7 @@ mod test {
             let backend =
                 factory::JanusBackend::new(backend_id, handle_id, session_id, janus.url.clone())
                     .capacity(4)
-                    .insert_sqlx(&mut conn)
+                    .insert(&mut conn)
                     .await;
 
             let (rtc1, rtc2, backend, classroom_id1, classroom_id2) = db
@@ -2052,7 +2054,7 @@ mod test {
             let backend =
                 factory::JanusBackend::new(backend_id, handle_id, session_id, janus.url.clone())
                     .capacity(2)
-                    .insert_sqlx(&mut conn)
+                    .insert(&mut conn)
                     .await;
 
             let (rtc, backend, classroom_id) = db
@@ -2121,7 +2123,7 @@ mod test {
             let backend =
                 factory::JanusBackend::new(backend_id, handle_id, session_id, janus.url.clone())
                     .capacity(2)
-                    .insert_sqlx(&mut conn)
+                    .insert(&mut conn)
                     .await;
 
             let (rtc, classroom_id) = db
@@ -2204,7 +2206,7 @@ mod test {
             let backend =
                 factory::JanusBackend::new(backend_id, handle_id, session_id, janus.url.clone())
                     .capacity(1)
-                    .insert_sqlx(&mut conn)
+                    .insert(&mut conn)
                     .await;
 
             let (rtc, backend, classroom_id) = db
@@ -2279,7 +2281,7 @@ mod test {
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
                     .balancer_capacity(700)
                     .capacity(800)
-                    .insert_sqlx(&mut conn)
+                    .insert(&mut conn)
                     .await
             };
 
@@ -2289,7 +2291,7 @@ mod test {
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
                     .balancer_capacity(700)
                     .capacity(800)
-                    .insert_sqlx(&mut conn)
+                    .insert(&mut conn)
                     .await
             };
 
@@ -2299,7 +2301,7 @@ mod test {
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
                     .balancer_capacity(700)
                     .capacity(800)
-                    .insert_sqlx(&mut conn)
+                    .insert(&mut conn)
                     .await
             };
 
@@ -2309,7 +2311,7 @@ mod test {
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
                     .balancer_capacity(700)
                     .capacity(800)
-                    .insert_sqlx(&mut conn)
+                    .insert(&mut conn)
                     .await
             };
 
@@ -2473,7 +2475,7 @@ mod test {
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
                     .balancer_capacity(700)
                     .capacity(800)
-                    .insert_sqlx(&mut conn)
+                    .insert(&mut conn)
                     .await
             };
 
@@ -2637,6 +2639,11 @@ mod test {
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
+
             // Create an RTC.
             let (rtc, backend, classroom_id) = db
                 .connection_pool()
@@ -2644,10 +2651,6 @@ mod test {
                 .map(|conn| {
                     let now = Utc::now();
                     let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
-
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
 
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
@@ -2698,6 +2701,11 @@ mod test {
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
+
             // Create an RTC.
             let (rtc, backend, classroom_id) = db
                 .connection_pool()
@@ -2705,10 +2713,6 @@ mod test {
                 .map(|conn| {
                     let now = Utc::now();
                     let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
-
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
 
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
@@ -2761,6 +2765,11 @@ mod test {
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
+
             // Create an RTC.
             let (rtc, backend, classroom_id) = db
                 .connection_pool()
@@ -2768,10 +2777,6 @@ mod test {
                 .map(|conn| {
                     let now = Utc::now();
                     let creator = TestAgent::new("web", "creator", USR_AUDIENCE);
-
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
 
                     let room = factory::Room::new()
                         .audience(USR_AUDIENCE)
@@ -2833,7 +2838,7 @@ mod test {
                 janus.url.clone(),
             )
             .group("wrong")
-            .insert_sqlx(&mut conn)
+            .insert(&mut conn)
             .await;
 
             let backend2_agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
@@ -2845,7 +2850,7 @@ mod test {
                 janus.url.clone(),
             )
             .group("right")
-            .insert_sqlx(&mut conn)
+            .insert(&mut conn)
             .await;
 
             let (rtc, backend, classroom_id) = {

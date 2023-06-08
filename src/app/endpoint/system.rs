@@ -456,15 +456,17 @@ mod test {
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            // Insert janus backend and rooms.
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn, &janus.url, session_id, handle_id,
+            )
+            .await;
+
             let (rtcs, backend) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    // Insert janus backend and rooms.
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
-
                     let room1 =
                         shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
 

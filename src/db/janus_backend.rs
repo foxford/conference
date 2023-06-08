@@ -594,7 +594,7 @@ mod tests {
     use crate::{
         backend::janus::client::{HandleId, SessionId},
         db::rtc::SharingPolicy as RtcSharingPolicy,
-        test_helpers::{prelude::*, test_deps::LocalDeps},
+        test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
     };
 
     #[tokio::test]
@@ -609,25 +609,33 @@ mod tests {
             .get()
             .expect("Failed to get db conn");
 
+        let mut conn_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres)
+            .await
+            .get_conn()
+            .await;
+
         // Insert janus backends.
         let backend1 = shared_helpers::insert_janus_backend(
-            &conn,
+            &mut conn_sqlx,
             "test",
             SessionId::random(),
             HandleId::random(),
-        );
+        )
+        .await;
         let backend2 = shared_helpers::insert_janus_backend(
-            &conn,
+            &mut conn_sqlx,
             "test",
             SessionId::random(),
             HandleId::random(),
-        );
+        )
+        .await;
         let backend3 = shared_helpers::insert_janus_backend(
-            &conn,
+            &mut conn_sqlx,
             "test",
             SessionId::random(),
             HandleId::random(),
-        );
+        )
+        .await;
 
         let room1 = factory::Room::new()
             .audience(USR_AUDIENCE)
