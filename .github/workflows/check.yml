@@ -36,3 +36,6 @@ jobs:
       run: cargo test --verbose 
       env:
         RUST_BACKTRACE: 1
+        PGPORT: 5432
+        DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
+        SQLX_OFFLINE: true
