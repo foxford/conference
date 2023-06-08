@@ -226,7 +226,7 @@ impl<'a> DeleteQuery<'a> {
 // - optional room reserve;
 // - writer's bitrate;
 // - possible multiple RTCs in each room.
-pub async fn most_loaded_sqlx(
+pub async fn most_loaded(
     room_id: db::room::Id,
     group: Option<&str>,
     conn: &mut sqlx::PgConnection,
@@ -297,7 +297,7 @@ pub async fn most_loaded_sqlx(
 }
 
 // The same as above but finds the least loaded backend instead without considering the reserve.
-pub async fn least_loaded_sqlx(
+pub async fn least_loaded(
     room_id: db::room::Id,
     group: Option<&str>,
     conn: &mut sqlx::PgConnection,
@@ -382,7 +382,7 @@ struct FreeCapacityQueryRow {
 
 // Similar to the previous one but returns the number of free slots for the room on the backend
 // that hosts the active stream for the given RTC.
-pub async fn free_capacity_sqlx(
+pub async fn free_capacity(
     rtc_id: db::rtc::Id,
     conn: &mut sqlx::PgConnection,
 ) -> sqlx::Result<i32> {

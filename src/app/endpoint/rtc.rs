@@ -618,11 +618,11 @@ where
                     .context("No backend found for stream")
                     .error(AppErrorKind::BackendNotFound)?,
                 None if group.as_deref() == Some("minigroup") => {
-                    let b = db::janus_backend::least_loaded_sqlx(room.id(), group.as_deref(), &mut conn).await.transpose();
+                    let b = db::janus_backend::least_loaded(room.id(), group.as_deref(), &mut conn).await.transpose();
                     let b = match b {
                         Some(b) => Some(b),
                         None => {
-                            db::janus_backend::most_loaded_sqlx(room.id(), group.as_deref(), &mut conn).await.transpose()
+                            db::janus_backend::most_loaded(room.id(), group.as_deref(), &mut conn).await.transpose()
                         }
                     };
 
@@ -630,9 +630,9 @@ where
                         .context("No available backends")
                         .error(AppErrorKind::NoAvailableBackends)??
                 }
-                None => match db::janus_backend::most_loaded_sqlx(room.id(), group.as_deref(), &mut conn).await? {
+                None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &mut conn).await? {
                     Some(backend) => backend,
-                    None => db::janus_backend::least_loaded_sqlx(room.id(), group.as_deref(), &mut conn).await?
+                    None => db::janus_backend::least_loaded(room.id(), group.as_deref(), &mut conn).await?
                         .map(|backend| {
                             use sentry::protocol::{value::Value, Event, Level};
                             let backend_id = backend.id().to_string();
@@ -665,7 +665,7 @@ where
         match self.intent {
             ConnectIntent::Read => {
                 // Check that the backend's capacity is not exceeded for readers.
-                if db::janus_backend::free_capacity_sqlx(self.rtc_id, &mut conn).await? == 0 {
+                if db::janus_backend::free_capacity(self.rtc_id, &mut conn).await? == 0 {
                     return Err(anyhow!(
                         "Active agents number on the backend exceeded its capacity"
                     ))
@@ -1033,11 +1033,11 @@ impl RequestHandler for ConnectHandler {
                     .context("No backend found for stream")
                     .error(AppErrorKind::BackendNotFound)?,
                 None if group.as_deref() == Some("minigroup") => {
-                    let b = db::janus_backend::least_loaded_sqlx(room.id(), group.as_deref(), &mut conn).await.transpose();
+                    let b = db::janus_backend::least_loaded(room.id(), group.as_deref(), &mut conn).await.transpose();
                     let b = match b {
                         Some(b) => Some(b),
                         None => {
-                            db::janus_backend::most_loaded_sqlx(room.id(), group.as_deref(), &mut conn).await.transpose()
+                            db::janus_backend::most_loaded(room.id(), group.as_deref(), &mut conn).await.transpose()
                         }
                     };
 
@@ -1045,9 +1045,9 @@ impl RequestHandler for ConnectHandler {
                         .context("No available backends")
                         .error(AppErrorKind::NoAvailableBackends)??
                 }
-                None => match db::janus_backend::most_loaded_sqlx(room.id(), group.as_deref(), &mut conn).await? {
+                None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &mut conn).await? {
                     Some(backend) => backend,
-                    None => db::janus_backend::least_loaded_sqlx(room.id(), group.as_deref(), &mut conn).await?
+                    None => db::janus_backend::least_loaded(room.id(), group.as_deref(), &mut conn).await?
                         .map(|backend| {
                             use sentry::protocol::{value::Value, Event, Level};
                             let backend_id = backend.id().to_string();
@@ -1080,7 +1080,7 @@ impl RequestHandler for ConnectHandler {
         match payload.intent {
             ConnectIntent::Read => {
                 // Check that the backend's capacity is not exceeded for readers.
-                if db::janus_backend::free_capacity_sqlx(payload.id, &mut conn).await? == 0 {
+                if db::janus_backend::free_capacity(payload.id, &mut conn).await? == 0 {
                     return Err(anyhow!(
                         "Active agents number on the backend exceeded its capacity"
                     ))
