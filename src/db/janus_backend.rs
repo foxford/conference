@@ -171,19 +171,7 @@ impl<'a> UpsertQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::schema::janus_backend::dsl::janus_backend;
-        use diesel::RunQueryDsl;
-
-        diesel::insert_into(janus_backend)
-            .values(self)
-            .on_conflict(crate::schema::janus_backend::id)
-            .do_update()
-            .set(self)
-            .get_result(conn)
-    }
-
-    pub async fn execute_sqlx(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
         sqlx::query_as!(
             Object,
             r#"
@@ -241,19 +229,22 @@ impl<'a> DeleteQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-
-        diesel::delete(
-            janus_backend::table.filter(
-                janus_backend::id.eq(self.id).and(
-                    janus_backend::session_id
-                        .eq(self.session_id)
-                        .and(janus_backend::handle_id.eq(self.handle_id)),
-                ),
-            ),
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM janus_backend
+            WHERE
+                id = $1 AND
+                session_id = $2 AND
+                handle_id = $3
+            "#,
+            self.id as &AgentId,
+            self.session_id as SessionId,
+            self.handle_id as HandleId
         )
         .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 

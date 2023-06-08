@@ -240,16 +240,6 @@ impl BulkDisconnectByRtcQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// Diesel doesn't support joins in UPDATE/DELETE queries so it's raw SQL.
-const BULK_DISCONNECT_BY_BACKEND_SQL: &str = r#"
-    DELETE FROM agent_connection AS ac
-    USING agent AS a,
-          room AS r
-    WHERE a.id = ac.agent_id
-    AND   r.id = a.room_id
-    AND   r.backend_id = $1
-"#;
-
 #[derive(Debug)]
 pub struct BulkDisconnectByBackendQuery<'a> {
     backend_id: &'a AgentId,
@@ -260,13 +250,21 @@ impl<'a> BulkDisconnectByBackendQuery<'a> {
         Self { backend_id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use crate::db::sql::Agent_id;
-        use diesel::prelude::*;
-
-        diesel::sql_query(BULK_DISCONNECT_BY_BACKEND_SQL)
-            .bind::<Agent_id, _>(self.backend_id)
-            .execute(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM agent_connection AS ac
+            USING agent AS a,
+                room AS r
+            WHERE a.id = ac.agent_id
+            AND   r.id = a.room_id
+            AND   r.backend_id = $1
+            "#,
+            self.backend_id as &AgentId
+        )
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 

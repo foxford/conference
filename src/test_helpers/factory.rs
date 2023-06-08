@@ -303,7 +303,7 @@ impl JanusBackend {
             q = q.group(group);
         }
 
-        q.execute_sqlx(conn)
+        q.execute(conn)
             .await
             .expect("Failed to insert janus_backend")
     }

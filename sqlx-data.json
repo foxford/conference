@@ -1,5 +1,158 @@
 {
   "db": "PostgreSQL",
+  "08bff4e59d10ecc84c35d4564694a04e673c06bb8d7ace557aafe494bd97d2e4": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: AgentId",
+          "ordinal": 0,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "session_id: SessionId",
+          "ordinal": 2,
+          "type_info": "Int8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "capacity",
+          "ordinal": 4,
+          "type_info": "Int4"
+        },
+        {
+          "name": "balancer_capacity",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "api_version",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "group",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "janus_url",
+          "ordinal": 8,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Int8",
+          "Int8",
+          "Int4",
+          "Int4",
+          "Text",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO janus_backend\n                (id, handle_id, session_id, capacity, balancer_capacity, api_version, \"group\", janus_url)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n            ON CONFLICT (id) DO UPDATE\n            SET\n                handle_id         = $2,\n                session_id        = $3,\n                capacity          = $4,\n                balancer_capacity = $5,\n                api_version       = $6,\n                \"group\"           = $7,\n                janus_url         = $8\n            RETURNING\n                id as \"id: AgentId\",\n                handle_id as \"handle_id: HandleId\",\n                session_id as \"session_id: SessionId\",\n                created_at,\n                capacity,\n                balancer_capacity,\n                api_version,\n                \"group\",\n                janus_url\n            "
+  },
+  "266b487d38f7eadea36cb02ff28148a6e314dca71bd7a3a88450163aaa0c4bce": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Record",
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM janus_backend\n            WHERE\n                id = $1 AND\n                session_id = $2 AND\n                handle_id = $3\n            "
+  },
   "30a8ff598a9feeb9b2677c41237589fa57a9c922eff998f21f5c6ded6a33a39e": {
     "describe": {
       "columns": [
@@ -285,6 +438,150 @@
       }
     },
     "query": "\n            UPDATE room\n            SET\n                backend_id   = COALESCE($2, backend_id),\n                time         = COALESCE($3, time),\n                reserve      = COALESCE($4, reserve),\n                tags         = COALESCE($5, tags),\n                classroom_id = COALESCE($6, classroom_id),\n                host         = COALESCE($7, host),\n                timed_out    = COALESCE($8, timed_out)\n            WHERE\n                id = $1\n            RETURNING\n                id as \"id: Id\",\n                backend_id as \"backend_id: AgentId\",\n                time as \"time: TimeSqlx\",\n                reserve,\n                tags,\n                classroom_id,\n                host as \"host: AgentId\",\n                timed_out,\n                audience,\n                created_at,\n                backend as \"backend: RoomBackend\",\n                rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n                infinite,\n                closed_by as \"closed_by: AgentId\"\n            "
+  },
+  "340b4406bbe1066afaab3e0a3e2075dcd51900199c61e0b6807687f60b28d384": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Record"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM agent_connection AS ac\n            USING agent AS a,\n                room AS r\n            WHERE a.id = ac.agent_id\n            AND   r.id = a.room_id\n            AND   r.backend_id = $1\n            "
+  },
+  "3c812db1fd6ebbccae2e2bdf1b0ddf1e0f03204cddb88c769f36246055789ce9": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: db::id::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "label",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "sent_by: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimeSqlx",
+          "ordinal": 7,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "room_id: Id",
+          "ordinal": 8,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Record"
+        ]
+      }
+    },
+    "query": "\n        UPDATE \"janus_rtc_stream\"\n        SET \"time\" = (\n            CASE WHEN \"time\" IS NOT NULL THEN\n                TSTZRANGE(\n                    LOWER(\"time\"),\n                    GREATEST(NOW(), LOWER(\"time\") + '1 millisecond'::INTERVAL),\n                    '[)'\n                )\n            END\n        )\n        FROM \"rtc\"\n        WHERE \"rtc\".\"id\" = \"janus_rtc_stream\".\"rtc_id\"\n        AND   (\n            lower(\"janus_rtc_stream\".\"time\") is not null\n            and upper(\"janus_rtc_stream\".\"time\") is null\n        )\n        AND \"janus_rtc_stream\".\"backend_id\" = $1\n        RETURNING\n            \"janus_rtc_stream\".\"id\" as \"id: db::id::Id\",\n            \"janus_rtc_stream\".\"handle_id\" as \"handle_id: HandleId\",\n            \"janus_rtc_stream\".\"rtc_id\" as \"rtc_id: Id\",\n            \"janus_rtc_stream\".\"backend_id\" as \"backend_id: AgentId\",\n            \"janus_rtc_stream\".\"created_at\",\n            \"janus_rtc_stream\".\"label\",\n            \"janus_rtc_stream\".\"sent_by\" as \"sent_by: AgentId\",\n            \"janus_rtc_stream\".\"time\" as \"time: TimeSqlx\",\n            \"rtc\".\"room_id\" as \"room_id: Id\"\n        "
   },
   "5e4f1a0ad6671a957465da1cc7a5a10b158160b3e87ea613712b153dbf3d338f": {
     "describe": {

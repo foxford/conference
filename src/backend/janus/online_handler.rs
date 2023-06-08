@@ -241,7 +241,7 @@ async fn handle_online(event: Online, clients: Clients, db: sqlx::PgPool) -> Res
         q = q.group(group);
     }
 
-    let backend = q.execute_sqlx(&mut conn).await?;
+    let backend = q.execute(&mut conn).await?;
 
     clients.get_or_insert(&backend)?;
     Ok(())

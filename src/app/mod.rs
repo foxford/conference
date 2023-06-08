@@ -85,7 +85,7 @@ pub async fn run(
     let clients = Clients::new(
         ev_tx,
         config.janus_group.clone(),
-        db.clone(),
+        db_sqlx.clone(),
         config.waitlist_epoch_duration,
         own_ip_addr,
         Some(agent.clone()),

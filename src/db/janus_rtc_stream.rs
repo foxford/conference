@@ -14,6 +14,8 @@ use crate::{
     schema::{janus_rtc_stream, rtc},
 };
 
+use super::room::TimeSqlx;
+
 ////////////////////////////////////////////////////////////////////////////////
 
 pub type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
@@ -288,24 +290,77 @@ lazy_static::lazy_static!(
     );
 );
 
-#[derive(Debug, Deserialize, Serialize, Queryable, QueryableByName, Associations)]
+#[derive(Debug)]
 pub struct StreamWithRoomId {
-    #[diesel(embed)]
-    pub janus_rtc_stream: Object,
-    #[sql_type = "diesel::sql_types::Uuid"]
+    pub id: Id,
+    pub handle_id: HandleId,
+    pub rtc_id: db::rtc::Id,
+    pub backend_id: AgentId,
+    pub label: String,
+    pub sent_by: AgentId,
+    pub time: Option<TimeSqlx>,
+    pub created_at: DateTime<Utc>,
     pub room_id: db::room::Id,
 }
 
-pub fn stop_running_streams_by_backend(
-    backend_id: &AgentId,
-    conn: &PgConnection,
-) -> Result<Vec<StreamWithRoomId>, Error> {
-    use crate::db::sql::Agent_id;
-    use diesel::prelude::*;
+impl StreamWithRoomId {
+    pub fn time(&self) -> Option<Time> {
+        self.time.as_ref().map(|t| Time::from(t.clone()))
+    }
 
-    diesel::sql_query(&*BULK_STOP_BY_BACKEND_SQL)
-        .bind::<Agent_id, _>(backend_id)
-        .get_results(conn)
+    pub fn janus_rtc_stream(&self) -> Object {
+        Object {
+            id: self.id,
+            handle_id: self.handle_id,
+            rtc_id: self.rtc_id,
+            backend_id: self.backend_id.clone(),
+            label: self.label.clone(),
+            sent_by: self.sent_by.clone(),
+            time: self.time(),
+            created_at: self.created_at,
+        }
+    }
+}
+
+pub async fn stop_running_streams_by_backend(
+    backend_id: &AgentId,
+    conn: &mut sqlx::PgConnection,
+) -> sqlx::Result<Vec<StreamWithRoomId>> {
+    sqlx::query_as!(
+        StreamWithRoomId,
+        r#"
+        UPDATE "janus_rtc_stream"
+        SET "time" = (
+            CASE WHEN "time" IS NOT NULL THEN
+                TSTZRANGE(
+                    LOWER("time"),
+                    GREATEST(NOW(), LOWER("time") + '1 millisecond'::INTERVAL),
+                    '[)'
+                )
+            END
+        )
+        FROM "rtc"
+        WHERE "rtc"."id" = "janus_rtc_stream"."rtc_id"
+        AND   (
+            lower("janus_rtc_stream"."time") is not null
+            and upper("janus_rtc_stream"."time") is null
+        )
+        AND "janus_rtc_stream"."backend_id" = $1
+        RETURNING
+            "janus_rtc_stream"."id" as "id: db::id::Id",
+            "janus_rtc_stream"."handle_id" as "handle_id: HandleId",
+            "janus_rtc_stream"."rtc_id" as "rtc_id: Id",
+            "janus_rtc_stream"."backend_id" as "backend_id: AgentId",
+            "janus_rtc_stream"."created_at",
+            "janus_rtc_stream"."label",
+            "janus_rtc_stream"."sent_by" as "sent_by: AgentId",
+            "janus_rtc_stream"."time" as "time: TimeSqlx",
+            "rtc"."room_id" as "room_id: Id"
+        "#,
+        backend_id as &AgentId
+    )
+    .fetch_all(conn)
+    .await
 }
 
 #[cfg(test)]
@@ -327,14 +382,15 @@ mod tests {
             .insert(&conn, &mut conn_sqlx)
             .await;
 
-        let r = stop_running_streams_by_backend(rtc_stream.backend_id(), &conn)
+        let r = stop_running_streams_by_backend(rtc_stream.backend_id(), &mut conn_sqlx)
+            .await
             .expect("Failed to stop running streams");
 
         assert_eq!(r.len(), 1);
         let stream = &r[0];
-        assert_eq!(stream.janus_rtc_stream.id(), rtc_stream.id());
+        assert_eq!(stream.id, rtc_stream.id());
         assert!(matches!(
-            stream.janus_rtc_stream.time(),
+            stream.time(),
             Some((std::ops::Bound::Included(_), std::ops::Bound::Excluded(_)))
         ));
     }

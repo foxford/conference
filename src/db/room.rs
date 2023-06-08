@@ -27,7 +27,7 @@ use crate::{
 
 pub type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
-#[derive(sqlx::Type)]
+#[derive(sqlx::Type, Debug, Clone)]
 #[sqlx(transparent)]
 pub struct TimeSqlx(sqlx::postgres::types::PgRange<DateTime<Utc>>);
 

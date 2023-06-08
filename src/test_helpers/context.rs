@@ -178,7 +178,7 @@ impl TestContext {
         self.clients = Some(Clients::new(
             events_sink,
             None,
-            self.db().clone(),
+            self.db_sqlx().clone(),
             WAITLIST_DURATION,
             IpAddr::V4(Ipv4Addr::LOCALHOST),
             None,
@@ -189,7 +189,7 @@ impl TestContext {
         self.clients = Some(Clients::new(
             events_sink,
             Some(group.to_string()),
-            self.db().clone(),
+            self.db_sqlx().clone(),
             WAITLIST_DURATION,
             IpAddr::V4(Ipv4Addr::LOCALHOST),
             None,
