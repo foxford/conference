@@ -458,10 +458,9 @@ mod test {
 
             let mut conn = db_sqlx.get_conn().await;
             // Insert janus backend and rooms.
-            let backend = shared_helpers::insert_janus_backend(
-                &mut conn, &janus.url, session_id, handle_id,
-            )
-            .await;
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
 
             let (rtcs, backend) = db
                 .connection_pool()
