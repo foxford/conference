@@ -984,7 +984,7 @@ mod test {
         use crate::db::group_agent::{GroupItem, Groups};
         use crate::{
             db::room::Object as Room,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -994,6 +994,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             // Allow user to create rooms.
             let mut authz = TestAuthz::new();
@@ -1001,7 +1002,7 @@ mod test {
             authz.allow(agent.account_id(), vec!["classrooms"], "create");
 
             // Make room.create request.
-            let mut context = TestContext::new(db.clone(), authz).await;
+            let mut context = TestContext::new(db.clone(), db_sqlx, authz).await;
             let time = (Bound::Unbounded, Bound::Unbounded);
             let classroom_id = Uuid::new_v4();
 
@@ -1046,8 +1047,9 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             // Make room.create request.
@@ -1074,6 +1076,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             // Allow user to create rooms.
             let mut authz = TestAuthz::new();
@@ -1081,7 +1084,7 @@ mod test {
             authz.allow(agent.account_id(), vec!["classrooms"], "create");
 
             // Make room.create request.
-            let mut context = TestContext::new(db.clone(), authz).await;
+            let mut context = TestContext::new(db.clone(), db_sqlx, authz).await;
             let time = (Bound::Unbounded, Bound::Unbounded);
             let classroom_id = Uuid::new_v4();
 
@@ -1118,7 +1121,7 @@ mod test {
     mod read {
         use crate::{
             db::room::Object as Room,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1128,6 +1131,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
                 let conn = db
@@ -1150,7 +1154,7 @@ mod test {
             );
 
             // Make room.read request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let payload = ReadRequest { id: room.id() };
 
             let messages = handle_request::<ReadHandler>(&mut context, &agent, payload)
@@ -1170,6 +1174,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -1181,7 +1186,7 @@ mod test {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
             let payload = ReadRequest { id: room.id() };
 
             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
@@ -1197,9 +1202,10 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
             let payload = ReadRequest {
                 id: db::room::Id::random(),
             };
@@ -1222,7 +1228,7 @@ mod test {
 
         use crate::{
             db::room::Object as Room,
-            test_helpers::{find_event_by_predicate, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, find_event_by_predicate, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1232,6 +1238,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
@@ -1259,7 +1266,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let classroom_id = Uuid::new_v4();
 
             let time = (
@@ -1301,6 +1308,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
@@ -1331,7 +1339,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
 
             let time = (
                 Bound::Included(now + Duration::hours(3)),
@@ -1357,6 +1365,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
@@ -1387,7 +1396,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
 
             let time = (
                 Bound::Included(now - Duration::hours(1)),
@@ -1439,6 +1448,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
@@ -1465,7 +1475,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
 
             let time = (
                 Bound::Included(now - Duration::hours(1)),
@@ -1491,9 +1501,10 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = UpdateRequest {
                 id: db::room::Id::random(),
@@ -1517,6 +1528,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -1529,7 +1541,7 @@ mod test {
                 shared_helpers::insert_closed_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = UpdateRequest {
                 id: room.id(),
@@ -1556,7 +1568,7 @@ mod test {
 
         use crate::{
             db::room::Object as Room,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1566,6 +1578,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
                 let conn = db
@@ -1592,7 +1605,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
 
             let payload = CloseRequest { id: room.id() };
 
@@ -1620,6 +1633,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
                 let conn = db
@@ -1647,7 +1661,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
 
             let payload = CloseRequest { id: room.id() };
 
@@ -1661,6 +1675,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
                 let conn = db
@@ -1690,7 +1705,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
 
             let payload = CloseRequest { id: room.id() };
 
@@ -1718,9 +1733,10 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = CloseRequest {
                 id: db::room::Id::random(),
@@ -1739,6 +1755,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -1751,7 +1768,7 @@ mod test {
                 shared_helpers::insert_closed_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = CloseRequest { id: room.id() };
 
@@ -1765,10 +1782,10 @@ mod test {
     }
 
     mod enter {
-        use crate::db::group_agent::{GroupItem, Groups};
         use chrono::{Duration, Utc};
 
-        use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
+        use crate::db::group_agent::{GroupItem, Groups};
+        use crate::test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps};
 
         use super::super::*;
 
@@ -1777,6 +1794,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
                 let conn = db
@@ -1804,7 +1822,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db, authz).await;
+            let context = TestContext::new(db, db_sqlx, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1820,6 +1838,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -1831,7 +1850,7 @@ mod test {
                 shared_helpers::insert_room(&conn)
             };
 
-            let context = TestContext::new(db, TestAuthz::new()).await;
+            let context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1851,9 +1870,10 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
-
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let context = TestContext::new(db, TestAuthz::new()).await;
+            let context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+
             let payload = EnterRequest {
                 id: db::room::Id::random(),
             };
@@ -1875,6 +1895,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
                 let conn = db
@@ -1897,7 +1918,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db, authz).await;
+            let context = TestContext::new(db, db_sqlx, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1917,6 +1938,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
                 let conn = db
@@ -1942,7 +1964,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db, authz).await;
+            let context = TestContext::new(db, db_sqlx, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1962,6 +1984,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
                 let conn = db
@@ -1990,7 +2013,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db, authz).await;
+            let context = TestContext::new(db, db_sqlx, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -2006,6 +2029,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
                 let conn = db
@@ -2038,7 +2062,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db.clone(), authz).await;
+            let context = TestContext::new(db.clone(), db_sqlx, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -2066,6 +2090,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -2101,7 +2126,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db.clone(), authz).await;
+            let context = TestContext::new(db.clone(), db_sqlx, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -2130,6 +2155,8 @@ mod test {
             let janus = local_deps.run_janus();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
@@ -2177,7 +2204,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let mut context = TestContext::new(db.clone(), authz).await;
+            let mut context = TestContext::new(db.clone(), db_sqlx, authz).await;
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2215,7 +2242,7 @@ mod test {
     }
 
     mod leave {
-        use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
+        use crate::test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps};
 
         use super::{super::*, DynSubRequest};
 
@@ -2224,6 +2251,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -2241,7 +2269,7 @@ mod test {
             };
 
             // Make room.leave request.
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
             let payload = LeaveRequest { id: room.id() };
 
             let messages = handle_request::<LeaveHandler>(&mut context, &agent, payload)
@@ -2272,6 +2300,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -2283,7 +2312,7 @@ mod test {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
             let payload = LeaveRequest { id: room.id() };
 
             let err = handle_request::<LeaveHandler>(&mut context, &agent, payload)
@@ -2299,8 +2328,10 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+
             let payload = LeaveRequest {
                 id: db::room::Id::random(),
             };

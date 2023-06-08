@@ -146,7 +146,7 @@ pub struct TestContext {
 const WAITLIST_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl TestContext {
-    pub async fn new(db: TestDb, authz: TestAuthz) -> Self {
+    pub async fn new(db: TestDb, db_sqlx: super::db_sqlx::TestDb, authz: TestAuthz) -> Self {
         // can be safely dropped
         let mock_server = MockServer::start();
         let _subscriptions_mock = mock_server.mock(|when, then| {
@@ -163,7 +163,7 @@ impl TestContext {
             config,
             authz: authz.into(),
             db,
-            db_sqlx: db_sqlx::TestDb::new().await,
+            db_sqlx,
             agent_id,
             start_timestamp: Utc::now(),
             clients: None,

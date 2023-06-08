@@ -140,7 +140,6 @@ pub async fn run(
     let reg_handler = tokio::spawn(start_internal_api(
         config.janus_registry.clone(),
         context.janus_clients(),
-        context.db().clone(),
         context.db_sqlx().clone(),
         config.authn.clone(),
     ));

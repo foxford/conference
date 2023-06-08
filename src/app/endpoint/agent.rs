@@ -129,7 +129,7 @@ mod tests {
         use serde::Deserialize;
         use svc_agent::AgentId;
 
-        use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
+        use crate::test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps};
 
         use super::super::*;
 
@@ -146,6 +146,7 @@ mod tests {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -169,7 +170,7 @@ mod tests {
             );
 
             // Make agent.list request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -194,6 +195,7 @@ mod tests {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -205,7 +207,7 @@ mod tests {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -226,6 +228,7 @@ mod tests {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -247,7 +250,7 @@ mod tests {
             );
 
             // Make agent.list request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -268,8 +271,9 @@ mod tests {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: db::room::Id::random(),

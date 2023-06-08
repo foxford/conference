@@ -366,7 +366,7 @@ mod test {
                 authz::TestAuthz,
                 context::TestContext,
                 db::TestDb,
-                handle_event,
+                db_sqlx, handle_event,
                 prelude::{GlobalContext, TestAgent},
                 shared_helpers,
                 test_deps::LocalDeps,
@@ -379,11 +379,14 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
+
             let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
             authz.allow(agent.account_id(), vec!["system"], "update");
-            let mut context = TestContext::new(db, authz).await;
+
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let connection = context.get_conn().await?;
             let opened_room = shared_helpers::insert_room(&connection);
             let opened_room2 = shared_helpers::insert_room(&connection);
@@ -436,7 +439,7 @@ mod test {
                 transactions::{Transaction, TransactionKind},
                 IncomingEvent,
             },
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -447,6 +450,8 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
@@ -494,7 +499,7 @@ mod test {
             authz.allow(agent.account_id(), vec!["system"], "update");
 
             // Make system.vacuum request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx.clone());
             let payload = VacuumRequest {};
@@ -531,12 +536,14 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
 
             // Make system.vacuum request.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let payload = VacuumRequest {};
 
             let err = handle_request::<VacuumHandler>(&mut context, &agent, payload)

@@ -142,7 +142,7 @@ mod tests {
             rtc::SharingPolicy as RtcSharingPolicy,
         },
         test_helpers::{
-            factory, find_response, handle_request,
+            db_sqlx, factory, find_response, handle_request,
             prelude::{TestAgent, TestAuthz, TestContext, TestDb},
             shared_helpers,
             test_deps::LocalDeps,
@@ -158,8 +158,9 @@ mod tests {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
+        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-        let mut context = TestContext::new(db, TestAuthz::new()).await;
+        let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
         let payload = Payload {
             room_id: db::room::Id::random(),
@@ -181,6 +182,7 @@ mod tests {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
+        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let room = db
@@ -202,7 +204,7 @@ mod tests {
             })
             .unwrap();
 
-        let mut context = TestContext::new(db, TestAuthz::new()).await;
+        let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
         let payload = Payload {
             room_id: room.id(),
@@ -224,6 +226,7 @@ mod tests {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
+        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let room = db
@@ -247,7 +250,7 @@ mod tests {
             "read",
         );
 
-        let mut context = TestContext::new(db, authz).await;
+        let mut context = TestContext::new(db, db_sqlx, authz).await;
         let payload = Payload {
             room_id: room.id(),
             within_group: false,
@@ -267,6 +270,7 @@ mod tests {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
+        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
@@ -302,7 +306,7 @@ mod tests {
             "read",
         );
 
-        let mut context = TestContext::new(db, authz).await;
+        let mut context = TestContext::new(db, db_sqlx, authz).await;
         let payload = Payload {
             room_id: room.id(),
             within_group: false,
@@ -323,6 +327,7 @@ mod tests {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
+        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
@@ -358,7 +363,7 @@ mod tests {
             "read",
         );
 
-        let mut context = TestContext::new(db, authz).await;
+        let mut context = TestContext::new(db, db_sqlx, authz).await;
         let payload = Payload {
             room_id: room.id(),
             within_group: true,

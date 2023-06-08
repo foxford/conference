@@ -555,30 +555,35 @@ mod tests {
         use super::super::*;
         use crate::{
             backend::janus::client::{HandleId, SessionId},
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
         };
 
-        #[test]
-        fn selects_appropriate_backend() {
+        #[tokio::test]
+        async fn selects_appropriate_backend() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let pool = db.connection_pool();
             let conn = pool.get().expect("Failed to get db connection");
 
-            let backend1 = shared_helpers::insert_janus_backend(
-                &conn,
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
+            let backend1 = shared_helpers::insert_janus_backend_sqlx(
+                &mut conn_sqlx,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
-            );
-            let backend2 = shared_helpers::insert_janus_backend(
-                &conn,
+            )
+            .await;
+            let backend2 = shared_helpers::insert_janus_backend_sqlx(
+                &mut conn_sqlx,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
-            );
+            )
+            .await;
 
             let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
             let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());

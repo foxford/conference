@@ -191,7 +191,7 @@ mod test {
 
         use crate::{
             db::{janus_rtc_stream::Object as JanusRtcStream, rtc::Object as Rtc},
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -201,40 +201,44 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let mut authz = TestAuthz::new();
 
-            let (rtc_stream, rtc, classroom_id) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    // Insert janus rtc streams.
-                    let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE).insert(&conn);
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+            let conn = db.connection_pool().get().unwrap();
 
-                    let rtc_stream = db::janus_rtc_stream::start(rtc_stream.id(), &conn)
-                        .expect("Failed to start rtc stream")
-                        .expect("Missing rtc stream");
+            let (rtc_stream, rtc, classroom_id) = {
+                // Insert janus rtc streams.
+                let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE)
+                    .insert(&conn, &mut conn_sqlx)
+                    .await;
 
-                    let other_rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE).insert(&conn);
+                let rtc_stream = db::janus_rtc_stream::start(rtc_stream.id(), &conn)
+                    .expect("Failed to start rtc stream")
+                    .expect("Missing rtc stream");
 
-                    db::janus_rtc_stream::start(other_rtc_stream.id(), &conn)
-                        .expect("Failed to start rtc stream");
+                let other_rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE)
+                    .insert(&conn, &mut conn_sqlx)
+                    .await;
 
-                    // Find rtc.
-                    let rtc: Rtc = crate::schema::rtc::table
-                        .find(rtc_stream.rtc_id())
-                        .get_result(&conn)
-                        .expect("Rtc not found");
+                db::janus_rtc_stream::start(other_rtc_stream.id(), &conn)
+                    .expect("Failed to start rtc stream");
 
-                    let room = helpers::find_room_by_id(
-                        rtc.room_id(),
-                        helpers::RoomTimeRequirement::Open,
-                        &conn,
-                    )
-                    .expect("Room not found");
+                // Find rtc.
+                let rtc: Rtc = crate::schema::rtc::table
+                    .find(rtc_stream.rtc_id())
+                    .get_result(&conn)
+                    .expect("Rtc not found");
 
-                    (rtc_stream, rtc, room.classroom_id().to_string())
-                })
-                .expect("Failed to create rtc streams");
+                let room = helpers::find_room_by_id(
+                    rtc.room_id(),
+                    helpers::RoomTimeRequirement::Open,
+                    &conn,
+                )
+                .expect("Room not found");
+
+                (rtc_stream, rtc, room.classroom_id().to_string())
+            };
 
             // Allow user to list rtcs in the room.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -242,7 +246,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc_stream.list request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
 
             let payload = ListRequest {
                 room_id: rtc.room_id(),
@@ -283,6 +287,8 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -294,7 +300,7 @@ mod test {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -317,9 +323,10 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: db::room::Id::random(),

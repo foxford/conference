@@ -10,7 +10,7 @@ use crate::{
 
 use super::{
     agent::TestAgent,
-    shared_helpers::{insert_janus_backend, insert_room, insert_rtc},
+    shared_helpers::{insert_janus_backend_sqlx, insert_room, insert_rtc},
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -305,6 +305,31 @@ impl JanusBackend {
 
         q.execute(conn).expect("Failed to insert janus_backend")
     }
+
+    pub async fn insert_sqlx(&self, conn: &mut sqlx::PgConnection) -> db::janus_backend::Object {
+        let mut q = db::janus_backend::UpsertQuery::new(
+            &self.id,
+            self.handle_id,
+            self.session_id,
+            &self.janus_url,
+        );
+
+        if let Some(capacity) = self.capacity {
+            q = q.capacity(capacity);
+        }
+
+        if let Some(balancer_capacity) = self.balancer_capacity {
+            q = q.balancer_capacity(balancer_capacity);
+        }
+
+        if let Some(ref group) = self.group {
+            q = q.group(group);
+        }
+
+        q.execute_sqlx(conn)
+            .await
+            .expect("Failed to insert janus_backend")
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -326,14 +351,23 @@ impl<'a> JanusRtcStream<'a> {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::janus_rtc_stream::Object {
+    pub async fn insert(
+        &self,
+        conn: &PgConnection,
+        conn_sqlx: &mut sqlx::PgConnection,
+    ) -> db::janus_rtc_stream::Object {
         let default_backend;
 
         let backend = match self.backend {
             Some(value) => value,
             None => {
-                default_backend =
-                    insert_janus_backend(conn, "test", SessionId::random(), HandleId::random());
+                default_backend = insert_janus_backend_sqlx(
+                    conn_sqlx,
+                    "test",
+                    SessionId::random(),
+                    HandleId::random(),
+                )
+                .await;
                 &default_backend
             }
         };

@@ -221,9 +221,9 @@ pub enum IceCandidateSdp {
     PartialEq,
     Eq,
     FromStr,
-    sqlx::Encode,
-    sqlx::Decode,
+    sqlx::Type,
 )]
+#[sqlx(transparent)]
 pub struct HandleId(i64);
 
 impl HandleId {
@@ -248,9 +248,9 @@ impl HandleId {
     PartialEq,
     Eq,
     FromStr,
-    sqlx::Encode,
-    sqlx::Decode,
+    sqlx::Type,
 )]
+#[sqlx(transparent)]
 pub struct SessionId(i64);
 
 impl SessionId {

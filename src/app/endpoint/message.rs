@@ -231,7 +231,7 @@ mod test {
 
         use crate::{
             app::API_VERSION,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -241,6 +241,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -257,7 +258,7 @@ mod test {
                 .expect("Failed to insert room");
 
             // Make message.unicast request.
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = UnicastRequest {
                 agent_id: receiver.agent_id().to_owned(),
@@ -288,8 +289,9 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -312,6 +314,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -327,7 +330,7 @@ mod test {
                 .expect("Failed to insert room");
 
             // Make message.unicast request.
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = UnicastRequest {
                 agent_id: receiver.agent_id().to_owned(),
@@ -348,6 +351,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -363,7 +367,7 @@ mod test {
                 .expect("Failed to insert room");
 
             // Make message.unicast request.
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = UnicastRequest {
                 agent_id: receiver.agent_id().to_owned(),
@@ -383,7 +387,7 @@ mod test {
     mod broadcast {
         use crate::{
             app::API_VERSION,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -393,6 +397,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
             // Insert room with online agent.
@@ -408,7 +413,7 @@ mod test {
                 .expect("Failed to insert room");
 
             // Make message.broadcast request.
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = BroadcastRequest {
                 room_id: room.id(),
@@ -443,7 +448,8 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
             let payload = BroadcastRequest {
@@ -465,6 +471,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
             // Insert room with online agent.
@@ -475,7 +482,7 @@ mod test {
                 .expect("Failed to insert room");
 
             // Make message.broadcast request.
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = BroadcastRequest {
                 room_id: room.id(),

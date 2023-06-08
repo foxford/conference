@@ -185,6 +185,32 @@ pub fn insert_janus_backend(
     .insert(conn)
 }
 
+pub async fn insert_janus_backend_sqlx(
+    conn: &mut sqlx::PgConnection,
+    url: &str,
+    session_id: SessionId,
+    handle_id: crate::backend::janus::client::HandleId,
+) -> JanusBackend {
+    let rng = rand::thread_rng();
+
+    let label_suffix: String = rng
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(5)
+        .map(char::from)
+        .collect();
+    let label = format!("janus-gateway-{}", label_suffix);
+
+    let agent = TestAgent::new("alpha", &label, SVC_AUDIENCE);
+    factory::JanusBackend::new(
+        agent.agent_id().to_owned(),
+        handle_id,
+        session_id,
+        url.to_owned(),
+    )
+    .insert_sqlx(conn)
+    .await
+}
+
 pub fn insert_janus_backend_with_group(
     conn: &PgConnection,
     url: &str,

@@ -313,24 +313,20 @@ mod tests {
     use super::*;
     use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
 
-    #[test]
-    fn test_stop_running_streams_by_backend() {
+    #[tokio::test]
+    async fn test_stop_running_streams_by_backend() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
-
-        let rtc_stream = db
-            .connection_pool()
-            .get()
-            .map(|conn| {
-                let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE).insert(&conn);
-                start(rtc_stream.id(), &conn).expect("Failed to start rtc stream");
-
-                rtc_stream
-            })
-            .expect("Failed to insert room");
+        let db_sqlx = crate::test_helpers::db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
         let conn = db.connection_pool().get().unwrap();
+        let mut conn_sqlx = db_sqlx.get_conn().await;
+
+        let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE)
+            .insert(&conn, &mut conn_sqlx)
+            .await;
+
         let r = stop_running_streams_by_backend(rtc_stream.backend_id(), &conn)
             .expect("Failed to stop running streams");
 

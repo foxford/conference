@@ -217,7 +217,7 @@ mod tests {
     use super::*;
     use crate::db::{group_agent::GroupItem, rtc::SharingPolicy as RtcSharingPolicy};
     use crate::test_helpers::{
-        factory,
+        db_sqlx, factory,
         prelude::{GlobalContext, TestAgent, TestAuthz, TestContext, TestDb},
         shared_helpers,
         test_deps::LocalDeps,
@@ -232,8 +232,9 @@ mod tests {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
+        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-        let context = TestContext::new(db, TestAuthz::new()).await;
+        let context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
         let payload = Payload {
             room_id: db::room::Id::random(),
@@ -259,6 +260,7 @@ mod tests {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
+        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let room = db
@@ -280,7 +282,7 @@ mod tests {
             })
             .unwrap();
 
-        let context = TestContext::new(db, TestAuthz::new()).await;
+        let context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
         let payload = Payload {
             room_id: room.id(),
@@ -306,6 +308,7 @@ mod tests {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
+        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let room = db
@@ -329,7 +332,7 @@ mod tests {
             "update",
         );
 
-        let context = TestContext::new(db, authz).await;
+        let context = TestContext::new(db, db_sqlx, authz).await;
         let payload = Payload {
             room_id: room.id(),
             groups: Groups::new(vec![]),
@@ -355,6 +358,8 @@ mod tests {
         let janus = local_deps.run_janus();
         let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
         let db = TestDb::with_local_postgres(&postgres);
+        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
@@ -397,7 +402,7 @@ mod tests {
             "update",
         );
 
-        let mut context = TestContext::new(db.clone(), authz).await;
+        let mut context = TestContext::new(db.clone(), db_sqlx, authz).await;
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
 

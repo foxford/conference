@@ -1173,7 +1173,7 @@ mod test {
     mod create {
         use crate::{
             db::rtc::Object as Rtc,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1183,6 +1183,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let mut authz = TestAuthz::new();
 
             // Insert a room.
@@ -1199,7 +1200,7 @@ mod test {
             authz.allow(agent.account_id(), object, "create");
 
             // Make rtc.create request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1223,9 +1224,10 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
             let payload = CreateRequest {
                 room_id: db::room::Id::random(),
             };
@@ -1243,6 +1245,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let mut authz = TestAuthz::new();
 
             // Insert a room.
@@ -1259,7 +1262,7 @@ mod test {
             authz.allow(agent.account_id(), object, "create");
 
             // Make rtc.create request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1287,6 +1290,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let mut authz = TestAuthz::new();
 
             // Insert a room.
@@ -1305,7 +1309,7 @@ mod test {
             authz.allow(agent2.account_id(), object, "create");
 
             // Make two rtc.create requests.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let messages1 = handle_request::<CreateHandler>(&mut context, &agent1, payload)
@@ -1335,6 +1339,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let mut authz = TestAuthz::new();
 
             // Insert a room.
@@ -1351,7 +1356,7 @@ mod test {
             authz.allow(agent.account_id(), object, "create");
 
             // Make the first rtc.create request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1380,6 +1385,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -1391,7 +1397,7 @@ mod test {
                 .unwrap();
 
             // Make rtc.create request.
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1406,7 +1412,7 @@ mod test {
     mod read {
         use crate::{
             db::rtc::Object as Rtc,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1416,6 +1422,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let (rtc, classroom_id) = {
                 // Insert a room.
@@ -1444,7 +1451,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.read request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let payload = ReadRequest { id: rtc.id() };
 
             let messages = handle_request::<ReadHandler>(&mut context, &agent, payload)
@@ -1462,6 +1469,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -1474,7 +1482,7 @@ mod test {
                 shared_helpers::insert_rtc(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
             let payload = ReadRequest { id: rtc.id() };
 
             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
@@ -1490,9 +1498,10 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
             let payload = ReadRequest {
                 id: db::rtc::Id::random(),
             };
@@ -1509,7 +1518,7 @@ mod test {
     mod list {
         use crate::{
             db::rtc::Object as Rtc,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1519,6 +1528,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -1547,7 +1557,7 @@ mod test {
             authz.allow(agent.account_id(), object, "list");
 
             // Make rtc.list request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
 
             let payload = ListRequest {
                 room_id: rtc.room_id(),
@@ -1572,6 +1582,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -1583,7 +1594,7 @@ mod test {
                 shared_helpers::insert_room(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -1604,9 +1615,10 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: db::room::Id::random(),
@@ -1631,7 +1643,7 @@ mod test {
 
         use crate::{
             db::{agent::Status as AgentStatus, rtc::SharingPolicy as RtcSharingPolicy},
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1642,6 +1654,8 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let mut authz = TestAuthz::new();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
@@ -1709,7 +1723,7 @@ mod test {
             let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object, "read");
 
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             // Make rtc.connect request.
@@ -1738,6 +1752,8 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let mut authz = TestAuthz::new();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
@@ -1768,7 +1784,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -1796,28 +1812,39 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
+
+            let mut conn = db_sqlx.get_conn().await;
+            // The first backend is big enough but has some load.
+            let backend1_id = {
+                let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                agent.agent_id().to_owned()
+            };
+
+            let backend1 =
+                factory::JanusBackend::new(backend1_id, handle_id, session_id, janus.url.clone())
+                    .capacity(20)
+                    .insert_sqlx(&mut conn)
+                    .await;
+
+            // The second backend is too small but has no load.
+            let backend2_id = {
+                let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
+                agent.agent_id().to_owned()
+            };
+
+            factory::JanusBackend::new(backend2_id, handle_id, session_id, janus.url.clone())
+                .capacity(5)
+                .insert_sqlx(&mut conn)
+                .await;
 
             let (rtc, classroom_id, backend, agent) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    // The first backend is big enough but has some load.
-                    let backend1_id = {
-                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                        agent.agent_id().to_owned()
-                    };
-
-                    let backend1 = factory::JanusBackend::new(
-                        backend1_id,
-                        handle_id,
-                        session_id,
-                        janus.url.clone(),
-                    )
-                    .capacity(20)
-                    .insert(&conn);
-
                     let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
 
                     let _rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
@@ -1827,21 +1854,6 @@ mod test {
 
                     let agent = TestAgent::new("web", "user456", USR_AUDIENCE);
                     shared_helpers::insert_agent(&conn, agent.agent_id(), room1.id());
-
-                    // The second backend is too small but has no load.
-                    let backend2_id = {
-                        let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
-                        agent.agent_id().to_owned()
-                    };
-
-                    factory::JanusBackend::new(
-                        backend2_id,
-                        handle_id,
-                        session_id,
-                        janus.url.clone(),
-                    )
-                    .capacity(5)
-                    .insert(&conn);
 
                     // It should balance to the first one despite of the load.
                     let now = Utc::now();
@@ -1868,7 +1880,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -1896,6 +1908,8 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
@@ -1903,25 +1917,24 @@ mod test {
             let writer1 = TestAgent::new("web", "writer1", USR_AUDIENCE);
             let writer2 = TestAgent::new("web", "writer2", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+
+            // Insert backend with capacity = 4.
+            let backend_id = {
+                let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                agent.agent_id().to_owned()
+            };
+
+            let backend =
+                factory::JanusBackend::new(backend_id, handle_id, session_id, janus.url.clone())
+                    .capacity(4)
+                    .insert_sqlx(&mut conn)
+                    .await;
+
             let (rtc1, rtc2, backend, classroom_id1, classroom_id2) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    // Insert backend with capacity = 4.
-                    let backend_id = {
-                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                        agent.agent_id().to_owned()
-                    };
-
-                    let backend = factory::JanusBackend::new(
-                        backend_id,
-                        handle_id,
-                        session_id,
-                        janus.url.clone(),
-                    )
-                    .capacity(4)
-                    .insert(&conn);
-
                     // Insert rooms: 1 with reserve = 2 and the other without reserve.
                     let now = Utc::now();
 
@@ -1977,7 +1990,7 @@ mod test {
             }
 
             // Connect to the rtc in the room without reserve.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2022,30 +2035,30 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            // Insert backend.
+            let backend_id = {
+                let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                agent.agent_id().to_owned()
+            };
+
+            let backend =
+                factory::JanusBackend::new(backend_id, handle_id, session_id, janus.url.clone())
+                    .capacity(2)
+                    .insert_sqlx(&mut conn)
+                    .await;
+
             let (rtc, backend, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    // Insert backend.
-                    let backend_id = {
-                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                        agent.agent_id().to_owned()
-                    };
-
-                    let backend = factory::JanusBackend::new(
-                        backend_id,
-                        handle_id,
-                        session_id,
-                        janus.url.clone(),
-                    )
-                    .capacity(2)
-                    .insert(&conn);
-
                     // Insert room and rtc.
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
@@ -2069,7 +2082,7 @@ mod test {
             authz.allow(reader.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2090,31 +2103,31 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
             let reader2 = TestAgent::new("web", "reader2", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            // Insert backend.
+            let backend_id = {
+                let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                agent.agent_id().to_owned()
+            };
+
+            let backend =
+                factory::JanusBackend::new(backend_id, handle_id, session_id, janus.url.clone())
+                    .capacity(2)
+                    .insert_sqlx(&mut conn)
+                    .await;
+
             let (rtc, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    // Insert backend.
-                    let backend_id = {
-                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                        agent.agent_id().to_owned()
-                    };
-
-                    let backend = factory::JanusBackend::new(
-                        backend_id,
-                        handle_id,
-                        session_id,
-                        janus.url.clone(),
-                    )
-                    .capacity(2)
-                    .insert(&conn);
-
                     // Insert room and rtc.
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
 
@@ -2151,7 +2164,7 @@ mod test {
             authz.allow(reader2.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2174,30 +2187,30 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
 
+            let mut conn = db_sqlx.get_conn().await;
+            // Insert backend.
+            let backend_id = {
+                let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                agent.agent_id().to_owned()
+            };
+
+            let backend =
+                factory::JanusBackend::new(backend_id, handle_id, session_id, janus.url.clone())
+                    .capacity(1)
+                    .insert_sqlx(&mut conn)
+                    .await;
+
             let (rtc, backend, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    // Insert backend.
-                    let backend_id = {
-                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                        agent.agent_id().to_owned()
-                    };
-
-                    let backend = factory::JanusBackend::new(
-                        backend_id,
-                        handle_id,
-                        session_id,
-                        janus.url.clone(),
-                    )
-                    .capacity(1)
-                    .insert(&conn);
-
                     // Insert rtc.
                     let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
                     let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
@@ -2221,7 +2234,7 @@ mod test {
             authz.allow(writer.account_id(), object, "update");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2242,61 +2255,68 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let new_writer = TestAgent::new("web", "new-writer", USR_AUDIENCE);
+
+            let mut conn = db_sqlx.get_conn().await;
+            let now = Utc::now();
+
+            // We have two backends with cap=800 and balance_cap=700 each
+            // We have two rooms with reserves 500 and 600, each at its own backend
+            // Room with reserve 500 has 1 writer and 2 readers, ie its load is 3
+            // Room with reserve 600 has 1 writer and 1 readers, ie its load is 2
+            // We want to balance a room with reserve 400
+            // Since it doesnt fit anywhere it should go to backend with smallest current load,
+            // ie to backend 2 (though it has only 100 free reserve, and backend1 has 200 free reserve)
+
+            // Insert alpha and beta backends.
+            let backend1 = {
+                let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                let id = agent.agent_id().to_owned();
+                factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
+                    .balancer_capacity(700)
+                    .capacity(800)
+                    .insert_sqlx(&mut conn)
+                    .await
+            };
+
+            let backend2 = {
+                let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
+                let id = agent.agent_id().to_owned();
+                factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
+                    .balancer_capacity(700)
+                    .capacity(800)
+                    .insert_sqlx(&mut conn)
+                    .await
+            };
+
+            let backend3 = {
+                let agent = TestAgent::new("gamma", "janus", SVC_AUDIENCE);
+                let id = agent.agent_id().to_owned();
+                factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
+                    .balancer_capacity(700)
+                    .capacity(800)
+                    .insert_sqlx(&mut conn)
+                    .await
+            };
+
+            let backend4 = {
+                let agent = TestAgent::new("delta", "janus", SVC_AUDIENCE);
+                let id = agent.agent_id().to_owned();
+                factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
+                    .balancer_capacity(700)
+                    .capacity(800)
+                    .insert_sqlx(&mut conn)
+                    .await
+            };
 
             let (rtc, backend_beta, backend_gamma, backend_delta, classroom_id) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let now = Utc::now();
-
-                    // We have two backends with cap=800 and balance_cap=700 each
-                    // We have two rooms with reserves 500 and 600, each at its own backend
-                    // Room with reserve 500 has 1 writer and 2 readers, ie its load is 3
-                    // Room with reserve 600 has 1 writer and 1 readers, ie its load is 2
-                    // We want to balance a room with reserve 400
-                    // Since it doesnt fit anywhere it should go to backend with smallest current load,
-                    // ie to backend 2 (though it has only 100 free reserve, and backend1 has 200 free reserve)
-
-                    // Insert alpha and beta backends.
-                    let backend1 = {
-                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                        let id = agent.agent_id().to_owned();
-                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
-                            .balancer_capacity(700)
-                            .capacity(800)
-                            .insert(&conn)
-                    };
-
-                    let backend2 = {
-                        let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
-                        let id = agent.agent_id().to_owned();
-                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
-                            .balancer_capacity(700)
-                            .capacity(800)
-                            .insert(&conn)
-                    };
-
-                    let backend3 = {
-                        let agent = TestAgent::new("gamma", "janus", SVC_AUDIENCE);
-                        let id = agent.agent_id().to_owned();
-                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
-                            .balancer_capacity(700)
-                            .capacity(800)
-                            .insert(&conn)
-                    };
-
-                    let backend4 = {
-                        let agent = TestAgent::new("delta", "janus", SVC_AUDIENCE);
-                        let id = agent.agent_id().to_owned();
-                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
-                            .balancer_capacity(700)
-                            .capacity(800)
-                            .insert(&conn)
-                    };
-
                     // Setup three rooms with 500, 600 and 400 reserves.
                     let room1 = factory::Room::new()
                         .audience(USR_AUDIENCE)
@@ -2403,7 +2423,7 @@ mod test {
             // Make an rtc.connect request.
             // Despite none of the backends are capable to host the reserve it should
             // select the least loaded one.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2432,31 +2452,35 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let new_reader = TestAgent::new("web", "new-reader", USR_AUDIENCE);
+
+            let mut conn = db_sqlx.get_conn().await;
+            let now = Utc::now();
+
+            // Lets say we have a single backend with cap=800
+            // Somehow reserves of all rooms that were allocated to it overflow its capacity
+            // We should allow users to connect to rooms with reserves if reserve and cap allows them
+            // But not allow to connect to room with no reserve
+
+            // Insert alpha backend.
+            let backend = {
+                let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+                let id = agent.agent_id().to_owned();
+                factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
+                    .balancer_capacity(700)
+                    .capacity(800)
+                    .insert_sqlx(&mut conn)
+                    .await
+            };
 
             let (rtcs, backend) = db
                 .connection_pool()
                 .get()
                 .map(|conn| {
-                    let now = Utc::now();
-
-                    // Lets say we have a single backend with cap=800
-                    // Somehow reserves of all rooms that were allocated to it overflow its capacity
-                    // We should allow users to connect to rooms with reserves if reserve and cap allows them
-                    // But not allow to connect to room with no reserve
-
-                    // Insert alpha backend.
-                    let backend = {
-                        let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-                        let id = agent.agent_id().to_owned();
-                        factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
-                            .balancer_capacity(700)
-                            .capacity(800)
-                            .insert(&conn)
-                    };
-
                     // Setup three rooms with 500, 600 and none.
                     let room1 = factory::Room::new()
                         .audience(USR_AUDIENCE)
@@ -2559,7 +2583,7 @@ mod test {
                 authz.allow(new_reader.account_id(), object, "read");
             }
 
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2607,6 +2631,8 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -2645,7 +2671,7 @@ mod test {
             authz.allow(agent.account_id(), object, "update");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2666,6 +2692,8 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -2703,7 +2731,7 @@ mod test {
             authz.allow(agent.account_id(), object, "update");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2727,6 +2755,8 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -2765,7 +2795,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2786,38 +2816,43 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+
+            let mut conn = db_sqlx.get_conn().await;
+            // Insert two backends in different groups.
+            let backend1_agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
+
+            let backend1 = factory::JanusBackend::new(
+                backend1_agent.agent_id().to_owned(),
+                handle_id,
+                session_id,
+                janus.url.clone(),
+            )
+            .group("wrong")
+            .insert_sqlx(&mut conn)
+            .await;
+
+            let backend2_agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
+
+            let backend2 = factory::JanusBackend::new(
+                backend2_agent.agent_id().to_owned(),
+                handle_id,
+                session_id,
+                janus.url.clone(),
+            )
+            .group("right")
+            .insert_sqlx(&mut conn)
+            .await;
 
             let (rtc, backend, classroom_id) = {
                 let conn = db
                     .connection_pool()
                     .get()
                     .expect("Failed to get DB connection");
-
-                // Insert two backends in different groups.
-                let backend1_agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
-
-                let backend1 = factory::JanusBackend::new(
-                    backend1_agent.agent_id().to_owned(),
-                    handle_id,
-                    session_id,
-                    janus.url.clone(),
-                )
-                .group("wrong")
-                .insert(&conn);
-
-                let backend2_agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
-
-                let backend2 = factory::JanusBackend::new(
-                    backend2_agent.agent_id().to_owned(),
-                    handle_id,
-                    session_id,
-                    janus.url.clone(),
-                )
-                .group("right")
-                .insert(&conn);
 
                 // Add some load to the first backend.
                 let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
@@ -2844,7 +2879,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Configure the app to the `right` janus group.
-            let mut context = TestContext::new(db, authz).await;
+            let mut context = TestContext::new(db, db_sqlx, authz).await;
             context.config_mut().janus_group = Some(String::from("right"));
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_grouped_janus("right", tx);
@@ -2873,6 +2908,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let rtc = {
@@ -2884,7 +2920,7 @@ mod test {
                 shared_helpers::insert_rtc(&conn)
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = ConnectRequest {
                 id: rtc.id(),
@@ -2904,9 +2940,10 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
+            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
             let payload = ConnectRequest {
                 id: db::rtc::Id::random(),

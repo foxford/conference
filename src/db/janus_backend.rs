@@ -182,6 +182,46 @@ impl<'a> UpsertQuery<'a> {
             .set(self)
             .get_result(conn)
     }
+
+    pub async fn execute_sqlx(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO janus_backend
+                (id, handle_id, session_id, capacity, balancer_capacity, api_version, "group", janus_url)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (id) DO UPDATE
+            SET
+                handle_id         = $2,
+                session_id        = $3,
+                capacity          = $4,
+                balancer_capacity = $5,
+                api_version       = $6,
+                "group"           = $7,
+                janus_url         = $8
+            RETURNING
+                id as "id: AgentId",
+                handle_id as "handle_id: HandleId",
+                session_id as "session_id: SessionId",
+                created_at,
+                capacity,
+                balancer_capacity,
+                api_version,
+                "group",
+                janus_url
+            "#,
+            self.id as &AgentId,
+            self.handle_id as HandleId,
+            self.session_id as SessionId,
+            self.capacity,
+            self.balancer_capacity,
+            JANUS_API_VERSION,
+            self.group,
+            self.janus_url
+        )
+        .fetch_one(conn)
+        .await
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
