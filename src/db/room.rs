@@ -473,13 +473,7 @@ impl<'a> UpdateQuery<'a> {
         Self { host, ..self }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use diesel::prelude::*;
-
-        diesel::update(self).set(self).get_result(conn)
-    }
-
-    pub async fn execute_sqlx(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
         sqlx::query_as!(
             ObjectSqlx,
             r#"

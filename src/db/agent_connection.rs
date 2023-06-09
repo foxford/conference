@@ -183,13 +183,27 @@ impl UpdateQuery {
         Self { handle_id, status }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use crate::schema::agent_connection::dsl::*;
-        use diesel::prelude::*;
-
-        let query = agent_connection.filter(handle_id.eq_all(self.handle_id));
-
-        diesel::update(query).set(self).get_result(conn).optional()
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            UPDATE agent_connection
+            SET
+                status = $2
+            WHERE
+                handle_id = $1
+            RETURNING
+                agent_id as "agent_id: db::id::Id",
+                handle_id as "handle_id: HandleId",
+                created_at,
+                rtc_id as "rtc_id: db::id::Id",
+                status as "status: Status"
+            "#,
+            self.handle_id as HandleId,
+            self.status as Status
+        )
+        .fetch_optional(conn)
+        .await
     }
 }
 
@@ -204,15 +218,19 @@ impl CleanupNotConnectedQuery {
         Self { created_at }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use crate::schema::agent_connection::dsl::*;
-        use diesel::prelude::*;
-
-        let q = agent_connection
-            .filter(created_at.lt(self.created_at))
-            .filter(status.eq(Status::InProgress));
-
-        diesel::delete(q).execute(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM agent_connection
+            WHERE
+                created_at = $1 AND
+                status = 'in_progress'
+            "#,
+            self.created_at
+        )
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 
@@ -228,12 +246,18 @@ impl DisconnectSingleAgentQuery {
         Self { handle_id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-
-        diesel::delete(agent_connection::table)
-            .filter(agent_connection::handle_id.eq(self.handle_id))
-            .execute(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM agent_connection
+            WHERE
+                handle_id = $1
+            "#,
+            self.handle_id as HandleId
+        )
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 
@@ -345,11 +369,13 @@ mod tests {
         .await;
 
         UpdateQuery::new(new_agent_conn.handle_id(), Status::Connected)
-            .execute(&conn)
+            .execute(&mut conn_sqlx)
+            .await
             .unwrap();
 
         let r = CleanupNotConnectedQuery::new(Utc::now() - Duration::minutes(1))
-            .execute(&conn)
+            .execute(&mut conn_sqlx)
+            .await
             .expect("Failed to run query");
 
         assert_eq!(r, 1);

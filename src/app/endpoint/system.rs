@@ -195,52 +195,49 @@ impl EventHandler for OrphanedRoomCloseHandler {
         })
         .await?;
 
-        let mut close_tasks = vec![];
         let mut closed_rooms = vec![];
-        for (orphan, room) in timed_out {
-            match room {
-                Some(room) if !room.is_closed() => {
-                    let close_task = crate::util::spawn_blocking({
-                        let conn = context.get_conn().await?;
-                        move || {
-                            let room = db::room::UpdateQuery::new(room.id())
-                                .time(Some((room.time().0, Bound::Excluded(Utc::now()))))
-                                .timed_out()
-                                .execute(&conn)?;
-                            Ok::<_, diesel::result::Error>(room)
-                        }
-                    });
-
-                    close_tasks.push(close_task)
-                }
-
-                _ => {
-                    closed_rooms.push(orphan.id);
-                }
-            }
-        }
         let mut notifications = vec![];
-        for close_task in close_tasks {
-            match close_task.await {
-                Ok(room) => {
-                    closed_rooms.push(room.id());
-                    notifications.push(helpers::build_notification(
-                        "room.close",
-                        &format!("rooms/{}/events", room.id()),
-                        room.clone(),
-                        evp.tracking(),
-                        context.start_timestamp(),
-                    ));
-                    notifications.push(helpers::build_notification(
-                        "room.close",
-                        &format!("audiences/{}/events", room.audience()),
-                        room,
-                        evp.tracking(),
-                        context.start_timestamp(),
-                    ));
-                }
-                Err(err) => {
-                    error!(?err, "Closing room failed");
+
+        {
+            // to close this connection right after the loop
+            let mut conn = context.get_conn_sqlx().await?;
+
+            for (orphan, room) in timed_out {
+                match room {
+                    Some(room) if !room.is_closed() => {
+                        let r = db::room::UpdateQuery::new(room.id())
+                            .time(Some((room.time().0, Bound::Excluded(Utc::now()))))
+                            .timed_out()
+                            .execute(&mut conn)
+                            .await;
+
+                        match r {
+                            Ok(room) => {
+                                closed_rooms.push(room.id());
+                                notifications.push(helpers::build_notification(
+                                    "room.close",
+                                    &format!("rooms/{}/events", room.id()),
+                                    room.clone(),
+                                    evp.tracking(),
+                                    context.start_timestamp(),
+                                ));
+                                notifications.push(helpers::build_notification(
+                                    "room.close",
+                                    &format!("audiences/{}/events", room.audience()),
+                                    room,
+                                    evp.tracking(),
+                                    context.start_timestamp(),
+                                ));
+                            }
+                            Err(err) => {
+                                error!(?err, "Closing room failed");
+                            }
+                        }
+                    }
+
+                    _ => {
+                        closed_rooms.push(orphan.id);
+                    }
                 }
             }
         }

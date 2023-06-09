@@ -257,7 +257,11 @@ async fn remove_backend(
         (stopped_rtcs_streams, Some(mut agent)) => {
             let now = Utc::now();
             for stream in stopped_rtcs_streams {
-                let end_time = match stream.time() {
+                let end_time = match stream
+                    .time
+                    .as_ref()
+                    .map(|t| crate::db::room::Time::from(t.clone()))
+                {
                     Some((_start, end)) => match end {
                         std::ops::Bound::Included(t) | std::ops::Bound::Excluded(t) => t,
                         std::ops::Bound::Unbounded => continue,

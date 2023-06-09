@@ -666,7 +666,7 @@ where
                 if room.backend_id().is_none() {
                     db::room::UpdateQuery::new(room.id())
                         .backend_id(Some(backend.id()))
-                        .execute_sqlx(&mut conn)
+                        .execute(&mut conn)
                         .await?;
                 }
             }
@@ -1076,7 +1076,7 @@ impl RequestHandler for ConnectHandler {
                 if room.backend_id().is_none() {
                     db::room::UpdateQuery::new(room.id())
                         .backend_id(Some(backend.id()))
-                        .execute_sqlx(&mut conn)
+                        .execute(&mut conn)
                         .await?;
                 }
             }

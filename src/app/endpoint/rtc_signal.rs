@@ -24,9 +24,9 @@ use async_trait::async_trait;
 use axum::{Extension, Json};
 use chrono::{Duration, Utc};
 
-use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
+use sqlx::Connection;
 use std::{ops::Bound, result::Result as StdResult, sync::Arc};
 use svc_agent::{
     mqtt::{OutgoingResponse, ResponseStatus},
@@ -104,42 +104,42 @@ pub async fn start_rtc_stream<C: Context>(
         .error(AppErrorKind::MessageParsingFailed)?
         .clone();
 
-    crate::util::spawn_blocking({
-        let handle_id = handle_id.clone();
-        let agent_id = agent_id.clone();
-        let room = room.clone();
+    let handle_id = handle_id.clone();
+    let agent_id = agent_id.clone();
+    let room = room.clone();
 
-        let max_room_duration = ctx.config().max_room_duration;
-        let conn = ctx.get_conn().await?;
+    let max_room_duration = ctx.config().max_room_duration;
+    let mut conn = ctx.get_conn_sqlx().await?;
 
-        move || {
-            conn.transaction(|| {
-                if let Some(max_room_duration) = max_room_duration {
-                    if !room.infinite() {
-                        if let (start, Bound::Unbounded) = room.time() {
-                            let new_time = (
-                                *start,
-                                Bound::Excluded(Utc::now() + Duration::hours(max_room_duration)),
-                            );
+    conn.transaction(|conn| {
+        Box::pin(async move {
+            if let Some(max_room_duration) = max_room_duration {
+                if !room.infinite() {
+                    if let (start, Bound::Unbounded) = room.time() {
+                        let new_time = (
+                            *start,
+                            Bound::Excluded(Utc::now() + Duration::hours(max_room_duration)),
+                        );
 
-                            db::room::UpdateQuery::new(room.id())
-                                .time(Some(new_time))
-                                .execute(&conn)?;
-                        }
+                        db::room::UpdateQuery::new(room.id())
+                            .time(Some(new_time))
+                            .execute(conn)
+                            .await?;
                     }
                 }
+            }
 
-                db::janus_rtc_stream::InsertQuery::new(
-                    handle_id.rtc_stream_id(),
-                    handle_id.janus_handle_id(),
-                    handle_id.rtc_id(),
-                    handle_id.backend_id(),
-                    &label,
-                    &agent_id,
-                )
-                .execute(&conn)
-            })
-        }
+            db::janus_rtc_stream::InsertQuery::new(
+                handle_id.rtc_stream_id(),
+                handle_id.janus_handle_id(),
+                handle_id.rtc_id(),
+                handle_id.backend_id(),
+                &label,
+                &agent_id,
+            )
+            .execute(conn)
+            .await
+        })
     })
     .await?;
 
@@ -834,11 +834,14 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                     panic!("Got wrong event")
                 }
             }
-            // Assert rtc stream presence in the DB.
-            let conn = context.get_conn().await.unwrap();
-            let query = crate::schema::janus_rtc_stream::table.find(rtc_stream_id);
 
-            let rtc_stream: crate::db::janus_rtc_stream::Object = query.get_result(&conn).unwrap();
+            // Assert rtc stream presence in the DB.
+            let mut conn = context.get_conn_sqlx().await.unwrap();
+            let rtc_stream: crate::db::janus_rtc_stream::Object =
+                crate::db::janus_rtc_stream::get_rtc_stream(&mut conn, rtc_stream_id)
+                    .await
+                    .expect("failed to get janus rtc stream")
+                    .expect("janus rtc stream not found");
 
             assert_eq!(rtc_stream.handle_id(), handle_id.janus_handle_id());
             assert_eq!(rtc_stream.rtc_id(), rtc.id());

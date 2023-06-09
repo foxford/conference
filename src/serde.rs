@@ -208,6 +208,61 @@ pub mod ts_seconds_option_bound_tuple {
     }
 }
 
+pub mod ts_seconds_option_bound_tuple_sqlx {
+    use serde::{de, ser};
+    use std::fmt;
+
+    use crate::db::room::TimeSqlx;
+
+    use super::Time;
+
+    pub fn serialize<S>(option: &Option<TimeSqlx>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        match option {
+            Some(value) => {
+                super::ts_seconds_bound_tuple::serialize(&Time::from(value.clone()), serializer)
+            }
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Option<TimeSqlx>, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let time: Option<Time> = d.deserialize_option(TupleSecondsTimestampVisitor)?;
+        Ok(time.map(TimeSqlx::from))
+    }
+
+    pub struct TupleSecondsTimestampVisitor;
+
+    impl<'de> de::Visitor<'de> for TupleSecondsTimestampVisitor {
+        type Value = Option<Time>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter
+                .write_str("none or a [lt, rt) range of unix time (seconds) or null (unbounded)")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, d: D) -> Result<Self::Value, D::Error>
+        where
+            D: de::Deserializer<'de>,
+        {
+            let interval = super::ts_seconds_bound_tuple::deserialize(d)?;
+            Ok(Some(interval))
+        }
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]

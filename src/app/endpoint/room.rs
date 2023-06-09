@@ -360,60 +360,60 @@ impl RequestHandler for UpdateHandler {
         let room_was_open = !room.is_closed();
 
         // Update room.
-        let room = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                let time = match payload.time {
-                    None => None,
-                    Some(new_time) => {
-                        match new_time {
-                            (Bound::Included(o), Bound::Excluded(c)) if o < c => (),
-                            (Bound::Included(_), Bound::Unbounded) => (),
-                            _ => {
-                                return Err(anyhow!("Invalid room time"))
-                                    .error(AppErrorKind::InvalidRoomTime)
-                            }
-                        };
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
 
-                        match room.time() {
-                            (_, Bound::Unbounded) => match new_time {
-                                (_, Bound::Excluded(_)) if room.infinite() => {
-                                    return Err(anyhow!("Setting closing time is not allowed in this room since it's infinite"))
-                                    .error(AppErrorKind::RoomTimeChangingForbidden);
-                                }
-                                // Allow any change when no closing date specified.
-                                _  => Some(new_time)
+            let time = match payload.time {
+                None => None,
+                Some(new_time) => {
+                    match new_time {
+                        (Bound::Included(o), Bound::Excluded(c)) if o < c => (),
+                        (Bound::Included(_), Bound::Unbounded) => (),
+                        _ => {
+                            return Err(anyhow!("Invalid room time"))
+                                .error(AppErrorKind::InvalidRoomTime)
+                        }
+                    };
+
+                    match room.time() {
+                        (_, Bound::Unbounded) => match new_time {
+                            (_, Bound::Excluded(_)) if room.infinite() => {
+                                return Err(anyhow!("Setting closing time is not allowed in this room since it's infinite"))
+                                .error(AppErrorKind::RoomTimeChangingForbidden);
                             }
-                            (Bound::Included(o), Bound::Excluded(c)) if *c > Utc::now() => {
-                                match new_time {
-                                    // Allow reschedule future closing.
-                                    (_, Bound::Excluded(nc)) => {
-                                        let nc = std::cmp::max(nc, Utc::now());
-                                        Some((Bound::Included(*o), Bound::Excluded(nc)))
-                                    }
-                                    _ => {
-                                        return Err(anyhow!("Setting unbounded closing time is not allowed in this room anymore"))
-                                            .error(AppErrorKind::RoomTimeChangingForbidden);
-                                    }
+                            // Allow any change when no closing date specified.
+                            _ => Some(new_time),
+                        },
+                        (Bound::Included(o), Bound::Excluded(c)) if *c > Utc::now() => {
+                            match new_time {
+                                // Allow reschedule future closing.
+                                (_, Bound::Excluded(nc)) => {
+                                    let nc = std::cmp::max(nc, Utc::now());
+                                    Some((Bound::Included(*o), Bound::Excluded(nc)))
                                 }
-                            }
-                            _ => {
-                                return Err(anyhow!("Room has been already closed"))
-                                    .error(AppErrorKind::RoomTimeChangingForbidden);
+                                _ => {
+                                    return Err(anyhow!("Setting unbounded closing time is not allowed in this room anymore"))
+                                        .error(AppErrorKind::RoomTimeChangingForbidden);
+                                }
                             }
                         }
+                        _ => {
+                            return Err(anyhow!("Room has been already closed"))
+                                .error(AppErrorKind::RoomTimeChangingForbidden);
+                        }
                     }
-                };
+                }
+            };
 
-                Ok::<_, AppError>(db::room::UpdateQuery::new(room.id())
-                    .time(time)
-                    .reserve(payload.reserve)
-                    .tags(payload.tags)
-                    .classroom_id(payload.classroom_id)
-                    .host(payload.host.as_ref())
-                    .execute(&conn)?)
-            }
-        }).await?;
+            db::room::UpdateQuery::new(room.id())
+                .time(time)
+                .reserve(payload.reserve)
+                .tags(payload.tags)
+                .classroom_id(payload.classroom_id)
+                .host(payload.host.as_ref())
+                .execute(&mut conn)
+                .await?
+        };
 
         // Respond and broadcast to the audience topic.
         let mut response = Response::new(

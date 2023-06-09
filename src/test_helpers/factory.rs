@@ -379,7 +379,8 @@ impl<'a> JanusRtcStream<'a> {
             "alpha",
             sent_by,
         )
-        .execute(conn)
+        .execute(conn_sqlx)
+        .await
         .expect("Failed to insert janus_rtc_stream")
     }
 }

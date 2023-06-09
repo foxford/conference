@@ -126,29 +126,21 @@ impl RequestHandler for ListHandler {
             .await?;
         context.metrics().observe_auth(authz_time);
 
-        let rtc_streams = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                let mut query = db::janus_rtc_stream::ListQuery::new().room_id(payload.room_id);
+        let mut query = db::janus_rtc_stream::ListQuery::new().room_id(payload.room_id);
+        if let Some(rtc_id) = payload.rtc_id {
+            query = query.rtc_id(rtc_id);
+        }
+        if let Some(time) = payload.time {
+            query = query.time(time);
+        }
+        if let Some(offset) = payload.offset {
+            query = query.offset(offset);
+        }
+        query = query.limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT));
 
-                if let Some(rtc_id) = payload.rtc_id {
-                    query = query.rtc_id(rtc_id);
-                }
+        let mut conn = context.get_conn_sqlx().await?;
+        let rtc_streams = query.execute(&mut conn).await?;
 
-                if let Some(time) = payload.time {
-                    query = query.time(time);
-                }
-
-                if let Some(offset) = payload.offset {
-                    query = query.offset(offset);
-                }
-
-                query = query.limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT));
-
-                query.execute(&conn)
-            }
-        })
-        .await?;
         context
             .metrics()
             .request_duration
@@ -213,7 +205,8 @@ mod test {
                     .insert(&conn, &mut conn_sqlx)
                     .await;
 
-                let rtc_stream = db::janus_rtc_stream::start(rtc_stream.id(), &conn)
+                let rtc_stream = db::janus_rtc_stream::start(rtc_stream.id(), &mut conn_sqlx)
+                    .await
                     .expect("Failed to start rtc stream")
                     .expect("Missing rtc stream");
 
@@ -221,7 +214,8 @@ mod test {
                     .insert(&conn, &mut conn_sqlx)
                     .await;
 
-                db::janus_rtc_stream::start(other_rtc_stream.id(), &conn)
+                db::janus_rtc_stream::start(other_rtc_stream.id(), &mut conn_sqlx)
+                    .await
                     .expect("Failed to start rtc stream");
 
                 // Find rtc.
