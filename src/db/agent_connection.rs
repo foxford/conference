@@ -3,7 +3,7 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
 use chrono::{DateTime, Utc};
-use diesel::{dsl::count_star, pg::PgConnection, result::Error};
+use diesel::{pg::PgConnection, result::Error};
 use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
@@ -94,6 +94,10 @@ impl<'a> FindQuery<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+pub struct CountResult {
+    pub count: i64,
+}
+
 pub struct CountQuery {}
 
 impl CountQuery {
@@ -101,12 +105,16 @@ impl CountQuery {
         Self {}
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
-        use diesel::prelude::*;
-
-        agent_connection::table
-            .select(count_star())
-            .get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<CountResult> {
+        sqlx::query_as!(
+            CountResult,
+            r#"
+            SELECT COUNT(1) as "count!: i64"
+            FROM agent_connection
+            "#
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 

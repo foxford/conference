@@ -11,7 +11,6 @@ use crate::{
     schema::janus_backend,
 };
 use chrono::{DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
 
 pub type AllColumns = (
@@ -497,85 +496,104 @@ pub async fn free_capacity(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn total_capacity(conn: &PgConnection) -> Result<i64, Error> {
-    use diesel::{dsl::sum, prelude::*};
-
-    janus_backend::table
-        .select(sum(janus_backend::capacity))
-        .get_result::<Option<i64>>(conn)
-        .map(|v| v.unwrap_or(0))
+pub struct TotalCapacityResult {
+    total_capacity: Option<i64>,
 }
 
-pub fn count(conn: &PgConnection) -> Result<i64, Error> {
-    use diesel::{dsl::count, prelude::*};
-
-    janus_backend::table
-        .select(count(janus_backend::id))
-        .get_result(conn)
+impl TotalCapacityResult {
+    pub fn total_capacity(&self) -> i64 {
+        self.total_capacity.as_ref().copied().unwrap_or(0)
+    }
 }
 
-#[derive(QueryableByName, Debug)]
+pub async fn total_capacity(conn: &mut sqlx::PgConnection) -> sqlx::Result<TotalCapacityResult> {
+    sqlx::query_as!(
+        TotalCapacityResult,
+        r#"
+        SELECT SUM(capacity) as "total_capacity: i64"
+        FROM janus_backend
+        "#
+    )
+    .fetch_one(conn)
+    .await
+}
+
+pub struct CountResult {
+    pub count: i64,
+}
+
+pub async fn count(conn: &mut sqlx::PgConnection) -> sqlx::Result<CountResult> {
+    sqlx::query_as!(
+        CountResult,
+        r#"
+        SELECT count(id) as "count!: i64"
+        FROM janus_backend
+        "#
+    )
+    .fetch_one(conn)
+    .await
+}
+
+#[derive(Debug)]
 pub struct ReserveLoadQueryLoad {
-    #[sql_type = "svc_agent::sql::Agent_id"]
     pub backend_id: AgentId,
-    #[sql_type = "diesel::sql_types::BigInt"]
     pub load: i64,
-    #[sql_type = "diesel::sql_types::BigInt"]
     pub taken: i64,
 }
 
-pub fn reserve_load_for_each_backend(
-    conn: &PgConnection,
-) -> Result<Vec<ReserveLoadQueryLoad>, Error> {
-    use diesel::prelude::*;
-
-    diesel::sql_query(LOAD_FOR_EACH_BACKEND).get_results(conn)
-}
-
-const LOAD_FOR_EACH_BACKEND: &str = r#"
-WITH
-    room_load AS (
-        SELECT
-            a.room_id,
-            SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
-        FROM agent AS a
-        INNER JOIN agent_connection AS ac
-        ON ac.agent_id = a.id
-        LEFT JOIN rtc_writer_config AS rwc
-        ON rwc.rtc_id = ac.rtc_id
-        GROUP BY a.room_id
-    ),
-    active_room AS (
-        SELECT *
-        FROM room
-        WHERE backend_id IS NOT NULL
-        AND   time @> NOW()
-    ),
-    janus_backend_load AS (
-        SELECT
-            backend_id,
-            SUM(reserve) AS load,
-            SUM(taken) AS taken
-        FROM (
-            SELECT DISTINCT ON(backend_id, room_id)
-                ar.backend_id,
-                ar.id                   AS room_id,
-                COALESCE(rl.taken, 0)   AS taken,
-                COALESCE(ar.reserve, 0) AS reserve
-            FROM active_room AS ar
-            LEFT JOIN room_load AS rl
-            ON rl.room_id = ar.id
-        ) AS sub
-        GROUP BY backend_id
+pub async fn reserve_load_for_each_backend(
+    conn: &mut sqlx::PgConnection,
+) -> sqlx::Result<Vec<ReserveLoadQueryLoad>> {
+    sqlx::query_as!(
+        ReserveLoadQueryLoad,
+        r#"
+        WITH
+        room_load AS (
+            SELECT
+                a.room_id,
+                SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken
+            FROM agent AS a
+            INNER JOIN agent_connection AS ac
+            ON ac.agent_id = a.id
+            LEFT JOIN rtc_writer_config AS rwc
+            ON rwc.rtc_id = ac.rtc_id
+            GROUP BY a.room_id
+        ),
+        active_room AS (
+            SELECT *
+            FROM room
+            WHERE backend_id IS NOT NULL
+            AND   time @> NOW()
+        ),
+        janus_backend_load AS (
+            SELECT
+                backend_id,
+                SUM(reserve) AS load,
+                SUM(taken) AS taken
+            FROM (
+                SELECT DISTINCT ON(backend_id, room_id)
+                    ar.backend_id,
+                    ar.id                   AS room_id,
+                    COALESCE(rl.taken, 0)   AS taken,
+                    COALESCE(ar.reserve, 0) AS reserve
+                FROM active_room AS ar
+                LEFT JOIN room_load AS rl
+                ON rl.room_id = ar.id
+            ) AS sub
+            GROUP BY backend_id
+        )
+    SELECT
+        jb.id AS "backend_id: AgentId",
+        COALESCE(jbl.load, 0)::BIGINT as "load!: i64",
+        COALESCE(jbl.taken, 0)::BIGINT as "taken!: i64"
+    FROM janus_backend jb
+    LEFT OUTER JOIN janus_backend_load jbl
+    ON jb.id = jbl.backend_id;
+        "#
     )
-SELECT
-    jb.id AS backend_id,
-    COALESCE(jbl.load, 0)::BIGINT as load,
-    COALESCE(jbl.taken, 0)::BIGINT as taken
-FROM janus_backend jb
-LEFT OUTER JOIN janus_backend_load jbl
-ON jb.id = jbl.backend_id;
-"#;
+    .fetch_all(conn)
+    .await
+}
 
 #[cfg(test)]
 mod tests {
@@ -665,7 +683,9 @@ mod tests {
         shared_helpers::insert_rtc_with_room(&conn, &room2);
         shared_helpers::insert_rtc_with_room(&conn, &room3);
 
-        let loads = super::reserve_load_for_each_backend(&conn).expect("Db query failed");
+        let loads = super::reserve_load_for_each_backend(&mut conn_sqlx)
+            .await
+            .expect("Db query failed");
         assert_eq!(loads.len(), 3);
 
         [backend1, backend2, backend3]

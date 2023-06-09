@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, thread, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use crate::{
     app::{
@@ -91,11 +91,11 @@ pub async fn run(
         Some(agent.clone()),
     );
 
-    thread::spawn({
-        let db = db.clone();
+    task::spawn({
+        let db = db_sqlx.clone();
         let collect_interval = config.metrics.janus_metrics_collect_interval;
         let clients = clients.clone();
-        move || janus_metrics.start_collector(db, clients, collect_interval)
+        janus_metrics.start_collector(db, clients, collect_interval)
     });
     task::spawn(start_metrics_collector(
         metrics_registry,

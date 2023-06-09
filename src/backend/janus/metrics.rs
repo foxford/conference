@@ -4,7 +4,7 @@ use anyhow::Context;
 use prometheus::{IntGauge, IntGaugeVec, Opts, Registry};
 use tracing::error;
 
-use crate::db::{agent_connection, ConnectionPool};
+use crate::db::agent_connection;
 
 use super::client_pool::Clients;
 
@@ -43,37 +43,41 @@ impl Metrics {
         })
     }
 
-    pub fn start_collector(
+    pub async fn start_collector(
         self,
-        connection_pool: ConnectionPool,
+        connection_pool: sqlx::PgPool,
         clients: Clients,
         collect_interval: Duration,
     ) {
         loop {
-            if let Err(err) = self.collect(&connection_pool, &clients) {
+            if let Err(err) = self.collect(&connection_pool, &clients).await {
                 error!(?err, "Janus' metrics collecting errored");
             }
-            std::thread::sleep(collect_interval);
+            tokio::time::sleep(collect_interval).await;
         }
     }
 
-    fn collect(&self, pool: &ConnectionPool, clients: &Clients) -> anyhow::Result<()> {
-        let conn = pool.get()?;
+    async fn collect(&self, pool: &sqlx::PgPool, clients: &Clients) -> anyhow::Result<()> {
+        let mut conn = pool.acquire().await?;
 
-        let online_backends_count =
-            crate::db::janus_backend::count(&conn).context("Failed to get janus backends count")?;
-        self.online.set(online_backends_count);
+        let online_backends = crate::db::janus_backend::count(&mut conn)
+            .await
+            .context("Failed to get janus backends count")?;
+        self.online.set(online_backends.count);
 
-        let total_capacity = crate::db::janus_backend::total_capacity(&conn)
+        let r = crate::db::janus_backend::total_capacity(&mut conn)
+            .await
             .context("Failed to get janus backends total capacity")?;
-        self.total.set(total_capacity);
+        self.total.set(r.total_capacity());
 
-        let connected_agents_count = agent_connection::CountQuery::new()
-            .execute(&conn)
+        let connected_agents = agent_connection::CountQuery::new()
+            .execute(&mut conn)
+            .await
             .context("Failed to get connected agents count")?;
-        self.connected_agents.set(connected_agents_count);
+        self.connected_agents.set(connected_agents.count);
 
-        let backend_load = crate::db::janus_backend::reserve_load_for_each_backend(&conn)
+        let backend_load = crate::db::janus_backend::reserve_load_for_each_backend(&mut conn)
+            .await
             .context("Failed to get janus backends reserve load")?;
         for backend_load in backend_load {
             let reserve = self
