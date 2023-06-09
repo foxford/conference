@@ -179,7 +179,6 @@ impl RequestHandler for UpdateHandler {
         }
 
         let room = crate::util::spawn_blocking({
-            let agent_id = reqp.as_agent_id().clone();
             let room_id = payload.room_id;
 
             let conn = context.get_conn().await?;
@@ -194,11 +193,15 @@ impl RequestHandler for UpdateHandler {
                     .error(AppErrorKind::InvalidPayload)?;
                 }
 
-                helpers::check_room_presence(&room, &agent_id, &conn)?;
                 Ok::<_, AppError>(room)
             }
         })
         .await?;
+
+        {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+        }
 
         tracing::Span::current().record(
             "classroom_id",
@@ -396,8 +399,6 @@ impl RequestHandler for ReadHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let (room, rtc_writer_configs_with_rtcs) = crate::util::spawn_blocking({
-            let agent_id = reqp.as_agent_id().clone();
-
             let conn = context.get_conn().await?;
             move || {
                 let room = helpers::find_room_by_id(
@@ -413,14 +414,17 @@ impl RequestHandler for ReadHandler {
                     .error(AppErrorKind::InvalidPayload)?;
                 }
 
-                helpers::check_room_presence(&room, &agent_id, &conn)?;
-
                 let rtc_writer_configs_with_rtcs =
                     db::rtc_writer_config::ListWithRtcQuery::new(room.id()).execute(&conn)?;
                 Ok::<_, AppError>((room, rtc_writer_configs_with_rtcs))
             }
         })
         .await?;
+
+        {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+        }
 
         tracing::Span::current().record(
             "classroom_id",

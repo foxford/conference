@@ -8,6 +8,7 @@ use chrono::Duration;
 
 use either::Either;
 use serde::{Deserialize, Serialize};
+use sqlx::Connection as SqlxConnection;
 use std::{fmt, sync::Arc};
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId, Authenticable};
 use svc_utils::extractors::AgentIdExtractor;
@@ -689,34 +690,34 @@ where
             .context("Handle creating")
             .error(AppErrorKind::BackendRequestFailed)?;
 
-        crate::util::spawn_blocking({
-            let agent_id = self.agent_id.clone();
-            let handle_id = handle.id;
-            let room_id = room.id();
+        let agent_id = self.agent_id.clone();
+        let handle_id = handle.id;
+        let room_id = room.id();
 
-            let conn = self.ctx.get_conn().await?;
-            move || {
-                conn.transaction::<_, AppError, _>(|| {
-                    // Find agent in the DB who made the original `rtc.connect` request.
-                    let maybe_agent = agent::ListQuery::new()
-                        .agent_id(&agent_id)
-                        .room_id(room_id)
-                        .status(agent::Status::Ready)
-                        .limit(1)
-                        .execute(&conn)?;
+        let mut conn = self.ctx.get_conn_sqlx().await?;
+        conn.transaction(|conn| {
+            Box::pin(async move {
+                // Find agent in the DB who made the original `rtc.connect` request.
+                let maybe_agent = agent::ListQuery::new()
+                    .agent_id(&agent_id)
+                    .room_id(room_id)
+                    .status(agent::Status::Ready)
+                    .limit(1)
+                    .execute(conn)
+                    .await?;
 
-                    if let Some(agent) = maybe_agent.first() {
-                        // Create agent connection in the DB.
-                        agent_connection::UpsertQuery::new(*agent.id(), payload_id, handle_id)
-                            .execute(&conn)?;
+                if let Some(agent) = maybe_agent.first() {
+                    // Create agent connection in the DB.
+                    agent_connection::UpsertQuery::new(*agent.id(), payload_id, handle_id)
+                        .execute(conn)
+                        .await?;
 
-                        Ok(())
-                    } else {
-                        // Agent may be already gone.
-                        Err(anyhow!("Agent not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
-                    }
-                })
-            }
+                    Ok(())
+                } else {
+                    // Agent may be already gone.
+                    Err(anyhow!("Agent not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
+                }
+            })
         })
         .await?;
 
@@ -1100,30 +1101,31 @@ impl RequestHandler for ConnectHandler {
 
         let agent_id = reqp.as_agent_id().clone();
         let handle_id = handle.id;
-        crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                conn.transaction::<_, AppError, _>(|| {
-                    // Find agent in the DB who made the original `rtc.connect` request.
-                    let maybe_agent = agent::ListQuery::new()
-                        .agent_id(&agent_id)
-                        .room_id(room_id)
-                        .status(agent::Status::Ready)
-                        .limit(1)
-                        .execute(&conn)?;
 
-                    if let Some(agent) = maybe_agent.first() {
-                        // Create agent connection in the DB.
-                        agent_connection::UpsertQuery::new(*agent.id(), payload_id, handle_id)
-                            .execute(&conn)?;
+        let mut conn = context.get_conn_sqlx().await?;
+        conn.transaction(|conn| {
+            Box::pin(async move {
+                // Find agent in the DB who made the original `rtc.connect` request.
+                let maybe_agent = agent::ListQuery::new()
+                    .agent_id(&agent_id)
+                    .room_id(room_id)
+                    .status(agent::Status::Ready)
+                    .limit(1)
+                    .execute(conn)
+                    .await?;
 
-                        Ok(())
-                    } else {
-                        // Agent may be already gone.
-                        Err(anyhow!("Agent not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
-                    }
-                })
-            }
+                if let Some(agent) = maybe_agent.first() {
+                    // Create agent connection in the DB.
+                    agent_connection::UpsertQuery::new(*agent.id(), payload_id, handle_id)
+                        .execute(conn)
+                        .await?;
+
+                    Ok(())
+                } else {
+                    // Agent may be already gone.
+                    Err(anyhow!("Agent not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
+                }
+            })
         })
         .await?;
 
@@ -1643,70 +1645,77 @@ mod test {
             let mut authz = TestAuthz::new();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn_sqlx = db_sqlx.get_conn().await;
             // Insert janus backends.
-            let backend1 =
-                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
-                    .await;
-            let backend2 =
-                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
-                    .await;
+            let backend1 = shared_helpers::insert_janus_backend(
+                &mut conn_sqlx,
+                &janus.url,
+                session_id,
+                handle_id,
+            )
+            .await;
+            let backend2 = shared_helpers::insert_janus_backend(
+                &mut conn_sqlx,
+                &janus.url,
+                session_id,
+                handle_id,
+            )
+            .await;
+
+            let conn = db.get_conn();
 
             // Insert an rtc and janus backend.
-            let (rtc, classroom_id, backend, agent) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    // The first backend has an active agent.
-                    let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
+            // The first backend has an active agent.
+            let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
+            let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+            let s1a1 = TestAgent::new("web", "s1a1", USR_AUDIENCE);
 
-                    let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                s1a1.agent_id(),
+                room1.id(),
+                rtc1.id(),
+            )
+            .await;
 
-                    let s1a1 = TestAgent::new("web", "s1a1", USR_AUDIENCE);
+            // The second backend has 2 agents.
+            let room2 = shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
+            let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+            let s2a1 = TestAgent::new("web", "s2a1", USR_AUDIENCE);
 
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        s1a1.agent_id(),
-                        room1.id(),
-                        rtc1.id(),
-                    );
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                s2a1.agent_id(),
+                room2.id(),
+                rtc2.id(),
+            )
+            .await;
 
-                    // The second backend has 2 agents.
-                    let room2 = shared_helpers::insert_room_with_backend_id(&conn, backend2.id());
+            let s2a2 = TestAgent::new("web", "s2a2", USR_AUDIENCE);
 
-                    let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                s2a2.agent_id(),
+                room2.id(),
+                rtc2.id(),
+            )
+            .await;
 
-                    let s2a1 = TestAgent::new("web", "s2a1", USR_AUDIENCE);
+            // The new rtc for which we will balance the stream.
+            let room3 = shared_helpers::insert_room(&conn);
+            let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
+            let s3a1 = TestAgent::new("web", "s3a1", USR_AUDIENCE);
+            shared_helpers::insert_agent(&conn, s3a1.agent_id(), room3.id());
 
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        s2a1.agent_id(),
-                        room2.id(),
-                        rtc2.id(),
-                    );
-
-                    let s2a2 = TestAgent::new("web", "s2a2", USR_AUDIENCE);
-
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        s2a2.agent_id(),
-                        room2.id(),
-                        rtc2.id(),
-                    );
-
-                    // The new rtc for which we will balance the stream.
-                    let room3 = shared_helpers::insert_room(&conn);
-                    let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
-                    let s3a1 = TestAgent::new("web", "s3a1", USR_AUDIENCE);
-                    shared_helpers::insert_agent(&conn, s3a1.agent_id(), room3.id());
-                    (rtc3, room3.classroom_id().to_string(), backend2, s3a1)
-                })
-                .unwrap();
+            let classroom_id = room3.classroom_id().to_string();
 
             // Allow user to read the rtc.
-            let rtc_id = rtc.id().to_string();
+            let rtc_id = rtc3.id().to_string();
             let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
-            authz.allow(agent.account_id(), object, "read");
+            authz.allow(s3a1.account_id(), object, "read");
 
             let mut context = TestContext::new(db, db_sqlx, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
@@ -1714,20 +1723,20 @@ mod test {
             // Make rtc.connect request.
 
             let payload = ConnectRequest {
-                id: rtc.id(),
+                id: rtc3.id(),
                 intent: ConnectIntent::Read,
             };
 
-            let messages = handle_request::<ConnectHandler>(&mut context, &agent, payload)
+            let messages = handle_request::<ConnectHandler>(&mut context, &s3a1, payload)
                 .await
                 .expect("RTC connect failed");
             let (resp, respp, _topic) = find_response::<ConnectResponseData>(messages.as_slice());
-            context.janus_clients().remove_client(&backend);
+            context.janus_clients().remove_client(&backend2);
 
             assert_eq!(respp.status(), StatusCode::OK);
-            assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+            assert_eq!(resp.handle_id.rtc_id(), rtc3.id());
             assert_eq!(resp.handle_id.janus_session_id(), session_id);
-            assert_eq!(resp.handle_id.backend_id(), backend.id());
+            assert_eq!(resp.handle_id.backend_id(), backend2.id());
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
@@ -2097,7 +2106,7 @@ mod test {
             let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
             let reader2 = TestAgent::new("web", "reader2", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn_sqlx = db_sqlx.get_conn().await;
             // Insert backend.
             let backend_id = {
                 let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
@@ -2107,42 +2116,39 @@ mod test {
             let backend =
                 factory::JanusBackend::new(backend_id, handle_id, session_id, janus.url.clone())
                     .capacity(2)
-                    .insert(&mut conn)
+                    .insert(&mut conn_sqlx)
                     .await;
 
-            let (rtc, classroom_id) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    // Insert room and rtc.
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+            let conn = db.get_conn();
+            // Insert room and rtc.
+            let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+            let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+            // Insert active agents.
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                writer.agent_id(),
+                room.id(),
+                rtc.id(),
+            )
+            .await;
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                reader1.agent_id(),
+                room.id(),
+                rtc.id(),
+            )
+            .await;
 
-                    // Insert active agents.
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        writer.agent_id(),
-                        room.id(),
-                        rtc.id(),
-                    );
+            let classroom_id = room.classroom_id().to_string();
 
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        reader1.agent_id(),
-                        room.id(),
-                        rtc.id(),
-                    );
-
-                    factory::Agent::new()
-                        .agent_id(reader2.agent_id())
-                        .room_id(room.id())
-                        .status(AgentStatus::Ready)
-                        .insert(&conn);
-
-                    (rtc, room.classroom_id().to_string())
-                })
-                .unwrap();
+            factory::Agent::new()
+                .agent_id(reader2.agent_id())
+                .room_id(room.id())
+                .status(AgentStatus::Ready)
+                .insert(&conn);
 
             // Allow user to read the rtc.
             let rtc_id = rtc.id().to_string();
@@ -2180,7 +2186,7 @@ mod test {
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn_sqlx = db_sqlx.get_conn().await;
             // Insert backend.
             let backend_id = {
                 let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
@@ -2190,29 +2196,25 @@ mod test {
             let backend =
                 factory::JanusBackend::new(backend_id, handle_id, session_id, janus.url.clone())
                     .capacity(1)
-                    .insert(&mut conn)
+                    .insert(&mut conn_sqlx)
                     .await;
 
-            let (rtc, backend, classroom_id) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    // Insert rtc.
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+            let conn = db.get_conn();
 
-                    // Insert active agents.
-                    shared_helpers::insert_agent(&conn, reader.agent_id(), room.id());
+            // Insert rtc.
+            let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
+            let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
 
-                    factory::Agent::new()
-                        .agent_id(writer.agent_id())
-                        .room_id(room.id())
-                        .status(AgentStatus::Ready)
-                        .insert(&conn);
+            // Insert active agents.
+            shared_helpers::insert_agent(&conn, reader.agent_id(), room.id());
 
-                    (rtc, backend, room.classroom_id().to_string())
-                })
-                .unwrap();
+            factory::Agent::new()
+                .agent_id(writer.agent_id())
+                .room_id(room.id())
+                .status(AgentStatus::Ready)
+                .insert(&conn);
+
+            let classroom_id = room.classroom_id().to_string();
 
             // Allow user to update the rtc.
             let rtc_id = rtc.id().to_string();
@@ -2247,7 +2249,7 @@ mod test {
             let mut authz = TestAuthz::new();
             let new_writer = TestAgent::new("web", "new-writer", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn_sqlx = db_sqlx.get_conn().await;
             let now = Utc::now();
 
             // We have two backends with cap=800 and balance_cap=700 each
@@ -2265,144 +2267,137 @@ mod test {
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
                     .balancer_capacity(700)
                     .capacity(800)
-                    .insert(&mut conn)
+                    .insert(&mut conn_sqlx)
                     .await
             };
 
-            let backend2 = {
+            let backend_beta = {
                 let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
                 let id = agent.agent_id().to_owned();
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
                     .balancer_capacity(700)
                     .capacity(800)
-                    .insert(&mut conn)
+                    .insert(&mut conn_sqlx)
                     .await
             };
 
-            let backend3 = {
+            let backend_gamma = {
                 let agent = TestAgent::new("gamma", "janus", SVC_AUDIENCE);
                 let id = agent.agent_id().to_owned();
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
                     .balancer_capacity(700)
                     .capacity(800)
-                    .insert(&mut conn)
+                    .insert(&mut conn_sqlx)
                     .await
             };
 
-            let backend4 = {
+            let backend_delta = {
                 let agent = TestAgent::new("delta", "janus", SVC_AUDIENCE);
                 let id = agent.agent_id().to_owned();
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
                     .balancer_capacity(700)
                     .capacity(800)
-                    .insert(&mut conn)
+                    .insert(&mut conn_sqlx)
                     .await
             };
 
-            let (rtc, backend_beta, backend_gamma, backend_delta, classroom_id) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    // Setup three rooms with 500, 600 and 400 reserves.
-                    let room1 = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(now - Duration::minutes(1)),
-                            Bound::Excluded(now + Duration::hours(1)),
-                        ))
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .backend_id(backend1.id())
-                        .reserve(500)
-                        .insert(&conn);
+            let conn = db.get_conn();
+            // Setup three rooms with 500, 600 and 400 reserves.
+            let room1 = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(now - Duration::minutes(1)),
+                    Bound::Excluded(now + Duration::hours(1)),
+                ))
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                .backend_id(backend1.id())
+                .reserve(500)
+                .insert(&conn);
 
-                    let room2 = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(now - Duration::minutes(1)),
-                            Bound::Excluded(now + Duration::hours(1)),
-                        ))
-                        .reserve(600)
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .backend_id(backend2.id())
-                        .insert(&conn);
+            let room2 = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(now - Duration::minutes(1)),
+                    Bound::Excluded(now + Duration::hours(1)),
+                ))
+                .reserve(600)
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                .backend_id(backend_beta.id())
+                .insert(&conn);
 
-                    let room3 = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(now - Duration::minutes(1)),
-                            Bound::Excluded(now + Duration::hours(1)),
-                        ))
-                        .reserve(400)
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .insert(&conn);
+            let room3 = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(now - Duration::minutes(1)),
+                    Bound::Excluded(now + Duration::hours(1)),
+                ))
+                .reserve(400)
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                .insert(&conn);
 
-                    // Insert rtcs for each room.
-                    let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
-                    let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
-                    let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
+            // Insert rtcs for each room.
+            let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+            let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+            let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
 
-                    // Insert writer for room 1 @ backend 1
-                    let agent = TestAgent::new("web", "writer1", USR_AUDIENCE);
+            // Insert writer for room 1 @ backend 1
+            let agent = TestAgent::new("web", "writer1", USR_AUDIENCE);
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                agent.agent_id(),
+                room1.id(),
+                rtc1.id(),
+            )
+            .await;
 
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        room1.id(),
-                        rtc1.id(),
-                    );
+            // Insert two readers for room 1 @ backend 1
+            let agent = TestAgent::new("web", "reader1-1", USR_AUDIENCE);
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                agent.agent_id(),
+                room1.id(),
+                rtc1.id(),
+            )
+            .await;
 
-                    // Insert two readers for room 1 @ backend 1
-                    let agent = TestAgent::new("web", "reader1-1", USR_AUDIENCE);
+            let agent = TestAgent::new("web", "reader1-2", USR_AUDIENCE);
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                agent.agent_id(),
+                room1.id(),
+                rtc1.id(),
+            )
+            .await;
 
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        room1.id(),
-                        rtc1.id(),
-                    );
+            // Insert writer for room 2 @ backend 2
+            let agent = TestAgent::new("web", "writer2", USR_AUDIENCE);
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                agent.agent_id(),
+                room2.id(),
+                rtc2.id(),
+            )
+            .await;
 
-                    let agent = TestAgent::new("web", "reader1-2", USR_AUDIENCE);
+            // Insert reader for room 2 @ backend 2
+            let agent = TestAgent::new("web", "reader2", USR_AUDIENCE);
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                agent.agent_id(),
+                room2.id(),
+                rtc2.id(),
+            )
+            .await;
 
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        room1.id(),
-                        rtc1.id(),
-                    );
-
-                    // Insert writer for room 2 @ backend 2
-                    let agent = TestAgent::new("web", "writer2", USR_AUDIENCE);
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        room2.id(),
-                        rtc2.id(),
-                    );
-
-                    // Insert reader for room 2 @ backend 2
-                    let agent = TestAgent::new("web", "reader2", USR_AUDIENCE);
-
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        room2.id(),
-                        rtc2.id(),
-                    );
-
-                    shared_helpers::insert_agent(&conn, new_writer.agent_id(), room3.id());
-
-                    (
-                        rtc3,
-                        backend2,
-                        backend3,
-                        backend4,
-                        room3.classroom_id().to_string(),
-                    )
-                })
-                .unwrap();
+            let classroom_id = room3.classroom_id().to_string();
 
             // Allow user to update the rtc.
-            let rtc_id = rtc.id().to_string();
+            let rtc_id = rtc3.id().to_string();
             let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(new_writer.account_id(), object, "update");
 
@@ -2414,7 +2409,7 @@ mod test {
             context.with_janus(tx);
 
             let payload = ConnectRequest {
-                id: rtc.id(),
+                id: rtc3.id(),
                 intent: ConnectIntent::Write,
             };
 
@@ -2425,7 +2420,7 @@ mod test {
             context.janus_clients().remove_client(&backend_beta);
 
             assert_eq!(respp.status(), StatusCode::OK);
-            assert_eq!(resp.handle_id.rtc_id(), rtc.id());
+            assert_eq!(resp.handle_id.rtc_id(), rtc3.id());
             assert_eq!(resp.handle_id.janus_session_id(), session_id);
             assert!([backend_beta.id(), backend_gamma.id(), backend_delta.id()]
                 .contains(&resp.handle_id.backend_id()));
@@ -2444,7 +2439,7 @@ mod test {
             let mut authz = TestAuthz::new();
             let new_reader = TestAgent::new("web", "new-reader", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn_sqlx = db_sqlx.get_conn().await;
             let now = Utc::now();
 
             // Lets say we have a single backend with cap=800
@@ -2459,108 +2454,105 @@ mod test {
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
                     .balancer_capacity(700)
                     .capacity(800)
-                    .insert(&mut conn)
+                    .insert(&mut conn_sqlx)
                     .await
             };
 
-            let (rtcs, backend) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    // Setup three rooms with 500, 600 and none.
-                    let room1 = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(now),
-                            Bound::Excluded(now + Duration::hours(1)),
-                        ))
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .backend_id(backend.id())
-                        .reserve(500)
-                        .insert(&conn);
+            let conn = db.get_conn();
+            // Setup three rooms with 500, 600 and none.
+            let room1 = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(now),
+                    Bound::Excluded(now + Duration::hours(1)),
+                ))
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                .backend_id(backend.id())
+                .reserve(500)
+                .insert(&conn);
 
-                    let room2 = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(now),
-                            Bound::Excluded(now + Duration::hours(1)),
-                        ))
-                        .reserve(600)
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .backend_id(backend.id())
-                        .insert(&conn);
+            let room2 = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(now),
+                    Bound::Excluded(now + Duration::hours(1)),
+                ))
+                .reserve(600)
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                .backend_id(backend.id())
+                .insert(&conn);
 
-                    let room3 = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(now),
-                            Bound::Excluded(now + Duration::hours(1)),
-                        ))
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .backend_id(backend.id())
-                        .insert(&conn);
+            let room3 = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(now),
+                    Bound::Excluded(now + Duration::hours(1)),
+                ))
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                .backend_id(backend.id())
+                .insert(&conn);
 
-                    // Insert rtcs for each room.
-                    let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
-                    let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
-                    let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
+            // Insert rtcs for each room.
+            let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+            let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+            let rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
 
-                    // Insert writer for room 1
-                    let agent = TestAgent::new("web", "writer1", USR_AUDIENCE);
+            // Insert writer for room 1
+            let agent = TestAgent::new("web", "writer1", USR_AUDIENCE);
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                agent.agent_id(),
+                room1.id(),
+                rtc1.id(),
+            )
+            .await;
 
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        room1.id(),
-                        rtc1.id(),
-                    );
+            // Insert 450 readers for room 1
+            for i in 0..450 {
+                let agent = TestAgent::new("web", &format!("reader1-{}", i), USR_AUDIENCE);
 
-                    // Insert 450 readers for room 1
-                    for i in 0..450 {
-                        let agent = TestAgent::new("web", &format!("reader1-{}", i), USR_AUDIENCE);
+                shared_helpers::insert_connected_agent(
+                    &conn,
+                    &mut conn_sqlx,
+                    agent.agent_id(),
+                    room1.id(),
+                    rtc1.id(),
+                )
+                .await;
+            }
 
-                        shared_helpers::insert_connected_agent(
-                            &conn,
-                            agent.agent_id(),
-                            room1.id(),
-                            rtc1.id(),
-                        );
-                    }
+            // Insert writer for room 3
+            let agent = TestAgent::new("web", "writer3", USR_AUDIENCE);
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                agent.agent_id(),
+                room2.id(),
+                rtc3.id(),
+            )
+            .await;
 
-                    // Insert writer for room 3
-                    let agent = TestAgent::new("web", "writer3", USR_AUDIENCE);
+            // Insert reader for room 3
+            let agent = TestAgent::new("web", "reader3", USR_AUDIENCE);
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                agent.agent_id(),
+                room3.id(),
+                rtc3.id(),
+            )
+            .await;
 
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        room2.id(),
-                        rtc3.id(),
-                    );
+            shared_helpers::insert_agent(&conn, new_reader.agent_id(), room1.id());
+            shared_helpers::insert_agent(&conn, new_reader.agent_id(), room2.id());
+            shared_helpers::insert_agent(&conn, new_reader.agent_id(), room3.id());
 
-                    // Insert reader for room 3
-                    let agent = TestAgent::new("web", "reader3", USR_AUDIENCE);
-
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        room3.id(),
-                        rtc3.id(),
-                    );
-
-                    shared_helpers::insert_agent(&conn, new_reader.agent_id(), room1.id());
-                    shared_helpers::insert_agent(&conn, new_reader.agent_id(), room2.id());
-                    shared_helpers::insert_agent(&conn, new_reader.agent_id(), room3.id());
-
-                    (
-                        [
-                            (rtc1, room1.classroom_id().to_string()),
-                            (rtc2, room2.classroom_id().to_string()),
-                            (rtc3, room3.classroom_id().to_string()),
-                        ],
-                        backend,
-                    )
-                })
-                .unwrap();
+            let rtcs = [
+                (rtc1, room1.classroom_id().to_string()),
+                (rtc2, room2.classroom_id().to_string()),
+                (rtc3, room3.classroom_id().to_string()),
+            ];
 
             // Allow user to read the rtcs.
             for rtc in rtcs.iter() {
@@ -2811,7 +2803,7 @@ mod test {
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn_sqlx = db_sqlx.get_conn().await;
             // Insert two backends in different groups.
             let backend1_agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
 
@@ -2822,7 +2814,7 @@ mod test {
                 janus.url.clone(),
             )
             .group("wrong")
-            .insert(&mut conn)
+            .insert(&mut conn_sqlx)
             .await;
 
             let backend2_agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
@@ -2834,33 +2826,30 @@ mod test {
                 janus.url.clone(),
             )
             .group("right")
-            .insert(&mut conn)
+            .insert(&mut conn_sqlx)
             .await;
 
-            let (rtc, backend, classroom_id) = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+            let conn = db.get_conn();
+            // Add some load to the first backend.
+            let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
+            let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
+            let someone = TestAgent::new("web", "user456", USR_AUDIENCE);
 
-                // Add some load to the first backend.
-                let room1 = shared_helpers::insert_room_with_backend_id(&conn, backend1.id());
-                let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
-                let someone = TestAgent::new("web", "user456", USR_AUDIENCE);
+            shared_helpers::insert_connected_agent(
+                &conn,
+                &mut conn_sqlx,
+                someone.agent_id(),
+                rtc1.room_id(),
+                rtc1.id(),
+            )
+            .await;
 
-                shared_helpers::insert_connected_agent(
-                    &conn,
-                    someone.agent_id(),
-                    rtc1.room_id(),
-                    rtc1.id(),
-                );
+            // Insert an RTC to connect to
+            let room2 = shared_helpers::insert_room(&conn);
+            let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+            shared_helpers::insert_agent(&conn, agent.agent_id(), room2.id());
 
-                // Insert an RTC to connect to
-                let room2 = shared_helpers::insert_room(&conn);
-                let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
-                shared_helpers::insert_agent(&conn, agent.agent_id(), room2.id());
-                (rtc2, backend2, room2.classroom_id().to_string())
-            };
+            let (rtc, backend, classroom_id) = (rtc2, backend2, room2.classroom_id().to_string());
 
             // Allow agent to read the RTC.
             let rtc_id = rtc.id().to_string();

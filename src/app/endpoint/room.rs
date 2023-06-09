@@ -893,24 +893,25 @@ impl RequestHandler for LeaveHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let mqtt_params = reqp.as_mqtt_params()?;
-        let (room, presence) = crate::util::spawn_blocking({
-            let agent_id = reqp.as_agent_id().clone();
-
+        let room = crate::util::spawn_blocking({
             let conn = context.get_conn().await?;
             move || {
                 let room =
                     helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)?;
 
-                // Check room presence.
-                let presence = db::agent::ListQuery::new()
-                    .room_id(room.id())
-                    .agent_id(&agent_id)
-                    .execute(&conn)?;
-
-                Ok::<_, AppError>((room, presence))
+                Ok::<_, AppError>(room)
             }
         })
         .await?;
+
+        let mut conn = context.get_conn_sqlx().await?;
+        let agent_id = reqp.as_agent_id().clone();
+        // Check room presence.
+        let presence = db::agent::ListQuery::new()
+            .room_id(room.id())
+            .agent_id(&agent_id)
+            .execute(&mut conn)
+            .await?;
 
         if presence.is_empty() {
             return Err(anyhow!("Agent is not online in the room"))

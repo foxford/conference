@@ -199,7 +199,7 @@ impl AgentConnection {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::agent_connection::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::agent_connection::Object {
         let mut q =
             db::agent_connection::UpsertQuery::new(self.agent_id, self.rtc_id, self.handle_id);
 
@@ -207,7 +207,9 @@ impl AgentConnection {
             q = q.created_at(created_at);
         }
 
-        q.execute(conn).expect("Failed to insert agent_connection")
+        q.execute(conn)
+            .await
+            .expect("Failed to insert agent_connection")
     }
 }
 

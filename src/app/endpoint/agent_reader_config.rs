@@ -172,7 +172,6 @@ impl RequestHandler for UpdateHandler {
             };
 
             let conn = context.get_conn().await?;
-            helpers::check_room_presence(&room, &agent_id, &conn)?;
 
             move || {
                 let rtc_reader_configs_with_rtcs = conn.transaction::<_, AppError, _>(|| {
@@ -238,6 +237,11 @@ impl RequestHandler for UpdateHandler {
             }
         })
         .await?;
+
+        {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+        }
 
         if let Some(backend) = maybe_backend {
             let items = rtc_reader_configs_with_rtcs
@@ -353,8 +357,6 @@ impl RequestHandler for ReadHandler {
                     .error(AppErrorKind::InvalidPayload)?;
                 }
 
-                helpers::check_room_presence(&room, &agent_id, &conn)?;
-
                 let rtc_reader_configs_with_rtcs =
                     db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &[&agent_id])
                         .execute(&conn)?;
@@ -362,6 +364,11 @@ impl RequestHandler for ReadHandler {
             }
         })
         .await?;
+
+        {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+        }
 
         context
             .metrics()

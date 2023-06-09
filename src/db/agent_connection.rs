@@ -10,10 +10,7 @@ use svc_agent::AgentId;
 
 use crate::{
     backend::janus::client::HandleId,
-    db::{
-        self,
-        agent::{Object as Agent, Status as AgentStatus},
-    },
+    db::{self, agent::Object as Agent},
     schema::agent_connection,
 };
 
@@ -79,11 +76,10 @@ impl<'a> FindQuery<'a> {
             INNER JOIN agent as a
             ON a.id = ac.agent_id
             WHERE
-                a.status = $1 AND
-                a.agent_id = $2 AND
-                ac.rtc_id = $3
+                a.status = 'ready' AND
+                a.agent_id = $1 AND
+                ac.rtc_id = $2
             "#,
-            AgentStatus::Ready as AgentStatus,
             self.agent_id as &AgentId,
             self.rtc_id as db::id::Id
         )
@@ -144,16 +140,32 @@ impl UpsertQuery {
         Self { created_at, ..self }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::schema::agent_connection::dsl::*;
-        use diesel::prelude::*;
-
-        diesel::insert_into(agent_connection)
-            .values(self)
-            .on_conflict((agent_id, rtc_id))
-            .do_update()
-            .set(self)
-            .get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO agent_connection (agent_id, handle_id, created_at, rtc_id)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (agent_id, rtc_id) DO UPDATE
+            SET
+                agent_id = $1,
+                handle_id = $2,
+                created_at = $3,
+                rtc_id = $4
+            RETURNING
+                agent_id as "agent_id: db::id::Id",
+                handle_id as "handle_id: HandleId",
+                created_at,
+                rtc_id as "rtc_id: db::id::Id",
+                status as "status: Status"
+            "#,
+            self.agent_id as db::id::Id,
+            self.handle_id as HandleId,
+            self.created_at,
+            self.rtc_id as db::id::Id
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 
@@ -279,58 +291,63 @@ impl<'a> BulkDisconnectByBackendQuery<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
+    use crate::test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps};
     use chrono::{Duration, Utc};
     use diesel::Identifiable;
 
-    #[test]
-    fn test_cleanup_not_connected_query() {
+    #[tokio::test]
+    async fn test_cleanup_not_connected_query() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
+        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
         let old = TestAgent::new("web", "old_agent", USR_AUDIENCE);
         let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);
 
-        db.connection_pool()
+        let conn = db
+            .connection_pool()
             .get()
-            .map(|conn| {
-                let room = shared_helpers::insert_room(&conn);
-                let rtc = factory::Rtc::new(room.id())
-                    .created_by(new.agent_id().to_owned())
-                    .insert(&conn);
-                let old = factory::Agent::new()
-                    .agent_id(old.agent_id())
-                    .room_id(room.id())
-                    .status(db::agent::Status::Ready)
-                    .insert(&conn);
-                factory::AgentConnection::new(
-                    *old.id(),
-                    rtc.id(),
-                    crate::backend::janus::client::HandleId::random(),
-                )
-                .created_at(Utc::now() - Duration::minutes(20))
-                .insert(&conn);
+            .expect("failed to get db connection");
 
-                let new = factory::Agent::new()
-                    .agent_id(new.agent_id())
-                    .room_id(room.id())
-                    .status(db::agent::Status::Ready)
-                    .insert(&conn);
-                let new_agent_conn = factory::AgentConnection::new(
-                    *new.id(),
-                    rtc.id(),
-                    crate::backend::janus::client::HandleId::random(),
-                )
-                .insert(&conn);
-                UpdateQuery::new(new_agent_conn.handle_id(), Status::Connected)
-                    .execute(&conn)
-                    .unwrap();
+        let mut conn_sqlx = db_sqlx.get_conn().await;
 
-                room
-            })
-            .expect("Failed to insert room");
+        let room = shared_helpers::insert_room(&conn);
+        let rtc = factory::Rtc::new(room.id())
+            .created_by(new.agent_id().to_owned())
+            .insert(&conn);
+        let old = factory::Agent::new()
+            .agent_id(old.agent_id())
+            .room_id(room.id())
+            .status(db::agent::Status::Ready)
+            .insert(&conn);
 
-        let conn = db.connection_pool().get().unwrap();
+        factory::AgentConnection::new(
+            *old.id(),
+            rtc.id(),
+            crate::backend::janus::client::HandleId::random(),
+        )
+        .created_at(Utc::now() - Duration::minutes(20))
+        .insert(&mut conn_sqlx)
+        .await;
+
+        let new = factory::Agent::new()
+            .agent_id(new.agent_id())
+            .room_id(room.id())
+            .status(db::agent::Status::Ready)
+            .insert(&conn);
+        let new_agent_conn = factory::AgentConnection::new(
+            *new.id(),
+            rtc.id(),
+            crate::backend::janus::client::HandleId::random(),
+        )
+        .insert(&mut conn_sqlx)
+        .await;
+
+        UpdateQuery::new(new_agent_conn.handle_id(), Status::Connected)
+            .execute(&conn)
+            .unwrap();
+
         let r = CleanupNotConnectedQuery::new(Utc::now() - Duration::minutes(1))
             .execute(&conn)
             .expect("Failed to run query");

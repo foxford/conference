@@ -107,34 +107,34 @@ impl<'a> ListQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use diesel::prelude::*;
-
-        let mut q = agent::table
-            .into_boxed()
-            .filter(agent::status.eq(Status::Ready));
-
-        if let Some(agent_id) = self.agent_id {
-            q = q.filter(agent::agent_id.eq(agent_id));
-        }
-
-        if let Some(room_id) = self.room_id {
-            q = q.filter(agent::room_id.eq(room_id));
-        }
-
-        if let Some(status) = self.status {
-            q = q.filter(agent::status.eq(status));
-        }
-
-        if let Some(offset) = self.offset {
-            q = q.offset(offset);
-        }
-
-        if let Some(limit) = self.limit {
-            q = q.limit(limit);
-        }
-
-        q.order_by(agent::created_at.desc()).get_results(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Vec<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                id as "id: Id",
+                agent_id as "agent_id: AgentId",
+                room_id as "room_id: Id",
+                created_at,
+                status as "status: Status"
+            FROM agent
+            WHERE
+                status = 'ready' AND
+                ($1::agent_id IS NULL     OR agent_id = $1::agent_id) AND
+                ($2::uuid IS NULL         OR room_id  = $2::uuid) AND
+                ($3::agent_status IS NULL OR status = $3::agent_status)
+            ORDER BY created_at DESC
+            OFFSET $4
+            LIMIT $5
+            "#,
+            self.agent_id as Option<&AgentId>,
+            self.room_id as Option<Id>,
+            self.status as Option<Status>,
+            self.offset,
+            self.limit,
+        )
+        .fetch_all(conn)
+        .await
     }
 }
 
@@ -294,47 +294,52 @@ impl CleanupQuery {
 #[cfg(test)]
 mod tests {
     use super::{CleanupQuery, ListQuery, Status};
-    use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
+    use crate::test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps};
     use chrono::{Duration, Utc};
 
-    #[test]
-    fn test_cleanup_query() {
+    #[tokio::test]
+    async fn test_cleanup_query() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let db = TestDb::with_local_postgres(&postgres);
+        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
         let old = TestAgent::new("web", "old_agent", USR_AUDIENCE);
         let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);
 
-        let room = db
-            .connection_pool()
-            .get()
-            .map(|conn| {
-                let room = shared_helpers::insert_room(&conn);
-                factory::Agent::new()
-                    .agent_id(old.agent_id())
-                    .room_id(room.id())
-                    .status(Status::Ready)
-                    .created_at(Utc::now() - Duration::weeks(7))
-                    .insert(&conn);
-                factory::Agent::new()
-                    .agent_id(new.agent_id())
-                    .room_id(room.id())
-                    .status(Status::Ready)
-                    .insert(&conn);
+        let conn = db.get_conn();
+        let room = shared_helpers::insert_room(&conn);
+        factory::Agent::new()
+            .agent_id(old.agent_id())
+            .room_id(room.id())
+            .status(Status::Ready)
+            .created_at(Utc::now() - Duration::weeks(7))
+            .insert(&conn);
+        factory::Agent::new()
+            .agent_id(new.agent_id())
+            .room_id(room.id())
+            .status(Status::Ready)
+            .insert(&conn);
 
-                let r = ListQuery::new().room_id(room.id()).execute(&conn).unwrap();
-                assert_eq!(r.len(), 2);
-                room
-            })
-            .expect("Failed to insert room");
+        let mut conn_sqlx = db_sqlx.get_conn().await;
 
-        let conn = db.connection_pool().get().unwrap();
+        let r = ListQuery::new()
+            .room_id(room.id())
+            .execute(&mut conn_sqlx)
+            .await
+            .unwrap();
+        assert_eq!(r.len(), 2);
+
         let r = CleanupQuery::new(Utc::now() - Duration::days(1))
             .execute(&conn)
             .expect("Failed to run query");
 
         assert_eq!(r, 1);
-        let r = ListQuery::new().room_id(room.id()).execute(&conn).unwrap();
+        let r = ListQuery::new()
+            .room_id(room.id())
+            .execute(&mut conn_sqlx)
+            .await
+            .unwrap();
         assert_eq!(r.len(), 1);
     }
 }

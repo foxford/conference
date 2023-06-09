@@ -25,4 +25,12 @@ impl TestDb {
     pub fn connection_pool(&self) -> &ConnectionPool {
         &self.connection_pool
     }
+
+    pub fn get_conn(
+        &self,
+    ) -> diesel::r2d2::PooledConnection<diesel::r2d2::ConnectionManager<diesel::PgConnection>> {
+        self.connection_pool
+            .get()
+            .expect("failed to get db connection")
+    }
 }

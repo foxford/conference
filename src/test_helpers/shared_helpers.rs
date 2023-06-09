@@ -99,19 +99,22 @@ pub fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: db::room::
         .insert(conn)
 }
 
-pub fn insert_connected_agent(
+pub async fn insert_connected_agent(
     conn: &PgConnection,
+    conn_sqlx: &mut sqlx::PgConnection,
     agent_id: &AgentId,
     room_id: db::room::Id,
     rtc_id: db::rtc::Id,
 ) -> (Agent, AgentConnection) {
     insert_connected_to_handle_agent(
         conn,
+        conn_sqlx,
         agent_id,
         room_id,
         rtc_id,
         crate::backend::janus::client::HandleId::stub_id(),
     )
+    .await
 }
 
 pub async fn create_handle(janus_url: &str, session_id: SessionId) -> HandleId {
@@ -147,16 +150,18 @@ pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
     (session_id, handle_id)
 }
 
-pub fn insert_connected_to_handle_agent(
+pub async fn insert_connected_to_handle_agent(
     conn: &PgConnection,
+    conn_sqlx: &mut sqlx::PgConnection,
     agent_id: &AgentId,
     room_id: db::room::Id,
     rtc_id: db::rtc::Id,
     handle_id: crate::backend::janus::client::HandleId,
 ) -> (Agent, AgentConnection) {
     let agent = insert_agent(conn, agent_id, room_id);
-    let agent_connection =
-        factory::AgentConnection::new(*agent.id(), rtc_id, handle_id).insert(conn);
+    let agent_connection = factory::AgentConnection::new(*agent.id(), rtc_id, handle_id)
+        .insert(conn_sqlx)
+        .await;
     (agent, agent_connection)
 }
 

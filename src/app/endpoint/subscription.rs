@@ -315,15 +315,16 @@ mod tests {
             assert_eq!(&payload.agent_id, agent.agent_id());
 
             // Assert agent deleted from the DB.
-            let conn = context
-                .get_conn()
+            let mut conn = context
+                .get_conn_sqlx()
                 .await
                 .expect("Failed to get DB connection");
 
             let db_agents = AgentListQuery::new()
                 .agent_id(agent.agent_id())
                 .room_id(room.id())
-                .execute(&conn)
+                .execute(&mut conn)
+                .await
                 .expect("Failed to execute agent list query");
 
             assert_eq!(db_agents.len(), 0);
@@ -471,15 +472,16 @@ mod tests {
             assert_eq!(&payload.agent_id, agent.agent_id());
 
             // Assert agent deleted from the DB.
-            let conn = context
-                .get_conn()
+            let mut conn = context
+                .get_conn_sqlx()
                 .await
                 .expect("Failed to get DB connection");
 
             let db_agents = AgentListQuery::new()
                 .agent_id(agent.agent_id())
                 .room_id(room.id())
-                .execute(&conn)
+                .execute(&mut conn)
+                .await
                 .expect("Failed to execute agent list query");
 
             assert_eq!(db_agents.len(), 0);
@@ -487,7 +489,8 @@ mod tests {
             let db_agents = AgentListQuery::new()
                 .agent_id(agent.agent_id())
                 .room_id(old_room.id())
-                .execute(&conn)
+                .execute(&mut conn)
+                .await
                 .expect("Failed to execute agent list query");
 
             assert_eq!(db_agents.len(), 0);

@@ -181,10 +181,10 @@ impl<'a> UpsertQuery<'a> {
             SET
                 handle_id         = $2,
                 session_id        = $3,
-                capacity          = $4,
-                balancer_capacity = $5,
+                capacity          = COALESCE($4, janus_backend.capacity),
+                balancer_capacity = COALESCE($5, janus_backend.balancer_capacity),
                 api_version       = $6,
-                "group"           = $7,
+                "group"           = COALESCE($7, janus_backend."group"),
                 janus_url         = $8
             RETURNING
                 id as "id: AgentId",

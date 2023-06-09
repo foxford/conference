@@ -60,22 +60,24 @@ impl RequestHandler for UnicastHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let mqtt_params = reqp.as_mqtt_params()?;
-        crate::util::spawn_blocking({
+        let room = crate::util::spawn_blocking({
             let room_id = payload.room_id;
-            let reqp_agent_id = reqp.as_agent_id().clone();
-            let payload_agent_id = payload.agent_id.clone();
 
             let conn = context.get_conn().await?;
             move || {
                 let room =
                     helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
 
-                helpers::check_room_presence(&room, &reqp_agent_id, &conn)?;
-                helpers::check_room_presence(&room, &payload_agent_id, &conn)?;
                 Ok::<_, AppError>(room)
             }
         })
         .await?;
+
+        {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+            helpers::check_room_presence(&room, &payload.agent_id, &mut conn).await?;
+        }
 
         let response_topic =
             Subscription::multicast_requests_from(&payload.agent_id, Some(API_VERSION))
@@ -142,7 +144,6 @@ impl RequestHandler for BroadcastHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let room = crate::util::spawn_blocking({
-            let agent_id = reqp.as_agent_id().clone();
             let room_id = payload.room_id;
 
             let conn = context.get_conn().await?;
@@ -150,11 +151,15 @@ impl RequestHandler for BroadcastHandler {
                 let room =
                     helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
 
-                helpers::check_room_presence(&room, &agent_id, &conn)?;
                 Ok::<_, AppError>(room)
             }
         })
         .await?;
+
+        {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+        }
 
         // Respond and broadcast to the room topic.
         let mut response = Response::new(

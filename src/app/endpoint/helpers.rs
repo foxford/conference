@@ -151,15 +151,16 @@ where
     }
 }
 
-pub fn check_room_presence(
+pub async fn check_room_presence(
     room: &db::room::Object,
     agent_id: &AgentId,
-    conn: &PgConnection,
+    conn: &mut sqlx::PgConnection,
 ) -> Result<(), AppError> {
     let results = db::agent::ListQuery::new()
         .room_id(room.id())
         .agent_id(agent_id)
-        .execute(conn)?;
+        .execute(conn)
+        .await?;
 
     if results.is_empty() {
         Err(anyhow!("Agent is not online in the room")).error(AppErrorKind::AgentNotEnteredTheRoom)
