@@ -346,6 +346,13 @@ async fn handle_event_impl<C: Context>(
                                     .error(AppErrorKind::MessageParsingFailed)
                             })?;
 
+                        let mut conn = context.get_conn_sqlx().await?;
+                        let rtc = rtc::FindQuery::new(rtc_id)
+                            .execute(&mut conn)
+                            .await?
+                            .context("RTC not found")
+                            .error(AppErrorKind::RtcNotFound)?;
+
                         let (room, rtcs_with_recs): (
                             room::Object,
                             Vec<(rtc::Object, Option<recording::Object>)>,
@@ -356,12 +363,6 @@ async fn handle_event_impl<C: Context>(
                                     .status(recording::Status::Ready)
                                     .mjr_dumps_uris(mjr_dumps_uris)
                                     .execute(&conn)?;
-
-                                let rtc = rtc::FindQuery::new()
-                                    .id(rtc_id)
-                                    .execute(&conn)?
-                                    .context("RTC not found")
-                                    .error(AppErrorKind::RtcNotFound)?;
 
                                 let room = endpoint::helpers::find_room_by_rtc_id(
                                     rtc.id(),

@@ -168,14 +168,27 @@ impl RequestHandler for CreateHandler {
                     .context("Backend not found")
                     .error(AppErrorKind::BackendNotFound)?;
 
+            let rtc = db::rtc::FindQuery::new(handle_id.rtc_id())
+                .execute(&mut conn)
+                .await?
+                .context("RTC not found")
+                .error(AppErrorKind::RtcNotFound)?;
+
+            // Validate agent connection and handle id.
+            let agent_connection =
+            db::agent_connection::FindQuery::new(&agent_id, rtc.id())
+                .execute(&mut conn)
+                .await?
+                .context("Agent not connected")
+                .error(AppErrorKind::AgentNotConnected)?;
+
+            if handle_id.janus_handle_id() != agent_connection.handle_id() {
+                return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
+                    .error(AppErrorKind::InvalidHandleId)?;
+            }
+
             let conn = context.get_conn().await?;
             move || {
-                let rtc = db::rtc::FindQuery::new()
-                    .id(handle_id.rtc_id())
-                    .execute(&conn)?
-                    .context("RTC not found")
-                    .error(AppErrorKind::RtcNotFound)?;
-
                 let room = helpers::find_room_by_id(
                     rtc.room_id(),
                     helpers::RoomTimeRequirement::Open,
@@ -205,18 +218,6 @@ impl RequestHandler for CreateHandler {
 
                 if handle_id.janus_session_id() != janus_backend.session_id() {
                     return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
-                        .error(AppErrorKind::InvalidHandleId)?;
-                }
-
-                // Validate agent connection and handle id.
-                let agent_connection =
-                    db::agent_connection::FindQuery::new(&agent_id, rtc.id())
-                        .execute(&conn)?
-                        .context("Agent not connected")
-                        .error(AppErrorKind::AgentNotConnected)?;
-
-                if handle_id.janus_handle_id() != agent_connection.handle_id() {
-                    return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
                         .error(AppErrorKind::InvalidHandleId)?;
                 }
 
@@ -536,14 +537,27 @@ impl<C: Context> Trickle<'_, C> {
                 .context("Backend not found")
                 .error(AppErrorKind::BackendNotFound)?;
 
+            let rtc = db::rtc::FindQuery::new(handle_id.rtc_id())
+                .execute(&mut conn)
+                .await?
+                .context("RTC not found")
+                .error(AppErrorKind::RtcNotFound)?;
+
+            // Validate agent connection and handle id.
+            let agent_connection =
+            db::agent_connection::FindQuery::new(&agent_id, rtc.id())
+                .execute(&mut conn)
+                .await?
+                .context("Agent not connected")
+                .error(AppErrorKind::AgentNotConnected)?;
+
+            if handle_id.janus_handle_id() != agent_connection.handle_id() {
+                return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
+                    .error(AppErrorKind::InvalidHandleId)?;
+            }
+
             let conn = self.ctx.get_conn().await?;
             move || {
-                let rtc = db::rtc::FindQuery::new()
-                    .id(handle_id.rtc_id())
-                    .execute(&conn)?
-                    .context("RTC not found")
-                    .error(AppErrorKind::RtcNotFound)?;
-
                 let room = helpers::find_room_by_id(
                     rtc.room_id(),
                     helpers::RoomTimeRequirement::Open,
@@ -573,18 +587,6 @@ impl<C: Context> Trickle<'_, C> {
 
                 if handle_id.janus_session_id() != janus_backend.session_id() {
                     return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
-                        .error(AppErrorKind::InvalidHandleId)?;
-                }
-
-                // Validate agent connection and handle id.
-                let agent_connection =
-                    db::agent_connection::FindQuery::new(&agent_id, rtc.id())
-                        .execute(&conn)?
-                        .context("Agent not connected")
-                        .error(AppErrorKind::AgentNotConnected)?;
-
-                if handle_id.janus_handle_id() != agent_connection.handle_id() {
-                    return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
                         .error(AppErrorKind::InvalidHandleId)?;
                 }
 

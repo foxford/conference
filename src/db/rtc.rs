@@ -71,28 +71,31 @@ impl Object {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct FindQuery {
-    id: Option<Id>,
+    id: Id,
 }
 
 impl FindQuery {
-    pub fn new() -> Self {
-        Self { id: None }
+    pub fn new(id: Id) -> Self {
+        Self { id }
     }
 
-    pub fn id(mut self, id: Id) -> Self {
-        self.id = Some(id);
-        self
-    }
-
-    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        match self.id {
-            Some(id) => rtc::table.find(id).get_result(conn).optional(),
-            _ => Err(Error::QueryBuilderError(
-                "id is required parameters of the query".into(),
-            )),
-        }
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                id as "id: Id",
+                room_id as "room_id: Id",
+                created_at,
+                created_by as "created_by: AgentId"
+            FROM rtc
+            WHERE
+                id = $1
+            "#,
+            self.id as Id
+        )
+        .fetch_optional(conn)
+        .await
     }
 }
 

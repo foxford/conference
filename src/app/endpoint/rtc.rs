@@ -256,17 +256,13 @@ impl RequestHandler for ReadHandler {
         context.metrics().observe_auth(authz_time);
 
         // Return rtc.
-        let rtc = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                db::rtc::FindQuery::new()
-                    .id(payload.id)
-                    .execute(&conn)?
-                    .context("RTC not found")
-                    .error(AppErrorKind::RtcNotFound)
-            }
-        })
-        .await?;
+        let mut conn = context.get_conn_sqlx().await?;
+        let rtc = db::rtc::FindQuery::new(payload.id)
+            .execute(&mut conn)
+            .await?
+            .context("RTC not found")
+            .error(AppErrorKind::RtcNotFound)?;
+
         context
             .metrics()
             .request_duration
@@ -527,19 +523,12 @@ where
             RtcSharingPolicy::Owned => {
                 if self.intent == ConnectIntent::Write {
                     // Check that the RTC is owned by the same agent.
-                    let id = self.rtc_id;
-
-                    let rtc_object = crate::util::spawn_blocking({
-                        let conn = self.ctx.get_conn().await?;
-                        move || {
-                            db::rtc::FindQuery::new()
-                                .id(id)
-                                .execute(&conn)?
-                                .context("RTC not found")
-                                .error(AppErrorKind::RtcNotFound)
-                        }
-                    })
-                    .await?;
+                    let mut conn = self.ctx.get_conn_sqlx().await?;
+                    let rtc_object = db::rtc::FindQuery::new(self.rtc_id)
+                        .execute(&mut conn)
+                        .await?
+                        .context("RTC not found")
+                        .error(AppErrorKind::RtcNotFound)?;
 
                     if *rtc_object.created_by() != self.agent_id {
                         return Err(anyhow!("RTC doesn't belong to the agent"))
@@ -974,18 +963,13 @@ impl RequestHandler for ConnectHandler {
             RtcSharingPolicy::Shared => (),
             RtcSharingPolicy::Owned => {
                 if payload.intent == ConnectIntent::Write {
+                    let mut conn = context.get_conn_sqlx().await?;
                     // Check that the RTC is owned by the same agent.
-                    let rtc = crate::util::spawn_blocking({
-                        let conn = context.get_conn().await?;
-                        move || {
-                            db::rtc::FindQuery::new()
-                                .id(payload_id)
-                                .execute(&conn)?
-                                .context("RTC not found")
-                                .error(AppErrorKind::RtcNotFound)
-                        }
-                    })
-                    .await?;
+                    let rtc = db::rtc::FindQuery::new(payload_id)
+                        .execute(&mut conn)
+                        .await?
+                        .context("RTC not found")
+                        .error(AppErrorKind::RtcNotFound)?;
 
                     if rtc.created_by() != reqp.as_agent_id() {
                         return Err(anyhow!("RTC doesn't belong to the agent"))

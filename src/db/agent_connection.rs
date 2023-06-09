@@ -14,34 +14,21 @@ use crate::{
         self,
         agent::{Object as Agent, Status as AgentStatus},
     },
-    schema::{agent, agent_connection},
+    schema::agent_connection,
 };
-
-type AllColumns = (
-    agent_connection::agent_id,
-    agent_connection::handle_id,
-    agent_connection::created_at,
-    agent_connection::rtc_id,
-    agent_connection::status,
-);
-
-const ALL_COLUMNS: AllColumns = (
-    agent_connection::agent_id,
-    agent_connection::handle_id,
-    agent_connection::created_at,
-    agent_connection::rtc_id,
-    agent_connection::status,
-);
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
 #[PgType = "agent_connection_status"]
 #[DieselType = "Agent_connection_status"]
+#[sqlx(type_name = "agent_connection_status")]
 pub enum Status {
     #[serde(rename = "in_progress")]
+    #[sqlx(rename = "in_progress")]
     InProgress,
+    #[sqlx(rename = "connected")]
     Connected,
 }
 
@@ -78,17 +65,30 @@ impl<'a> FindQuery<'a> {
         Self { agent_id, rtc_id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        agent_connection::table
-            .inner_join(agent::table)
-            .filter(agent::status.eq(AgentStatus::Ready))
-            .filter(agent::agent_id.eq(self.agent_id))
-            .filter(agent_connection::rtc_id.eq(self.rtc_id))
-            .select(ALL_COLUMNS)
-            .get_result(conn)
-            .optional()
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                ac.agent_id as "agent_id: db::id::Id",
+                ac.handle_id as "handle_id: HandleId",
+                ac.created_at,
+                ac.rtc_id as "rtc_id: db::id::Id",
+                ac.status as "status: Status"
+            FROM agent_connection as ac
+            INNER JOIN agent as a
+            ON a.id = ac.agent_id
+            WHERE
+                a.status = $1 AND
+                a.agent_id = $2 AND
+                ac.rtc_id = $3
+            "#,
+            AgentStatus::Ready as AgentStatus,
+            self.agent_id as &AgentId,
+            self.rtc_id as db::id::Id
+        )
+        .fetch_optional(conn)
+        .await
     }
 }
 
