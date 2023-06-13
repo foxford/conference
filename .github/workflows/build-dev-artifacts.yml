@@ -18,3 +18,5 @@ jobs:
     secrets:
       docker_registry_username: ${{ secrets.YANDEX_DOCKER_USERNAME }}
       docker_registry_password: ${{ secrets.YANDEX_DOCKER_PASSWORD }}
+    with:
+      repository: cr.yandex/crp1of6bddata8ain3q5/conference
