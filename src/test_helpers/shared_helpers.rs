@@ -91,12 +91,18 @@ pub fn insert_room_with_owned(conn: &PgConnection) -> Room {
         .insert(conn)
 }
 
-pub fn insert_agent(conn: &PgConnection, agent_id: &AgentId, room_id: db::room::Id) -> Agent {
+pub async fn insert_agent(
+    conn: &PgConnection,
+    conn_sqlx: &mut sqlx::PgConnection,
+    agent_id: &AgentId,
+    room_id: db::room::Id,
+) -> Agent {
     factory::Agent::new()
         .agent_id(agent_id)
         .room_id(room_id)
         .status(AgentStatus::Ready)
-        .insert(conn)
+        .insert(conn, conn_sqlx)
+        .await
 }
 
 pub async fn insert_connected_agent(
@@ -158,7 +164,7 @@ pub async fn insert_connected_to_handle_agent(
     rtc_id: db::rtc::Id,
     handle_id: crate::backend::janus::client::HandleId,
 ) -> (Agent, AgentConnection) {
-    let agent = insert_agent(conn, agent_id, room_id);
+    let agent = insert_agent(conn, conn_sqlx, agent_id, room_id).await;
     let agent_connection = factory::AgentConnection::new(*agent.id(), rtc_id, handle_id)
         .insert(conn_sqlx)
         .await;

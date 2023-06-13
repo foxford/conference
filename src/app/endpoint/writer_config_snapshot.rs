@@ -129,37 +129,29 @@ mod tests {
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
             let dispatcher = TestAgent::new("dispatcher-0", "dispatcher", SVC_AUDIENCE);
 
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
             // Insert a room with RTCs and agent writer configs.
-            let (room, rtc2, rtc3) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .insert(&conn);
 
-                    shared_helpers::insert_agent(&conn, agent1.agent_id(), room.id());
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent1.agent_id(), room.id()).await;
 
-                    let rtc2 = factory::Rtc::new(room.id())
-                        .created_by(agent2.agent_id().to_owned())
-                        .insert(&conn);
+            let rtc2 = factory::Rtc::new(room.id())
+                .created_by(agent2.agent_id().to_owned())
+                .insert(&conn);
 
-                    factory::RtcWriterConfigSnaphost::new(&rtc2, Some(true), Some(true))
-                        .insert(&conn);
+            factory::RtcWriterConfigSnaphost::new(&rtc2, Some(true), Some(true)).insert(&conn);
 
-                    let rtc3 = factory::Rtc::new(room.id())
-                        .created_by(agent3.agent_id().to_owned())
-                        .insert(&conn);
+            let rtc3 = factory::Rtc::new(room.id())
+                .created_by(agent3.agent_id().to_owned())
+                .insert(&conn);
 
-                    factory::RtcWriterConfigSnaphost::new(&rtc3, Some(false), Some(false))
-                        .insert(&conn);
-                    factory::RtcWriterConfigSnaphost::new(&rtc3, Some(true), None).insert(&conn);
-
-                    (room, rtc2, rtc3)
-                })
-                .unwrap();
+            factory::RtcWriterConfigSnaphost::new(&rtc3, Some(false), Some(false)).insert(&conn);
+            factory::RtcWriterConfigSnaphost::new(&rtc3, Some(true), None).insert(&conn);
 
             // Make agent_writer_config.read request.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -201,22 +193,17 @@ mod tests {
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
             let dispatcher = TestAgent::new("dispatcher-0", "dispatcher", SVC_AUDIENCE);
 
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
             // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                .insert(&conn);
 
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-
-                    room
-                })
-                .unwrap();
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
 
             // Make agent_writer_config.read request.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;

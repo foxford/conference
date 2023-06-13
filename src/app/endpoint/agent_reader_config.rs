@@ -415,51 +415,50 @@ mod tests {
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
             let agent4 = TestAgent::new("web", "user4", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
-            let backend =
-                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
-                    .await;
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn_sqlx,
+                &janus.url,
+                session_id,
+                handle_id,
+            )
+            .await;
 
             // Insert a room with agents and RTCs.
-            let (room, backend, _rtcs) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .backend_id(backend.id())
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .backend_id(backend.id())
+                .insert(&conn);
 
-                    for agent in &[&agent1, &agent2, &agent3, &agent4] {
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    }
+            for agent in &[&agent1, &agent2, &agent3, &agent4] {
+                shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id())
+                    .await;
+            }
 
-                    let rtcs = vec![&agent2, &agent3, &agent4]
-                        .into_iter()
-                        .map(|agent| {
-                            factory::Rtc::new(room.id())
-                                .created_by(agent.agent_id().to_owned())
-                                .insert(&conn)
-                        })
-                        .collect::<Vec<_>>();
-
-                    let groups = Groups::new(vec![GroupItem::new(
-                        0,
-                        vec![
-                            agent1.agent_id().clone(),
-                            agent2.agent_id().clone(),
-                            agent3.agent_id().clone(),
-                            agent4.agent_id().clone(),
-                        ],
-                    )]);
-
-                    factory::GroupAgent::new(room.id(), groups).upsert(&conn);
-
-                    (room, backend, rtcs)
+            let _rtcs = vec![&agent2, &agent3, &agent4]
+                .into_iter()
+                .map(|agent| {
+                    factory::Rtc::new(room.id())
+                        .created_by(agent.agent_id().to_owned())
+                        .insert(&conn)
                 })
-                .unwrap();
+                .collect::<Vec<_>>();
+
+            let groups = Groups::new(vec![GroupItem::new(
+                0,
+                vec![
+                    agent1.agent_id().clone(),
+                    agent2.agent_id().clone(),
+                    agent3.agent_id().clone(),
+                    agent4.agent_id().clone(),
+                ],
+            )]);
+
+            factory::GroupAgent::new(room.id(), groups).upsert(&conn);
 
             // Allow agent to update the room.
             let mut authz = TestAuthz::new();
@@ -623,29 +622,21 @@ mod tests {
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
             // Insert a room with agents.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .insert(&conn);
 
-                    shared_helpers::insert_agent(&conn, agent1.agent_id(), room.id());
-                    shared_helpers::insert_agent(&conn, agent2.agent_id(), room.id());
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent1.agent_id(), room.id()).await;
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent2.agent_id(), room.id()).await;
 
-                    factory::GroupAgent::new(
-                        room.id(),
-                        Groups::new(vec![GroupItem::new(0, vec![])]),
-                    )
-                    .upsert(&conn);
-
-                    room
-                })
-                .unwrap();
+            factory::GroupAgent::new(room.id(), Groups::new(vec![GroupItem::new(0, vec![])]))
+                .upsert(&conn);
 
             // Allow agent to update the room.
             let mut authz = TestAuthz::new();
@@ -728,25 +719,20 @@ mod tests {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
             // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(Utc::now() - Duration::hours(2)),
-                            Bound::Excluded(Utc::now() - Duration::hours(1)),
-                        ))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(Utc::now() - Duration::hours(2)),
+                    Bound::Excluded(Utc::now() - Duration::hours(1)),
+                ))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .insert(&conn);
 
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-
-                    room
-                })
-                .unwrap();
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
 
             // Make agent_reader_config.update request.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -774,22 +760,17 @@ mod tests {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
             // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                .insert(&conn);
 
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-
-                    room
-                })
-                .unwrap();
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
 
             // Allow agent to update the room.
             let mut authz = TestAuthz::new();
@@ -854,40 +835,39 @@ mod tests {
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
-            let backend =
-                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
-                    .await;
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn_sqlx,
+                &janus.url,
+                session_id,
+                handle_id,
+            )
+            .await;
 
             // Insert a room with agents and RTCs.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .backend_id(backend.id())
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .backend_id(backend.id())
+                .insert(&conn);
 
-                    for agent in &[&agent1, &agent2] {
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    }
+            for agent in &[&agent1, &agent2] {
+                shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id())
+                    .await;
+            }
 
-                    factory::Rtc::new(room.id())
-                        .created_by(agent2.agent_id().to_owned())
-                        .insert(&conn);
+            factory::Rtc::new(room.id())
+                .created_by(agent2.agent_id().to_owned())
+                .insert(&conn);
 
-                    factory::GroupAgent::new(
-                        room.id(),
-                        Groups::new(vec![GroupItem::new(0, vec![agent1.agent_id().clone()])]),
-                    )
-                    .upsert(&conn);
-
-                    room
-                })
-                .unwrap();
+            factory::GroupAgent::new(
+                room.id(),
+                Groups::new(vec![GroupItem::new(0, vec![agent1.agent_id().clone()])]),
+            )
+            .upsert(&conn);
 
             // Allow agent to update the room.
             let mut authz = TestAuthz::new();
@@ -949,40 +929,35 @@ mod tests {
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
 
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
             // Insert a room with RTCs and agent reader configs.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .insert(&conn);
 
-                    shared_helpers::insert_agent(&conn, agent1.agent_id(), room.id());
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent1.agent_id(), room.id()).await;
 
-                    let rtc2 = factory::Rtc::new(room.id())
-                        .created_by(agent2.agent_id().to_owned())
-                        .insert(&conn);
+            let rtc2 = factory::Rtc::new(room.id())
+                .created_by(agent2.agent_id().to_owned())
+                .insert(&conn);
 
-                    factory::RtcReaderConfig::new(&rtc2, agent1.agent_id())
-                        .receive_video(true)
-                        .receive_audio(true)
-                        .insert(&conn);
+            factory::RtcReaderConfig::new(&rtc2, agent1.agent_id())
+                .receive_video(true)
+                .receive_audio(true)
+                .insert(&conn);
 
-                    let rtc3 = factory::Rtc::new(room.id())
-                        .created_by(agent3.agent_id().to_owned())
-                        .insert(&conn);
+            let rtc3 = factory::Rtc::new(room.id())
+                .created_by(agent3.agent_id().to_owned())
+                .insert(&conn);
 
-                    factory::RtcReaderConfig::new(&rtc3, agent1.agent_id())
-                        .receive_video(false)
-                        .receive_audio(false)
-                        .insert(&conn);
-
-                    room
-                })
-                .unwrap();
+            factory::RtcReaderConfig::new(&rtc3, agent1.agent_id())
+                .receive_video(false)
+                .receive_audio(false)
+                .insert(&conn);
 
             // Allow agent to read the room.
             let mut authz = TestAuthz::new();
@@ -1076,25 +1051,20 @@ mod tests {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
             // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(Utc::now() - Duration::hours(2)),
-                            Bound::Excluded(Utc::now() - Duration::hours(1)),
-                        ))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(Utc::now() - Duration::hours(2)),
+                    Bound::Excluded(Utc::now() - Duration::hours(1)),
+                ))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .insert(&conn);
 
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-
-                    room
-                })
-                .unwrap();
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
 
             // Make agent_reader_config.read request.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -1119,22 +1089,17 @@ mod tests {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
             // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                .insert(&conn);
 
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-
-                    room
-                })
-                .unwrap();
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
 
             // Allow agent to read the room.
             let mut authz = TestAuthz::new();

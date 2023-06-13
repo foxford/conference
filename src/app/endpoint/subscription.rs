@@ -257,17 +257,13 @@ mod tests {
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let room = {
-                // Create room and put the agent online.
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+            let conn = db.get_conn();
 
-                let room = shared_helpers::insert_room(&conn);
-                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                room
-            };
+            // Create room and put the agent online.
+            let room = shared_helpers::insert_room(&conn);
+
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
 
             // Send subscription.delete response.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -423,30 +419,20 @@ mod tests {
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let old_room = {
-                // First room, we were online in it but then session was taken over and we disconnected (not in the db tho).
-                // By the end of this test subscription for this room should be absent.
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+            let conn = db.get_conn();
 
-                let old_room = shared_helpers::insert_room(&conn);
-                shared_helpers::insert_agent(&conn, agent.agent_id(), old_room.id());
-                old_room
-            };
+            // First room, we were online in it but then session was taken over and we disconnected (not in the db tho).
+            // By the end of this test subscription for this room should be absent.
+            let old_room = shared_helpers::insert_room(&conn);
 
-            let room = {
-                // Create room and put the agent online.
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), old_room.id())
+                .await;
 
-                let room = shared_helpers::insert_room(&conn);
-                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                room
-            };
+            // Create room and put the agent online.
+            let room = shared_helpers::insert_room(&conn);
+
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
 
             // Send subscription.delete event.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;

@@ -344,7 +344,8 @@ mod tests {
             .agent_id(old.agent_id())
             .room_id(room.id())
             .status(db::agent::Status::Ready)
-            .insert(&conn);
+            .insert(&conn, &mut conn_sqlx)
+            .await;
 
         factory::AgentConnection::new(
             *old.id(),
@@ -359,7 +360,8 @@ mod tests {
             .agent_id(new.agent_id())
             .room_id(room.id())
             .status(db::agent::Status::Ready)
-            .insert(&conn);
+            .insert(&conn, &mut conn_sqlx)
+            .await;
         let new_agent_conn = factory::AgentConnection::new(
             *new.id(),
             rtc.id(),

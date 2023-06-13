@@ -250,17 +250,15 @@ mod test {
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
             // Insert room with online both sender and receiver.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = shared_helpers::insert_room(&conn);
-                    shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
-                    shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
-                    room
-                })
-                .expect("Failed to insert room");
+            let room = shared_helpers::insert_room(&conn);
+
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, sender.agent_id(), room.id()).await;
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, receiver.agent_id(), room.id())
+                .await;
 
             // Make message.unicast request.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -323,16 +321,13 @@ mod test {
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
             // Insert room with online receiver only.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = shared_helpers::insert_room(&conn);
-                    shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
-                    room
-                })
-                .expect("Failed to insert room");
+            let room = shared_helpers::insert_room(&conn);
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, receiver.agent_id(), room.id())
+                .await;
 
             // Make message.unicast request.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -360,16 +355,12 @@ mod test {
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
             // Insert room with online sender only.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = shared_helpers::insert_room(&conn);
-                    shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
-                    room
-                })
-                .expect("Failed to insert room");
+            let room = shared_helpers::insert_room(&conn);
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, sender.agent_id(), room.id()).await;
 
             // Make message.unicast request.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -405,17 +396,16 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+
             // Insert room with online agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = shared_helpers::insert_room(&conn);
-                    let agent_factory = factory::Agent::new().room_id(room.id());
-                    agent_factory.agent_id(sender.agent_id()).insert(&conn);
-                    room
-                })
-                .expect("Failed to insert room");
+            let room = shared_helpers::insert_room(&conn);
+            let agent_factory = factory::Agent::new().room_id(room.id());
+            agent_factory
+                .agent_id(sender.agent_id())
+                .insert(&conn, &mut conn_sqlx)
+                .await;
 
             // Make message.broadcast request.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;

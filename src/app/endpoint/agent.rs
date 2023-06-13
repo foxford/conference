@@ -145,17 +145,12 @@ mod tests {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
 
-                // Create room and put the agent online.
-                let room = shared_helpers::insert_room(&conn);
-                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                room
-            };
+            // Create room and put the agent online.
+            let room = shared_helpers::insert_room(&conn);
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
 
             // Allow agent to list agents in the room.
             let mut authz = TestAuthz::new();

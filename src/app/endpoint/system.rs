@@ -459,38 +459,35 @@ mod test {
                 shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
                     .await;
 
-            let (rtcs, backend) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room1 =
-                        shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
+            let conn = db.get_conn();
+            let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
 
-                    let room2 =
-                        shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
+            let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
+            // Insert rtcs.
+            let rtcs = vec![
+                shared_helpers::insert_rtc_with_room(&conn, &room1),
+                shared_helpers::insert_rtc_with_room(&conn, &room2),
+            ];
 
-                    // Insert rtcs.
-                    let rtcs = vec![
-                        shared_helpers::insert_rtc_with_room(&conn, &room1),
-                        shared_helpers::insert_rtc_with_room(&conn, &room2),
-                    ];
+            let _other_rtc = shared_helpers::insert_rtc(&conn);
 
-                    let _other_rtc = shared_helpers::insert_rtc(&conn);
+            // Insert active agents.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                    // Insert active agents.
-                    let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            let mut conn_sqlx = db_sqlx.get_conn().await;
 
-                    for rtc in rtcs.iter() {
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), rtc.room_id());
-                        shared_helpers::insert_recording(&conn, rtc);
-                    }
+            for rtc in rtcs.iter() {
+                shared_helpers::insert_agent(
+                    &conn,
+                    &mut conn_sqlx,
+                    agent.agent_id(),
+                    rtc.room_id(),
+                )
+                .await;
+                shared_helpers::insert_recording(&conn, rtc);
+            }
 
-                    (
-                        rtcs.into_iter().map(|x| x.id()).collect::<Vec<_>>(),
-                        backend,
-                    )
-                })
-                .unwrap();
+            let rtcs = rtcs.into_iter().map(|x| x.id()).collect::<Vec<_>>();
 
             // Allow cron to perform vacuum.
             let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);

@@ -659,14 +659,10 @@ impl EnterHandler {
         context.metrics().observe_auth(authz_time);
 
         // Register agent in `in_progress` state.
-        crate::util::spawn_blocking({
-            let agent_id = reqp.as_agent_id().clone();
-            let room_id = room.id();
-
-            let conn = context.get_conn().await?;
-            move || db::agent::InsertQuery::new(&agent_id, room_id).execute(&conn)
-        })
-        .await?;
+        let mut conn = context.get_conn_sqlx().await?;
+        db::agent::InsertQuery::new(reqp.as_agent_id(), room.id())
+            .execute(&mut conn)
+            .await?;
 
         // Send dynamic subscription creation request to the broker.
         let subject = reqp.as_agent_id().to_owned();
@@ -2257,19 +2253,14 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+            let conn = db.get_conn();
 
-                // Create room.
-                let room = shared_helpers::insert_room(&conn);
+            // Create room.
+            let room = shared_helpers::insert_room(&conn);
 
-                // Put agent online in the room.
-                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                room
-            };
+            let mut conn_sqlx = db_sqlx.get_conn().await;
+            // Put agent online in the room.
+            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
 
             // Make room.leave request.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;

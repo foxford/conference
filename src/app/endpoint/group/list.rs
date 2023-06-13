@@ -185,24 +185,19 @@ mod tests {
         let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-        let room = db
-            .connection_pool()
-            .get()
-            .map(|conn| {
-                let room = factory::Room::new()
-                    .audience(USR_AUDIENCE)
-                    .time((
-                        Bound::Included(Utc::now() - Duration::hours(2)),
-                        Bound::Excluded(Utc::now() - Duration::hours(1)),
-                    ))
-                    .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                    .insert(&conn);
+        let conn = db.get_conn();
+        let mut conn_sqlx = db_sqlx.get_conn().await;
 
-                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+        let room = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((
+                Bound::Included(Utc::now() - Duration::hours(2)),
+                Bound::Excluded(Utc::now() - Duration::hours(1)),
+            ))
+            .rtc_sharing_policy(RtcSharingPolicy::Owned)
+            .insert(&conn);
 
-                room
-            })
-            .unwrap();
+        shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
 
         let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 

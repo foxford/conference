@@ -147,7 +147,6 @@ pub struct InsertQuery<'a> {
     agent_id: &'a AgentId,
     room_id: db::room::Id,
     status: Status,
-    #[cfg(test)]
     created_at: Option<DateTime<Utc>>,
 }
 
@@ -158,7 +157,6 @@ impl<'a> InsertQuery<'a> {
             agent_id,
             room_id,
             status: Status::InProgress,
-            #[cfg(test)]
             created_at: None,
         }
     }
@@ -176,16 +174,29 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::schema::agent::dsl::*;
-        use diesel::{ExpressionMethods, RunQueryDsl};
-
-        diesel::insert_into(agent)
-            .values(self)
-            .on_conflict((agent_id, room_id))
-            .do_update()
-            .set(status.eq(Status::InProgress))
-            .get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO agent (agent_id, room_id, status, created_at)
+            VALUES ($1, $2, $3, COALESCE($4, now()))
+            ON CONFLICT (agent_id, room_id) DO UPDATE
+            SET
+                status = 'in_progress'
+            RETURNING
+                id as "id: Id",
+                agent_id as "agent_id: AgentId",
+                room_id as "room_id: Id",
+                created_at,
+                status as "status: Status"
+            "#,
+            self.agent_id as &AgentId,
+            self.room_id as Id,
+            self.status as Status,
+            self.created_at
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 
@@ -308,18 +319,21 @@ mod tests {
         let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);
 
         let conn = db.get_conn();
+        let mut conn_sqlx = db_sqlx.get_conn().await;
         let room = shared_helpers::insert_room(&conn);
         factory::Agent::new()
             .agent_id(old.agent_id())
             .room_id(room.id())
             .status(Status::Ready)
             .created_at(Utc::now() - Duration::weeks(7))
-            .insert(&conn);
+            .insert(&conn, &mut conn_sqlx)
+            .await;
         factory::Agent::new()
             .agent_id(new.agent_id())
             .room_id(room.id())
             .status(Status::Ready)
-            .insert(&conn);
+            .insert(&conn, &mut conn_sqlx)
+            .await;
 
         let mut conn_sqlx = db_sqlx.get_conn().await;
 

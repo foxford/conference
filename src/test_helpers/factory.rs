@@ -151,7 +151,11 @@ impl<'a> Agent<'a> {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::agent::Object {
+    pub async fn insert(
+        &self,
+        conn: &PgConnection,
+        conn_sqlx: &mut sqlx::PgConnection,
+    ) -> db::agent::Object {
         let agent_id = match (self.agent_id, self.audience) {
             (Some(agent_id), _) => agent_id.to_owned(),
             (None, Some(audience)) => {
@@ -169,7 +173,7 @@ impl<'a> Agent<'a> {
         if let Some(created_at) = self.created_at {
             q = q.created_at(created_at);
         }
-        q.execute(conn).expect("Failed to insert agent")
+        q.execute(conn_sqlx).await.expect("Failed to insert agent")
     }
 }
 
