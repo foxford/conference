@@ -123,25 +123,25 @@ impl From<RoomBackend> for RtcSharingPolicy {
 #[belongs_to(JanusBackend, foreign_key = "backend_id")]
 #[table_name = "room"]
 pub struct Object {
-    id: Id,
+    pub id: Id,
     #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
-    time: Time,
-    audience: String,
+    pub time: Time,
+    pub audience: String,
     #[serde(with = "ts_seconds")]
-    created_at: DateTime<Utc>,
-    backend: RoomBackend,
+    pub created_at: DateTime<Utc>,
+    pub backend: RoomBackend,
     #[serde(skip_serializing_if = "Option::is_none")]
-    reserve: Option<i32>,
-    tags: JsonValue,
+    pub reserve: Option<i32>,
+    pub tags: JsonValue,
     #[serde(skip_serializing_if = "Option::is_none")]
-    backend_id: Option<AgentId>,
-    rtc_sharing_policy: RtcSharingPolicy,
-    classroom_id: Uuid,
-    host: Option<AgentId>,
-    timed_out: bool,
-    closed_by: Option<AgentId>,
+    pub backend_id: Option<AgentId>,
+    pub rtc_sharing_policy: RtcSharingPolicy,
+    pub classroom_id: Uuid,
+    pub host: Option<AgentId>,
+    pub timed_out: bool,
+    pub closed_by: Option<AgentId>,
     #[serde(skip)]
-    infinite: bool,
+    pub infinite: bool,
 }
 
 pub struct ObjectSqlx {
@@ -564,11 +564,11 @@ impl<'a> UpdateQuery<'a> {
     }
 }
 
-fn uuid_to_sqlx(uuid: Uuid) -> sqlx::types::Uuid {
+pub fn uuid_to_sqlx(uuid: Uuid) -> sqlx::types::Uuid {
     sqlx::types::Uuid::from_u128_le(uuid.to_u128_le())
 }
 
-fn sqlx_to_uuid(uuid: sqlx::types::Uuid) -> Uuid {
+pub fn sqlx_to_uuid(uuid: sqlx::types::Uuid) -> Uuid {
     Uuid::from_u128_le(uuid.to_u128_le())
 }
 

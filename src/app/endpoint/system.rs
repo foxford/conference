@@ -183,18 +183,14 @@ impl EventHandler for OrphanedRoomCloseHandler {
             - chrono::Duration::from_std(context.config().orphaned_room_timeout)
                 .expect("Orphaned room timeout misconfigured");
 
-        let timed_out = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || db::orphaned_room::get_timed_out(load_till, &conn)
-        })
-        .await?;
-
         let mut closed_rooms = vec![];
         let mut notifications = vec![];
 
         {
             // to close this connection right after the loop
             let mut conn = context.get_conn_sqlx().await?;
+
+            let timed_out = db::orphaned_room::get_timed_out(load_till, &mut conn).await?;
 
             for (orphan, room) in timed_out {
                 match room {
@@ -419,8 +415,9 @@ mod test {
             assert_eq!(rooms[0].id(), opened_room.id());
             let orphaned = db::orphaned_room::get_timed_out(
                 Utc::now() + chrono::Duration::seconds(20),
-                &connection,
-            )?;
+                &mut conn_sqlx,
+            )
+            .await?;
             assert_eq!(orphaned.len(), 1);
             assert_eq!(orphaned[0].0.id, opened_room2.id());
             Ok(())

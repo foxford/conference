@@ -1746,6 +1746,227 @@
     },
     "query": "\n            INSERT INTO rtc_writer_config (rtc_id, send_video, send_audio, video_remb, send_audio_updated_by)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (rtc_id) DO UPDATE\n            SET\n                send_video = $2,\n                send_audio = $3,\n                video_remb = $4,\n                send_audio_updated_by = $5\n            RETURNING\n                rtc_id as \"rtc_id: db::rtc::Id\",\n                send_video,\n                send_audio,\n                video_remb,\n                send_audio_updated_by as \"send_audio_updated_by: AgentId\",\n                updated_at\n            "
   },
+  "6d9f570bf09e7ad86788d01908c57ff072c69dd26f7fd5383c2eb35584f87616": {
+    "describe": {
+      "columns": [
+        {
+          "name": "room_id: super::room::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host_left_at",
+          "ordinal": 1,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 2,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: super::room::TimeSqlx",
+          "ordinal": 3,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "reserve",
+          "ordinal": 4,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tags",
+          "ordinal": 5,
+          "type_info": "Json"
+        },
+        {
+          "name": "classroom_id?: _",
+          "ordinal": 6,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host: AgentId",
+          "ordinal": 7,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "timed_out",
+          "ordinal": 8,
+          "type_info": "Bool"
+        },
+        {
+          "name": "audience",
+          "ordinal": 9,
+          "type_info": "Text"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 10,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend: super::room::RoomBackend",
+          "ordinal": 11,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          }
+        },
+        {
+          "name": "rtc_sharing_policy: super::rtc::SharingPolicy",
+          "ordinal": 12,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          }
+        },
+        {
+          "name": "infinite",
+          "ordinal": 13,
+          "type_info": "Bool"
+        },
+        {
+          "name": "closed_by: AgentId",
+          "ordinal": 14,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n        SELECT\n            orph.id as \"room_id: super::room::Id\",\n            orph.host_left_at,\n            r.backend_id as \"backend_id: AgentId\",\n            r.time as \"time: super::room::TimeSqlx\",\n            r.reserve,\n            r.tags,\n            r.classroom_id as \"classroom_id?: _\",\n            r.host as \"host: AgentId\",\n            r.timed_out,\n            r.audience,\n            r.created_at,\n            r.backend as \"backend: super::room::RoomBackend\",\n            r.rtc_sharing_policy as \"rtc_sharing_policy: super::rtc::SharingPolicy\",\n            r.infinite,\n            r.closed_by as \"closed_by: AgentId\"\n        FROM orphaned_room as orph\n        LEFT JOIN room as r\n        ON r.id = orph.id\n        WHERE\n            orph.host_left_at < $1\n        "
+  },
   "6e723d4966ac8eda05d95aee12842d28a175139c4b71e51aaa4373fb190896bc": {
     "describe": {
       "columns": [],
