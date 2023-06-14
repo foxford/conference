@@ -698,7 +698,7 @@ impl EnterHandler {
             let mut conn = context.get_conn_sqlx().await?;
             let rtcs = db::rtc::ListQuery::new()
                 .room_id(room_id)
-                .created_by(&[&reqp.as_agent_id()])
+                .created_by(&[reqp.as_agent_id()])
                 .execute(&mut conn)
                 .await?;
 

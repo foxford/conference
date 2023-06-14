@@ -208,7 +208,7 @@ async fn leave_room<C: Context>(
     let left = if row_count < 1 {
         false
     } else {
-        make_orphaned_if_host_left(room_id, &agent_id, &mut conn).await?;
+        make_orphaned_if_host_left(room_id, agent_id, &mut conn).await?;
 
         true
     };
