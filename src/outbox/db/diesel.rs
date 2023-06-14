@@ -1,29 +1,10 @@
-use crate::schema::outbox;
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use diesel::{result::Error, PgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+
 use svc_nats_client::EventId;
 
-type AllColumns = (
-    outbox::id,
-    outbox::entity_type,
-    outbox::stage,
-    outbox::delivery_deadline_at,
-    outbox::error_kind,
-    outbox::retry_count,
-    outbox::created_at,
-);
-
-const ALL_COLUMNS: AllColumns = (
-    outbox::id,
-    outbox::entity_type,
-    outbox::stage,
-    outbox::delivery_deadline_at,
-    outbox::error_kind,
-    outbox::retry_count,
-    outbox::created_at,
-);
+use crate::schema::outbox;
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Clone)]
 #[table_name = "outbox"]
@@ -71,17 +52,28 @@ impl ListQuery {
         Self { limit }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use diesel::dsl::sql;
-        use diesel::prelude::*;
-
-        outbox::table
-            .filter(sql("delivery_deadline_at <= now()"))
-            .limit(self.limit)
-            .select(ALL_COLUMNS)
-            .for_update()
-            .skip_locked()
-            .get_results(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Vec<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                id,
+                entity_type,
+                stage,
+                delivery_deadline_at,
+                error_kind,
+                retry_count,
+                created_at
+            FROM outbox
+            WHERE
+                delivery_deadline_at <= now()
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED
+            "#,
+            self.limit
+        )
+        .fetch_all(conn)
+        .await
     }
 }
 
@@ -106,14 +98,28 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<EventId, Error> {
-        use crate::schema::outbox::dsl::*;
-
-        let record = diesel::insert_into(outbox)
-            .values(self)
-            .get_result::<Object>(conn)?;
-
-        Ok(record.id())
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<EventId> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO outbox (entity_type, stage, delivery_deadline_at)
+            VALUES ($1, $2, $3)
+            RETURNING
+                id,
+                entity_type,
+                stage,
+                delivery_deadline_at,
+                error_kind,
+                retry_count,
+                created_at
+            "#,
+            self.entity_type,
+            self.stage,
+            self.delivery_deadline_at,
+        )
+        .fetch_one(conn)
+        .await
+        .map(|r| r.id())
     }
 }
 
@@ -134,16 +140,32 @@ impl<'a> UpdateQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use diesel::prelude::*;
-
-        let query = outbox::table
-            .filter(outbox::id.eq(self.id.sequence_id()))
-            .filter(outbox::entity_type.eq(self.id.entity_type()));
-
-        diesel::update(query)
-            .set((self, outbox::retry_count.eq(outbox::retry_count + 1)))
-            .get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            UPDATE outbox
+            SET
+                delivery_deadline_at = $1,
+                retry_count = retry_count + 1
+            WHERE
+                id = $2 AND
+                entity_type = $3
+            RETURNING
+                id,
+                entity_type,
+                stage,
+                delivery_deadline_at,
+                error_kind,
+                retry_count,
+                created_at
+            "#,
+            self.delivery_deadline_at,
+            self.id.sequence_id(),
+            self.id.entity_type(),
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 
@@ -156,14 +178,28 @@ impl<'a> DeleteQuery<'a> {
         Self { id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use diesel::prelude::*;
-
-        let query = outbox::table
-            .filter(outbox::id.eq(self.id.sequence_id()))
-            .filter(outbox::entity_type.eq(self.id.entity_type()));
-
-        diesel::delete(query).get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            DELETE FROM outbox
+            WHERE
+                id = $1 AND
+                entity_type = $2
+            RETURNING
+                id,
+                entity_type,
+                stage,
+                delivery_deadline_at,
+                error_kind,
+                retry_count,
+                created_at
+            "#,
+            self.id.sequence_id(),
+            self.id.entity_type()
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 
@@ -176,14 +212,28 @@ impl<'a> FindQuery<'a> {
         Self { id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use diesel::prelude::*;
-
-        outbox::table
-            .filter(outbox::id.eq(self.id.sequence_id()))
-            .filter(outbox::entity_type.eq(&self.id.entity_type()))
-            .for_update()
-            .skip_locked()
-            .get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                id,
+                entity_type,
+                stage,
+                delivery_deadline_at,
+                error_kind,
+                retry_count,
+                created_at
+            FROM outbox
+            WHERE
+                id = $1 AND
+                entity_type = $2
+            FOR UPDATE SKIP LOCKED
+            "#,
+            self.id.sequence_id(),
+            self.id.entity_type(),
+        )
+        .fetch_one(conn)
+        .await
     }
 }

@@ -15,21 +15,25 @@ pub struct Object {
     pub host_left_at: DateTime<Utc>,
 }
 
-pub fn upsert_room(
+pub async fn upsert_room(
     id: super::room::Id,
     host_left_at: DateTime<Utc>,
-    connection: &PgConnection,
-) -> Result<(), Error> {
-    let record = (
-        orphaned_room::id.eq(id),
-        orphaned_room::host_left_at.eq(host_left_at),
-    );
-    diesel::insert_into(orphaned_room::table)
-        .values(&record)
-        .on_conflict(orphaned_room::id)
-        .do_update()
-        .set(record)
-        .execute(connection)?;
+    connection: &mut sqlx::PgConnection,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        INSERT INTO orphaned_room
+        VALUES ($1, $2)
+        ON CONFLICT (id) DO UPDATE
+        SET
+            host_left_at = $2
+        "#,
+        id as super::room::Id,
+        host_left_at,
+    )
+    .execute(connection)
+    .await?;
+
     Ok(())
 }
 

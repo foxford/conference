@@ -109,11 +109,24 @@ impl InsertQuery {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use diesel::prelude::*;
-
-        diesel::insert_into(rtc_writer_config_snapshot::table)
-            .values(self)
-            .get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO rtc_writer_config_snapshot (rtc_id, send_video, send_audio)
+            VALUES ($1, $2, $3)
+            RETURNING
+                id as "id: Id",
+                rtc_id as "rtc_id: Id",
+                send_video,
+                send_audio,
+                created_at
+            "#,
+            self.rtc_id as Id,
+            self.send_video,
+            self.send_audio,
+        )
+        .fetch_one(conn)
+        .await
     }
 }

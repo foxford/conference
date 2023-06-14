@@ -1,27 +1,24 @@
+use chrono::Duration;
+use serde::{de::DeserializeOwned, Serialize};
+use sqlx::Connection;
+
 use crate::outbox::{
     db::diesel::Object,
     error::{ErrorKind, PipelineError, PipelineErrorExt, PipelineErrors},
     pipeline::MultipleStagePipelineResult,
     EventId, StageHandle,
 };
-use chrono::Duration;
-use diesel::{
-    r2d2::{ConnectionManager, Pool},
-    Connection, PgConnection,
-};
-use serde::{de::DeserializeOwned, Serialize};
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Pipeline {
-    db: Arc<Pool<ConnectionManager<PgConnection>>>,
+    db: sqlx::PgPool,
     try_wake_interval: Duration,
     max_delivery_interval: Duration,
 }
 
 impl Pipeline {
     pub fn new(
-        db: Arc<Pool<ConnectionManager<PgConnection>>>,
+        db: sqlx::PgPool,
         try_wake_interval: Duration,
         max_delivery_interval: Duration,
     ) -> Self {
@@ -32,22 +29,24 @@ impl Pipeline {
         }
     }
 
-    fn load_single_record<T>(
-        conn: &PgConnection,
+    async fn load_single_record<T>(
+        conn: &mut sqlx::PgConnection,
         id: &EventId,
     ) -> Result<(Object, T), PipelineError>
     where
         T: Serialize + DeserializeOwned,
     {
-        let record = crate::outbox::db::diesel::FindQuery::new(id).execute(conn)?;
+        let record = crate::outbox::db::diesel::FindQuery::new(id)
+            .execute(conn)
+            .await?;
         let stage = serde_json::from_value::<T>(record.stage().to_owned())
             .error(ErrorKind::DeserializationFailed)?;
 
         Ok((record, stage))
     }
 
-    fn load_multiple_records<T>(
-        conn: &PgConnection,
+    async fn load_multiple_records<T>(
+        conn: &mut sqlx::PgConnection,
         records_per_try: i64,
     ) -> Result<Vec<(Object, T)>, PipelineError>
     where
@@ -55,6 +54,7 @@ impl Pipeline {
     {
         let records = crate::outbox::db::diesel::ListQuery::new(records_per_try)
             .execute(conn)
+            .await
             .error(ErrorKind::LoadStagesFailed)?;
 
         let mut result = Vec::with_capacity(records.len());
@@ -70,9 +70,9 @@ impl Pipeline {
 
     // This function is not async, because we run this function inside
     // the diesel transaction which is not async too.
-    fn handle_record<C, T>(
+    async fn handle_record<C, T>(
         &self,
-        conn: &PgConnection,
+        conn: &mut sqlx::PgConnection,
         ctx: &C,
         record: Object,
         stage: T,
@@ -93,6 +93,7 @@ impl Pipeline {
             Ok(Some(next_stage)) => {
                 let record = crate::outbox::db::diesel::DeleteQuery::new(&event_id)
                     .execute(conn)
+                    .await
                     .error(ErrorKind::DeleteStageFailed)?;
 
                 let json =
@@ -104,6 +105,7 @@ impl Pipeline {
                     record.delivery_deadline_at(),
                 )
                 .execute(conn)
+                .await
                 .error(ErrorKind::InsertStageFailed)?;
 
                 Ok(Some(event_id))
@@ -111,6 +113,7 @@ impl Pipeline {
             Ok(None) => {
                 crate::outbox::db::diesel::DeleteQuery::new(&event_id)
                     .execute(conn)
+                    .await
                     .error(ErrorKind::DeleteStageFailed)?;
 
                 Ok(None)
@@ -129,6 +132,7 @@ impl Pipeline {
                     error.kind(),
                 )
                 .execute(conn)
+                .await
                 .error(ErrorKind::UpdateStageFailed)?;
 
                 Err(error.into())
@@ -154,22 +158,25 @@ impl super::Pipeline for Pipeline {
         let mut id = id;
 
         loop {
-            let result = crate::util::spawn_blocking({
-                let ctx = ctx.clone();
-                let db = self.db.clone();
-                let this = self.clone();
+            let mut conn = self
+                .db
+                .acquire()
+                .await
+                .error(ErrorKind::DbConnAcquisitionFailed)?;
 
-                move || {
-                    let conn = db.get().error(ErrorKind::DbConnAcquisitionFailed)?;
+            let this = self.clone();
+            let ctx = ctx.clone();
 
-                    conn.transaction(|| {
-                        let (record, stage): (Object, T) = Self::load_single_record(&conn, &id)?;
+            let result = conn
+                .transaction(|conn| {
+                    Box::pin(async move {
+                        let (record, stage): (Object, T) =
+                            Self::load_single_record(conn, &id).await?;
 
-                        this.handle_record(&conn, &ctx, record, stage)
+                        this.handle_record(conn, &ctx, record, stage).await
                     })
-                }
-            })
-            .await?;
+                })
+                .await?;
 
             match result {
                 Some(next_id) => {
@@ -194,38 +201,37 @@ impl super::Pipeline for Pipeline {
         T: Clone + Serialize + DeserializeOwned,
         C: Clone + Send + Sync + 'static,
     {
-        crate::util::spawn_blocking({
-            let ctx = ctx.clone();
-            let db = self.db.clone();
-            let this = self.clone();
-            let mut errors = PipelineErrors::new();
+        let mut conn = self
+            .db
+            .acquire()
+            .await
+            .error(ErrorKind::DbConnAcquisitionFailed)?;
+        let this = self.clone();
 
-            move || {
-                let conn = db.get().error(ErrorKind::DbConnAcquisitionFailed)?;
+        conn.transaction::<_, _, PipelineErrors>(|conn| {
+            Box::pin(async move {
+                let mut errors = PipelineErrors::new();
+                let records: Vec<(Object, T)> =
+                    Self::load_multiple_records(conn, records_per_try).await?;
 
-                conn.transaction::<_, PipelineErrors, _>(|| {
-                    let records: Vec<(Object, T)> =
-                        Self::load_multiple_records(&conn, records_per_try)?;
+                if records.is_empty() {
+                    // Exit from the closure
+                    return Ok(MultipleStagePipelineResult::Done);
+                }
 
-                    if records.is_empty() {
-                        // Exit from the closure
-                        return Ok(MultipleStagePipelineResult::Done);
+                for (record, stage) in records {
+                    // In case of error, we try to handle another record
+                    if let Err(err) = this.handle_record(conn, &ctx, record, stage).await {
+                        errors.add(err);
                     }
+                }
 
-                    for (record, stage) in records {
-                        // In case of error, we try to handle another record
-                        if let Err(err) = this.handle_record(&conn, &ctx, record, stage) {
-                            errors.add(err);
-                        }
-                    }
+                if !errors.is_empty() {
+                    return Err(errors);
+                }
 
-                    if !errors.is_empty() {
-                        return Err(errors);
-                    }
-
-                    Ok(MultipleStagePipelineResult::Continue)
-                })
-            }
+                Ok(MultipleStagePipelineResult::Continue)
+            })
         })
         .await
     }

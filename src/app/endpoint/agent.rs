@@ -70,13 +70,15 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let room = crate::util::spawn_blocking({
-            let room_id = payload.room_id;
-
-            let conn = context.get_conn().await?;
-            move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?
+        };
 
         tracing::Span::current().record(
             "classroom_id",

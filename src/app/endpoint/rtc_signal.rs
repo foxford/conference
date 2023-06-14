@@ -157,16 +157,16 @@ impl RequestHandler for CreateHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         // Validate RTC and room presence.
-        let (room, rtc, backend) = crate::util::spawn_blocking({
+        let (room, rtc, backend) = {
             let agent_id = reqp.as_agent_id().clone();
             let handle_id = payload.handle_id.clone();
 
             let mut conn = context.get_conn_sqlx().await?;
             let janus_backend = db::janus_backend::FindQuery::new(handle_id.backend_id())
-                    .execute(&mut conn)
-                    .await?
-                    .context("Backend not found")
-                    .error(AppErrorKind::BackendNotFound)?;
+                .execute(&mut conn)
+                .await?
+                .context("Backend not found")
+                .error(AppErrorKind::BackendNotFound)?;
 
             let rtc = db::rtc::FindQuery::new(handle_id.rtc_id())
                 .execute(&mut conn)
@@ -175,8 +175,7 @@ impl RequestHandler for CreateHandler {
                 .error(AppErrorKind::RtcNotFound)?;
 
             // Validate agent connection and handle id.
-            let agent_connection =
-            db::agent_connection::FindQuery::new(&agent_id, rtc.id())
+            let agent_connection = db::agent_connection::FindQuery::new(&agent_id, rtc.id())
                 .execute(&mut conn)
                 .await?
                 .context("Agent not connected")
@@ -187,46 +186,38 @@ impl RequestHandler for CreateHandler {
                     .error(AppErrorKind::InvalidHandleId)?;
             }
 
-            let conn = context.get_conn().await?;
-            move || {
-                let room = helpers::find_room_by_id(
-                    rtc.room_id(),
-                    helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
+            let room = helpers::find_room_by_id(
+                rtc.room_id(),
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?;
 
-                tracing::Span::current().record(
-                    "room_id",
-                    &tracing::field::display(room.id()),
-                );
-                tracing::Span::current().record(
-                    "classroom_id",
-                    &tracing::field::display(room.classroom_id()),
-                );
+            tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
 
-                // Validate backend and janus session id.
-                if let Some(backend_id) = room.backend_id() {
-                    if handle_id.backend_id() != backend_id {
-                        return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
-                            .error(AppErrorKind::InvalidHandleId);
-                    }
-                } else {
-                    return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
-                }
-
-                if handle_id.janus_session_id() != janus_backend.session_id() {
-                    return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
-                        .error(AppErrorKind::InvalidHandleId)?;
-                }
-
-                Ok::<_, AppError>((room, rtc, janus_backend))
-            }
-        }).await?;
-
-        {
-            let mut conn = context.get_conn_sqlx().await?;
             helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
-        }
+
+            // Validate backend and janus session id.
+            if let Some(backend_id) = room.backend_id() {
+                if handle_id.backend_id() != backend_id {
+                    return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
+                        .error(AppErrorKind::InvalidHandleId);
+                }
+            } else {
+                return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
+            }
+
+            if handle_id.janus_session_id() != janus_backend.session_id() {
+                return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
+                    .error(AppErrorKind::InvalidHandleId)?;
+            }
+
+            (room, rtc, janus_backend)
+        };
 
         match payload.jsep {
             Jsep::OfferOrAnswer(JsonSdp { kind, ref sdp }) => {
@@ -529,7 +520,7 @@ struct Trickle<'a, C> {
 impl<C: Context> Trickle<'_, C> {
     async fn run(self) -> Result<(), AppError> {
         // Validate RTC and room presence.
-        let (room, backend) = crate::util::spawn_blocking({
+        let (room, backend) = {
             let agent_id = self.agent_id.clone();
             let handle_id = self.handle_id.clone();
 
@@ -547,8 +538,7 @@ impl<C: Context> Trickle<'_, C> {
                 .error(AppErrorKind::RtcNotFound)?;
 
             // Validate agent connection and handle id.
-            let agent_connection =
-            db::agent_connection::FindQuery::new(&agent_id, rtc.id())
+            let agent_connection = db::agent_connection::FindQuery::new(&agent_id, rtc.id())
                 .execute(&mut conn)
                 .await?
                 .context("Agent not connected")
@@ -559,46 +549,38 @@ impl<C: Context> Trickle<'_, C> {
                     .error(AppErrorKind::InvalidHandleId)?;
             }
 
-            let conn = self.ctx.get_conn().await?;
-            move || {
-                let room = helpers::find_room_by_id(
-                    rtc.room_id(),
-                    helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
+            let room = helpers::find_room_by_id(
+                rtc.room_id(),
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?;
 
-                tracing::Span::current().record(
-                    "room_id",
-                    &tracing::field::display(room.id()),
-                );
-                tracing::Span::current().record(
-                    "classroom_id",
-                    &tracing::field::display(room.classroom_id()),
-                );
+            tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
 
-                // Validate backend and janus session id.
-                if let Some(backend_id) = room.backend_id() {
-                    if handle_id.backend_id() != backend_id {
-                        return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
-                            .error(AppErrorKind::InvalidHandleId);
-                    }
-                } else {
-                    return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
-                }
-
-                if handle_id.janus_session_id() != janus_backend.session_id() {
-                    return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
-                        .error(AppErrorKind::InvalidHandleId)?;
-                }
-
-                Ok::<_, AppError>((room, janus_backend))
-            }
-        }).await?;
-
-        {
-            let mut conn = self.ctx.get_conn_sqlx().await?;
             helpers::check_room_presence(&room, &self.agent_id, &mut conn).await?;
-        }
+
+            // Validate backend and janus session id.
+            if let Some(backend_id) = room.backend_id() {
+                if handle_id.backend_id() != backend_id {
+                    return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
+                        .error(AppErrorKind::InvalidHandleId);
+                }
+            } else {
+                return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
+            }
+
+            if handle_id.janus_session_id() != janus_backend.session_id() {
+                return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
+                    .error(AppErrorKind::InvalidHandleId)?;
+            }
+
+            (room, janus_backend)
+        };
 
         let current_span = Span::current();
         current_span.record("sdp_type", "ice_candidate");
@@ -1883,9 +1865,9 @@ a=rtcp-fb:120 ccm fir
                 .await
                 .expect("Rtc signal creation failed");
 
-            let conn = context.get_conn().await.unwrap();
             let room = db::room::FindQuery::new(room.id())
-                .execute(&conn)
+                .execute(&mut conn_sqlx)
+                .await
                 .unwrap()
                 .unwrap();
             assert_ne!(room.time().1, Bound::Unbounded);

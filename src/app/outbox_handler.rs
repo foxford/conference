@@ -26,7 +26,7 @@ pub fn run(
             tokio::select! {
                 _ = check_interval.tick() => {
                     let pipeline = DieselPipeline::new(
-                        ctx.db().clone(),
+                        ctx.db_sqlx().clone(),
                         outbox_config.try_wake_interval,
                         outbox_config.max_delivery_interval,
                     );

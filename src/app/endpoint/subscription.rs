@@ -1,7 +1,6 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
 use chrono::Utc;
-use diesel::PgConnection;
 use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -186,49 +185,48 @@ async fn leave_room<C: Context>(
     agent_id: &AgentId,
     room_id: db::room::Id,
 ) -> StdResult<bool, AppError> {
-    let left = crate::util::spawn_blocking({
-        let agent_id = agent_id.clone();
+    let mut conn = context.get_conn_sqlx().await?;
+    let row_count = db::agent::DeleteQuery::new()
+        .agent_id(agent_id)
+        // in theory we should delete agent row only for this room id
+        //
+        // but right now broker doesnt send a subscription.delete event when
+        // someone connects kicking out previous connection
+        // (for example when you enter one p2p room and then another,
+        //      you will get session_taken_over in old tab, but `agent` row for the first room remains intact)
+        // this leads to non existent subscriptions still present in agent table
+        //
+        // this fix isnt correct since we have multiple brokers
+        // and connecting to one broker doesnt interrupt connection to another
+        // so we need to delete only those `agent` rows that have rooms subscriptions on the same broker
+        // but we cant differentiate between room types here
+        //
+        // .room_id(room_id)
+        .execute(&mut conn)
+        .await?;
 
-        let conn = context.get_conn().await?;
-        move || {
-            let row_count = db::agent::DeleteQuery::new()
-                .agent_id(&agent_id)
-                // in theory we should delete agent row only for this room id
-                //
-                // but right now broker doesnt send a subscription.delete event when
-                // someone connects kicking out previous connection
-                // (for example when you enter one p2p room and then another,
-                //      you will get session_taken_over in old tab, but `agent` row for the first room remains intact)
-                // this leads to non existent subscriptions still present in agent table
-                //
-                // this fix isnt correct since we have multiple brokers
-                // and connecting to one broker doesnt interrupt connection to another
-                // so we need to delete only those `agent` rows that have rooms subscriptions on the same broker
-                // but we cant differentiate between room types here
-                //
-                // .room_id(room_id)
-                .execute(&conn)?;
+    let left = if row_count < 1 {
+        false
+    } else {
+        make_orphaned_if_host_left(room_id, &agent_id, &mut conn).await?;
 
-            if row_count < 1 {
-                return Ok::<_, AppError>(false);
-            }
+        true
+    };
 
-            make_orphaned_if_host_left(room_id, &agent_id, &conn)?;
-            Ok::<_, AppError>(true)
-        }
-    })
-    .await?;
     Ok(left)
 }
 
-fn make_orphaned_if_host_left(
+async fn make_orphaned_if_host_left(
     room_id: db::room::Id,
     agent_left: &AgentId,
-    connection: &PgConnection,
-) -> StdResult<(), diesel::result::Error> {
-    let room = db::room::FindQuery::new(room_id).execute(connection)?;
+    connection: &mut sqlx::PgConnection,
+) -> sqlx::Result<()> {
+    let room = db::room::FindQuery::new(room_id)
+        .execute(connection)
+        .await?;
+
     if room.as_ref().and_then(|x| x.host()) == Some(agent_left) {
-        db::orphaned_room::upsert_room(room_id, Utc::now(), connection)?;
+        db::orphaned_room::upsert_room(room_id, Utc::now(), connection).await?;
     }
     Ok(())
 }

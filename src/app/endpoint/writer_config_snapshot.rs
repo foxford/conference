@@ -56,37 +56,39 @@ impl RequestHandler for ReadHandler {
             let account_id = reqp.as_account_id().to_owned();
             let service_audience = context.agent_id().as_account_id().to_owned();
 
+            let mut conn = context.get_conn_sqlx().await?;
+            let room = helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Any,
+                &mut conn,
+            )
+            .await?;
+
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
+
+            if account_id.label() != "dispatcher"
+                || account_id.audience() != service_audience.audience()
+            {
+                return Err(anyhow!(
+                    "Agent writer config is available only to dispatcher"
+                ))
+                .error(AppErrorKind::AccessDenied)?;
+            }
+
+            if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+                return Err(anyhow!(
+                    "Agent writer config is available only for rooms with owned RTC sharing policy"
+                ))
+                .error(AppErrorKind::InvalidPayload)?;
+            }
+
             let conn = context.get_conn().await?;
             move || {
-                let room = helpers::find_room_by_id(
-                    payload.room_id,
-                    helpers::RoomTimeRequirement::Any,
-                    &conn,
-                )?;
-
-                tracing::Span::current().record(
-                    "classroom_id",
-                    &tracing::field::display(room.classroom_id()),
-                );
-
-                if account_id.label() != "dispatcher"
-                    || account_id.audience() != service_audience.audience()
-                {
-                    return Err(anyhow!(
-                        "Agent writer config is available only to dispatcher"
-                    ))
-                    .error(AppErrorKind::AccessDenied)?;
-                }
-
-                if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-                    return Err(anyhow!(
-                        "Agent writer config is available only for rooms with owned RTC sharing policy"
-                    ))
-                    .error(AppErrorKind::InvalidPayload)?;
-                }
-
-                let snapshots =
-                    db::rtc_writer_config_snapshot::ListWithRtcQuery::new(room.id()).execute(&conn)?;
+                let snapshots = db::rtc_writer_config_snapshot::ListWithRtcQuery::new(room.id())
+                    .execute(&conn)?;
                 Ok::<_, AppError>(snapshots)
             }
         })
@@ -144,14 +146,20 @@ mod tests {
                 .created_by(agent2.agent_id().to_owned())
                 .insert(&conn);
 
-            factory::RtcWriterConfigSnaphost::new(&rtc2, Some(true), Some(true)).insert(&conn);
+            factory::RtcWriterConfigSnaphost::new(&rtc2, Some(true), Some(true))
+                .insert(&mut conn_sqlx)
+                .await;
 
             let rtc3 = factory::Rtc::new(room.id())
                 .created_by(agent3.agent_id().to_owned())
                 .insert(&conn);
 
-            factory::RtcWriterConfigSnaphost::new(&rtc3, Some(false), Some(false)).insert(&conn);
-            factory::RtcWriterConfigSnaphost::new(&rtc3, Some(true), None).insert(&conn);
+            factory::RtcWriterConfigSnaphost::new(&rtc3, Some(false), Some(false))
+                .insert(&mut conn_sqlx)
+                .await;
+            factory::RtcWriterConfigSnaphost::new(&rtc3, Some(true), None)
+                .insert(&mut conn_sqlx)
+                .await;
 
             // Make agent_writer_config.read request.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;

@@ -238,8 +238,9 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[async_trait::async_trait]
 pub trait FindQueryable {
-    fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error>;
+    async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>>;
 }
 
 #[derive(Debug)]
@@ -253,14 +254,36 @@ impl FindQuery {
     }
 }
 
+#[async_trait::async_trait]
 impl FindQueryable for FindQuery {
-    fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        room::table
-            .filter(room::id.eq(self.id))
-            .get_result(conn)
-            .optional()
+    async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            ObjectSqlx,
+            r#"
+            SELECT
+                id as "id: Id",
+                backend_id as "backend_id: AgentId",
+                time as "time: TimeSqlx",
+                reserve,
+                tags,
+                classroom_id,
+                host as "host: AgentId",
+                timed_out,
+                audience,
+                created_at,
+                backend as "backend: RoomBackend",
+                rtc_sharing_policy as "rtc_sharing_policy: RtcSharingPolicy",
+                infinite,
+                closed_by as "closed_by: AgentId"
+            FROM room
+            WHERE
+                id = $1
+            "#,
+            self.id as Id,
+        )
+        .fetch_optional(conn)
+        .await
+        .map(|o| o.map(Object::from))
     }
 }
 
@@ -275,16 +298,38 @@ impl FindByRtcIdQuery {
     }
 }
 
+#[async_trait::async_trait]
 impl FindQueryable for FindByRtcIdQuery {
-    fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        room::table
-            .inner_join(rtc::table)
-            .filter(rtc::id.eq(self.rtc_id))
-            .select(ALL_COLUMNS)
-            .get_result(conn)
-            .optional()
+    async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            ObjectSqlx,
+            r#"
+            SELECT
+                r.id as "id: Id",
+                r.backend_id as "backend_id: AgentId",
+                r.time as "time: TimeSqlx",
+                r.reserve,
+                r.tags,
+                r.classroom_id,
+                r.host as "host: AgentId",
+                r.timed_out,
+                r.audience,
+                r.created_at,
+                r.backend as "backend: RoomBackend",
+                r.rtc_sharing_policy as "rtc_sharing_policy: RtcSharingPolicy",
+                r.infinite,
+                r.closed_by as "closed_by: AgentId"
+            FROM room as r
+            INNER JOIN rtc
+            ON r.id = rtc.room_id
+            WHERE
+                rtc.id = $1
+            "#,
+            self.rtc_id as db::rtc::Id,
+        )
+        .fetch_optional(conn)
+        .await
+        .map(|o| o.map(Object::from))
     }
 }
 

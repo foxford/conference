@@ -13,7 +13,6 @@ use crate::{
         UpdateReaderConfigRequestBodyConfigItem,
     },
     db::{self, rtc::Object as Rtc, rtc_reader_config::Object as RtcReaderConfig},
-    diesel::Connection,
 };
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
@@ -22,6 +21,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use sqlx::Connection;
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId};
 
 use svc_utils::extractors::AgentIdExtractor;
@@ -129,11 +129,16 @@ impl RequestHandler for UpdateHandler {
 
         let State { room_id, configs } = payload;
 
-        let room = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            let room =
+                helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &mut conn)
+                    .await?;
+
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+
+            room
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -157,27 +162,26 @@ impl RequestHandler for UpdateHandler {
             .await?;
         context.metrics().observe_auth(authz_time);
 
-        let (room, rtc_reader_configs_with_rtcs, maybe_backend) = crate::util::spawn_blocking({
-            let agent_id = reqp.as_agent_id().clone();
+        let mut conn = context.get_conn_sqlx().await?;
+        // Find backend and send updates to it if present.
+        let maybe_backend = match room.backend_id() {
+            None => None,
+            Some(backend_id) => {
+                db::janus_backend::FindQuery::new(backend_id)
+                    .execute(&mut conn)
+                    .await?
+            }
+        };
 
-            let mut conn = context.get_conn_sqlx().await?;
-            // Find backend and send updates to it if present.
-            let maybe_backend = match room.backend_id() {
-                None => None,
-                Some(backend_id) => {
-                    db::janus_backend::FindQuery::new(backend_id)
-                        .execute(&mut conn)
-                        .await?
-                }
-            };
-
-            let conn = context.get_conn().await?;
-
-            move || {
-                let rtc_reader_configs_with_rtcs = conn.transaction::<_, AppError, _>(|| {
+        let agent_id = reqp.as_agent_id().clone();
+        let room_id = room.id();
+        let rtc_reader_configs_with_rtcs = conn
+            .transaction::<_, _, AppError>(|conn| {
+                Box::pin(async move {
                     // An agent can create/update reader configs only for agents in the same group
-                    let groups = db::group_agent::FindQuery::new(room.id())
-                        .execute(&conn)?
+                    let groups = db::group_agent::FindQuery::new(room_id)
+                        .execute(conn)
+                        .await?
                         .groups()
                         .filter_by_agent(&agent_id);
                     let group_agents = groups.iter().flat_map(|i| i.agents()).collect::<Vec<_>>();
@@ -186,9 +190,10 @@ impl RequestHandler for UpdateHandler {
                     let agent_ids = configs.iter().map(|c| &c.agent_id).collect::<Vec<_>>();
 
                     let rtcs = db::rtc::ListQuery::new()
-                        .room_id(room.id())
+                        .room_id(room_id)
                         .created_by(agent_ids.as_slice())
-                        .execute(&conn)?;
+                        .execute(conn)
+                        .await?;
 
                     let agents_to_rtcs = rtcs
                         .iter()
@@ -222,26 +227,19 @@ impl RequestHandler for UpdateHandler {
                             q = q.receive_audio(receive_audio);
                         }
 
-                        q.execute(&conn)?;
+                        q.execute(conn).await?;
                     }
 
                     // Retrieve state data.
                     let rtc_reader_configs_with_rtcs =
-                        db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &[&agent_id])
-                            .execute(&conn)?;
+                        db::rtc_reader_config::ListWithRtcQuery::new(room_id, &[&agent_id])
+                            .execute(conn)
+                            .await?;
 
                     Ok(rtc_reader_configs_with_rtcs)
-                })?;
-
-                Ok::<_, AppError>((room, rtc_reader_configs_with_rtcs, maybe_backend))
-            }
-        })
-        .await?;
-
-        {
-            let mut conn = context.get_conn_sqlx().await?;
-            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
-        }
+                })
+            })
+            .await?;
 
         if let Some(backend) = maybe_backend {
             let items = rtc_reader_configs_with_rtcs
@@ -322,18 +320,31 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let room = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                helpers::find_room_by_id(payload.room_id, helpers::RoomTimeRequirement::Open, &conn)
-            }
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            let room = helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?;
+
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+
+            room
+        };
 
         tracing::Span::current().record(
             "classroom_id",
             &tracing::field::display(room.classroom_id()),
         );
+
+        if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+            return Err(anyhow!(
+                "Agent reader config is available only for rooms with owned RTC sharing policy"
+            ))
+            .error(AppErrorKind::InvalidPayload)?;
+        }
 
         // Authorize classrooms.read on the tenant
         let classroom_id = room.classroom_id().to_string();
@@ -345,30 +356,12 @@ impl RequestHandler for ReadHandler {
             .await?;
         context.metrics().observe_auth(authz_time);
 
-        let (room, rtc_reader_configs_with_rtcs) = crate::util::spawn_blocking({
-            let agent_id = reqp.as_agent_id().clone();
-            let conn = context.get_conn().await?;
-
-            move || {
-                if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-                    return Err(anyhow!(
-                    "Agent reader config is available only for rooms with owned RTC sharing policy"
-                ))
-                    .error(AppErrorKind::InvalidPayload)?;
-                }
-
-                let rtc_reader_configs_with_rtcs =
-                    db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &[&agent_id])
-                        .execute(&conn)?;
-                Ok::<_, AppError>((room, rtc_reader_configs_with_rtcs))
-            }
-        })
-        .await?;
-
-        {
+        let rtc_reader_configs_with_rtcs = {
             let mut conn = context.get_conn_sqlx().await?;
-            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
-        }
+            db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &[reqp.as_agent_id()])
+                .execute(&mut conn)
+                .await?
+        };
 
         context
             .metrics()
@@ -458,7 +451,9 @@ mod tests {
                 ],
             )]);
 
-            factory::GroupAgent::new(room.id(), groups).upsert(&conn);
+            factory::GroupAgent::new(room.id(), groups)
+                .upsert(&mut conn_sqlx)
+                .await;
 
             // Allow agent to update the room.
             let mut authz = TestAuthz::new();
@@ -636,7 +631,8 @@ mod tests {
             shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent2.agent_id(), room.id()).await;
 
             factory::GroupAgent::new(room.id(), Groups::new(vec![GroupItem::new(0, vec![])]))
-                .upsert(&conn);
+                .upsert(&mut conn_sqlx)
+                .await;
 
             // Allow agent to update the room.
             let mut authz = TestAuthz::new();
@@ -867,7 +863,8 @@ mod tests {
                 room.id(),
                 Groups::new(vec![GroupItem::new(0, vec![agent1.agent_id().clone()])]),
             )
-            .upsert(&conn);
+            .upsert(&mut conn_sqlx)
+            .await;
 
             // Allow agent to update the room.
             let mut authz = TestAuthz::new();
@@ -948,7 +945,8 @@ mod tests {
             factory::RtcReaderConfig::new(&rtc2, agent1.agent_id())
                 .receive_video(true)
                 .receive_audio(true)
-                .insert(&conn);
+                .insert(&mut conn_sqlx)
+                .await;
 
             let rtc3 = factory::Rtc::new(room.id())
                 .created_by(agent3.agent_id().to_owned())
@@ -957,7 +955,8 @@ mod tests {
             factory::RtcReaderConfig::new(&rtc3, agent1.agent_id())
                 .receive_video(false)
                 .receive_audio(false)
-                .insert(&conn);
+                .insert(&mut conn_sqlx)
+                .await;
 
             // Allow agent to read the room.
             let mut authz = TestAuthz::new();

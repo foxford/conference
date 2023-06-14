@@ -22,8 +22,8 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
-use diesel::Connection;
 use serde::{Deserialize, Serialize};
+use sqlx::Connection;
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId};
 
 use svc_utils::extractors::AgentIdExtractor;
@@ -178,30 +178,26 @@ impl RequestHandler for UpdateHandler {
                 .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let room = crate::util::spawn_blocking({
-            let room_id = payload.room_id;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            let room = helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?;
 
-            let conn = context.get_conn().await?;
-            move || {
-                let room =
-                    helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
-
-                if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-                    return Err(anyhow!(
+            if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+                return Err(anyhow!(
                     "Agent writer config is available only for rooms with owned RTC sharing policy"
                 ))
-                    .error(AppErrorKind::InvalidPayload)?;
-                }
-
-                Ok::<_, AppError>(room)
+                .error(AppErrorKind::InvalidPayload)?;
             }
-        })
-        .await?;
 
-        {
-            let mut conn = context.get_conn_sqlx().await?;
             helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
-        }
+
+            room
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -225,89 +221,83 @@ impl RequestHandler for UpdateHandler {
             Some(authz_time)
         };
 
-        let (rtc_writer_configs_with_rtcs, maybe_backend) = crate::util::spawn_blocking({
-            let room_id = room.id();
-            let backend_id = room.backend_id().cloned();
-            let agent_id = reqp.as_agent_id().clone();
-
-            let mut conn = context.get_conn_sqlx().await?;
-            // Find backend and send updates to it if present.
-            let maybe_backend = match &backend_id {
-                None => None,
-                Some(backend_id) => {
-                    db::janus_backend::FindQuery::new(backend_id)
-                        .execute(&mut conn)
-                        .await?
-                }
-            };
-
-            let conn = context.get_conn().await?;
-            move || {
-                conn.transaction::<_, AppError, _>(|| {
-                    // Find RTCs owned by agents.
-                    let agent_ids = payload
-                        .configs
-                        .iter()
-                        .map(|c| &c.agent_id)
-                        .collect::<Vec<_>>();
-
-                    let rtcs = db::rtc::ListQuery::new()
-                        .room_id(room_id)
-                        .created_by(agent_ids.as_slice())
-                        .execute(&conn)?;
-
-                    let agents_to_rtcs = rtcs
-                        .iter()
-                        .map(|rtc| (rtc.created_by(), rtc.id()))
-                        .collect::<HashMap<_, _>>();
-
-                    // Create or update the config.
-                    for state_config_item in payload.configs {
-                        let rtc_id = agents_to_rtcs
-                            .get(&state_config_item.agent_id)
-                            .ok_or_else(|| {
-                                anyhow!("{} has no owned RTC", state_config_item.agent_id)
-                            })
-                            .error(AppErrorKind::InvalidPayload)?;
-
-                        let mut q = db::rtc_writer_config::UpsertQuery::new(*rtc_id);
-
-                        if let Some(send_video) = state_config_item.send_video {
-                            q = q.send_video(send_video);
-                        }
-
-                        if let Some(send_audio) = state_config_item.send_audio {
-                            q = q.send_audio(send_audio).send_audio_updated_by(&agent_id);
-                        }
-
-                        if let Some(video_remb) = state_config_item.video_remb {
-                            q = q.video_remb(video_remb.into());
-                        }
-
-                        q.execute(&conn)?;
-
-                        if state_config_item.send_video.is_some()
-                            || state_config_item.send_audio.is_some()
-                        {
-                            let snapshot_q = db::rtc_writer_config_snapshot::InsertQuery::new(
-                                *rtc_id,
-                                state_config_item.send_video,
-                                state_config_item.send_audio,
-                            );
-                            snapshot_q.execute(&conn)?;
-                        }
-                    }
-                    Ok(())
-                })?;
-
-                // Retrieve state data.
-                let rtc_writer_configs_with_rtcs =
-                    db::rtc_writer_config::ListWithRtcQuery::new(room_id).execute(&conn)?;
-
-                Ok::<_, AppError>((rtc_writer_configs_with_rtcs, maybe_backend))
+        let mut conn = context.get_conn_sqlx().await?;
+        // Find backend and send updates to it if present.
+        let maybe_backend = match room.backend_id() {
+            None => None,
+            Some(backend_id) => {
+                db::janus_backend::FindQuery::new(backend_id)
+                    .execute(&mut conn)
+                    .await?
             }
+        };
+
+        let room_id = room.id();
+        let agent_id = reqp.as_agent_id().clone();
+
+        conn.transaction::<_, _, AppError>(|conn| {
+            Box::pin(async move {
+                // Find RTCs owned by agents.
+                let agent_ids = payload
+                    .configs
+                    .iter()
+                    .map(|c| &c.agent_id)
+                    .collect::<Vec<_>>();
+
+                let rtcs = db::rtc::ListQuery::new()
+                    .room_id(room_id)
+                    .created_by(agent_ids.as_slice())
+                    .execute(conn)
+                    .await?;
+
+                let agents_to_rtcs = rtcs
+                    .iter()
+                    .map(|rtc| (rtc.created_by(), rtc.id()))
+                    .collect::<HashMap<_, _>>();
+
+                // Create or update the config.
+                for state_config_item in payload.configs {
+                    let rtc_id = agents_to_rtcs
+                        .get(&state_config_item.agent_id)
+                        .ok_or_else(|| anyhow!("{} has no owned RTC", state_config_item.agent_id))
+                        .error(AppErrorKind::InvalidPayload)?;
+
+                    let mut q = db::rtc_writer_config::UpsertQuery::new(*rtc_id);
+
+                    if let Some(send_video) = state_config_item.send_video {
+                        q = q.send_video(send_video);
+                    }
+
+                    if let Some(send_audio) = state_config_item.send_audio {
+                        q = q.send_audio(send_audio).send_audio_updated_by(&agent_id);
+                    }
+
+                    if let Some(video_remb) = state_config_item.video_remb {
+                        q = q.video_remb(video_remb.into());
+                    }
+
+                    q.execute(conn).await?;
+
+                    if state_config_item.send_video.is_some()
+                        || state_config_item.send_audio.is_some()
+                    {
+                        let snapshot_q = db::rtc_writer_config_snapshot::InsertQuery::new(
+                            *rtc_id,
+                            state_config_item.send_video,
+                            state_config_item.send_audio,
+                        );
+                        snapshot_q.execute(conn).await?;
+                    }
+                }
+                Ok(())
+            })
         })
         .await?;
+
+        // Retrieve state data.
+        let rtc_writer_configs_with_rtcs = db::rtc_writer_config::ListWithRtcQuery::new(room_id)
+            .execute(&mut conn)
+            .await?;
 
         if let Some(backend) = maybe_backend {
             let items = rtc_writer_configs_with_rtcs
@@ -398,33 +388,31 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let (room, rtc_writer_configs_with_rtcs) = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                let room = helpers::find_room_by_id(
-                    payload.room_id,
-                    helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
+        let (room, rtc_writer_configs_with_rtcs) = {
+            let mut conn = context.get_conn_sqlx().await?;
+            let room = helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?;
 
-                if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-                    return Err(anyhow!(
+            if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+                return Err(anyhow!(
                     "Agent writer config is available only for rooms with owned RTC sharing policy"
                 ))
-                    .error(AppErrorKind::InvalidPayload)?;
-                }
-
-                let rtc_writer_configs_with_rtcs =
-                    db::rtc_writer_config::ListWithRtcQuery::new(room.id()).execute(&conn)?;
-                Ok::<_, AppError>((room, rtc_writer_configs_with_rtcs))
+                .error(AppErrorKind::InvalidPayload)?;
             }
-        })
-        .await?;
 
-        {
-            let mut conn = context.get_conn_sqlx().await?;
             helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
-        }
+
+            let rtc_writer_configs_with_rtcs =
+                db::rtc_writer_config::ListWithRtcQuery::new(room.id())
+                    .execute(&mut conn)
+                    .await?;
+
+            (room, rtc_writer_configs_with_rtcs)
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -500,7 +488,7 @@ mod tests {
                     .await;
             }
 
-            let rtcs = vec![&agent2, &agent3, &agent4]
+            let _rtcs = vec![&agent2, &agent3, &agent4]
                 .into_iter()
                 .map(|agent| {
                     factory::Rtc::new(room.id())
@@ -974,7 +962,8 @@ mod tests {
                 .send_video(true)
                 .send_audio(true)
                 .video_remb(1_000_000)
-                .insert(&conn);
+                .insert(&mut conn_sqlx)
+                .await;
 
             let rtc3 = factory::Rtc::new(room.id())
                 .created_by(agent3.agent_id().to_owned())
@@ -985,7 +974,8 @@ mod tests {
                 .send_audio(false)
                 .video_remb(300_000)
                 .send_audio_updated_by(agent2.agent_id())
-                .insert(&conn);
+                .insert(&mut conn_sqlx)
+                .await;
 
             // Make agent_writer_config.read request.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;

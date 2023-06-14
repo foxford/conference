@@ -3,6 +3,7 @@ use diesel::{
     r2d2::{ConnectionManager, Pool},
 };
 use std::{sync::Arc, time::Duration};
+use svc_agent::AgentId;
 
 pub type ConnectionPool = Arc<Pool<ConnectionManager<PgConnection>>>;
 
@@ -64,6 +65,24 @@ macro_rules! impl_jsonb {
             }
         }
     };
+}
+
+#[derive(sqlx::Encode)]
+pub struct AgentIds<'a>(&'a [&'a AgentId]);
+
+impl sqlx::Type<sqlx::Postgres> for AgentIds<'_> {
+    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
+        AgentId::type_info()
+    }
+}
+
+#[derive(sqlx::Encode)]
+pub struct Ids<'a>(&'a [id::Id]);
+
+impl sqlx::Type<sqlx::Postgres> for Ids<'_> {
+    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
+        id::Id::type_info()
+    }
 }
 
 pub mod sql {

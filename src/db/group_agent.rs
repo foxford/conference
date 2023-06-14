@@ -1,15 +1,11 @@
 use super::room::Object as Room;
 use crate::{db, schema::group_agent};
-use diesel::{pg::Pg, result::Error, sql_types::Jsonb, PgConnection, RunQueryDsl};
+use diesel::{pg::Pg, sql_types::Jsonb};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, slice::Iter};
 use svc_agent::AgentId;
 
 pub type Id = db::id::Id;
-
-type AllColumns = (group_agent::id, group_agent::room_id, group_agent::groups);
-
-const ALL_COLUMNS: AllColumns = (group_agent::id, group_agent::room_id, group_agent::groups);
 
 #[derive(Clone, Debug, Deserialize, Serialize, FromSqlRow, AsExpression, Eq, PartialEq)]
 #[sql_type = "Jsonb"]
@@ -73,6 +69,38 @@ impl Groups {
     }
 }
 
+impl<'q> sqlx::Encode<'q, sqlx::Postgres> for Groups {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <sqlx::Postgres as sqlx::database::HasArguments<'q>>::ArgumentBuffer,
+    ) -> sqlx::encode::IsNull {
+        match serde_json::to_value(self) {
+            Ok(value) => value.encode_by_ref(buf),
+            Err(_) => sqlx::encode::IsNull::Yes,
+        }
+    }
+}
+
+impl<'q> sqlx::Decode<'q, sqlx::Postgres> for Groups {
+    fn decode(
+        value: <sqlx::Postgres as sqlx::database::HasValueRef<'q>>::ValueRef,
+    ) -> Result<Self, sqlx::error::BoxDynError> {
+        let raw_value = serde_json::Value::decode(value)?;
+        match serde_json::from_value::<Groups>(raw_value) {
+            Ok(groups) => Ok(groups),
+            _ => Err("failed to decode jsonb value as groups object"
+                .to_owned()
+                .into()),
+        }
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for Groups {
+    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
+        sqlx::types::JsonValue::type_info()
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, FromSqlRow, AsExpression, Eq, PartialEq)]
 #[sql_type = "Jsonb"]
 pub struct GroupItem {
@@ -126,17 +154,25 @@ impl<'a> UpsertQuery<'a> {
         Self { groups, ..self }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::diesel::pg::upsert::excluded;
-        use crate::diesel::ExpressionMethods;
-        use crate::schema::group_agent::dsl::*;
-
-        diesel::insert_into(group_agent)
-            .values(self)
-            .on_conflict(room_id)
-            .do_update()
-            .set(groups.eq(excluded(groups)))
-            .get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO group_agent (room_id, groups)
+            VALUES ($1, $2)
+            ON CONFLICT (room_id) DO UPDATE
+            SET
+                groups = EXCLUDED.groups
+            RETURNING
+                id as "id: Id",
+                room_id as "room_id: Id",
+                groups as "groups: Groups"
+            "#,
+            self.room_id as Id,
+            self.groups as &Groups,
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 
@@ -149,14 +185,23 @@ impl FindQuery {
         Self { room_id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use diesel::prelude::*;
-
-        group_agent::table
-            .for_update()
-            .filter(group_agent::room_id.eq(self.room_id))
-            .select(ALL_COLUMNS)
-            .get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                id as "id: Id",
+                room_id as "room_id: Id",
+                groups as "groups: Groups"
+            FROM group_agent
+            WHERE
+                room_id = $1
+            FOR UPDATE
+            "#,
+            self.room_id as Id,
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 

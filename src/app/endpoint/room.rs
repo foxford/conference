@@ -5,9 +5,9 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
-use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
+use sqlx::Connection;
 use std::{ops::Bound, sync::Arc};
 use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
@@ -158,13 +158,11 @@ impl RequestHandler for CreateHandler {
 
         // Create a default group for minigroups
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
-            let conn = context.get_conn().await?;
-            crate::util::spawn_blocking({
-                let room_id = room.id();
-                let groups = Groups::new(vec![GroupItem::new(0, vec![])]);
-                move || db::group_agent::UpsertQuery::new(room_id, &groups).execute(&conn)
-            })
-            .await?;
+            let mut conn = context.get_conn_sqlx().await?;
+            let groups = Groups::new(vec![GroupItem::new(0, vec![])]);
+            db::group_agent::UpsertQuery::new(room.id(), &groups)
+                .execute(&mut conn)
+                .await?;
         }
 
         tracing::Span::current().record(
@@ -229,11 +227,11 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let room = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &mut conn)
+                .await?
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -334,13 +332,10 @@ impl RequestHandler for UpdateHandler {
             helpers::RoomTimeRequirement::Any
         };
 
-        let room = crate::util::spawn_blocking({
-            let id = payload.id;
-
-            let conn = context.get_conn().await?;
-            move || helpers::find_room_by_id(id, time_requirement, &conn)
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::find_room_by_id(payload.id, time_requirement, &mut conn).await?
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -504,19 +499,15 @@ impl RequestHandler for CloseHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let room = crate::util::spawn_blocking({
-            let id = payload.id;
-
-            let conn = context.get_conn().await?;
-            move || {
-                helpers::find_room_by_id(
-                    id,
-                    helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
-                    &conn,
-                )
-            }
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::find_room_by_id(
+                payload.id,
+                helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
+                &mut conn,
+            )
+            .await?
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -634,13 +625,15 @@ impl EnterHandler {
         reqp: RequestParams<'_>,
         start_timestamp: DateTime<Utc>,
     ) -> RequestResult {
-        let room = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::NotClosed, &conn)
-            }
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::find_room_by_id(
+                payload.id,
+                helpers::RoomTimeRequirement::NotClosed,
+                &mut conn,
+            )
+            .await?
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -659,10 +652,12 @@ impl EnterHandler {
         context.metrics().observe_auth(authz_time);
 
         // Register agent in `in_progress` state.
-        let mut conn = context.get_conn_sqlx().await?;
-        db::agent::InsertQuery::new(reqp.as_agent_id(), room.id())
-            .execute(&mut conn)
-            .await?;
+        {
+            let mut conn = context.get_conn_sqlx().await?;
+            db::agent::InsertQuery::new(reqp.as_agent_id(), room.id())
+                .execute(&mut conn)
+                .await?;
+        }
 
         // Send dynamic subscription creation request to the broker.
         let subject = reqp.as_agent_id().to_owned();
@@ -688,14 +683,19 @@ impl EnterHandler {
                 if room.host() == Some(&subject) {
                     db::orphaned_room::remove_room(room.id(), &conn)?;
                 }
-                // Update agent state to `ready`.
-                db::agent::UpdateQuery::new(&subject, room.id())
-                    .status(db::agent::Status::Ready)
-                    .execute(&conn)?;
                 Ok::<_, AppError>(room)
             }
         })
         .await?;
+
+        // Update agent state to `ready`.
+        {
+            let mut conn = context.get_conn_sqlx().await?;
+            db::agent::UpdateQuery::new(&subject, room.id())
+                .status(db::agent::Status::Ready)
+                .execute(&mut conn)
+                .await?;
+        }
 
         let mut response = Response::new(ResponseStatus::OK, json!({}), start_timestamp, None);
 
@@ -703,20 +703,14 @@ impl EnterHandler {
         let room_id = room.id();
         let outbox_config = ctx.config().clone().outbox;
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
-            let rtc = crate::util::spawn_blocking({
-                let conn = context.get_conn().await?;
-                let room_id = room.id();
-                let agent_id = reqp.as_agent_id().clone();
-                move || {
-                    let rtcs = db::rtc::ListQuery::new()
-                        .room_id(room_id)
-                        .created_by(&[&agent_id])
-                        .execute(&conn)?;
+            let mut conn = context.get_conn_sqlx().await?;
+            let rtcs = db::rtc::ListQuery::new()
+                .room_id(room_id)
+                .created_by(&[&reqp.as_agent_id()])
+                .execute(&mut conn)
+                .await?;
 
-                    Ok::<_, AppError>(rtcs.into_iter().next())
-                }
-            })
-            .await?;
+            let rtc = rtcs.into_iter().next();
 
             if rtc.is_none() {
                 let RtcCreateResult {
@@ -743,15 +737,15 @@ impl EnterHandler {
             }
 
             // Adds participants to the default group for minigroups
-            let maybe_event_id = crate::util::spawn_blocking({
-                let agent_id = reqp.as_agent_id().clone();
-                let room = room.clone();
-                let conn = ctx.get_conn().await?;
+            let mut conn = context.get_conn_sqlx().await?;
+            let agent_id = reqp.as_agent_id().clone();
 
-                move || {
-                    let maybe_event_id = conn.transaction(|| {
-                        let group_agent =
-                            db::group_agent::FindQuery::new(room_id).execute(&conn)?;
+            let maybe_event_id = conn
+                .transaction::<_, _, AppError>(|conn| {
+                    Box::pin(async move {
+                        let group_agent = db::group_agent::FindQuery::new(room_id)
+                            .execute(conn)
+                            .await?;
 
                         let groups = group_agent.groups();
                         let agent_exists = groups.is_agent_exist(&agent_id);
@@ -759,7 +753,8 @@ impl EnterHandler {
                         if !agent_exists {
                             let changed_groups = groups.add_to_default_group(&agent_id);
                             db::group_agent::UpsertQuery::new(room_id, &changed_groups)
-                                .execute(&conn)?;
+                                .execute(conn)
+                                .await?;
 
                             // Check the number of groups, and if there are more than 1,
                             // then create RTC reader configs for participants from other groups
@@ -771,7 +766,8 @@ impl EnterHandler {
                                     .error(AppErrorKind::BackendNotFound)?;
 
                                 let configs =
-                                    group_reader_config::update(&conn, room_id, changed_groups)?;
+                                    group_reader_config::update(conn, room_id, changed_groups)
+                                        .await?;
 
                                 // Generate configs for janus
                                 let items = configs
@@ -811,24 +807,22 @@ impl EnterHandler {
                                     serialized_stage,
                                     delivery_deadline_at,
                                 )
-                                .execute(&conn)?;
+                                .execute(conn)
+                                .await?;
 
                                 return Ok(Some(event_id));
                             }
                         }
 
-                        Ok::<_, AppError>(None)
-                    })?;
-
-                    Ok::<_, AppError>(maybe_event_id)
-                }
-            })
-            .await?;
+                        Ok(None)
+                    })
+                })
+                .await?;
 
             match maybe_event_id {
                 Some(event_id) => {
                     let pipeline = DieselPipeline::new(
-                        ctx.db().clone(),
+                        ctx.db_sqlx().clone(),
                         outbox_config.try_wake_interval,
                         outbox_config.max_delivery_interval,
                     );
@@ -889,18 +883,13 @@ impl RequestHandler for LeaveHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let mqtt_params = reqp.as_mqtt_params()?;
-        let room = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                let room =
-                    helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &conn)?;
-
-                Ok::<_, AppError>(room)
-            }
-        })
-        .await?;
 
         let mut conn = context.get_conn_sqlx().await?;
+
+        let room =
+            helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &mut conn)
+                .await?;
+
         let agent_id = reqp.as_agent_id().clone();
         // Check room presence.
         let presence = db::agent::ListQuery::new()
@@ -1101,13 +1090,14 @@ mod test {
 
             let (room, _, _) = find_response::<Room>(messages.as_slice());
 
-            let conn = db
-                .connection_pool()
-                .get()
-                .expect("Failed to get DB connection");
+            let mut conn = context
+                .get_conn_sqlx()
+                .await
+                .expect("failed to get db connection");
 
             let group_agent = db::group_agent::FindQuery::new(room.id())
-                .execute(&conn)
+                .execute(&mut conn)
+                .await
                 .expect("failed to get group");
 
             let groups = Groups::new(vec![GroupItem::new(0, vec![])]);
@@ -2028,20 +2018,15 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
-            let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
 
-                // Create room.
-                let room = shared_helpers::insert_room_with_owned(&conn);
+            // Create room.
+            let room = shared_helpers::insert_room_with_owned(&conn);
 
-                factory::GroupAgent::new(room.id(), Groups::new(vec![GroupItem::new(0, vec![])]))
-                    .upsert(&conn);
-
-                room
-            };
+            factory::GroupAgent::new(room.id(), Groups::new(vec![GroupItem::new(0, vec![])]))
+                .upsert(&mut conn_sqlx)
+                .await;
 
             // Allow agent to subscribe to the rooms' events.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -2069,13 +2054,9 @@ mod test {
                 .await
                 .expect("Room entrance failed");
 
-            let conn = db
-                .connection_pool()
-                .get()
-                .expect("Failed to get DB connection");
-
             let group_agent = db::group_agent::FindQuery::new(room.id())
-                .execute(&conn)
+                .execute(&mut conn_sqlx)
+                .await
                 .expect("failed to find a group agent");
 
             let groups = Groups::new(vec![GroupItem::new(0, vec![agent.agent_id().clone()])]);
@@ -2090,23 +2071,18 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
 
-                // Create room.
-                let room = shared_helpers::insert_room_with_owned(&conn);
+            // Create room.
+            let room = shared_helpers::insert_room_with_owned(&conn);
 
-                factory::GroupAgent::new(
-                    room.id(),
-                    Groups::new(vec![GroupItem::new(0, vec![agent.agent_id().clone()])]),
-                )
-                .upsert(&conn);
-
-                room
-            };
+            factory::GroupAgent::new(
+                room.id(),
+                Groups::new(vec![GroupItem::new(0, vec![agent.agent_id().clone()])]),
+            )
+            .upsert(&mut conn_sqlx)
+            .await;
 
             // Allow agent to subscribe to the rooms' events.
             let mut authz = TestAuthz::new();
@@ -2133,13 +2109,9 @@ mod test {
                 .await
                 .expect("Room entrance failed");
 
-            let conn = db
-                .connection_pool()
-                .get()
-                .expect("Failed to get DB connection");
-
             let group_agent = db::group_agent::FindQuery::new(room.id())
-                .execute(&conn)
+                .execute(&mut conn_sqlx)
+                .await
                 .expect("failed to get group agents");
 
             assert_eq!(group_agent.groups().len(), 1);
@@ -2157,41 +2129,39 @@ mod test {
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
-            let backend =
-                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
-                    .await;
+            let conn = db.get_conn();
+            let mut conn_sqlx = db_sqlx.get_conn().await;
 
-            let (room, backend) = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn_sqlx,
+                &janus.url,
+                session_id,
+                handle_id,
+            )
+            .await;
 
-                let room = factory::Room::new()
-                    .audience(USR_AUDIENCE)
-                    .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                    .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                    .backend_id(backend.id())
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .backend_id(backend.id())
+                .insert(&conn);
+
+            factory::GroupAgent::new(
+                room.id(),
+                Groups::new(vec![
+                    GroupItem::new(0, vec![]),
+                    GroupItem::new(1, vec![agent1.agent_id().clone()]),
+                ]),
+            )
+            .upsert(&mut conn_sqlx)
+            .await;
+
+            vec![&agent1, &agent2].iter().for_each(|agent| {
+                factory::Rtc::new(room.id())
+                    .created_by(agent.agent_id().to_owned())
                     .insert(&conn);
-
-                factory::GroupAgent::new(
-                    room.id(),
-                    Groups::new(vec![
-                        GroupItem::new(0, vec![]),
-                        GroupItem::new(1, vec![agent1.agent_id().clone()]),
-                    ]),
-                )
-                .upsert(&conn);
-
-                vec![&agent1, &agent2].iter().for_each(|agent| {
-                    factory::Rtc::new(room.id())
-                        .created_by(agent.agent_id().to_owned())
-                        .insert(&conn);
-                });
-
-                (room, backend)
-            };
+            });
 
             // Allow agent to subscribe to the rooms' events.
             let mut authz = TestAuthz::new();
@@ -2216,13 +2186,9 @@ mod test {
                 .await
                 .expect("Room entrance failed");
 
-            let conn = db
-                .connection_pool()
-                .get()
-                .expect("Failed to get DB connection");
-
             let group_agent = db::group_agent::FindQuery::new(room.id())
-                .execute(&conn)
+                .execute(&mut conn_sqlx)
+                .await
                 .expect("failed to get group agents");
 
             assert_eq!(group_agent.groups().len(), 2);
@@ -2231,7 +2197,8 @@ mod test {
                 room.id(),
                 &[agent1.agent_id(), agent2.agent_id()],
             )
-            .execute(&conn)
+            .execute(&mut conn_sqlx)
+            .await
             .expect("failed to get rtc reader configs");
 
             assert_eq!(reader_configs.len(), 2);

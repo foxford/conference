@@ -11,14 +11,10 @@ use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
-use super::{recording::Object as Recording, room::Object as Room};
+use super::{recording::Object as Recording, room::Object as Room, AgentIds};
 use crate::schema::{recording, rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
-
-pub type AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
-
-pub const ALL_COLUMNS: AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
 
 ////////////////////////////////////////////////////////////////////////////////
 pub type Id = db::id::Id;
@@ -47,11 +43,11 @@ impl fmt::Display for SharingPolicy {
 #[belongs_to(Room, foreign_key = "room_id")]
 #[table_name = "rtc"]
 pub struct Object {
-    id: Id,
-    room_id: db::room::Id,
+    pub id: Id,
+    pub room_id: db::room::Id,
     #[serde(with = "ts_seconds")]
-    created_at: DateTime<Utc>,
-    created_by: AgentId,
+    pub created_at: DateTime<Utc>,
+    pub created_by: AgentId,
 }
 
 impl Object {
@@ -142,28 +138,33 @@ impl<'a> ListQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use diesel::prelude::*;
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Vec<Object>> {
+        let created_by = self.created_by.unwrap_or(&[]);
+        let created_by = AgentIds(created_by);
 
-        let mut q = rtc::table.into_boxed();
-
-        if let Some(room_id) = self.room_id {
-            q = q.filter(rtc::room_id.eq(room_id));
-        }
-
-        if let Some(created_by) = self.created_by {
-            q = q.filter(rtc::created_by.eq_any(created_by))
-        }
-
-        if let Some(offset) = self.offset {
-            q = q.offset(offset);
-        }
-
-        if let Some(limit) = self.limit {
-            q = q.limit(limit);
-        }
-
-        q.order_by(rtc::created_at.asc()).get_results(conn)
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                id as "id: Id",
+                room_id as "room_id: Id",
+                created_at,
+                created_by as "created_by: AgentId"
+            FROM rtc
+            WHERE
+                ($1::uuid IS NULL OR room_id = $1) AND
+                (array_length($2::agent_id[], 1) IS NULL OR created_by = ANY($2))
+            ORDER BY created_at
+            OFFSET $3
+            LIMIT $4
+            "#,
+            self.room_id as Option<Id>,
+            created_by as AgentIds,
+            self.offset,
+            self.limit
+        )
+        .fetch_all(conn)
+        .await
     }
 }
 

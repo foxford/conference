@@ -74,36 +74,28 @@ async fn handle_event_impl<C: Context>(
             let maybe_rtc_stream =
                 janus_rtc_stream::start(inev.opaque_id.stream_id, &mut conn).await?;
 
-            crate::util::spawn_blocking({
-                let start_timestamp = context.start_timestamp();
+            // If the event relates to a publisher's handle,
+            // we will find the corresponding stream and send event w/ updated stream object
+            // to the room's topic.
+            let start_timestamp = context.start_timestamp();
 
-                let conn = context.get_conn().await?;
-                move || {
-                    // If the event relates to a publisher's handle,
-                    // we will find the corresponding stream and send event w/ updated stream object
-                    // to the room's topic.
-                    if let Some(rtc_stream) = maybe_rtc_stream {
-                        let room = endpoint::helpers::find_room_by_rtc_id(
-                            rtc_stream.rtc_id(),
-                            endpoint::helpers::RoomTimeRequirement::Open,
-                            &conn,
-                        )?;
+            if let Some(rtc_stream) = maybe_rtc_stream {
+                let room = endpoint::helpers::find_room_by_rtc_id(
+                    rtc_stream.rtc_id(),
+                    endpoint::helpers::RoomTimeRequirement::Open,
+                    &mut conn,
+                )
+                .await?;
 
-                        let event = endpoint::rtc_stream::update_event(
-                            room.id(),
-                            rtc_stream,
-                            start_timestamp,
-                        );
+                let event =
+                    endpoint::rtc_stream::update_event(room.id(), rtc_stream, start_timestamp);
 
-                        Ok(Box::new(stream::once(std::future::ready(Box::new(event)
-                            as Box<dyn IntoPublishableMessage + Send + Sync + 'static>)))
-                            as MessageStream)
-                    } else {
-                        Ok(Box::new(stream::empty()) as MessageStream)
-                    }
-                }
-            })
-            .await
+                Ok(Box::new(stream::once(std::future::ready(
+                    Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>
+                ))) as MessageStream)
+            } else {
+                Ok(Box::new(stream::empty()) as MessageStream)
+            }
         }
         IncomingEvent::HangUp(inev) => {
             handle_hangup_detach(context, inev.opaque_id, inev.sender).await
@@ -354,6 +346,13 @@ async fn handle_event_impl<C: Context>(
                             .context("RTC not found")
                             .error(AppErrorKind::RtcNotFound)?;
 
+                        let room = endpoint::helpers::find_room_by_rtc_id(
+                            rtc.id(),
+                            endpoint::helpers::RoomTimeRequirement::Any,
+                            &mut conn,
+                        )
+                        .await?;
+
                         let (room, rtcs_with_recs): (
                             room::Object,
                             Vec<(rtc::Object, Option<recording::Object>)>,
@@ -364,12 +363,6 @@ async fn handle_event_impl<C: Context>(
                                     .status(recording::Status::Ready)
                                     .mjr_dumps_uris(mjr_dumps_uris)
                                     .execute(&conn)?;
-
-                                let room = endpoint::helpers::find_room_by_rtc_id(
-                                    rtc.id(),
-                                    endpoint::helpers::RoomTimeRequirement::Any,
-                                    &conn,
-                                )?;
 
                                 let rtcs_with_recs =
                                     rtc::ListWithRecordingQuery::new(room.id()).execute(&conn)?;

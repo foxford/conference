@@ -1,11 +1,7 @@
 use crate::{
     app::{
         context::{AppContext, Context},
-        endpoint::{
-            helpers,
-            prelude::{AppError, AppErrorKind},
-            RequestHandler, RequestResult,
-        },
+        endpoint::{helpers, prelude::AppErrorKind, RequestHandler, RequestResult},
         error::ErrorExt,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
@@ -73,13 +69,11 @@ impl RequestHandler for Handler {
         let room_id = payload.room_id;
         let agent_id = reqp.as_agent_id().clone();
 
-        let room = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)
-            }
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &mut conn)
+                .await?
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -103,20 +97,15 @@ impl RequestHandler for Handler {
             .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let groups = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                let group_agent = db::group_agent::FindQuery::new(room_id).execute(&conn)?;
+        let mut conn = context.get_conn_sqlx().await?;
+        let group_agent = db::group_agent::FindQuery::new(room_id)
+            .execute(&mut conn)
+            .await?;
 
-                let mut groups = group_agent.groups();
-                if payload.within_group {
-                    groups = groups.filter_by_agent(&agent_id);
-                }
-
-                Ok::<_, AppError>(groups)
-            }
-        })
-        .await?;
+        let mut groups = group_agent.groups();
+        if payload.within_group {
+            groups = groups.filter_by_agent(&agent_id);
+        }
 
         context
             .metrics()
@@ -269,28 +258,24 @@ mod tests {
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-        let room = db
-            .connection_pool()
-            .get()
-            .map(|conn| {
-                let room = factory::Room::new()
-                    .audience(USR_AUDIENCE)
-                    .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                    .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                    .insert(&conn);
+        let conn = db.get_conn();
+        let mut conn_sqlx = db_sqlx.get_conn().await;
 
-                factory::GroupAgent::new(
-                    room.id(),
-                    Groups::new(vec![
-                        GroupItem::new(0, vec![agent1.agent_id().clone()]),
-                        GroupItem::new(1, vec![agent2.agent_id().clone()]),
-                    ]),
-                )
-                .upsert(&conn);
+        let room = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((Bound::Included(Utc::now()), Bound::Unbounded))
+            .rtc_sharing_policy(RtcSharingPolicy::Owned)
+            .insert(&conn);
 
-                room
-            })
-            .unwrap();
+        factory::GroupAgent::new(
+            room.id(),
+            Groups::new(vec![
+                GroupItem::new(0, vec![agent1.agent_id().clone()]),
+                GroupItem::new(1, vec![agent2.agent_id().clone()]),
+            ]),
+        )
+        .upsert(&mut conn_sqlx)
+        .await;
 
         // Allow agent to read the room.
         let mut authz = TestAuthz::new();
@@ -326,28 +311,24 @@ mod tests {
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-        let room = db
-            .connection_pool()
-            .get()
-            .map(|conn| {
-                let room = factory::Room::new()
-                    .audience(USR_AUDIENCE)
-                    .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                    .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                    .insert(&conn);
+        let conn = db.get_conn();
+        let mut conn_sqlx = db_sqlx.get_conn().await;
 
-                factory::GroupAgent::new(
-                    room.id(),
-                    Groups::new(vec![
-                        GroupItem::new(0, vec![agent1.agent_id().clone()]),
-                        GroupItem::new(1, vec![agent2.agent_id().clone()]),
-                    ]),
-                )
-                .upsert(&conn);
+        let room = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((Bound::Included(Utc::now()), Bound::Unbounded))
+            .rtc_sharing_policy(RtcSharingPolicy::Owned)
+            .insert(&conn);
 
-                room
-            })
-            .unwrap();
+        factory::GroupAgent::new(
+            room.id(),
+            Groups::new(vec![
+                GroupItem::new(0, vec![agent1.agent_id().clone()]),
+                GroupItem::new(1, vec![agent2.agent_id().clone()]),
+            ]),
+        )
+        .upsert(&mut conn_sqlx)
+        .await;
 
         // Allow agent to read the room.
         let mut authz = TestAuthz::new();

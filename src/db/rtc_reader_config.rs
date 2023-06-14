@@ -2,15 +2,14 @@
 // `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
 #![allow(clippy::extra_unused_lifetimes)]
 
-use diesel::dsl::any;
-use diesel::{pg::PgConnection, result::Error, RunQueryDsl};
+use chrono::{DateTime, Utc};
+use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
 
-use crate::{
-    db,
-    db::rtc::Object as Rtc,
-    schema::{rtc, rtc_reader_config},
-};
+use crate::db::Ids;
+use crate::{db, db::rtc::Object as Rtc, schema::rtc_reader_config};
+
+use super::AgentIds;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -67,6 +66,35 @@ pub struct ListWithRtcQuery<'a> {
     reader_ids: &'a [&'a AgentId],
 }
 
+struct ListWithRtcRow {
+    rtc_id: db::rtc::Id,
+    reader_id: AgentId,
+    receive_video: bool,
+    receive_audio: bool,
+    room_id: db::room::Id,
+    created_by: AgentId,
+    created_at: DateTime<Utc>,
+}
+
+impl ListWithRtcRow {
+    fn split(self) -> (Object, Rtc) {
+        (
+            Object {
+                rtc_id: self.rtc_id,
+                reader_id: self.reader_id,
+                receive_video: self.receive_video,
+                receive_audio: self.receive_audio,
+            },
+            Rtc {
+                id: self.rtc_id,
+                room_id: self.room_id,
+                created_at: self.created_at,
+                created_by: self.created_by,
+            },
+        )
+    }
+}
+
 impl<'a> ListWithRtcQuery<'a> {
     pub fn new(room_id: db::room::Id, reader_ids: &'a [&'a AgentId]) -> Self {
         Self {
@@ -75,15 +103,33 @@ impl<'a> ListWithRtcQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Rtc)>, Error> {
-        use diesel::prelude::*;
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Vec<(Object, Rtc)>> {
+        let reader_ids = AgentIds(self.reader_ids);
 
-        rtc_reader_config::table
-            .inner_join(rtc::table)
-            .filter(rtc::room_id.eq(self.room_id))
-            .filter(rtc_reader_config::reader_id.eq(any(self.reader_ids)))
-            .select((ALL_COLUMNS, db::rtc::ALL_COLUMNS))
-            .get_results(conn)
+        sqlx::query_as!(
+            ListWithRtcRow,
+            r#"
+            SELECT
+                rrc.rtc_id as "rtc_id: db::rtc::Id",
+                rrc.reader_id as "reader_id: AgentId",
+                rrc.receive_video,
+                rrc.receive_audio,
+                rtc.room_id as "room_id: db::room::Id",
+                rtc.created_by as "created_by: AgentId",
+                rtc.created_at
+            FROM rtc_reader_config as rrc
+            INNER JOIN rtc
+            ON rrc.rtc_id = rtc.id
+            WHERE
+                rtc.room_id = $1 AND
+                rrc.reader_id = ANY($2)
+            "#,
+            self.room_id as db::room::Id,
+            reader_ids as AgentIds,
+        )
+        .fetch_all(conn)
+        .await
+        .map(|r| r.into_iter().map(|o| o.split()).collect())
     }
 }
 
@@ -135,40 +181,69 @@ impl<'a> UpsertQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use diesel::prelude::*;
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        let receive_video = self.receive_video.unwrap_or(true);
+        let receive_audio = self.receive_audio.unwrap_or(true);
 
-        let mut insert_values = self.clone();
-
-        if insert_values.receive_video.is_none() {
-            insert_values.receive_video = Some(true);
-        }
-
-        if insert_values.receive_audio.is_none() {
-            insert_values.receive_audio = Some(true);
-        }
-
-        diesel::insert_into(rtc_reader_config::table)
-            .values(insert_values)
-            .on_conflict((rtc_reader_config::rtc_id, rtc_reader_config::reader_id))
-            .do_update()
-            .set(self)
-            .get_result(conn)
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO rtc_reader_config
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (rtc_id, reader_id) DO UPDATE
+            SET
+                receive_video = $3,
+                receive_audio = $4
+            RETURNING
+                rtc_id as "rtc_id: db::rtc::Id",
+                reader_id as "reader_id: AgentId",
+                receive_video,
+                receive_audio
+            "#,
+            self.rtc_id as db::rtc::Id,
+            self.reader_id as &AgentId,
+            receive_video,
+            receive_audio,
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 
-pub fn batch_insert(conn: &PgConnection, configs: &[UpsertQuery]) -> Result<Vec<Object>, Error> {
-    use crate::diesel::ExpressionMethods;
-    use crate::schema::rtc_reader_config::*;
-    use diesel::pg::upsert::excluded;
+pub async fn batch_insert(
+    conn: &mut sqlx::PgConnection,
+    rtc_ids: &[db::rtc::Id],
+    reader_ids: &[&AgentId],
+    receive_video: &[bool],
+    receive_audio: &[bool],
+) -> sqlx::Result<Vec<Object>> {
+    let rtc_ids = Ids(rtc_ids);
+    let reader_ids = AgentIds(reader_ids);
 
-    diesel::insert_into(table)
-        .values(configs)
-        .on_conflict((rtc_id, reader_id))
-        .do_update()
-        .set((
-            receive_video.eq(excluded(receive_video)),
-            receive_audio.eq(excluded(receive_audio)),
-        ))
-        .get_results(conn)
+    sqlx::query_as!(
+        Object,
+        r#"
+        INSERT INTO rtc_reader_config
+        -- array of agent_id unnests to 2 arrays account_id[] and label[]
+        -- so we merge them after unnest back to agent_id type
+        SELECT rtc_id, (reader_account_id, reader_label)::agent_id, receive_video, receive_audio
+        FROM UNNEST($1::uuid[], $2::agent_id[], $3::bool[], $4::bool[])
+            AS t(rtc_id, reader_account_id, reader_label, receive_video, receive_audio)
+        ON CONFLICT (rtc_id, reader_id) DO UPDATE
+        SET
+            receive_video = EXCLUDED.receive_video,
+            receive_audio = EXCLUDED.receive_audio
+        RETURNING
+            rtc_id as "rtc_id: db::rtc::Id",
+            reader_id as "reader_id: AgentId",
+            receive_video,
+            receive_audio
+        "#,
+        rtc_ids as Ids,
+        reader_ids as AgentIds,
+        receive_video,
+        receive_audio
+    )
+    .fetch_all(conn)
+    .await
 }

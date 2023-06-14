@@ -71,7 +71,7 @@ impl Object {
     }
 
     pub fn set_time(&mut self, time: Option<Time>) -> &mut Self {
-        self.time = time.map(|t| TimeSqlx::from(t));
+        self.time = time.map(TimeSqlx::from);
         self
     }
 }

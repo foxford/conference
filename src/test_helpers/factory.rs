@@ -455,7 +455,7 @@ impl<'a> RtcReaderConfig<'a> {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::rtc_reader_config::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::rtc_reader_config::Object {
         let mut q = db::rtc_reader_config::UpsertQuery::new(self.rtc.id(), self.reader_id);
 
         if let Some(receive_video) = self.receive_video {
@@ -466,7 +466,9 @@ impl<'a> RtcReaderConfig<'a> {
             q = q.receive_audio(receive_audio);
         }
 
-        q.execute(conn).expect("Failed to insert RTC reader config")
+        q.execute(conn)
+            .await
+            .expect("Failed to insert RTC reader config")
     }
 }
 
@@ -519,7 +521,7 @@ impl<'a> RtcWriterConfig<'a> {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::rtc_writer_config::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::rtc_writer_config::Object {
         let mut q = db::rtc_writer_config::UpsertQuery::new(self.rtc.id());
 
         if let Some(send_video) = self.send_video {
@@ -538,7 +540,9 @@ impl<'a> RtcWriterConfig<'a> {
             q = q.send_audio_updated_by(send_audio_updated_by);
         }
 
-        q.execute(conn).expect("Failed to insert RTC writer config")
+        q.execute(conn)
+            .await
+            .expect("Failed to insert RTC writer config")
     }
 }
 
@@ -561,7 +565,10 @@ impl<'a> RtcWriterConfigSnaphost<'a> {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::rtc_writer_config_snapshot::Object {
+    pub async fn insert(
+        &self,
+        conn: &mut sqlx::PgConnection,
+    ) -> db::rtc_writer_config_snapshot::Object {
         let q = db::rtc_writer_config_snapshot::InsertQuery::new(
             self.rtc.id(),
             self.send_video,
@@ -569,6 +576,7 @@ impl<'a> RtcWriterConfigSnaphost<'a> {
         );
 
         q.execute(conn)
+            .await
             .expect("Failed to insert RTC writer config snapshot")
     }
 }
@@ -583,9 +591,10 @@ impl GroupAgent {
         Self { room_id, groups }
     }
 
-    pub fn upsert(self, conn: &PgConnection) -> db::group_agent::Object {
+    pub async fn upsert(self, conn: &mut sqlx::PgConnection) -> db::group_agent::Object {
         db::group_agent::UpsertQuery::new(self.room_id, &self.groups)
             .execute(conn)
+            .await
             .expect("failed to upsert group agent")
     }
 }

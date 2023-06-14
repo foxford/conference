@@ -10,7 +10,6 @@ use crate::{
 };
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, Duration, Utc};
-use diesel::pg::PgConnection;
 use serde::Serialize;
 use svc_agent::{
     mqtt::{
@@ -61,34 +60,35 @@ pub enum RoomTimeRequirement {
     Open,
 }
 
-pub fn find_room_by_id(
+pub async fn find_room_by_id(
     id: db::room::Id,
     opening_requirement: RoomTimeRequirement,
-    conn: &PgConnection,
+    conn: &mut sqlx::PgConnection,
 ) -> Result<db::room::Object, AppError> {
     let query = db::room::FindQuery::new(id);
-    find_room(query, opening_requirement, conn)
+    find_room(query, opening_requirement, conn).await
 }
 
-pub fn find_room_by_rtc_id(
+pub async fn find_room_by_rtc_id(
     rtc_id: db::rtc::Id,
     opening_requirement: RoomTimeRequirement,
-    conn: &PgConnection,
+    conn: &mut sqlx::PgConnection,
 ) -> Result<db::room::Object, AppError> {
     let query = db::room::FindByRtcIdQuery::new(rtc_id);
-    find_room(query, opening_requirement, conn)
+    find_room(query, opening_requirement, conn).await
 }
 
-fn find_room<Q>(
+async fn find_room<Q>(
     query: Q,
     opening_requirement: RoomTimeRequirement,
-    conn: &PgConnection,
+    conn: &mut sqlx::PgConnection,
 ) -> Result<Room, AppError>
 where
     Q: db::room::FindQueryable,
 {
     let room = query
-        .execute(conn)?
+        .execute(conn)
+        .await?
         .context("Room not found")
         .error(AppErrorKind::RoomNotFound)?;
 

@@ -110,17 +110,11 @@ impl RequestHandler for VacuumHandler {
         .await?;
 
         for (room, recording, backend) in rooms.into_iter() {
-            crate::util::spawn_blocking({
-                let room_id = room.id();
-
-                let conn = context.get_conn().await?;
-                move || {
-                    db::agent::DeleteQuery::new()
-                        .room_id(room_id)
-                        .execute(&conn)
-                }
-            })
-            .await?;
+            let mut conn = context.get_conn_sqlx().await?;
+            db::agent::DeleteQuery::new()
+                .room_id(room.id())
+                .execute(&mut conn)
+                .await?;
 
             let config = upload_config(context, &room)?;
             let request = UploadStreamRequest {
@@ -377,6 +371,7 @@ mod test {
             let postgres = local_deps.run_postgres();
             let db = TestDb::with_local_postgres(&postgres);
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
 
@@ -385,24 +380,29 @@ mod test {
 
             let mut context = TestContext::new(db, db_sqlx, authz).await;
             let connection = context.get_conn().await?;
+            let mut conn_sqlx = context.get_conn_sqlx().await?;
+
             let opened_room = shared_helpers::insert_room(&connection);
             let opened_room2 = shared_helpers::insert_room(&connection);
             let closed_room = shared_helpers::insert_closed_room(&connection);
             db::orphaned_room::upsert_room(
                 opened_room.id(),
                 Utc::now() - chrono::Duration::seconds(10),
-                &connection,
-            )?;
+                &mut conn_sqlx,
+            )
+            .await?;
             db::orphaned_room::upsert_room(
                 closed_room.id(),
                 Utc::now() - chrono::Duration::seconds(10),
-                &connection,
-            )?;
+                &mut conn_sqlx,
+            )
+            .await?;
             db::orphaned_room::upsert_room(
                 opened_room2.id(),
                 Utc::now() + chrono::Duration::seconds(10),
-                &connection,
-            )?;
+                &mut conn_sqlx,
+            )
+            .await?;
 
             let messages = handle_event::<OrphanedRoomCloseHandler>(
                 &mut context,

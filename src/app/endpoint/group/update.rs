@@ -24,9 +24,9 @@ use crate::{
 use anyhow::{anyhow, Context};
 use axum::{extract::Path, Extension, Json};
 use chrono::{DateTime, Utc};
-use diesel::Connection;
 use serde::Deserialize;
 use serde_json::json;
+use sqlx::Connection;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
 use svc_conference_events::{EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
@@ -71,13 +71,11 @@ impl Handler {
 
         let Payload { room_id, groups } = payload;
 
-        let room = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)
-            }
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &mut conn)
+                .await?
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -107,13 +105,13 @@ impl Handler {
             .context("backend not found")
             .error(AppErrorKind::BackendNotFound)?;
 
-        let event_id = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-
-            move || {
-                conn.transaction(|| {
+        let mut conn = context.get_conn_sqlx().await?;
+        let event_id = conn
+            .transaction::<_, _, AppError>(|conn| {
+                Box::pin(async move {
                     let existed_groups = db::group_agent::FindQuery::new(room.id())
-                        .execute(&conn)?
+                        .execute(conn)
+                        .await?
                         .groups()
                         .len();
 
@@ -133,10 +131,12 @@ impl Handler {
                     };
                     let event = Event::from(event);
 
-                    db::group_agent::UpsertQuery::new(room.id(), &groups).execute(&conn)?;
+                    db::group_agent::UpsertQuery::new(room.id(), &groups)
+                        .execute(conn)
+                        .await?;
 
                     // Update rtc_reader_configs
-                    let configs = group_reader_config::update(&conn, room.id(), groups)?;
+                    let configs = group_reader_config::update(conn, room.id(), groups).await?;
 
                     // Generate config items for janus
                     let items = configs
@@ -171,16 +171,16 @@ impl Handler {
                         serialized_stage,
                         delivery_deadline_at,
                     )
-                    .execute(&conn)?;
+                    .execute(conn)
+                    .await?;
 
-                    Ok::<_, AppError>(event_id)
+                    Ok(event_id)
                 })
-            }
-        })
-        .await?;
+            })
+            .await?;
 
         let pipeline = DieselPipeline::new(
-            context.db().clone(),
+            context.db_sqlx().clone(),
             outbox_config.try_wake_interval,
             outbox_config.max_delivery_interval,
         );
@@ -358,37 +358,32 @@ mod tests {
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-        let mut conn = db_sqlx.get_conn().await;
+        let conn = db.get_conn();
+        let mut conn_sqlx = db_sqlx.get_conn().await;
+
         let backend =
-            shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+            shared_helpers::insert_janus_backend(&mut conn_sqlx, &janus.url, session_id, handle_id)
                 .await;
 
-        let (room, backend) = db
-            .connection_pool()
-            .get()
-            .map(|conn| {
-                let room = factory::Room::new()
-                    .audience(USR_AUDIENCE)
-                    .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                    .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                    .backend_id(backend.id())
-                    .insert(&conn);
+        let room = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((Bound::Included(Utc::now()), Bound::Unbounded))
+            .rtc_sharing_policy(RtcSharingPolicy::Owned)
+            .backend_id(backend.id())
+            .insert(&conn);
 
-                factory::GroupAgent::new(
-                    room.id(),
-                    Groups::new(vec![GroupItem::new(0, vec![]), GroupItem::new(1, vec![])]),
-                )
-                .upsert(&conn);
+        factory::GroupAgent::new(
+            room.id(),
+            Groups::new(vec![GroupItem::new(0, vec![]), GroupItem::new(1, vec![])]),
+        )
+        .upsert(&mut conn_sqlx)
+        .await;
 
-                vec![&agent1, &agent2].iter().for_each(|agent| {
-                    factory::Rtc::new(room.id())
-                        .created_by(agent.agent_id().to_owned())
-                        .insert(&conn);
-                });
-
-                (room, backend)
-            })
-            .unwrap();
+        vec![&agent1, &agent2].iter().for_each(|agent| {
+            factory::Rtc::new(room.id())
+                .created_by(agent.agent_id().to_owned())
+                .insert(&conn);
+        });
 
         // Allow agent to update the room.
         let mut authz = TestAuthz::new();
@@ -418,13 +413,9 @@ mod tests {
             .await
             .expect("Group update failed");
 
-        let conn = db
-            .connection_pool()
-            .get()
-            .expect("Failed to get DB connection");
-
         let group_agent = db::group_agent::FindQuery::new(room.id())
-            .execute(&conn)
+            .execute(&mut conn_sqlx)
+            .await
             .expect("failed to get groups with participants");
 
         let groups = group_agent.groups();
@@ -445,7 +436,8 @@ mod tests {
             room.id(),
             &[agent1.agent_id(), agent2.agent_id()],
         )
-        .execute(&conn)
+        .execute(&mut conn_sqlx)
+        .await
         .expect("failed to get rtc reader configs");
 
         assert_eq!(reader_configs.len(), 2);
@@ -472,7 +464,8 @@ mod tests {
             .expect("Group update failed");
 
         let group_agent = db::group_agent::FindQuery::new(room.id())
-            .execute(&conn)
+            .execute(&mut conn_sqlx)
+            .await
             .expect("failed to get groups with participants");
 
         let groups = group_agent.groups();
@@ -493,7 +486,8 @@ mod tests {
             room.id(),
             &[agent1.agent_id(), agent2.agent_id()],
         )
-        .execute(&conn)
+        .execute(&mut conn_sqlx)
+        .await
         .expect("failed to get rtc reader configs");
 
         assert_eq!(reader_configs.len(), 2);

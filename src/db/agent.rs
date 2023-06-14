@@ -3,7 +3,6 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
 use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
@@ -226,14 +225,29 @@ impl<'a> UpdateQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        let query = agent::table
-            .filter(agent::agent_id.eq(self.agent_id))
-            .filter(agent::room_id.eq(self.room_id));
-
-        diesel::update(query).set(self).get_result(conn).optional()
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            UPDATE agent
+            SET
+                status = $3
+            WHERE
+                agent_id = $1 AND
+                room_id  = $2
+            RETURNING
+                id as "id: Id",
+                agent_id as "agent_id: AgentId",
+                room_id as "room_id: Id",
+                created_at,
+                status as "status: Status"
+            "#,
+            self.agent_id as &AgentId,
+            self.room_id as Id,
+            self.status as Option<Status>,
+        )
+        .fetch_optional(conn)
+        .await
     }
 }
 
@@ -267,20 +281,20 @@ impl<'a> DeleteQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-
-        let mut query = diesel::delete(agent::table).into_boxed();
-
-        if let Some(agent_id) = self.agent_id {
-            query = query.filter(agent::agent_id.eq(agent_id));
-        }
-
-        if let Some(room_id) = self.room_id {
-            query = query.filter(agent::room_id.eq(room_id));
-        }
-
-        query.execute(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM agent
+            WHERE
+                ($1::agent_id IS NULL OR agent_id = $1) AND
+                ($2::uuid IS NULL OR room_id  = $2)
+            "#,
+            self.agent_id as Option<&AgentId>,
+            self.room_id as Option<Id>,
+        )
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 
@@ -295,10 +309,18 @@ impl CleanupQuery {
         Self { created_at }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-
-        diesel::delete(agent::table.filter(agent::created_at.lt(self.created_at))).execute(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM agent
+            WHERE
+                created_at < $1
+            "#,
+            self.created_at,
+        )
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 
@@ -345,7 +367,8 @@ mod tests {
         assert_eq!(r.len(), 2);
 
         let r = CleanupQuery::new(Utc::now() - Duration::days(1))
-            .execute(&conn)
+            .execute(&mut conn_sqlx)
+            .await
             .expect("Failed to run query");
 
         assert_eq!(r, 1);

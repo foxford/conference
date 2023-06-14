@@ -146,14 +146,9 @@ impl<'a, C: GlobalContext + ?Sized> RtcCreate<'a, C> {
         let room = match self.room {
             Either::Left(room) => room,
             Either::Right(room_id) => {
-                crate::util::spawn_blocking({
-                    let conn = self.ctx.get_conn().await?;
-                    let room_id = room_id;
-                    move || {
-                        helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
-                    }
-                })
-                .await?
+                let mut conn = self.ctx.get_conn_sqlx().await?;
+                helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &mut conn)
+                    .await?
             }
         };
 
@@ -229,15 +224,11 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let room = crate::util::spawn_blocking({
-            let payload_id = payload.id;
-
-            let conn = context.get_conn().await?;
-            move || {
-                helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
-            }
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::find_room_by_rtc_id(payload.id, helpers::RoomTimeRequirement::Open, &mut conn)
+                .await?
+        };
 
         tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
         tracing::Span::current().record(
@@ -339,14 +330,12 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let room = crate::util::spawn_blocking({
-            let payload_room_id = payload.room_id;
-
-            let conn = context.get_conn().await?;
-            move || {
-                helpers::find_room_by_id(payload_room_id, helpers::RoomTimeRequirement::Open, &conn)
-            }
-        })
+        let mut conn = context.get_conn_sqlx().await?;
+        let room = helpers::find_room_by_id(
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            &mut conn,
+        )
         .await?;
 
         tracing::Span::current().record(
@@ -365,22 +354,18 @@ impl RequestHandler for ListHandler {
         context.metrics().observe_auth(authz_time);
 
         // Return rtc list.
-        let rtcs = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
+        let mut conn = context.get_conn_sqlx().await?;
+        let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
 
-                if let Some(offset) = payload.offset {
-                    query = query.offset(offset);
-                }
+        if let Some(offset) = payload.offset {
+            query = query.offset(offset);
+        }
 
-                let limit = std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT);
-                query = query.limit(limit);
+        let limit = std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT);
+        query = query.limit(limit);
 
-                Ok::<_, AppError>(query.execute(&conn)?)
-            }
-        })
-        .await?;
+        let rtcs = query.execute(&mut conn).await?;
+
         context
             .metrics()
             .request_duration
@@ -570,13 +555,11 @@ where
 
     async fn run(self) -> Result<ConnectAndSignalResult, AppError> {
         let payload_id = self.rtc_id;
-        let room = crate::util::spawn_blocking({
-            let conn = self.ctx.get_conn().await?;
-            move || {
-                helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
-            }
-        })
-        .await?;
+        let room = {
+            let mut conn = self.ctx.get_conn_sqlx().await?;
+            helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &mut conn)
+                .await?
+        };
 
         tracing::Span::current().record("rtc_id", &tracing::field::display(self.rtc_id));
         tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
@@ -937,14 +920,11 @@ impl RequestHandler for ConnectHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let payload_id = payload.id;
-        let room = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &conn)
-            }
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            helpers::find_room_by_rtc_id(payload.id, helpers::RoomTimeRequirement::Open, &mut conn)
+                .await?
+        };
 
         tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
         tracing::Span::current().record(
@@ -966,7 +946,7 @@ impl RequestHandler for ConnectHandler {
                 if payload.intent == ConnectIntent::Write {
                     let mut conn = context.get_conn_sqlx().await?;
                     // Check that the RTC is owned by the same agent.
-                    let rtc = db::rtc::FindQuery::new(payload_id)
+                    let rtc = db::rtc::FindQuery::new(payload.id)
                         .execute(&mut conn)
                         .await?
                         .context("RTC not found")
@@ -1103,6 +1083,7 @@ impl RequestHandler for ConnectHandler {
         let handle_id = handle.id;
 
         let mut conn = context.get_conn_sqlx().await?;
+        let payload_id = payload.id;
         conn.transaction(|conn| {
             Box::pin(async move {
                 // Find agent in the DB who made the original `rtc.connect` request.
@@ -1134,7 +1115,7 @@ impl RequestHandler for ConnectHandler {
             ResponseStatus::OK,
             endpoint::rtc::ConnectResponseData::new(HandleId::new(
                 rtc_stream_id,
-                payload_id,
+                payload.id,
                 handle.id,
                 backend.session_id(),
                 backend.id().clone(),
@@ -2001,11 +1982,15 @@ mod test {
 
             // Delete agent
             {
-                let conn = context.get_conn().await.expect("Failed to acquire db conn");
+                let mut conn = context
+                    .get_conn_sqlx()
+                    .await
+                    .expect("Failed to acquire db conn");
                 let row_count = db::agent::DeleteQuery::new()
                     .agent_id(reader1.agent_id())
                     .room_id(rtc2.room_id())
-                    .execute(&conn)
+                    .execute(&mut conn)
+                    .await
                     .expect("Failed to delete user from agents");
                 // Check that we actually deleted something
                 assert_eq!(row_count, 1);
