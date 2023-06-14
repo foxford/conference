@@ -1,18 +1,12 @@
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use diesel::{dsl::any, pg::PgConnection, result::Error};
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
-use crate::diesel::ExpressionMethods;
-use crate::diesel::RunQueryDsl;
-use crate::schema::orphaned_room;
-
 use super::room::sqlx_to_uuid;
 use super::room::Object as Room;
+use super::Ids;
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
-#[belongs_to(Room, foreign_key = "id")]
-#[table_name = "orphaned_room"]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Object {
     pub id: super::room::Id,
     #[serde(with = "ts_seconds")]
@@ -60,13 +54,13 @@ struct TimedOutRow {
 }
 
 impl TimedOutRow {
-    fn split(self) -> (Object, Option<super::room::Object>) {
+    fn split(self) -> (Object, Option<Room>) {
         (
             Object {
                 id: self.room_id,
                 host_left_at: self.host_left_at,
             },
-            self.classroom_id.map(|classroom_id| super::room::Object {
+            self.classroom_id.map(|classroom_id| Room {
                 id: self.room_id,
                 time: self.time.into(),
                 audience: self.audience,
@@ -122,16 +116,40 @@ pub async fn get_timed_out(
     .map(|r| r.into_iter().map(|o| o.split()).collect())
 }
 
-pub fn remove_rooms(ids: &[super::room::Id], connection: &PgConnection) -> Result<(), Error> {
-    diesel::delete(orphaned_room::table)
-        .filter(orphaned_room::id.eq(any(ids)))
-        .execute(connection)?;
+pub async fn remove_rooms(
+    ids: &[super::room::Id],
+    connection: &mut sqlx::PgConnection,
+) -> sqlx::Result<()> {
+    let ids = Ids(ids);
+
+    sqlx::query!(
+        r#"
+        DELETE FROM orphaned_room
+        WHERE
+            id = ANY($1)
+        "#,
+        ids as Ids,
+    )
+    .execute(connection)
+    .await?;
+
     Ok(())
 }
 
-pub fn remove_room(id: super::room::Id, connection: &PgConnection) -> Result<(), Error> {
-    diesel::delete(orphaned_room::table)
-        .filter(orphaned_room::id.eq(id))
-        .execute(connection)?;
+pub async fn remove_room(
+    id: super::room::Id,
+    connection: &mut sqlx::PgConnection,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        DELETE FROM orphaned_room
+        WHERE
+            id = $1
+        "#,
+        id as super::room::Id,
+    )
+    .execute(connection)
+    .await?;
+
     Ok(())
 }

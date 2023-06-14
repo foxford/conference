@@ -230,17 +230,11 @@ impl EventHandler for OrphanedRoomCloseHandler {
                     }
                 }
             }
-        }
 
-        crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                if let Err(err) = db::orphaned_room::remove_rooms(&closed_rooms, &conn) {
-                    error!(?err, "Error removing rooms fron orphan table");
-                }
+            if let Err(err) = db::orphaned_room::remove_rooms(&closed_rooms, &mut conn).await {
+                error!(?err, "Error removing rooms fron orphan table");
             }
-        })
-        .await;
+        }
 
         Ok(Box::new(stream::iter(notifications)))
     }

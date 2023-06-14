@@ -3002,6 +3002,18 @@
     },
     "query": "\n            SELECT\n                r.id as \"rtc_id: db::rtc::Id\",\n                rwc.send_video,\n                rwc.send_audio,\n                rwc.video_remb,\n                rwc.send_audio_updated_by as \"send_audio_updated_by: AgentId\",\n                rwc.updated_at,\n                r.room_id as \"room_id: db::room::Id\",\n                r.created_at,\n                r.created_by as \"created_by: AgentId\"\n            FROM rtc_writer_config as rwc\n            INNER JOIN rtc as r\n            ON rwc.rtc_id = r.id\n            WHERE\n                r.room_id = $1\n            "
   },
+  "cc0a087e91af7f4c9c167dcb7b5ddaad8e191d367a36c5eff38872e71739800b": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "UuidArray"
+        ]
+      }
+    },
+    "query": "\n        DELETE FROM orphaned_room\n        WHERE\n            id = ANY($1)\n        "
+  },
   "d240be18ccfa80deb5d93bc82c258a8175b9536fdc53b3ba2fe47d887afa5d3e": {
     "describe": {
       "columns": [
@@ -3440,6 +3452,18 @@
       }
     },
     "query": "\n            INSERT INTO rtc_reader_config\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (rtc_id, reader_id) DO UPDATE\n            SET\n                receive_video = $3,\n                receive_audio = $4\n            RETURNING\n                rtc_id as \"rtc_id: db::rtc::Id\",\n                reader_id as \"reader_id: AgentId\",\n                receive_video,\n                receive_audio\n            "
+  },
+  "e83c8e0761bfc6214738f80e70da547c91075026bbcac791871d1b1be48269de": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        DELETE FROM orphaned_room\n        WHERE\n            id = $1\n        "
   },
   "f7e09f828e73da9760036d2358e8f2e9d43a6482417e86c5ea920db6628c4016": {
     "describe": {

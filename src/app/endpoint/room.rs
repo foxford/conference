@@ -675,22 +675,14 @@ impl EnterHandler {
             .await
             .error(AppErrorKind::BrokerRequestFailed)?;
 
-        let room = crate::util::spawn_blocking({
-            let subject = subject.clone();
-
-            let conn = context.get_conn().await?;
-            move || {
-                if room.host() == Some(&subject) {
-                    db::orphaned_room::remove_room(room.id(), &conn)?;
-                }
-                Ok::<_, AppError>(room)
-            }
-        })
-        .await?;
-
-        // Update agent state to `ready`.
         {
             let mut conn = context.get_conn_sqlx().await?;
+
+            if room.host() == Some(&subject) {
+                db::orphaned_room::remove_room(room.id(), &mut conn).await?;
+            }
+
+            // Update agent state to `ready`.
             db::agent::UpdateQuery::new(&subject, room.id())
                 .status(db::agent::Status::Ready)
                 .execute(&mut conn)
