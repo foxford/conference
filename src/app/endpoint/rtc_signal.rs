@@ -345,16 +345,10 @@ impl RequestHandler for CreateHandler {
                             )
                             .await?;
 
-                            let writer_config = crate::util::spawn_blocking({
-                                let rtc_id = payload.handle_id.rtc_id();
-
-                                let conn = context.get_conn().await?;
-                                move || {
-                                    Ok::<_, diesel::result::Error>(
-                                        db::rtc_writer_config::read_config(rtc_id, &conn)?,
-                                    )
-                                }
-                            })
+                            let writer_config = db::rtc_writer_config::read_config(
+                                payload.handle_id.rtc_id(),
+                                &mut conn,
+                            )
                             .await?;
 
                             let agent_id = reqp.as_agent_id().to_owned();

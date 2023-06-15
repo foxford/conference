@@ -985,6 +985,88 @@
     },
     "query": "\n            DELETE FROM agent\n            WHERE\n                ($1::agent_id IS NULL OR agent_id = $1) AND\n                ($2::uuid IS NULL OR room_id  = $2)\n            "
   },
+  "2f627cbc63f485775d35cda3e87265f34145b51f6946cf972bd232cb274fa8c4": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "send_video",
+          "ordinal": 1,
+          "type_info": "Bool"
+        },
+        {
+          "name": "send_audio",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "video_remb",
+          "ordinal": 3,
+          "type_info": "Int8"
+        },
+        {
+          "name": "send_audio_updated_by: AgentId",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "updated_at",
+          "ordinal": 5,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        SELECT\n            rtc_id as \"rtc_id: db::rtc::Id\",\n            send_video,\n            send_audio,\n            video_remb,\n            send_audio_updated_by as \"send_audio_updated_by: AgentId\",\n            updated_at\n        FROM rtc_writer_config\n        WHERE\n            rtc_id = $1\n        "
+  },
   "30a8ff598a9feeb9b2677c41237589fa57a9c922eff998f21f5c6ded6a33a39e": {
     "describe": {
       "columns": [
@@ -4056,6 +4138,50 @@
       }
     },
     "query": "\n            UPDATE recording\n            SET\n                status = $1,\n                mjr_dumps_uris = $2\n            WHERE\n                rtc_id = $3 AND\n                -- do not overwrite existing `ready` status with `missing`\n                (\n                    $1 <> 'missing'::recording_status OR\n                    status = 'in_progress'\n                )\n            RETURNING\n                rtc_id as \"rtc_id: db::rtc::Id\",\n                started_at,\n                segments as \"segments: Vec<SegmentSqlx>\",\n                status as \"status: Status\",\n                mjr_dumps_uris\n            "
+  },
+  "c6e330e656742646fa54f472491b0ba9efef6950090c4838c501d6de5f6b8dda": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "send_video",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "send_audio",
+          "ordinal": 3,
+          "type_info": "Bool"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                rwcs.id as \"id: Id\",\n                rwcs.rtc_id as \"rtc_id: Id\",\n                rwcs.send_video,\n                rwcs.send_audio,\n                rwcs.created_at\n            FROM rtc_writer_config_snapshot AS rwcs\n            INNER JOIN rtc\n            ON rwcs.rtc_id = rtc.id\n            WHERE\n                rtc.room_id = $1\n            ORDER BY rwcs.created_at\n            "
   },
   "cc0a087e91af7f4c9c167dcb7b5ddaad8e191d367a36c5eff38872e71739800b": {
     "describe": {

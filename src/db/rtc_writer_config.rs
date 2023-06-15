@@ -1,32 +1,7 @@
-// in order to support Rust 1.62
-// `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
-#![allow(clippy::extra_unused_lifetimes)]
-
 use chrono::{DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
 
 use crate::{db, db::rtc::Object as Rtc, schema::rtc_writer_config};
-
-////////////////////////////////////////////////////////////////////////////////
-
-type AllColumns = (
-    rtc_writer_config::rtc_id,
-    rtc_writer_config::send_video,
-    rtc_writer_config::send_audio,
-    rtc_writer_config::video_remb,
-    rtc_writer_config::send_audio_updated_by,
-    rtc_writer_config::updated_at,
-);
-
-const ALL_COLUMNS: AllColumns = (
-    rtc_writer_config::rtc_id,
-    rtc_writer_config::send_video,
-    rtc_writer_config::send_audio,
-    rtc_writer_config::video_remb,
-    rtc_writer_config::send_audio_updated_by,
-    rtc_writer_config::updated_at,
-);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -139,17 +114,28 @@ impl ListWithRtcQuery {
     }
 }
 
-pub fn read_config(
+pub async fn read_config(
     rtc_id: db::rtc::Id,
-    connection: &PgConnection,
-) -> Result<Option<Object>, Error> {
-    use diesel::prelude::*;
-
-    rtc_writer_config::table
-        .filter(rtc_writer_config::rtc_id.eq(rtc_id))
-        .select(ALL_COLUMNS)
-        .get_result(connection)
-        .optional()
+    connection: &mut sqlx::PgConnection,
+) -> sqlx::Result<Option<Object>> {
+    sqlx::query_as!(
+        Object,
+        r#"
+        SELECT
+            rtc_id as "rtc_id: db::rtc::Id",
+            send_video,
+            send_audio,
+            video_remb,
+            send_audio_updated_by as "send_audio_updated_by: AgentId",
+            updated_at
+        FROM rtc_writer_config
+        WHERE
+            rtc_id = $1
+        "#,
+        rtc_id as db::rtc::Id,
+    )
+    .fetch_optional(connection)
+    .await
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -52,47 +52,41 @@ impl RequestHandler for ReadHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let snapshots = crate::util::spawn_blocking({
-            let account_id = reqp.as_account_id().to_owned();
-            let service_audience = context.agent_id().as_account_id().to_owned();
+        let account_id = reqp.as_account_id().to_owned();
+        let service_audience = context.agent_id().as_account_id().to_owned();
 
-            let mut conn = context.get_conn_sqlx().await?;
-            let room = helpers::find_room_by_id(
-                payload.room_id,
-                helpers::RoomTimeRequirement::Any,
-                &mut conn,
-            )
-            .await?;
-
-            tracing::Span::current().record(
-                "classroom_id",
-                &tracing::field::display(room.classroom_id()),
-            );
-
-            if account_id.label() != "dispatcher"
-                || account_id.audience() != service_audience.audience()
-            {
-                return Err(anyhow!(
-                    "Agent writer config is available only to dispatcher"
-                ))
-                .error(AppErrorKind::AccessDenied)?;
-            }
-
-            if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-                return Err(anyhow!(
-                    "Agent writer config is available only for rooms with owned RTC sharing policy"
-                ))
-                .error(AppErrorKind::InvalidPayload)?;
-            }
-
-            let conn = context.get_conn().await?;
-            move || {
-                let snapshots = db::rtc_writer_config_snapshot::ListWithRtcQuery::new(room.id())
-                    .execute(&conn)?;
-                Ok::<_, AppError>(snapshots)
-            }
-        })
+        let mut conn = context.get_conn_sqlx().await?;
+        let room = helpers::find_room_by_id(
+            payload.room_id,
+            helpers::RoomTimeRequirement::Any,
+            &mut conn,
+        )
         .await?;
+
+        tracing::Span::current().record(
+            "classroom_id",
+            &tracing::field::display(room.classroom_id()),
+        );
+
+        if account_id.label() != "dispatcher"
+            || account_id.audience() != service_audience.audience()
+        {
+            return Err(anyhow!(
+                "Agent writer config is available only to dispatcher"
+            ))
+            .error(AppErrorKind::AccessDenied)?;
+        }
+
+        if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+            return Err(anyhow!(
+                "Agent writer config is available only for rooms with owned RTC sharing policy"
+            ))
+            .error(AppErrorKind::InvalidPayload)?;
+        }
+
+        let snapshots = db::rtc_writer_config_snapshot::ListWithRtcQuery::new(room.id())
+            .execute(&mut conn)
+            .await?;
 
         Ok(Response::new(
             ResponseStatus::OK,

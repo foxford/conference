@@ -1,35 +1,9 @@
-// in order to support Rust 1.62
-// `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
-#![allow(clippy::extra_unused_lifetimes)]
-// `diesel::Identifiable` causes this clippy warning
-#![allow(clippy::misnamed_getters)]
-
 use chrono::serde::ts_milliseconds;
 use chrono::{DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
 use serde::{Deserialize, Serialize};
 
 use crate::db;
-use crate::db::rtc::Object as Rtc;
-use crate::schema::{rtc, rtc_writer_config_snapshot};
-
-////////////////////////////////////////////////////////////////////////////////
-
-type AllColumns = (
-    rtc_writer_config_snapshot::id,
-    rtc_writer_config_snapshot::rtc_id,
-    rtc_writer_config_snapshot::send_video,
-    rtc_writer_config_snapshot::send_audio,
-    rtc_writer_config_snapshot::created_at,
-);
-
-const ALL_COLUMNS: AllColumns = (
-    rtc_writer_config_snapshot::id,
-    rtc_writer_config_snapshot::rtc_id,
-    rtc_writer_config_snapshot::send_video,
-    rtc_writer_config_snapshot::send_audio,
-    rtc_writer_config_snapshot::created_at,
-);
+use crate::schema::rtc_writer_config_snapshot;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -43,15 +17,27 @@ impl ListWithRtcQuery {
         Self { room_id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use diesel::prelude::*;
-
-        rtc_writer_config_snapshot::table
-            .inner_join(rtc::table)
-            .filter(rtc::room_id.eq(self.room_id))
-            .select(ALL_COLUMNS)
-            .order_by(rtc_writer_config_snapshot::created_at.asc())
-            .get_results(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Vec<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                rwcs.id as "id: Id",
+                rwcs.rtc_id as "rtc_id: Id",
+                rwcs.send_video,
+                rwcs.send_audio,
+                rwcs.created_at
+            FROM rtc_writer_config_snapshot AS rwcs
+            INNER JOIN rtc
+            ON rwcs.rtc_id = rtc.id
+            WHERE
+                rtc.room_id = $1
+            ORDER BY rwcs.created_at
+            "#,
+            self.room_id as db::room::Id,
+        )
+        .fetch_all(conn)
+        .await
     }
 }
 
@@ -60,10 +46,7 @@ pub type Id = db::id::Id;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Identifiable, Queryable, QueryableByName, Associations, Deserialize, Serialize)]
-#[belongs_to(Rtc, foreign_key = "rtc_id")]
-#[table_name = "rtc_writer_config_snapshot"]
-#[primary_key(rtc_id)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Object {
     id: Id,
     rtc_id: super::rtc::Id,

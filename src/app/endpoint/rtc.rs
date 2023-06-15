@@ -537,16 +537,8 @@ where
         let mut conn = self.ctx.get_conn_sqlx().await?;
         let reader_config =
             db::rtc_reader_config::read_config(handle_id.rtc_id(), &mut conn).await?;
-
-        let writer_config = crate::util::spawn_blocking({
-            let rtc_id = handle_id.rtc_id();
-
-            let conn = self.ctx.get_conn().await?;
-            move || {
-                Ok::<_, diesel::result::Error>(db::rtc_writer_config::read_config(rtc_id, &conn)?)
-            }
-        })
-        .await?;
+        let writer_config =
+            db::rtc_writer_config::read_config(handle_id.rtc_id(), &mut conn).await?;
 
         Ok((writer_config, reader_config))
     }
