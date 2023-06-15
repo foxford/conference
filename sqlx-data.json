@@ -3436,6 +3436,74 @@
     },
     "query": "\n            SELECT\n                r.id as \"rtc_id: db::rtc::Id\",\n                rwc.send_video,\n                rwc.send_audio,\n                rwc.video_remb,\n                rwc.send_audio_updated_by as \"send_audio_updated_by: AgentId\",\n                rwc.updated_at,\n                r.room_id as \"room_id: db::room::Id\",\n                r.created_at,\n                r.created_by as \"created_by: AgentId\"\n            FROM rtc_writer_config as rwc\n            INNER JOIN rtc as r\n            ON rwc.rtc_id = r.id\n            WHERE\n                r.room_id = $1\n            "
   },
+  "c482272181f9c7db66f9a6de6ffad7d16544ce92890f4e3baba4af46e5148bde": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "started_at",
+          "ordinal": 1,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "segments: Vec<SegmentSqlx>",
+          "ordinal": 2,
+          "type_info": "Int8RangeArray"
+        },
+        {
+          "name": "status: Status",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready",
+                  "missing"
+                ]
+              },
+              "name": "recording_status"
+            }
+          }
+        },
+        {
+          "name": "mjr_dumps_uris",
+          "ordinal": 4,
+          "type_info": "TextArray"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        true,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready",
+                  "missing"
+                ]
+              },
+              "name": "recording_status"
+            }
+          },
+          "TextArray",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE recording\n            SET\n                status = $1,\n                mjr_dumps_uris = $2\n            WHERE\n                rtc_id = $3 AND\n                -- do not overwrite existing `ready` status with `missing`\n                (\n                    $1 <> 'missing'::recording_status OR\n                    status = 'in_progress'\n                )\n            RETURNING\n                rtc_id as \"rtc_id: db::rtc::Id\",\n                started_at,\n                segments as \"segments: Vec<SegmentSqlx>\",\n                status as \"status: Status\",\n                mjr_dumps_uris\n            "
+  },
   "cc0a087e91af7f4c9c167dcb7b5ddaad8e191d367a36c5eff38872e71739800b": {
     "describe": {
       "columns": [],

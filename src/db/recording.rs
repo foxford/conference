@@ -4,13 +4,14 @@
 
 use std::{fmt, ops::Bound};
 
-use super::rtc::Object as Rtc;
-use crate::db;
-use crate::schema::recording;
 use chrono::{DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
 use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
+
+use crate::db;
+use crate::schema::recording;
+
+use super::rtc::Object as Rtc;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -231,20 +232,34 @@ impl UpdateQuery {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use diesel::prelude::*;
-
-        // do not overwrite existing `Ready` status with `Missing`
-        if let Some(Status::Missing) = self.status {
-            let source = recording::table.filter(
-                recording::status
-                    .eq(Status::InProgress)
-                    .and(recording::rtc_id.eq(self.rtc_id)),
-            );
-
-            diesel::update(source).set(self).get_result(conn)
-        } else {
-            diesel::update(self).set(self).get_result(conn)
-        }
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            ObjectSqlx,
+            r#"
+            UPDATE recording
+            SET
+                status = $1,
+                mjr_dumps_uris = $2
+            WHERE
+                rtc_id = $3 AND
+                -- do not overwrite existing `ready` status with `missing`
+                (
+                    $1 <> 'missing'::recording_status OR
+                    status = 'in_progress'
+                )
+            RETURNING
+                rtc_id as "rtc_id: db::rtc::Id",
+                started_at,
+                segments as "segments: Vec<SegmentSqlx>",
+                status as "status: Status",
+                mjr_dumps_uris
+            "#,
+            self.status as Option<Status>,
+            self.mjr_dumps_uris.as_ref().map(|m| m.as_slice()),
+            self.rtc_id as db::rtc::Id,
+        )
+        .fetch_one(conn)
+        .await
+        .map(Object::from)
     }
 }

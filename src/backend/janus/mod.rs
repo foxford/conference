@@ -293,17 +293,11 @@ async fn handle_event_impl<C: Context>(
                         match status {
                             val if val == "200" => Ok(()),
                             val if val == "404" => {
-                                crate::util::spawn_blocking({
-                                    let rtc_id = tn.rtc_id;
-
-                                    let conn = context.get_conn().await?;
-                                    move || {
-                                        recording::UpdateQuery::new(rtc_id)
-                                            .status(recording::Status::Missing)
-                                            .execute(&conn)
-                                    }
-                                })
-                                .await?;
+                                let mut conn = context.get_conn_sqlx().await?;
+                                recording::UpdateQuery::new(tn.rtc_id)
+                                    .status(recording::Status::Missing)
+                                    .execute(&mut conn)
+                                    .await?;
 
                                 Err(anyhow!("Janus is missing recording"))
                                     .error(AppErrorKind::BackendRecordingMissing)
@@ -353,17 +347,18 @@ async fn handle_event_impl<C: Context>(
                         )
                         .await?;
 
+                        recording::UpdateQuery::new(rtc_id)
+                            .status(recording::Status::Ready)
+                            .mjr_dumps_uris(mjr_dumps_uris)
+                            .execute(&mut conn)
+                            .await?;
+
                         let (room, rtcs_with_recs): (
                             room::Object,
                             Vec<(rtc::Object, Option<recording::Object>)>,
                         ) = crate::util::spawn_blocking({
                             let conn = context.get_conn().await?;
                             move || {
-                                recording::UpdateQuery::new(rtc_id)
-                                    .status(recording::Status::Ready)
-                                    .mjr_dumps_uris(mjr_dumps_uris)
-                                    .execute(&conn)?;
-
                                 let rtcs_with_recs =
                                     rtc::ListWithRecordingQuery::new(room.id()).execute(&conn)?;
 
