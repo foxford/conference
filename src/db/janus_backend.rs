@@ -603,7 +603,7 @@ mod tests {
     use crate::{
         backend::janus::client::{HandleId, SessionId},
         db::rtc::SharingPolicy as RtcSharingPolicy,
-        test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+        test_helpers::{db_sqlx::TestDb, prelude::*, test_deps::LocalDeps},
     };
 
     #[tokio::test]
@@ -613,33 +613,29 @@ mod tests {
 
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let conn = TestDb::with_local_postgres(&postgres)
-            .connection_pool()
-            .get()
-            .expect("Failed to get db conn");
 
-        let mut conn_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres)
+        let mut conn = TestDb::with_local_postgres(&postgres)
             .await
             .get_conn()
             .await;
 
         // Insert janus backends.
         let backend1 = shared_helpers::insert_janus_backend(
-            &mut conn_sqlx,
+            &mut conn,
             "test",
             SessionId::random(),
             HandleId::random(),
         )
         .await;
         let backend2 = shared_helpers::insert_janus_backend(
-            &mut conn_sqlx,
+            &mut conn,
             "test",
             SessionId::random(),
             HandleId::random(),
         )
         .await;
         let backend3 = shared_helpers::insert_janus_backend(
-            &mut conn_sqlx,
+            &mut conn,
             "test",
             SessionId::random(),
             HandleId::random(),
@@ -655,7 +651,8 @@ mod tests {
             .rtc_sharing_policy(RtcSharingPolicy::Shared)
             .backend_id(backend1.id())
             .reserve(200)
-            .insert(&conn);
+            .insert(&mut conn)
+            .await;
 
         let room2 = factory::Room::new()
             .audience(USR_AUDIENCE)
@@ -666,7 +663,8 @@ mod tests {
             .reserve(300)
             .rtc_sharing_policy(RtcSharingPolicy::Shared)
             .backend_id(backend1.id())
-            .insert(&conn);
+            .insert(&mut conn)
+            .await;
 
         let room3 = factory::Room::new()
             .audience(USR_AUDIENCE)
@@ -677,13 +675,14 @@ mod tests {
             .reserve(400)
             .rtc_sharing_policy(RtcSharingPolicy::Shared)
             .backend_id(backend2.id())
-            .insert(&conn);
+            .insert(&mut conn)
+            .await;
 
-        shared_helpers::insert_rtc_with_room(&conn, &room1);
-        shared_helpers::insert_rtc_with_room(&conn, &room2);
-        shared_helpers::insert_rtc_with_room(&conn, &room3);
+        shared_helpers::insert_rtc_with_room(&mut conn, &room1).await;
+        shared_helpers::insert_rtc_with_room(&mut conn, &room2).await;
+        shared_helpers::insert_rtc_with_room(&mut conn, &room3).await;
 
-        let loads = super::reserve_load_for_each_backend(&mut conn_sqlx)
+        let loads = super::reserve_load_for_each_backend(&mut conn)
             .await
             .expect("Db query failed");
         assert_eq!(loads.len(), 3);

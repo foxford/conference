@@ -208,10 +208,22 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::schema::rtc::dsl::rtc;
-        use diesel::RunQueryDsl;
-
-        diesel::insert_into(rtc).values(self).get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO rtc (room_id, created_by)
+            VALUES ($1, $2)
+            RETURNING
+                id as "id: Id",
+                room_id as "room_id: Id",
+                created_at,
+                created_by as "created_by: AgentId"
+            "#,
+            self.room_id as Id,
+            self.created_by as &AgentId
+        )
+        .fetch_one(conn)
+        .await
     }
 }

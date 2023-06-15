@@ -133,28 +133,23 @@ impl RequestHandler for CreateHandler {
 
         // Create a room.
         let audience = payload.audience.clone();
-        let room = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                let mut q = db::room::InsertQuery::new(
-                    payload.time,
-                    &payload.audience,
-                    rtc_sharing_policy,
-                    payload.classroom_id,
-                );
+        let mut conn = context.get_conn_sqlx().await?;
+        let mut q = db::room::InsertQuery::new(
+            payload.time,
+            &payload.audience,
+            rtc_sharing_policy,
+            payload.classroom_id,
+        );
 
-                if let Some(reserve) = payload.reserve {
-                    q = q.reserve(reserve);
-                }
+        if let Some(reserve) = payload.reserve {
+            q = q.reserve(reserve);
+        }
 
-                if let Some(ref tags) = payload.tags {
-                    q = q.tags(tags);
-                }
+        if let Some(ref tags) = payload.tags {
+            q = q.tags(tags);
+        }
 
-                q.execute(&conn)
-            }
-        })
-        .await?;
+        let room = q.execute(&mut conn).await?;
 
         // Create a default group for minigroups
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
@@ -1113,13 +1108,9 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
+                let mut conn = db_sqlx.get_conn().await;
                 // Create room.
-                shared_helpers::insert_room(&conn)
+                shared_helpers::insert_room(&mut conn).await
             };
 
             // Allow agent to read the room.
@@ -1157,12 +1148,8 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
-                shared_helpers::insert_room(&conn)
+                let mut conn = db_sqlx.get_conn().await;
+                shared_helpers::insert_room(&mut conn).await
             };
 
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -1221,17 +1208,15 @@ mod test {
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+                let mut conn = db_sqlx.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
                     .audience(USR_AUDIENCE)
                     .time((Bound::Unbounded, Bound::Unbounded))
                     .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
-                    .insert(&conn)
+                    .insert(&mut conn)
+                    .await
             };
 
             // Allow agent to update the room.
@@ -1291,10 +1276,7 @@ mod test {
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+                let mut conn = db_sqlx.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
@@ -1304,7 +1286,8 @@ mod test {
                         Bound::Excluded(now + Duration::hours(2)),
                     ))
                     .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
-                    .insert(&conn)
+                    .insert(&mut conn)
+                    .await
             };
 
             // Allow agent to update the room.
@@ -1348,10 +1331,7 @@ mod test {
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+                let mut conn = db_sqlx.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
@@ -1361,7 +1341,8 @@ mod test {
                         Bound::Excluded(now + Duration::hours(5)),
                     ))
                     .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
-                    .insert(&conn)
+                    .insert(&mut conn)
+                    .await
             };
 
             // Allow agent to update the room.
@@ -1431,16 +1412,14 @@ mod test {
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+                let mut conn = db_sqlx.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
                     .audience(USR_AUDIENCE)
                     .time((Bound::Included(now - Duration::hours(1)), Bound::Unbounded))
-                    .insert(&conn)
+                    .insert(&mut conn)
+                    .await
             };
 
             // Allow agent to update the room.
@@ -1511,13 +1490,10 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+                let mut conn = db_sqlx.get_conn().await;
 
                 // Create closed room.
-                shared_helpers::insert_closed_room(&conn)
+                shared_helpers::insert_closed_room(&mut conn).await
             };
 
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -1560,17 +1536,15 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+                let mut conn = db_sqlx.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
                     .audience(USR_AUDIENCE)
                     .time((Bound::Unbounded, Bound::Unbounded))
                     .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
-                    .insert(&conn)
+                    .insert(&mut conn)
+                    .await
             };
 
             // Allow agent to update the room.
@@ -1615,10 +1589,7 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+                let mut conn = db_sqlx.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
@@ -1626,7 +1597,8 @@ mod test {
                     .time((Bound::Unbounded, Bound::Unbounded))
                     .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
                     .infinite()
-                    .insert(&conn)
+                    .insert(&mut conn)
+                    .await
             };
 
             // Allow agent to update the room.
@@ -1657,10 +1629,7 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+                let mut conn = db_sqlx.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
@@ -1670,7 +1639,8 @@ mod test {
                         Bound::Excluded(Utc::now() + Duration::hours(10)),
                     ))
                     .rtc_sharing_policy(db::rtc::SharingPolicy::Shared)
-                    .insert(&conn)
+                    .insert(&mut conn)
+                    .await
             };
 
             // Allow agent to update the room.
@@ -1738,13 +1708,10 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+                let mut conn = db_sqlx.get_conn().await;
 
                 // Create closed room.
-                shared_helpers::insert_closed_room(&conn)
+                shared_helpers::insert_closed_room(&mut conn).await
             };
 
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -1776,13 +1743,10 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+                let mut conn = db_sqlx.get_conn().await;
 
                 // Create room.
-                shared_helpers::insert_room(&conn)
+                shared_helpers::insert_room(&mut conn).await
             };
 
             // Allow agent to subscribe to the rooms' events.
@@ -1821,12 +1785,8 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
-                shared_helpers::insert_room(&conn)
+                let mut conn = db_sqlx.get_conn().await;
+                shared_helpers::insert_room(&mut conn).await
             };
 
             let context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -1877,13 +1837,9 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
+                let mut conn = db_sqlx.get_conn().await;
                 // Create closed room.
-                shared_helpers::insert_closed_room(&conn)
+                shared_helpers::insert_closed_room(&mut conn).await
             };
 
             // Allow agent to subscribe to the rooms' events.
@@ -1920,16 +1876,14 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+                let mut conn = db_sqlx.get_conn().await;
 
                 // Create room without time.
                 factory::Room::new()
                     .audience(USR_AUDIENCE)
                     .time((Bound::Unbounded, Bound::Unbounded))
-                    .insert(&conn)
+                    .insert(&mut conn)
+                    .await
             };
 
             // Allow agent to subscribe to the rooms' events.
@@ -1966,10 +1920,7 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+                let mut conn = db_sqlx.get_conn().await;
 
                 // Create room without time.
                 factory::Room::new()
@@ -1978,7 +1929,8 @@ mod test {
                         Bound::Included(Utc::now() + Duration::hours(1)),
                         Bound::Unbounded,
                     ))
-                    .insert(&conn)
+                    .insert(&mut conn)
+                    .await
             };
 
             // Allow agent to subscribe to the rooms' events.
@@ -2010,14 +1962,13 @@ mod test {
             let db = TestDb::with_local_postgres(&postgres);
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
-            let conn = db.get_conn();
-            let mut conn_sqlx = db_sqlx.get_conn().await;
+            let mut conn = db_sqlx.get_conn().await;
 
             // Create room.
-            let room = shared_helpers::insert_room_with_owned(&conn);
+            let room = shared_helpers::insert_room_with_owned(&mut conn).await;
 
             factory::GroupAgent::new(room.id(), Groups::new(vec![GroupItem::new(0, vec![])]))
-                .upsert(&mut conn_sqlx)
+                .upsert(&mut conn)
                 .await;
 
             // Allow agent to subscribe to the rooms' events.
@@ -2047,7 +1998,7 @@ mod test {
                 .expect("Room entrance failed");
 
             let group_agent = db::group_agent::FindQuery::new(room.id())
-                .execute(&mut conn_sqlx)
+                .execute(&mut conn)
                 .await
                 .expect("failed to find a group agent");
 
@@ -2063,17 +2014,16 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let conn = db.get_conn();
-            let mut conn_sqlx = db_sqlx.get_conn().await;
+            let mut conn = db_sqlx.get_conn().await;
 
             // Create room.
-            let room = shared_helpers::insert_room_with_owned(&conn);
+            let room = shared_helpers::insert_room_with_owned(&mut conn).await;
 
             factory::GroupAgent::new(
                 room.id(),
                 Groups::new(vec![GroupItem::new(0, vec![agent.agent_id().clone()])]),
             )
-            .upsert(&mut conn_sqlx)
+            .upsert(&mut conn)
             .await;
 
             // Allow agent to subscribe to the rooms' events.
@@ -2102,7 +2052,7 @@ mod test {
                 .expect("Room entrance failed");
 
             let group_agent = db::group_agent::FindQuery::new(room.id())
-                .execute(&mut conn_sqlx)
+                .execute(&mut conn)
                 .await
                 .expect("failed to get group agents");
 
@@ -2121,23 +2071,19 @@ mod test {
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-            let conn = db.get_conn();
-            let mut conn_sqlx = db_sqlx.get_conn().await;
+            let mut conn = db_sqlx.get_conn().await;
 
-            let backend = shared_helpers::insert_janus_backend(
-                &mut conn_sqlx,
-                &janus.url,
-                session_id,
-                handle_id,
-            )
-            .await;
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
 
             let room = factory::Room::new()
                 .audience(USR_AUDIENCE)
                 .time((Bound::Included(Utc::now()), Bound::Unbounded))
                 .rtc_sharing_policy(RtcSharingPolicy::Owned)
                 .backend_id(backend.id())
-                .insert(&conn);
+                .insert(&mut conn)
+                .await;
 
             factory::GroupAgent::new(
                 room.id(),
@@ -2146,14 +2092,15 @@ mod test {
                     GroupItem::new(1, vec![agent1.agent_id().clone()]),
                 ]),
             )
-            .upsert(&mut conn_sqlx)
+            .upsert(&mut conn)
             .await;
 
-            vec![&agent1, &agent2].iter().for_each(|agent| {
+            for agent in &[&agent1, &agent2] {
                 factory::Rtc::new(room.id())
                     .created_by(agent.agent_id().to_owned())
-                    .insert(&conn);
-            });
+                    .insert(&mut conn)
+                    .await;
+            }
 
             // Allow agent to subscribe to the rooms' events.
             let mut authz = TestAuthz::new();
@@ -2179,7 +2126,7 @@ mod test {
                 .expect("Room entrance failed");
 
             let group_agent = db::group_agent::FindQuery::new(room.id())
-                .execute(&mut conn_sqlx)
+                .execute(&mut conn)
                 .await
                 .expect("failed to get group agents");
 
@@ -2189,7 +2136,7 @@ mod test {
                 room.id(),
                 &[agent1.agent_id(), agent2.agent_id()],
             )
-            .execute(&mut conn_sqlx)
+            .execute(&mut conn)
             .await
             .expect("failed to get rtc reader configs");
 
@@ -2212,14 +2159,12 @@ mod test {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let conn = db.get_conn();
+            let mut conn = db_sqlx.get_conn().await;
 
             // Create room.
-            let room = shared_helpers::insert_room(&conn);
-
-            let mut conn_sqlx = db_sqlx.get_conn().await;
+            let room = shared_helpers::insert_room(&mut conn).await;
             // Put agent online in the room.
-            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make room.leave request.
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -2257,12 +2202,8 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
-                shared_helpers::insert_room(&conn)
+                let mut conn = db_sqlx.get_conn().await;
+                shared_helpers::insert_room(&mut conn).await
             };
 
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;

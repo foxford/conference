@@ -403,23 +403,21 @@ pub async fn get_rtc_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
+    use crate::test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps};
 
     #[tokio::test]
     async fn test_stop_running_streams_by_backend() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = crate::test_helpers::db_sqlx::TestDb::with_local_postgres(&postgres).await;
+        let db = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
-        let conn = db.connection_pool().get().unwrap();
-        let mut conn_sqlx = db_sqlx.get_conn().await;
+        let mut conn = db.get_conn().await;
 
         let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE)
-            .insert(&conn, &mut conn_sqlx)
+            .insert(&mut conn)
             .await;
 
-        let r = stop_running_streams_by_backend(rtc_stream.backend_id(), &mut conn_sqlx)
+        let r = stop_running_streams_by_backend(rtc_stream.backend_id(), &mut conn)
             .await
             .expect("Failed to stop running streams");
 

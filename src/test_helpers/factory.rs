@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use diesel::pg::PgConnection;
 use rand::Rng;
 use svc_agent::{AccountId, AgentId};
 
@@ -78,7 +77,7 @@ impl<'a> Room<'a> {
         }
     }
 
-    pub fn insert(self, conn: &PgConnection) -> db::room::Object {
+    pub async fn insert(self, conn: &mut sqlx::PgConnection) -> db::room::Object {
         let audience = self.audience.expect("Audience not set");
         let time = self.time.expect("Time not set");
 
@@ -101,7 +100,7 @@ impl<'a> Room<'a> {
             q = q.infinite(true);
         }
 
-        q.execute(conn).expect("Failed to insert room")
+        q.execute(conn).await.expect("Failed to insert room")
     }
 }
 
@@ -151,11 +150,7 @@ impl<'a> Agent<'a> {
         }
     }
 
-    pub async fn insert(
-        &self,
-        conn: &PgConnection,
-        conn_sqlx: &mut sqlx::PgConnection,
-    ) -> db::agent::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::agent::Object {
         let agent_id = match (self.agent_id, self.audience) {
             (Some(agent_id), _) => agent_id.to_owned(),
             (None, Some(audience)) => {
@@ -167,13 +162,16 @@ impl<'a> Agent<'a> {
             _ => panic!("Expected agent_id either audience"),
         };
 
-        let room_id = self.room_id.unwrap_or_else(|| insert_room(conn).id());
+        let room_id = match self.room_id {
+            Some(id) => id,
+            None => insert_room(conn).await.id(),
+        };
 
         let mut q = db::agent::InsertQuery::new(&agent_id, room_id).status(self.status);
         if let Some(created_at) = self.created_at {
             q = q.created_at(created_at);
         }
-        q.execute(conn_sqlx).await.expect("Failed to insert agent")
+        q.execute(conn).await.expect("Failed to insert agent")
     }
 }
 
@@ -236,9 +234,10 @@ impl Rtc {
         Self { created_by, ..self }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::rtc::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::rtc::Object {
         db::rtc::InsertQuery::new(self.room_id, &self.created_by)
             .execute(conn)
+            .await
             .expect("Failed to insert janus_backend")
     }
 }
@@ -334,23 +333,15 @@ impl<'a> JanusRtcStream<'a> {
         }
     }
 
-    pub async fn insert(
-        &self,
-        conn: &PgConnection,
-        conn_sqlx: &mut sqlx::PgConnection,
-    ) -> db::janus_rtc_stream::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::janus_rtc_stream::Object {
         let default_backend;
 
         let backend = match self.backend {
             Some(value) => value,
             None => {
-                default_backend = insert_janus_backend(
-                    conn_sqlx,
-                    "test",
-                    SessionId::random(),
-                    HandleId::random(),
-                )
-                .await;
+                default_backend =
+                    insert_janus_backend(conn, "test", SessionId::random(), HandleId::random())
+                        .await;
                 &default_backend
             }
         };
@@ -360,7 +351,7 @@ impl<'a> JanusRtcStream<'a> {
         let rtc = match self.rtc {
             Some(value) => value,
             None => {
-                default_rtc = insert_rtc(conn);
+                default_rtc = insert_rtc(conn).await;
                 &default_rtc
             }
         };
@@ -383,7 +374,7 @@ impl<'a> JanusRtcStream<'a> {
             "alpha",
             sent_by,
         )
-        .execute(conn_sqlx)
+        .execute(conn)
         .await
         .expect("Failed to insert janus_rtc_stream")
     }
@@ -405,19 +396,20 @@ impl<'a> Recording<'a> {
         Self { rtc: Some(rtc) }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::recording::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::recording::Object {
         let default_rtc;
 
         let rtc = match self.rtc {
             Some(value) => value,
             None => {
-                default_rtc = insert_rtc(conn);
+                default_rtc = insert_rtc(conn).await;
                 &default_rtc
             }
         };
 
         db::recording::InsertQuery::new(rtc.id())
             .execute(conn)
+            .await
             .expect("Failed to insert recording")
     }
 }

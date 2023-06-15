@@ -204,7 +204,7 @@ mod test {
             let (rtc_stream, rtc, classroom_id) = {
                 // Insert janus rtc streams.
                 let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE)
-                    .insert(&conn, &mut conn_sqlx)
+                    .insert(&mut conn_sqlx)
                     .await;
 
                 let rtc_stream = db::janus_rtc_stream::start(rtc_stream.id(), &mut conn_sqlx)
@@ -213,7 +213,7 @@ mod test {
                     .expect("Missing rtc stream");
 
                 let other_rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE)
-                    .insert(&conn, &mut conn_sqlx)
+                    .insert(&mut conn_sqlx)
                     .await;
 
                 db::janus_rtc_stream::start(other_rtc_stream.id(), &mut conn_sqlx)
@@ -289,12 +289,8 @@ mod test {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
-                shared_helpers::insert_room(&conn)
+                let mut conn = db_sqlx.get_conn().await;
+                shared_helpers::insert_room(&mut conn).await
             };
 
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;

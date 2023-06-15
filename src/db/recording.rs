@@ -34,10 +34,27 @@ pub const ALL_COLUMNS: AllColumns = (
 
 pub type Segment = (Bound<i64>, Bound<i64>);
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(sqlx::Type, Debug, Clone)]
+#[sqlx(transparent)]
+pub struct SegmentSqlx(sqlx::postgres::types::PgRange<i64>);
+
+impl From<Segment> for SegmentSqlx {
+    fn from(value: Segment) -> Self {
+        SegmentSqlx(sqlx::postgres::types::PgRange::from(value))
+    }
+}
+
+impl From<SegmentSqlx> for Segment {
+    fn from(value: SegmentSqlx) -> Self {
+        (value.0.start, value.0.end)
+    }
+}
+
+#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
 #[PgType = "recording_status"]
 #[DieselType = "Recording_status"]
+#[sqlx(type_name = "recording_status")]
 pub enum Status {
     #[serde(rename = "in_progress")]
     InProgress,
@@ -90,6 +107,28 @@ impl Object {
     }
 }
 
+pub struct ObjectSqlx {
+    rtc_id: db::rtc::Id,
+    started_at: Option<DateTime<Utc>>,
+    segments: Option<Vec<SegmentSqlx>>,
+    status: Status,
+    mjr_dumps_uris: Option<Vec<String>>,
+}
+
+impl From<ObjectSqlx> for Object {
+    fn from(value: ObjectSqlx) -> Self {
+        Object {
+            rtc_id: value.rtc_id,
+            started_at: value.started_at,
+            segments: value
+                .segments
+                .map(|ss| ss.into_iter().map(Segment::from).collect()),
+            status: value.status,
+            mjr_dumps_uris: value.mjr_dumps_uris,
+        }
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
@@ -102,13 +141,25 @@ impl FindQuery {
         Self { rtc_id }
     }
 
-    pub fn execute(self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        recording::table
-            .filter(recording::rtc_id.eq(self.rtc_id))
-            .get_result(conn)
-            .optional()
+    pub async fn execute(self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            ObjectSqlx,
+            r#"
+            SELECT
+                rtc_id as "rtc_id: db::rtc::Id",
+                started_at,
+                segments as "segments: Vec<SegmentSqlx>",
+                status as "status: Status",
+                mjr_dumps_uris
+            FROM recording
+            WHERE
+                rtc_id = $1
+            "#,
+            self.rtc_id as db::rtc::Id,
+        )
+        .fetch_optional(conn)
+        .await
+        .map(|o| o.map(Object::from))
     }
 }
 
@@ -125,11 +176,24 @@ impl InsertQuery {
         Self { rtc_id }
     }
 
-    pub fn execute(self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::schema::recording::dsl::recording;
-        use diesel::RunQueryDsl;
-
-        diesel::insert_into(recording).values(self).get_result(conn)
+    pub async fn execute(self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            ObjectSqlx,
+            r#"
+            INSERT INTO recording (rtc_id)
+            VALUES ($1)
+            RETURNING
+                rtc_id as "rtc_id: db::rtc::Id",
+                started_at,
+                segments as "segments: Vec<SegmentSqlx>",
+                status as "status: Status",
+                mjr_dumps_uris
+            "#,
+            self.rtc_id as db::rtc::Id,
+        )
+        .fetch_one(conn)
+        .await
+        .map(Object::from)
     }
 }
 

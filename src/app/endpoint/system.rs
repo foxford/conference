@@ -369,28 +369,27 @@ mod test {
             authz.allow(agent.account_id(), vec!["system"], "update");
 
             let mut context = TestContext::new(db, db_sqlx, authz).await;
-            let connection = context.get_conn().await?;
-            let mut conn_sqlx = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn_sqlx().await?;
 
-            let opened_room = shared_helpers::insert_room(&connection);
-            let opened_room2 = shared_helpers::insert_room(&connection);
-            let closed_room = shared_helpers::insert_closed_room(&connection);
+            let opened_room = shared_helpers::insert_room(&mut conn).await;
+            let opened_room2 = shared_helpers::insert_room(&mut conn).await;
+            let closed_room = shared_helpers::insert_closed_room(&mut conn).await;
             db::orphaned_room::upsert_room(
                 opened_room.id(),
                 Utc::now() - chrono::Duration::seconds(10),
-                &mut conn_sqlx,
+                &mut conn,
             )
             .await?;
             db::orphaned_room::upsert_room(
                 closed_room.id(),
                 Utc::now() - chrono::Duration::seconds(10),
-                &mut conn_sqlx,
+                &mut conn,
             )
             .await?;
             db::orphaned_room::upsert_room(
                 opened_room2.id(),
                 Utc::now() + chrono::Duration::seconds(10),
-                &mut conn_sqlx,
+                &mut conn,
             )
             .await?;
 
@@ -409,7 +408,7 @@ mod test {
             assert_eq!(rooms[0].id(), opened_room.id());
             let orphaned = db::orphaned_room::get_timed_out(
                 Utc::now() + chrono::Duration::seconds(20),
-                &mut conn_sqlx,
+                &mut conn,
             )
             .await?;
             assert_eq!(orphaned.len(), 1);
@@ -444,38 +443,37 @@ mod test {
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn_sqlx = db_sqlx.get_conn().await;
             // Insert janus backend and rooms.
-            let backend =
-                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn_sqlx,
+                &janus.url,
+                session_id,
+                handle_id,
+            )
+            .await;
+
+            let room1 =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn_sqlx, backend.id())
+                    .await;
+            let room2 =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn_sqlx, backend.id())
                     .await;
 
-            let conn = db.get_conn();
-            let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
-
-            let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
             // Insert rtcs.
             let rtcs = vec![
-                shared_helpers::insert_rtc_with_room(&conn, &room1),
-                shared_helpers::insert_rtc_with_room(&conn, &room2),
+                shared_helpers::insert_rtc_with_room(&mut conn_sqlx, &room1).await,
+                shared_helpers::insert_rtc_with_room(&mut conn_sqlx, &room2).await,
             ];
 
-            let _other_rtc = shared_helpers::insert_rtc(&conn);
+            let _other_rtc = shared_helpers::insert_rtc(&mut conn_sqlx).await;
 
             // Insert active agents.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn_sqlx = db_sqlx.get_conn().await;
-
             for rtc in rtcs.iter() {
-                shared_helpers::insert_agent(
-                    &conn,
-                    &mut conn_sqlx,
-                    agent.agent_id(),
-                    rtc.room_id(),
-                )
-                .await;
-                shared_helpers::insert_recording(&conn, rtc);
+                shared_helpers::insert_agent(&mut conn_sqlx, agent.agent_id(), rtc.room_id()).await;
+                shared_helpers::insert_recording(&mut conn_sqlx, rtc).await;
             }
 
             let rtcs = rtcs.into_iter().map(|x| x.id()).collect::<Vec<_>>();

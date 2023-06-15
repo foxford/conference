@@ -447,11 +447,44 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::schema::room::dsl::room;
-        use diesel::RunQueryDsl;
-
-        diesel::insert_into(room).values(self).get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            ObjectSqlx,
+            r#"
+            INSERT INTO room (
+                time, audience, backend, reserve, tags,
+                backend_id, rtc_sharing_policy, classroom_id, infinite
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING
+                id as "id: Id",
+                backend_id as "backend_id: AgentId",
+                time as "time: TimeSqlx",
+                reserve,
+                tags,
+                classroom_id,
+                host as "host: AgentId",
+                timed_out,
+                audience,
+                created_at,
+                backend as "backend: RoomBackend",
+                rtc_sharing_policy as "rtc_sharing_policy: RtcSharingPolicy",
+                infinite,
+                closed_by as "closed_by: AgentId"
+            "#,
+            TimeSqlx::from(self.time) as TimeSqlx,
+            self.audience,
+            self.backend as RoomBackend,
+            self.reserve,
+            self.tags,
+            self.backend_id as Option<&AgentId>,
+            self.rtc_sharing_policy as RtcSharingPolicy,
+            uuid_to_sqlx(self.classroom_id),
+            self.infinite,
+        )
+        .fetch_one(conn)
+        .await
+        .map(Object::from)
     }
 }
 
@@ -624,8 +657,12 @@ mod tests {
             )
             .await;
 
-            let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
-            let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());
+            let room1 =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn_sqlx, backend1.id())
+                    .await;
+            let room2 =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn_sqlx, backend2.id())
+                    .await;
 
             // this room will have rtc but no rtc_stream simulating the case when janus_backend was removed
             // (for example crashed) and via cascade removed all streams hosted on it
@@ -633,15 +670,18 @@ mod tests {
             // it should not appear in query result and it should not result in query Err
             let backend3_id = TestAgent::new("alpha", "janus3", SVC_AUDIENCE);
 
-            let room3 =
-                shared_helpers::insert_closed_room_with_backend_id(&conn, backend3_id.agent_id());
+            let room3 = shared_helpers::insert_closed_room_with_backend_id(
+                &mut conn_sqlx,
+                backend3_id.agent_id(),
+            )
+            .await;
 
-            let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
-            let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
-            let _rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
+            let rtc1 = shared_helpers::insert_rtc_with_room(&mut conn_sqlx, &room1).await;
+            let rtc2 = shared_helpers::insert_rtc_with_room(&mut conn_sqlx, &room2).await;
+            let _rtc3 = shared_helpers::insert_rtc_with_room(&mut conn_sqlx, &room3).await;
 
-            shared_helpers::insert_recording(&conn, &rtc1);
-            shared_helpers::insert_recording(&conn, &rtc2);
+            shared_helpers::insert_recording(&mut conn_sqlx, &rtc1).await;
+            shared_helpers::insert_recording(&mut conn_sqlx, &rtc2).await;
 
             let rooms = finished_with_in_progress_recordings(&conn, None)
                 .expect("finished_with_in_progress_recordings call failed");
@@ -669,10 +709,10 @@ mod tests {
             let db = TestDb::with_local_postgres(&postgres);
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn_sqlx = db_sqlx.get_conn().await;
 
             let backend1 = shared_helpers::insert_janus_backend_with_group(
-                &mut conn,
+                &mut conn_sqlx,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
@@ -680,7 +720,7 @@ mod tests {
             )
             .await;
             let backend2 = shared_helpers::insert_janus_backend_with_group(
-                &mut conn,
+                &mut conn_sqlx,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
@@ -691,14 +731,18 @@ mod tests {
             let pool = db.connection_pool();
             let conn = pool.get().expect("Failed to get db connection");
 
-            let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
-            let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());
+            let room1 =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn_sqlx, backend1.id())
+                    .await;
+            let room2 =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn_sqlx, backend2.id())
+                    .await;
 
-            let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
-            let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+            let rtc1 = shared_helpers::insert_rtc_with_room(&mut conn_sqlx, &room1).await;
+            let rtc2 = shared_helpers::insert_rtc_with_room(&mut conn_sqlx, &room2).await;
 
-            shared_helpers::insert_recording(&conn, &rtc1);
-            shared_helpers::insert_recording(&conn, &rtc2);
+            shared_helpers::insert_recording(&mut conn_sqlx, &rtc1).await;
+            shared_helpers::insert_recording(&mut conn_sqlx, &rtc2).await;
 
             let rooms = finished_with_in_progress_recordings(&conn, Some("minigroup"))
                 .expect("finished_with_in_progress_recordings call failed");

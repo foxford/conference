@@ -1,7 +1,6 @@
 use std::ops::Bound;
 
 use chrono::{Duration, SubsecRound, Utc};
-use diesel::pg::PgConnection;
 use rand::Rng;
 use svc_agent::AgentId;
 
@@ -27,7 +26,7 @@ use super::{agent::TestAgent, factory, SVC_AUDIENCE, USR_AUDIENCE};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub fn insert_room(conn: &PgConnection) -> Room {
+pub async fn insert_room(conn: &mut sqlx::PgConnection) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -38,9 +37,13 @@ pub fn insert_room(conn: &PgConnection) -> Room {
         ))
         .rtc_sharing_policy(RtcSharingPolicy::Shared)
         .insert(conn)
+        .await
 }
 
-pub fn insert_room_with_backend_id(conn: &PgConnection, backend_id: &AgentId) -> Room {
+pub async fn insert_room_with_backend_id(
+    conn: &mut sqlx::PgConnection,
+    backend_id: &AgentId,
+) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -52,9 +55,10 @@ pub fn insert_room_with_backend_id(conn: &PgConnection, backend_id: &AgentId) ->
         .rtc_sharing_policy(RtcSharingPolicy::Shared)
         .backend_id(backend_id)
         .insert(conn)
+        .await
 }
 
-pub fn insert_closed_room(conn: &PgConnection) -> Room {
+pub async fn insert_closed_room(conn: &mut sqlx::PgConnection) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -65,9 +69,13 @@ pub fn insert_closed_room(conn: &PgConnection) -> Room {
         ))
         .rtc_sharing_policy(RtcSharingPolicy::Shared)
         .insert(conn)
+        .await
 }
 
-pub fn insert_closed_room_with_backend_id(conn: &PgConnection, backend_id: &AgentId) -> Room {
+pub async fn insert_closed_room_with_backend_id(
+    conn: &mut sqlx::PgConnection,
+    backend_id: &AgentId,
+) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -79,9 +87,10 @@ pub fn insert_closed_room_with_backend_id(conn: &PgConnection, backend_id: &Agen
         .rtc_sharing_policy(RtcSharingPolicy::Shared)
         .backend_id(backend_id)
         .insert(conn)
+        .await
 }
 
-pub fn insert_room_with_owned(conn: &PgConnection) -> Room {
+pub async fn insert_room_with_owned(conn: &mut sqlx::PgConnection) -> Room {
     let now = Utc::now().trunc_subsecs(0);
 
     factory::Room::new()
@@ -89,11 +98,11 @@ pub fn insert_room_with_owned(conn: &PgConnection) -> Room {
         .time((Bound::Included(now), Bound::Unbounded))
         .rtc_sharing_policy(RtcSharingPolicy::Owned)
         .insert(conn)
+        .await
 }
 
 pub async fn insert_agent(
-    conn: &PgConnection,
-    conn_sqlx: &mut sqlx::PgConnection,
+    conn: &mut sqlx::PgConnection,
     agent_id: &AgentId,
     room_id: db::room::Id,
 ) -> Agent {
@@ -101,20 +110,18 @@ pub async fn insert_agent(
         .agent_id(agent_id)
         .room_id(room_id)
         .status(AgentStatus::Ready)
-        .insert(conn, conn_sqlx)
+        .insert(conn)
         .await
 }
 
 pub async fn insert_connected_agent(
-    conn: &PgConnection,
-    conn_sqlx: &mut sqlx::PgConnection,
+    conn: &mut sqlx::PgConnection,
     agent_id: &AgentId,
     room_id: db::room::Id,
     rtc_id: db::rtc::Id,
 ) -> (Agent, AgentConnection) {
     insert_connected_to_handle_agent(
         conn,
-        conn_sqlx,
         agent_id,
         room_id,
         rtc_id,
@@ -157,16 +164,15 @@ pub async fn init_janus(janus_url: &str) -> (SessionId, HandleId) {
 }
 
 pub async fn insert_connected_to_handle_agent(
-    conn: &PgConnection,
-    conn_sqlx: &mut sqlx::PgConnection,
+    conn: &mut sqlx::PgConnection,
     agent_id: &AgentId,
     room_id: db::room::Id,
     rtc_id: db::rtc::Id,
     handle_id: crate::backend::janus::client::HandleId,
 ) -> (Agent, AgentConnection) {
-    let agent = insert_agent(conn, conn_sqlx, agent_id, room_id).await;
+    let agent = insert_agent(conn, agent_id, room_id).await;
     let agent_connection = factory::AgentConnection::new(*agent.id(), rtc_id, handle_id)
-        .insert(conn_sqlx)
+        .insert(conn)
         .await;
     (agent, agent_connection)
 }
@@ -225,15 +231,15 @@ pub async fn insert_janus_backend_with_group(
     .await
 }
 
-pub fn insert_rtc(conn: &PgConnection) -> Rtc {
-    let room = insert_room(conn);
-    factory::Rtc::new(room.id()).insert(conn)
+pub async fn insert_rtc(conn: &mut sqlx::PgConnection) -> Rtc {
+    let room = insert_room(conn).await;
+    factory::Rtc::new(room.id()).insert(conn).await
 }
 
-pub fn insert_rtc_with_room(conn: &PgConnection, room: &Room) -> Rtc {
-    factory::Rtc::new(room.id()).insert(conn)
+pub async fn insert_rtc_with_room(conn: &mut sqlx::PgConnection, room: &Room) -> Rtc {
+    factory::Rtc::new(room.id()).insert(conn).await
 }
 
-pub fn insert_recording(conn: &PgConnection, rtc: &Rtc) -> Recording {
-    factory::Recording::new().rtc(rtc).insert(conn)
+pub async fn insert_recording(conn: &mut sqlx::PgConnection, rtc: &Rtc) -> Recording {
+    factory::Recording::new().rtc(rtc).insert(conn).await
 }

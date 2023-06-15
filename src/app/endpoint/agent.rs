@@ -147,12 +147,11 @@ mod tests {
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let conn = db.get_conn();
-            let mut conn_sqlx = db_sqlx.get_conn().await;
+            let mut conn = db_sqlx.get_conn().await;
 
             // Create room and put the agent online.
-            let room = shared_helpers::insert_room(&conn);
-            shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
+            let room = shared_helpers::insert_room(&mut conn).await;
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Allow agent to list agents in the room.
             let mut authz = TestAuthz::new();
@@ -192,12 +191,8 @@ mod tests {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
-                shared_helpers::insert_room(&conn)
+                let mut conn = db_sqlx.get_conn().await;
+                shared_helpers::insert_room(&mut conn).await
             };
 
             let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
@@ -225,13 +220,9 @@ mod tests {
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
+                let mut conn = db_sqlx.get_conn().await;
                 // Create closed room.
-                shared_helpers::insert_closed_room(&conn)
+                shared_helpers::insert_closed_room(&mut conn).await
             };
 
             // Allow agent to list agents in the room.

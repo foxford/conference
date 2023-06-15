@@ -323,28 +323,23 @@ mod tests {
     async fn test_cleanup_not_connected_query() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+        let db = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
         let old = TestAgent::new("web", "old_agent", USR_AUDIENCE);
         let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);
 
-        let conn = db
-            .connection_pool()
-            .get()
-            .expect("failed to get db connection");
+        let mut conn = db.get_conn().await;
 
-        let mut conn_sqlx = db_sqlx.get_conn().await;
-
-        let room = shared_helpers::insert_room(&conn);
+        let room = shared_helpers::insert_room(&mut conn).await;
         let rtc = factory::Rtc::new(room.id())
             .created_by(new.agent_id().to_owned())
-            .insert(&conn);
+            .insert(&mut conn)
+            .await;
         let old = factory::Agent::new()
             .agent_id(old.agent_id())
             .room_id(room.id())
             .status(db::agent::Status::Ready)
-            .insert(&conn, &mut conn_sqlx)
+            .insert(&mut conn)
             .await;
 
         factory::AgentConnection::new(
@@ -353,30 +348,30 @@ mod tests {
             crate::backend::janus::client::HandleId::random(),
         )
         .created_at(Utc::now() - Duration::minutes(20))
-        .insert(&mut conn_sqlx)
+        .insert(&mut conn)
         .await;
 
         let new = factory::Agent::new()
             .agent_id(new.agent_id())
             .room_id(room.id())
             .status(db::agent::Status::Ready)
-            .insert(&conn, &mut conn_sqlx)
+            .insert(&mut conn)
             .await;
         let new_agent_conn = factory::AgentConnection::new(
             *new.id(),
             rtc.id(),
             crate::backend::janus::client::HandleId::random(),
         )
-        .insert(&mut conn_sqlx)
+        .insert(&mut conn)
         .await;
 
         UpdateQuery::new(new_agent_conn.handle_id(), Status::Connected)
-            .execute(&mut conn_sqlx)
+            .execute(&mut conn)
             .await
             .unwrap();
 
         let r = CleanupNotConnectedQuery::new(Utc::now() - Duration::minutes(1))
-            .execute(&mut conn_sqlx)
+            .execute(&mut conn)
             .await
             .expect("Failed to run query");
 

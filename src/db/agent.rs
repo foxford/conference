@@ -327,54 +327,51 @@ impl CleanupQuery {
 #[cfg(test)]
 mod tests {
     use super::{CleanupQuery, ListQuery, Status};
-    use crate::test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps};
+    use crate::test_helpers::{db_sqlx::TestDb, prelude::*, test_deps::LocalDeps};
     use chrono::{Duration, Utc};
 
     #[tokio::test]
     async fn test_cleanup_query() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::with_local_postgres(&postgres).await;
 
         let old = TestAgent::new("web", "old_agent", USR_AUDIENCE);
         let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);
 
-        let conn = db.get_conn();
-        let mut conn_sqlx = db_sqlx.get_conn().await;
-        let room = shared_helpers::insert_room(&conn);
+        let mut conn = db.get_conn().await;
+
+        let room = shared_helpers::insert_room(&mut conn).await;
         factory::Agent::new()
             .agent_id(old.agent_id())
             .room_id(room.id())
             .status(Status::Ready)
             .created_at(Utc::now() - Duration::weeks(7))
-            .insert(&conn, &mut conn_sqlx)
+            .insert(&mut conn)
             .await;
         factory::Agent::new()
             .agent_id(new.agent_id())
             .room_id(room.id())
             .status(Status::Ready)
-            .insert(&conn, &mut conn_sqlx)
+            .insert(&mut conn)
             .await;
-
-        let mut conn_sqlx = db_sqlx.get_conn().await;
 
         let r = ListQuery::new()
             .room_id(room.id())
-            .execute(&mut conn_sqlx)
+            .execute(&mut conn)
             .await
             .unwrap();
         assert_eq!(r.len(), 2);
 
         let r = CleanupQuery::new(Utc::now() - Duration::days(1))
-            .execute(&mut conn_sqlx)
+            .execute(&mut conn)
             .await
             .expect("Failed to run query");
 
         assert_eq!(r, 1);
         let r = ListQuery::new()
             .room_id(room.id())
-            .execute(&mut conn_sqlx)
+            .execute(&mut conn)
             .await
             .unwrap();
         assert_eq!(r.len(), 1);

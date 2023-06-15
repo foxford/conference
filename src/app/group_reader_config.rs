@@ -117,10 +117,7 @@ mod tests {
     use crate::{
         db::rtc::SharingPolicy as RtcSharingPolicy,
         test_helpers::{
-            db_sqlx, factory,
-            prelude::{TestAgent, TestDb},
-            test_deps::LocalDeps,
-            USR_AUDIENCE,
+            db_sqlx::TestDb, factory, prelude::TestAgent, test_deps::LocalDeps, USR_AUDIENCE,
         },
     };
 
@@ -133,8 +130,7 @@ mod tests {
     async fn distribution_by_groups() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::with_local_postgres(&postgres).await;
 
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
@@ -147,14 +143,14 @@ mod tests {
             .map(|a| a.agent_id().to_owned())
             .collect::<Vec<_>>();
 
-        let conn = db.get_conn();
-        let mut conn_sqlx = db_sqlx.get_conn().await;
+        let mut conn = db.get_conn().await;
 
         let room = factory::Room::new()
             .audience(USR_AUDIENCE)
             .time((Bound::Included(Utc::now()), Bound::Unbounded))
             .rtc_sharing_policy(RtcSharingPolicy::Owned)
-            .insert(&conn);
+            .insert(&mut conn)
+            .await;
 
         let groups = Groups::new(vec![
             GroupItem::new(
@@ -182,28 +178,27 @@ mod tests {
         ]);
 
         factory::GroupAgent::new(room.id(), groups.clone())
-            .upsert(&mut conn_sqlx)
+            .upsert(&mut conn)
             .await;
 
-        let rtcs = agents
-            .iter()
-            .map(|agent| {
-                let rtc = factory::Rtc::new(room.id())
-                    .created_by(agent.to_owned())
-                    .insert(&conn);
+        let mut rtcs = HashMap::new();
+        for agent in agents.iter() {
+            let rtc = factory::Rtc::new(room.id())
+                .created_by(agent.to_owned())
+                .insert(&mut conn)
+                .await;
 
-                (rtc.id(), rtc.created_by().to_owned())
-            })
-            .collect::<HashMap<_, _>>();
+            rtcs.insert(rtc.id(), rtc.created_by().to_owned());
+        }
 
         // First distribution by groups
-        let _ = update(&mut conn_sqlx, room.id(), groups)
+        let _ = update(&mut conn, room.id(), groups)
             .await
             .expect("group reader config update failed");
 
         let agents = agents.iter().map(|a| a).collect::<Vec<_>>();
         let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &agents)
-            .execute(&mut conn_sqlx)
+            .execute(&mut conn)
             .await
             .unwrap();
 
@@ -277,16 +272,16 @@ mod tests {
         ]);
 
         factory::GroupAgent::new(room.id(), groups.clone())
-            .upsert(&mut conn_sqlx)
+            .upsert(&mut conn)
             .await;
 
         // Second distribution by groups
-        let _ = update(&mut conn_sqlx, room.id(), groups)
+        let _ = update(&mut conn, room.id(), groups)
             .await
             .expect("group reader config update failed");
 
         let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(room.id(), &agents)
-            .execute(&mut conn_sqlx)
+            .execute(&mut conn)
             .await
             .unwrap();
 

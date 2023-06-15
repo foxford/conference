@@ -174,8 +174,7 @@ mod tests {
         let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-        let conn = db.get_conn();
-        let mut conn_sqlx = db_sqlx.get_conn().await;
+        let mut conn = db_sqlx.get_conn().await;
 
         let room = factory::Room::new()
             .audience(USR_AUDIENCE)
@@ -184,9 +183,10 @@ mod tests {
                 Bound::Excluded(Utc::now() - Duration::hours(1)),
             ))
             .rtc_sharing_policy(RtcSharingPolicy::Owned)
-            .insert(&conn);
+            .insert(&mut conn)
+            .await;
 
-        shared_helpers::insert_agent(&conn, &mut conn_sqlx, agent.agent_id(), room.id()).await;
+        shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
         let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
 
@@ -213,17 +213,13 @@ mod tests {
         let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-        let room = db
-            .connection_pool()
-            .get()
-            .map(|conn| {
-                factory::Room::new()
-                    .audience(USR_AUDIENCE)
-                    .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                    .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                    .insert(&conn)
-            })
-            .unwrap();
+        let mut conn = db_sqlx.get_conn().await;
+        let room = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((Bound::Included(Utc::now()), Bound::Unbounded))
+            .rtc_sharing_policy(RtcSharingPolicy::Shared)
+            .insert(&mut conn)
+            .await;
 
         // Allow agent to read the room.
         let mut authz = TestAuthz::new();
@@ -258,14 +254,14 @@ mod tests {
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-        let conn = db.get_conn();
-        let mut conn_sqlx = db_sqlx.get_conn().await;
+        let mut conn = db_sqlx.get_conn().await;
 
         let room = factory::Room::new()
             .audience(USR_AUDIENCE)
             .time((Bound::Included(Utc::now()), Bound::Unbounded))
             .rtc_sharing_policy(RtcSharingPolicy::Owned)
-            .insert(&conn);
+            .insert(&mut conn)
+            .await;
 
         factory::GroupAgent::new(
             room.id(),
@@ -274,7 +270,7 @@ mod tests {
                 GroupItem::new(1, vec![agent2.agent_id().clone()]),
             ]),
         )
-        .upsert(&mut conn_sqlx)
+        .upsert(&mut conn)
         .await;
 
         // Allow agent to read the room.
@@ -311,14 +307,14 @@ mod tests {
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-        let conn = db.get_conn();
-        let mut conn_sqlx = db_sqlx.get_conn().await;
+        let mut conn = db_sqlx.get_conn().await;
 
         let room = factory::Room::new()
             .audience(USR_AUDIENCE)
             .time((Bound::Included(Utc::now()), Bound::Unbounded))
             .rtc_sharing_policy(RtcSharingPolicy::Owned)
-            .insert(&conn);
+            .insert(&mut conn)
+            .await;
 
         factory::GroupAgent::new(
             room.id(),
@@ -327,7 +323,7 @@ mod tests {
                 GroupItem::new(1, vec![agent2.agent_id().clone()]),
             ]),
         )
-        .upsert(&mut conn_sqlx)
+        .upsert(&mut conn)
         .await;
 
         // Allow agent to read the room.
