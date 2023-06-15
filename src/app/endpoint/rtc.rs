@@ -530,19 +530,20 @@ where
     ) -> Result<
         (
             Option<db::rtc_writer_config::Object>,
-            Option<Vec<db::rtc_reader_config::Object>>,
+            Vec<db::rtc_reader_config::Object>,
         ),
         AppError,
     > {
-        let (writer_config, reader_config) = crate::util::spawn_blocking({
+        let mut conn = self.ctx.get_conn_sqlx().await?;
+        let reader_config =
+            db::rtc_reader_config::read_config(handle_id.rtc_id(), &mut conn).await?;
+
+        let writer_config = crate::util::spawn_blocking({
             let rtc_id = handle_id.rtc_id();
 
             let conn = self.ctx.get_conn().await?;
             move || {
-                Ok::<_, diesel::result::Error>((
-                    db::rtc_writer_config::read_config(rtc_id, &conn)?,
-                    db::rtc_reader_config::read_config(rtc_id, &conn)?,
-                ))
+                Ok::<_, diesel::result::Error>(db::rtc_writer_config::read_config(rtc_id, &conn)?)
             }
         })
         .await?;
@@ -718,26 +719,22 @@ where
         let jsep = Jsep::OfferOrAnswer(self.jsep.clone());
 
         let answer = if is_recvonly {
-            let reader_config = crate::util::spawn_blocking({
-                let rtc_id = handle_id.rtc_id();
-                let conn = self.ctx.get_conn().await?;
-                move || db::rtc_reader_config::read_config(rtc_id, &conn)
-            })
-            .await?;
+            let mut conn = self.ctx.get_conn_sqlx().await?;
+            let reader_config =
+                db::rtc_reader_config::read_config(handle_id.rtc_id(), &mut conn).await?;
 
             let request = ReadStreamRequest {
                 body: ReadStreamRequestBody::new(
                     handle_id.rtc_id(),
                     self.agent_id.clone(),
-                    reader_config.map(|r| {
-                        r.into_iter()
-                            .map(|r| ReaderConfig {
-                                reader_id: r.reader_id().to_owned(),
-                                receive_audio: r.receive_audio(),
-                                receive_video: r.receive_video(),
-                            })
-                            .collect()
-                    }),
+                    reader_config
+                        .into_iter()
+                        .map(|r| ReaderConfig {
+                            reader_id: r.reader_id().to_owned(),
+                            receive_audio: r.receive_audio(),
+                            receive_video: r.receive_video(),
+                        })
+                        .collect(),
                 ),
                 handle_id: handle_id.janus_handle_id(),
                 session_id: handle_id.janus_session_id(),
@@ -787,15 +784,14 @@ where
                         send_audio: w.send_audio(),
                         video_remb: w.video_remb(),
                     }),
-                    reader_config.map(|r| {
-                        r.into_iter()
-                            .map(|r| ReaderConfig {
-                                reader_id: r.reader_id().to_owned(),
-                                receive_audio: r.receive_audio(),
-                                receive_video: r.receive_video(),
-                            })
-                            .collect()
-                    }),
+                    reader_config
+                        .into_iter()
+                        .map(|r| ReaderConfig {
+                            reader_id: r.reader_id().to_owned(),
+                            receive_audio: r.receive_audio(),
+                            receive_video: r.receive_video(),
+                        })
+                        .collect(),
                 ),
                 handle_id: handle_id.janus_handle_id(),
                 session_id: handle_id.janus_session_id(),

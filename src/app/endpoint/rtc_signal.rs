@@ -232,11 +232,11 @@ impl RequestHandler for CreateHandler {
                         if is_recvonly {
                             current_span.record("intent", "read");
 
-                            let reader_config = crate::util::spawn_blocking({
-                                let rtc_id = payload.handle_id.rtc_id();
-                                let conn = context.get_conn().await?;
-                                move || db::rtc_reader_config::read_config(rtc_id, &conn)
-                            })
+                            let mut conn = context.get_conn_sqlx().await?;
+                            let reader_config = db::rtc_reader_config::read_config(
+                                payload.handle_id.rtc_id(),
+                                &mut conn,
+                            )
                             .await?;
 
                             // Authorization
@@ -247,15 +247,14 @@ impl RequestHandler for CreateHandler {
                                 body: ReadStreamRequestBody::new(
                                     payload.handle_id.rtc_id(),
                                     reqp.as_agent_id().clone(),
-                                    reader_config.map(|r| {
-                                        r.into_iter()
-                                            .map(|r| ReaderConfig {
-                                                reader_id: r.reader_id().to_owned(),
-                                                receive_audio: r.receive_audio(),
-                                                receive_video: r.receive_video(),
-                                            })
-                                            .collect()
-                                    }),
+                                    reader_config
+                                        .into_iter()
+                                        .map(|r| ReaderConfig {
+                                            reader_id: r.reader_id().to_owned(),
+                                            receive_audio: r.receive_audio(),
+                                            receive_video: r.receive_video(),
+                                        })
+                                        .collect(),
                                 ),
                                 handle_id: payload.handle_id.janus_handle_id(),
                                 session_id: payload.handle_id.janus_session_id(),
@@ -339,15 +338,21 @@ impl RequestHandler for CreateHandler {
                             )
                             .await?;
 
-                            let (writer_config, reader_config) = crate::util::spawn_blocking({
+                            let mut conn = context.get_conn_sqlx().await?;
+                            let reader_config = db::rtc_reader_config::read_config(
+                                payload.handle_id.rtc_id(),
+                                &mut conn,
+                            )
+                            .await?;
+
+                            let writer_config = crate::util::spawn_blocking({
                                 let rtc_id = payload.handle_id.rtc_id();
 
                                 let conn = context.get_conn().await?;
                                 move || {
-                                    Ok::<_, diesel::result::Error>((
+                                    Ok::<_, diesel::result::Error>(
                                         db::rtc_writer_config::read_config(rtc_id, &conn)?,
-                                        db::rtc_reader_config::read_config(rtc_id, &conn)?,
-                                    ))
+                                    )
                                 }
                             })
                             .await?;
@@ -362,15 +367,14 @@ impl RequestHandler for CreateHandler {
                                         send_audio: w.send_audio(),
                                         video_remb: w.video_remb(),
                                     }),
-                                    reader_config.map(|r| {
-                                        r.into_iter()
-                                            .map(|r| ReaderConfig {
-                                                reader_id: r.reader_id().to_owned(),
-                                                receive_audio: r.receive_audio(),
-                                                receive_video: r.receive_video(),
-                                            })
-                                            .collect()
-                                    }),
+                                    reader_config
+                                        .into_iter()
+                                        .map(|r| ReaderConfig {
+                                            reader_id: r.reader_id().to_owned(),
+                                            receive_audio: r.receive_audio(),
+                                            receive_video: r.receive_video(),
+                                        })
+                                        .collect(),
                                 ),
                                 handle_id: payload.handle_id.janus_handle_id(),
                                 session_id: payload.handle_id.janus_session_id(),

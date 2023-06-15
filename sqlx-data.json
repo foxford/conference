@@ -4403,6 +4403,76 @@
     },
     "query": "\n        INSERT INTO rtc_reader_config\n        -- array of agent_id unnests to 2 arrays account_id[] and label[]\n        -- so we merge them after unnest back to agent_id type\n        SELECT rtc_id, (reader_account_id, reader_label)::agent_id, receive_video, receive_audio\n        FROM UNNEST($1::uuid[], $2::agent_id[], $3::bool[], $4::bool[])\n            AS t(rtc_id, reader_account_id, reader_label, receive_video, receive_audio)\n        ON CONFLICT (rtc_id, reader_id) DO UPDATE\n        SET\n            receive_video = EXCLUDED.receive_video,\n            receive_audio = EXCLUDED.receive_audio\n        RETURNING\n            rtc_id as \"rtc_id: db::rtc::Id\",\n            reader_id as \"reader_id: AgentId\",\n            receive_video,\n            receive_audio\n        "
   },
+  "dd40193d083593dfaa612731cc1dc0c7e347aac032aa0cd31bc7bd8fd3ec2076": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "reader_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "receive_video",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "receive_audio",
+          "ordinal": 3,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        SELECT\n            rtc_id as \"rtc_id: db::rtc::Id\",\n            reader_id as \"reader_id: AgentId\",\n            receive_video,\n            receive_audio\n        FROM rtc_reader_config\n        WHERE\n            rtc_id = $1\n        "
+  },
   "e54a49c13a33a14ee3c4b573a096218bbb0b36b98aedafe31fce528e90553642": {
     "describe": {
       "columns": [

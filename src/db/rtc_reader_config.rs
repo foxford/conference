@@ -1,31 +1,10 @@
-// in order to support Rust 1.62
-// `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
-#![allow(clippy::extra_unused_lifetimes)]
-
 use chrono::{DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
 use svc_agent::AgentId;
 
 use crate::db::Ids;
 use crate::{db, db::rtc::Object as Rtc, schema::rtc_reader_config};
 
 use super::AgentIds;
-
-////////////////////////////////////////////////////////////////////////////////
-
-type AllColumns = (
-    rtc_reader_config::rtc_id,
-    rtc_reader_config::reader_id,
-    rtc_reader_config::receive_video,
-    rtc_reader_config::receive_audio,
-);
-
-const ALL_COLUMNS: AllColumns = (
-    rtc_reader_config::rtc_id,
-    rtc_reader_config::reader_id,
-    rtc_reader_config::receive_video,
-    rtc_reader_config::receive_audio,
-);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -133,17 +112,26 @@ impl<'a> ListWithRtcQuery<'a> {
     }
 }
 
-pub fn read_config(
+pub async fn read_config(
     rtc_id: db::rtc::Id,
-    connection: &PgConnection,
-) -> Result<Option<Vec<Object>>, Error> {
-    use diesel::prelude::*;
-
-    rtc_reader_config::table
-        .filter(rtc_reader_config::rtc_id.eq(rtc_id))
-        .select(ALL_COLUMNS)
-        .get_results(connection)
-        .optional()
+    connection: &mut sqlx::PgConnection,
+) -> sqlx::Result<Vec<Object>> {
+    sqlx::query_as!(
+        Object,
+        r#"
+        SELECT
+            rtc_id as "rtc_id: db::rtc::Id",
+            reader_id as "reader_id: AgentId",
+            receive_video,
+            receive_audio
+        FROM rtc_reader_config
+        WHERE
+            rtc_id = $1
+        "#,
+        rtc_id as db::rtc::Id
+    )
+    .fetch_all(connection)
+    .await
 }
 
 ////////////////////////////////////////////////////////////////////////////////

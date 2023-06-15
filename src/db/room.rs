@@ -441,8 +441,7 @@ pub async fn finished_with_in_progress_recordings(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable)]
-#[table_name = "room"]
+#[derive(Debug)]
 pub struct InsertQuery<'a> {
     time: Time,
     audience: &'a str,
@@ -502,13 +501,6 @@ impl<'a> InsertQuery<'a> {
         Self { infinite, ..self }
     }
 
-    pub fn classroom_id(self, classroom_id: Uuid) -> Self {
-        Self {
-            classroom_id,
-            ..self
-        }
-    }
-
     pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
         sqlx::query_as!(
             ObjectSqlx,
@@ -552,8 +544,7 @@ impl<'a> InsertQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Identifiable, AsChangeset)]
-#[table_name = "room"]
+#[derive(Debug)]
 pub struct UpdateQuery<'a> {
     id: Id,
     time: Option<Time>,

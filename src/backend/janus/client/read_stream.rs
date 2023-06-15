@@ -38,16 +38,16 @@ pub struct ReadStreamRequestBody {
 }
 
 impl ReadStreamRequestBody {
-    pub fn new(
-        id: db::rtc::Id,
-        agent_id: AgentId,
-        reader_configs: Option<Vec<ReaderConfig>>,
-    ) -> Self {
+    pub fn new(id: db::rtc::Id, agent_id: AgentId, reader_configs: Vec<ReaderConfig>) -> Self {
         Self {
             method: "stream.read",
             id,
             agent_id,
-            reader_configs,
+            reader_configs: if reader_configs.is_empty() {
+                None
+            } else {
+                Some(reader_configs)
+            },
         }
     }
 }
