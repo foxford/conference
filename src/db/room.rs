@@ -607,16 +607,42 @@ pub fn sqlx_to_uuid(uuid: sqlx::types::Uuid) -> Uuid {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn set_closed_by(room_id: Id, agent: &AgentId, conn: &PgConnection) -> Result<Object, Error> {
-    use diesel::dsl::sql;
-    use diesel::prelude::*;
-
-    diesel::update(room::table.filter(room::id.eq(room_id)))
-        .set((
-            room::closed_by.eq(agent),
-            room::time.eq(sql("TSTZRANGE(LOWER(time), NOW())")),
-        ))
-        .get_result(conn)
+pub async fn set_closed_by(
+    room_id: Id,
+    agent: &AgentId,
+    conn: &mut sqlx::PgConnection,
+) -> sqlx::Result<Object> {
+    sqlx::query_as!(
+        ObjectSqlx,
+        r#"
+        UPDATE room
+        SET
+            closed_by = $2,
+            time = TSTZRANGE(LOWER(time), NOW())
+        WHERE
+            id = $1
+        RETURNING
+            id as "id: Id",
+            backend_id as "backend_id: AgentId",
+            time as "time: TimeSqlx",
+            reserve,
+            tags,
+            classroom_id,
+            host as "host: AgentId",
+            timed_out,
+            audience,
+            created_at,
+            backend as "backend: RoomBackend",
+            rtc_sharing_policy as "rtc_sharing_policy: RtcSharingPolicy",
+            infinite,
+            closed_by as "closed_by: AgentId"
+        "#,
+        room_id as Id,
+        agent as &AgentId,
+    )
+    .fetch_one(conn)
+    .await
+    .map(Object::from)
 }
 
 ////////////////////////////////////////////////////////////////////////////////

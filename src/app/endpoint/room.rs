@@ -423,14 +423,10 @@ impl RequestHandler for UpdateHandler {
         // Publish room closed notification.
         if let (_, Bound::Excluded(closed_at)) = room.time() {
             if room_was_open && *closed_at <= Utc::now() {
-                let room = crate::util::spawn_blocking({
-                    let room_id = room.id();
-                    let agent = reqp.as_agent_id().to_owned();
-
-                    let conn = context.get_conn().await?;
-                    move || db::room::set_closed_by(room_id, &agent, &conn)
-                })
-                .await?;
+                let room = {
+                    let mut conn = context.get_conn_sqlx().await?;
+                    db::room::set_closed_by(room.id(), reqp.as_agent_id(), &mut conn).await?
+                };
 
                 response.add_notification(
                     "room.close",
@@ -525,14 +521,10 @@ impl RequestHandler for CloseHandler {
         context.metrics().observe_auth(authz_time);
 
         // Update room.
-        let room = crate::util::spawn_blocking({
-            let room_id = room.id();
-            let agent = reqp.as_agent_id().to_owned();
-
-            let conn = context.get_conn().await?;
-            move || db::room::set_closed_by(room_id, &agent, &conn)
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn_sqlx().await?;
+            db::room::set_closed_by(room.id(), reqp.as_agent_id(), &mut conn).await?
+        };
 
         // Respond and broadcast to the audience topic.
         let mut response = Response::new(

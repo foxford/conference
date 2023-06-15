@@ -2819,6 +2819,254 @@
     },
     "query": "\n            SELECT\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            FROM outbox\n            WHERE\n                delivery_deadline_at <= now()\n            LIMIT $1\n            FOR UPDATE SKIP LOCKED\n            "
   },
+  "999cc41d7690878398ba0ddab1893678d9978de7fc2b2e2547323871a7be689d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimeSqlx",
+          "ordinal": 2,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "reserve",
+          "ordinal": 3,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tags",
+          "ordinal": 4,
+          "type_info": "Json"
+        },
+        {
+          "name": "classroom_id",
+          "ordinal": 5,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "timed_out",
+          "ordinal": 7,
+          "type_info": "Bool"
+        },
+        {
+          "name": "audience",
+          "ordinal": 8,
+          "type_info": "Text"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 9,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend: RoomBackend",
+          "ordinal": 10,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          }
+        },
+        {
+          "name": "rtc_sharing_policy: RtcSharingPolicy",
+          "ordinal": 11,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          }
+        },
+        {
+          "name": "infinite",
+          "ordinal": 12,
+          "type_info": "Bool"
+        },
+        {
+          "name": "closed_by: AgentId",
+          "ordinal": 13,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        ]
+      }
+    },
+    "query": "\n        UPDATE room\n        SET\n            closed_by = $2,\n            time = TSTZRANGE(LOWER(time), NOW())\n        WHERE\n            id = $1\n        RETURNING\n            id as \"id: Id\",\n            backend_id as \"backend_id: AgentId\",\n            time as \"time: TimeSqlx\",\n            reserve,\n            tags,\n            classroom_id,\n            host as \"host: AgentId\",\n            timed_out,\n            audience,\n            created_at,\n            backend as \"backend: RoomBackend\",\n            rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n            infinite,\n            closed_by as \"closed_by: AgentId\"\n        "
+  },
   "a39d4883f73f7ebe431446eeac53b69b481b213a4ad761952318be98dc1d1cb5": {
     "describe": {
       "columns": [
