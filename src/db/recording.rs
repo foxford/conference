@@ -1,7 +1,3 @@
-// in order to support Rust 1.62
-// `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
-#![allow(clippy::extra_unused_lifetimes)]
-
 use std::{fmt, ops::Bound};
 
 use chrono::{DateTime, Utc};
@@ -12,24 +8,6 @@ use crate::db;
 use crate::schema::recording;
 
 use super::rtc::Object as Rtc;
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub type AllColumns = (
-    recording::rtc_id,
-    recording::started_at,
-    recording::segments,
-    recording::status,
-    recording::mjr_dumps_uris,
-);
-
-pub const ALL_COLUMNS: AllColumns = (
-    recording::rtc_id,
-    recording::started_at,
-    recording::segments,
-    recording::status,
-    recording::mjr_dumps_uris,
-);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -77,12 +55,12 @@ impl fmt::Display for Status {
 #[primary_key(rtc_id)]
 #[table_name = "recording"]
 pub struct Object {
-    rtc_id: db::rtc::Id,
+    pub rtc_id: db::rtc::Id,
     #[serde(with = "crate::serde::ts_seconds_option")]
-    started_at: Option<DateTime<Utc>>,
-    segments: Option<Vec<Segment>>,
-    status: Status,
-    mjr_dumps_uris: Option<Vec<String>>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub segments: Option<Vec<Segment>>,
+    pub status: Status,
+    pub mjr_dumps_uris: Option<Vec<String>>,
 }
 
 impl Object {

@@ -1,58 +1,24 @@
-// in order to support Rust 1.62
-// `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
-#![allow(clippy::extra_unused_lifetimes)]
-
-use crate::db;
-use crate::{
-    backend::janus::{
-        client::{HandleId, SessionId},
-        JANUS_API_VERSION,
-    },
-    schema::janus_backend,
+use crate::backend::janus::{
+    client::{HandleId, SessionId},
+    JANUS_API_VERSION,
 };
+use crate::db;
 use chrono::{DateTime, Utc};
 use svc_agent::AgentId;
 
-pub type AllColumns = (
-    janus_backend::id,
-    janus_backend::handle_id,
-    janus_backend::session_id,
-    janus_backend::created_at,
-    janus_backend::capacity,
-    janus_backend::balancer_capacity,
-    janus_backend::api_version,
-    janus_backend::group,
-    janus_backend::janus_url,
-);
-
-pub const ALL_COLUMNS: AllColumns = (
-    janus_backend::id,
-    janus_backend::handle_id,
-    janus_backend::session_id,
-    janus_backend::created_at,
-    janus_backend::capacity,
-    janus_backend::balancer_capacity,
-    janus_backend::api_version,
-    janus_backend::group,
-    janus_backend::janus_url,
-);
-
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(
-    Debug, Identifiable, Queryable, QueryableByName, Associations, PartialEq, Eq, Hash, Clone,
-)]
-#[table_name = "janus_backend"]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Object {
-    id: AgentId,
-    handle_id: HandleId,
-    session_id: SessionId,
-    created_at: DateTime<Utc>,
-    capacity: Option<i32>,
-    balancer_capacity: Option<i32>,
-    api_version: String,
-    group: Option<String>,
-    janus_url: String,
+    pub id: AgentId,
+    pub handle_id: HandleId,
+    pub session_id: SessionId,
+    pub created_at: DateTime<Utc>,
+    pub capacity: Option<i32>,
+    pub balancer_capacity: Option<i32>,
+    pub api_version: String,
+    pub group: Option<String>,
+    pub janus_url: String,
 }
 
 impl Object {
@@ -117,8 +83,7 @@ impl<'a> FindQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable, AsChangeset)]
-#[table_name = "janus_backend"]
+#[derive(Debug)]
 pub struct UpsertQuery<'a> {
     id: &'a AgentId,
     handle_id: HandleId,
@@ -202,7 +167,7 @@ impl<'a> UpsertQuery<'a> {
             self.session_id as SessionId,
             self.capacity,
             self.balancer_capacity,
-            JANUS_API_VERSION,
+            self.api_version,
             self.group,
             self.janus_url
         )

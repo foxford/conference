@@ -1518,6 +1518,311 @@
     },
     "query": "\n        UPDATE \"janus_rtc_stream\"\n        SET \"time\" = (\n            CASE WHEN \"time\" IS NOT NULL THEN\n                TSTZRANGE(\n                    LOWER(\"time\"),\n                    GREATEST(NOW(), LOWER(\"time\") + '1 millisecond'::INTERVAL),\n                    '[)'\n                )\n            END\n        )\n        FROM \"rtc\"\n        WHERE \"rtc\".\"id\" = \"janus_rtc_stream\".\"rtc_id\"\n        AND   (\n            lower(\"janus_rtc_stream\".\"time\") is not null\n            and upper(\"janus_rtc_stream\".\"time\") is null\n        )\n        AND \"janus_rtc_stream\".\"backend_id\" = $1\n        RETURNING\n            \"janus_rtc_stream\".\"id\" as \"id: db::id::Id\",\n            \"janus_rtc_stream\".\"handle_id\" as \"handle_id: HandleId\",\n            \"janus_rtc_stream\".\"rtc_id\" as \"rtc_id: Id\",\n            \"janus_rtc_stream\".\"backend_id\" as \"backend_id: AgentId\",\n            \"janus_rtc_stream\".\"created_at\",\n            \"janus_rtc_stream\".\"label\",\n            \"janus_rtc_stream\".\"sent_by\" as \"sent_by: AgentId\",\n            \"janus_rtc_stream\".\"time\" as \"time: TimeSqlx\",\n            \"rtc\".\"room_id\" as \"room_id: Id\"\n        "
   },
+  "4db1ea2cc04b3aa07064ea694bdc53fe34b1ff09e39004c15b0212fa2a3b5197": {
+    "describe": {
+      "columns": [
+        {
+          "name": "room_id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "time: TimeSqlx",
+          "ordinal": 1,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "audience",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "room_created_at: _",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend: RoomBackend",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          }
+        },
+        {
+          "name": "reserve",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tags",
+          "ordinal": 6,
+          "type_info": "Json"
+        },
+        {
+          "name": "backend_id!: AgentId",
+          "ordinal": 7,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "rtc_sharing_policy: RtcSharingPolicy",
+          "ordinal": 8,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          }
+        },
+        {
+          "name": "classroom_id",
+          "ordinal": 9,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host: AgentId",
+          "ordinal": 10,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "timed_out",
+          "ordinal": 11,
+          "type_info": "Bool"
+        },
+        {
+          "name": "closed_by: AgentId",
+          "ordinal": 12,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "infinite",
+          "ordinal": 13,
+          "type_info": "Bool"
+        },
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 14,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "started_at",
+          "ordinal": 15,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "segments: Vec<SegmentSqlx>",
+          "ordinal": 16,
+          "type_info": "Int8RangeArray"
+        },
+        {
+          "name": "status: RecordingStatus",
+          "ordinal": 17,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready",
+                  "missing"
+                ]
+              },
+              "name": "recording_status"
+            }
+          }
+        },
+        {
+          "name": "mjr_dumps_uris",
+          "ordinal": 18,
+          "type_info": "TextArray"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 19,
+          "type_info": "Int8"
+        },
+        {
+          "name": "session_id: SessionId",
+          "ordinal": 20,
+          "type_info": "Int8"
+        },
+        {
+          "name": "janus_backend_created_at: _",
+          "ordinal": 21,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "capacity",
+          "ordinal": 22,
+          "type_info": "Int4"
+        },
+        {
+          "name": "balancer_capacity",
+          "ordinal": 23,
+          "type_info": "Int4"
+        },
+        {
+          "name": "api_version",
+          "ordinal": 24,
+          "type_info": "Text"
+        },
+        {
+          "name": "group",
+          "ordinal": 25,
+          "type_info": "Text"
+        },
+        {
+          "name": "janus_url",
+          "ordinal": 26,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n        SELECT\n            room.id as \"room_id: Id\",\n            room.time as \"time: TimeSqlx\",\n            room.audience,\n            room.created_at \"room_created_at: _\",\n            room.backend as \"backend: RoomBackend\",\n            room.reserve,\n            room.tags,\n            room.backend_id as \"backend_id!: AgentId\",\n            room.rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n            room.classroom_id,\n            room.host as \"host: AgentId\",\n            room.timed_out,\n            room.closed_by as \"closed_by: AgentId\",\n            room.infinite,\n            recording.rtc_id as \"rtc_id: db::rtc::Id\",\n            recording.started_at,\n            recording.segments as \"segments: Vec<SegmentSqlx>\",\n            recording.status as \"status: RecordingStatus\",\n            recording.mjr_dumps_uris,\n            janus_backend.handle_id as \"handle_id: HandleId\",\n            janus_backend.session_id as \"session_id: SessionId\",\n            janus_backend.created_at as \"janus_backend_created_at: _\",\n            janus_backend.capacity,\n            janus_backend.balancer_capacity,\n            janus_backend.api_version,\n            janus_backend.group,\n            janus_backend.janus_url\n        FROM room\n        INNER JOIN rtc\n        ON room.id = rtc.room_id\n        INNER JOIN recording\n        ON recording.rtc_id = rtc.id\n        INNER JOIN janus_backend\n        ON janus_backend.id = room.backend_id\n        WHERE\n            room.rtc_sharing_policy = ANY(ARRAY ['shared'::rtc_sharing_policy, 'owned']) AND\n            janus_backend.api_version = $1 AND\n            upper(room.time) < now() AND\n            recording.status = 'in_progress' AND\n            ($2::text IS NULL OR janus_backend.group = $2)\n        "
+  },
   "56dfb95770b4549227277fd2d8f437815cca3bc160e10f0309244d741ff08863": {
     "describe": {
       "columns": [

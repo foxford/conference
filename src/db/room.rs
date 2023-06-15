@@ -1,11 +1,6 @@
-// in order to support Rust 1.62
-// `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
-#![allow(clippy::extra_unused_lifetimes)]
-
 use std::{fmt, ops::Bound};
 
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
 use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -13,15 +8,20 @@ use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::{
-    backend::janus::JANUS_API_VERSION,
+    backend::janus::{
+        client::{HandleId, SessionId},
+        JANUS_API_VERSION,
+    },
     db::{
         self,
         janus_backend::Object as JanusBackend,
         recording::{Object as Recording, Status as RecordingStatus},
         rtc::SharingPolicy as RtcSharingPolicy,
     },
-    schema::{janus_backend, recording, room, rtc},
+    schema::room,
 };
+
+use super::recording::SegmentSqlx;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -42,40 +42,6 @@ impl From<TimeSqlx> for Time {
         (value.0.start, value.0.end)
     }
 }
-
-type AllColumns = (
-    room::id,
-    room::time,
-    room::audience,
-    room::created_at,
-    room::backend,
-    room::reserve,
-    room::tags,
-    room::backend_id,
-    room::rtc_sharing_policy,
-    room::classroom_id,
-    room::host,
-    room::timed_out,
-    room::closed_by,
-    room::infinite,
-);
-
-const ALL_COLUMNS: AllColumns = (
-    room::id,
-    room::time,
-    room::audience,
-    room::created_at,
-    room::backend,
-    room::reserve,
-    room::tags,
-    room::backend_id,
-    room::rtc_sharing_policy,
-    room::classroom_id,
-    room::host,
-    room::timed_out,
-    room::closed_by,
-    room::infinite,
-);
 
 ////////////////////////////////////////////////////////////////////////////////
 pub type Id = db::id::Id;
@@ -335,6 +301,79 @@ impl FindQueryable for FindByRtcIdQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+struct FinishedInProgressRecordingsRow {
+    room_id: Id,
+    time: TimeSqlx,
+    audience: String,
+    room_created_at: DateTime<Utc>,
+    backend: RoomBackend,
+    reserve: Option<i32>,
+    tags: JsonValue,
+    backend_id: AgentId,
+    rtc_sharing_policy: RtcSharingPolicy,
+    classroom_id: sqlx::types::Uuid,
+    host: Option<AgentId>,
+    timed_out: bool,
+    closed_by: Option<AgentId>,
+    infinite: bool,
+    rtc_id: db::rtc::Id,
+    started_at: Option<DateTime<Utc>>,
+    segments: Option<Vec<SegmentSqlx>>,
+    status: RecordingStatus,
+    mjr_dumps_uris: Option<Vec<String>>,
+    handle_id: HandleId,
+    session_id: SessionId,
+    janus_backend_created_at: DateTime<Utc>,
+    capacity: Option<i32>,
+    balancer_capacity: Option<i32>,
+    api_version: String,
+    group: Option<String>,
+    janus_url: String,
+}
+
+impl FinishedInProgressRecordingsRow {
+    fn split(self) -> (Object, Recording, JanusBackend) {
+        (
+            Object {
+                id: self.room_id,
+                time: Time::from(self.time),
+                audience: self.audience,
+                created_at: self.room_created_at,
+                backend: self.backend,
+                reserve: self.reserve,
+                tags: self.tags,
+                backend_id: Some(self.backend_id.clone()),
+                rtc_sharing_policy: self.rtc_sharing_policy,
+                classroom_id: sqlx_to_uuid(self.classroom_id),
+                host: self.host,
+                timed_out: self.timed_out,
+                closed_by: self.closed_by,
+                infinite: self.infinite,
+            },
+            Recording {
+                rtc_id: self.rtc_id,
+                started_at: self.started_at,
+                segments: self
+                    .segments
+                    .map(|ss| ss.into_iter().map(|s| s.into()).collect()),
+                status: self.status,
+                mjr_dumps_uris: self.mjr_dumps_uris,
+            },
+            JanusBackend {
+                id: self.backend_id,
+                handle_id: self.handle_id,
+                session_id: self.session_id,
+                created_at: self.janus_backend_created_at,
+                capacity: self.capacity,
+                balancer_capacity: self.balancer_capacity,
+                api_version: self.api_version,
+                group: self.group,
+                janus_url: self.janus_url,
+            },
+        )
+    }
+}
+
 // Filtering out rooms with every recording ready using left and inner joins
 // and condition that recording.rtc_id is null. In diagram below room1
 // and room3 will be selected (room1 - there's one recording that is not
@@ -343,38 +382,61 @@ impl FindQueryable for FindByRtcIdQuery {
 // room1 | rtc2 | recording1  -> room1 | rtc2 | recording1
 // room2 | rtc3 | recording2     room2 | rtc3 | recording2
 // room3 | rtc4 | null           room3 | null | null
-pub fn finished_with_in_progress_recordings(
-    conn: &PgConnection,
+pub async fn finished_with_in_progress_recordings(
+    conn: &mut sqlx::PgConnection,
     maybe_group: Option<&str>,
-) -> Result<Vec<(Object, Recording, JanusBackend)>, Error> {
-    use diesel::{dsl::sql, prelude::*};
-
-    let query = room::table
-        .inner_join(rtc::table.inner_join(recording::table))
-        .inner_join(janus_backend::table.on(janus_backend::id.nullable().eq(room::backend_id)))
-        .filter(
-            room::rtc_sharing_policy.eq_any(&[RtcSharingPolicy::Shared, RtcSharingPolicy::Owned]),
-        )
-        .filter(janus_backend::api_version.eq(JANUS_API_VERSION))
-        .filter(sql("upper(\"room\".\"time\") < now()"))
-        .filter(recording::status.eq(RecordingStatus::InProgress))
-        .select((
-            self::ALL_COLUMNS,
-            super::recording::ALL_COLUMNS,
-            super::janus_backend::ALL_COLUMNS,
-        ));
-
-    if let Some(group) = maybe_group {
-        query
-            .filter(
-                janus_backend::group
-                    .eq(group)
-                    .or(janus_backend::group.is_null()),
-            )
-            .load(conn)
-    } else {
-        query.load(conn)
-    }
+) -> sqlx::Result<Vec<(Object, Recording, JanusBackend)>> {
+    sqlx::query_as!(
+        FinishedInProgressRecordingsRow,
+        r#"
+        SELECT
+            room.id as "room_id: Id",
+            room.time as "time: TimeSqlx",
+            room.audience,
+            room.created_at "room_created_at: _",
+            room.backend as "backend: RoomBackend",
+            room.reserve,
+            room.tags,
+            room.backend_id as "backend_id!: AgentId",
+            room.rtc_sharing_policy as "rtc_sharing_policy: RtcSharingPolicy",
+            room.classroom_id,
+            room.host as "host: AgentId",
+            room.timed_out,
+            room.closed_by as "closed_by: AgentId",
+            room.infinite,
+            recording.rtc_id as "rtc_id: db::rtc::Id",
+            recording.started_at,
+            recording.segments as "segments: Vec<SegmentSqlx>",
+            recording.status as "status: RecordingStatus",
+            recording.mjr_dumps_uris,
+            janus_backend.handle_id as "handle_id: HandleId",
+            janus_backend.session_id as "session_id: SessionId",
+            janus_backend.created_at as "janus_backend_created_at: _",
+            janus_backend.capacity,
+            janus_backend.balancer_capacity,
+            janus_backend.api_version,
+            janus_backend.group,
+            janus_backend.janus_url
+        FROM room
+        INNER JOIN rtc
+        ON room.id = rtc.room_id
+        INNER JOIN recording
+        ON recording.rtc_id = rtc.id
+        INNER JOIN janus_backend
+        ON janus_backend.id = room.backend_id
+        WHERE
+            room.rtc_sharing_policy = ANY(ARRAY ['shared'::rtc_sharing_policy, 'owned']) AND
+            janus_backend.api_version = $1 AND
+            upper(room.time) < now() AND
+            recording.status = 'in_progress' AND
+            ($2::text IS NULL OR janus_backend.group = $2)
+        "#,
+        JANUS_API_VERSION,
+        maybe_group
+    )
+    .fetch_all(conn)
+    .await
+    .map(|v| v.into_iter().map(|r| r.split()).collect())
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -660,23 +722,19 @@ mod tests {
         async fn selects_appropriate_backend() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
-            let pool = db.connection_pool();
-            let conn = pool.get().expect("Failed to get db connection");
-
-            let mut conn_sqlx = db_sqlx.get_conn().await;
+            let mut conn = db_sqlx.get_conn().await;
 
             let backend1 = shared_helpers::insert_janus_backend(
-                &mut conn_sqlx,
+                &mut conn,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
             )
             .await;
             let backend2 = shared_helpers::insert_janus_backend(
-                &mut conn_sqlx,
+                &mut conn,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
@@ -684,11 +742,9 @@ mod tests {
             .await;
 
             let room1 =
-                shared_helpers::insert_closed_room_with_backend_id(&mut conn_sqlx, backend1.id())
-                    .await;
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn, backend1.id()).await;
             let room2 =
-                shared_helpers::insert_closed_room_with_backend_id(&mut conn_sqlx, backend2.id())
-                    .await;
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn, backend2.id()).await;
 
             // this room will have rtc but no rtc_stream simulating the case when janus_backend was removed
             // (for example crashed) and via cascade removed all streams hosted on it
@@ -697,19 +753,20 @@ mod tests {
             let backend3_id = TestAgent::new("alpha", "janus3", SVC_AUDIENCE);
 
             let room3 = shared_helpers::insert_closed_room_with_backend_id(
-                &mut conn_sqlx,
+                &mut conn,
                 backend3_id.agent_id(),
             )
             .await;
 
-            let rtc1 = shared_helpers::insert_rtc_with_room(&mut conn_sqlx, &room1).await;
-            let rtc2 = shared_helpers::insert_rtc_with_room(&mut conn_sqlx, &room2).await;
-            let _rtc3 = shared_helpers::insert_rtc_with_room(&mut conn_sqlx, &room3).await;
+            let rtc1 = shared_helpers::insert_rtc_with_room(&mut conn, &room1).await;
+            let rtc2 = shared_helpers::insert_rtc_with_room(&mut conn, &room2).await;
+            let _rtc3 = shared_helpers::insert_rtc_with_room(&mut conn, &room3).await;
 
-            shared_helpers::insert_recording(&mut conn_sqlx, &rtc1).await;
-            shared_helpers::insert_recording(&mut conn_sqlx, &rtc2).await;
+            shared_helpers::insert_recording(&mut conn, &rtc1).await;
+            shared_helpers::insert_recording(&mut conn, &rtc2).await;
 
-            let rooms = finished_with_in_progress_recordings(&conn, None)
+            let rooms = finished_with_in_progress_recordings(&mut conn, None)
+                .await
                 .expect("finished_with_in_progress_recordings call failed");
 
             assert_eq!(rooms.len(), 2);
@@ -732,13 +789,12 @@ mod tests {
         async fn selects_appropriate_backend_by_group() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
             let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
-            let mut conn_sqlx = db_sqlx.get_conn().await;
+            let mut conn = db_sqlx.get_conn().await;
 
             let backend1 = shared_helpers::insert_janus_backend_with_group(
-                &mut conn_sqlx,
+                &mut conn,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
@@ -746,7 +802,7 @@ mod tests {
             )
             .await;
             let backend2 = shared_helpers::insert_janus_backend_with_group(
-                &mut conn_sqlx,
+                &mut conn,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
@@ -754,23 +810,19 @@ mod tests {
             )
             .await;
 
-            let pool = db.connection_pool();
-            let conn = pool.get().expect("Failed to get db connection");
-
             let room1 =
-                shared_helpers::insert_closed_room_with_backend_id(&mut conn_sqlx, backend1.id())
-                    .await;
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn, backend1.id()).await;
             let room2 =
-                shared_helpers::insert_closed_room_with_backend_id(&mut conn_sqlx, backend2.id())
-                    .await;
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn, backend2.id()).await;
 
-            let rtc1 = shared_helpers::insert_rtc_with_room(&mut conn_sqlx, &room1).await;
-            let rtc2 = shared_helpers::insert_rtc_with_room(&mut conn_sqlx, &room2).await;
+            let rtc1 = shared_helpers::insert_rtc_with_room(&mut conn, &room1).await;
+            let rtc2 = shared_helpers::insert_rtc_with_room(&mut conn, &room2).await;
 
-            shared_helpers::insert_recording(&mut conn_sqlx, &rtc1).await;
-            shared_helpers::insert_recording(&mut conn_sqlx, &rtc2).await;
+            shared_helpers::insert_recording(&mut conn, &rtc1).await;
+            shared_helpers::insert_recording(&mut conn, &rtc2).await;
 
-            let rooms = finished_with_in_progress_recordings(&conn, Some("minigroup"))
+            let rooms = finished_with_in_progress_recordings(&mut conn, Some("minigroup"))
+                .await
                 .expect("finished_with_in_progress_recordings call failed");
 
             assert_eq!(rooms.len(), 1);

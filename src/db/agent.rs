@@ -1,7 +1,3 @@
-// in order to support Rust 1.62
-// `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
-#![allow(clippy::extra_unused_lifetimes)]
-
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};

@@ -101,16 +101,14 @@ impl RequestHandler for VacuumHandler {
             None,
         );
 
-        let rooms = crate::util::spawn_blocking({
-            let group = context.config().janus_group.clone();
-
-            let conn = context.get_conn().await?;
-            move || db::room::finished_with_in_progress_recordings(&conn, group.as_deref())
-        })
+        let mut conn = context.get_conn_sqlx().await?;
+        let rooms = db::room::finished_with_in_progress_recordings(
+            &mut conn,
+            context.config().janus_group.as_deref(),
+        )
         .await?;
 
         for (room, recording, backend) in rooms.into_iter() {
-            let mut conn = context.get_conn_sqlx().await?;
             db::agent::DeleteQuery::new()
                 .room_id(room.id())
                 .execute(&mut conn)
