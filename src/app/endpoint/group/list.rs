@@ -70,7 +70,7 @@ impl RequestHandler for Handler {
         let agent_id = reqp.as_agent_id().clone();
 
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &mut conn)
                 .await?
         };
@@ -97,7 +97,7 @@ impl RequestHandler for Handler {
             .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let group_agent = db::group_agent::FindQuery::new(room_id)
             .execute(&mut conn)
             .await?;
@@ -131,8 +131,9 @@ mod tests {
             rtc::SharingPolicy as RtcSharingPolicy,
         },
         test_helpers::{
-            db_sqlx, factory, find_response, handle_request,
-            prelude::{TestAgent, TestAuthz, TestContext, TestDb},
+            db::TestDb,
+            factory, find_response, handle_request,
+            prelude::{TestAgent, TestAuthz, TestContext},
             shared_helpers,
             test_deps::LocalDeps,
             USR_AUDIENCE,
@@ -146,10 +147,10 @@ mod tests {
     async fn missing_room() -> std::io::Result<()> {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+        let db = TestDb::with_local_postgres(&postgres).await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-        let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+        let mut context = TestContext::new(db, TestAuthz::new()).await;
 
         let payload = Payload {
             room_id: db::room::Id::random(),
@@ -170,11 +171,11 @@ mod tests {
     async fn closed_room() -> std::io::Result<()> {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+        let db = TestDb::with_local_postgres(&postgres).await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-        let mut conn = db_sqlx.get_conn().await;
+        let mut conn = db.get_conn().await;
 
         let room = factory::Room::new()
             .audience(USR_AUDIENCE)
@@ -188,7 +189,7 @@ mod tests {
 
         shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
-        let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+        let mut context = TestContext::new(db, TestAuthz::new()).await;
 
         let payload = Payload {
             room_id: room.id(),
@@ -209,11 +210,11 @@ mod tests {
     async fn wrong_rtc_sharing_policy() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+        let db = TestDb::with_local_postgres(&postgres).await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-        let mut conn = db_sqlx.get_conn().await;
+        let mut conn = db.get_conn().await;
         let room = factory::Room::new()
             .audience(USR_AUDIENCE)
             .time((Bound::Included(Utc::now()), Bound::Unbounded))
@@ -230,7 +231,7 @@ mod tests {
             "read",
         );
 
-        let mut context = TestContext::new(db, db_sqlx, authz).await;
+        let mut context = TestContext::new(db, authz).await;
         let payload = Payload {
             room_id: room.id(),
             within_group: false,
@@ -249,12 +250,12 @@ mod tests {
     async fn list_agents_with_groups() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+        let db = TestDb::with_local_postgres(&postgres).await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-        let mut conn = db_sqlx.get_conn().await;
+        let mut conn = db.get_conn().await;
 
         let room = factory::Room::new()
             .audience(USR_AUDIENCE)
@@ -282,7 +283,7 @@ mod tests {
             "read",
         );
 
-        let mut context = TestContext::new(db, db_sqlx, authz).await;
+        let mut context = TestContext::new(db, authz).await;
         let payload = Payload {
             room_id: room.id(),
             within_group: false,
@@ -302,12 +303,12 @@ mod tests {
     async fn list_agents_within_group() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+        let db = TestDb::with_local_postgres(&postgres).await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-        let mut conn = db_sqlx.get_conn().await;
+        let mut conn = db.get_conn().await;
 
         let room = factory::Room::new()
             .audience(USR_AUDIENCE)
@@ -335,7 +336,7 @@ mod tests {
             "read",
         );
 
-        let mut context = TestContext::new(db, db_sqlx, authz).await;
+        let mut context = TestContext::new(db, authz).await;
         let payload = Payload {
             room_id: room.id(),
             within_group: true,

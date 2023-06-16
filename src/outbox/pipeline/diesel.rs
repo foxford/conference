@@ -141,12 +141,6 @@ impl Pipeline {
     }
 }
 
-impl From<diesel::result::Error> for PipelineError {
-    fn from(source: diesel::result::Error) -> Self {
-        PipelineError::new(ErrorKind::DbQueryFailed, Box::new(source))
-    }
-}
-
 #[async_trait::async_trait]
 impl super::Pipeline for Pipeline {
     async fn run_single_stage<T, C>(&self, ctx: C, id: EventId) -> Result<(), PipelineError>

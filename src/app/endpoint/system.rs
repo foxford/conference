@@ -101,7 +101,7 @@ impl RequestHandler for VacuumHandler {
             None,
         );
 
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let rooms = db::room::finished_with_in_progress_recordings(
             &mut conn,
             context.config().janus_group.as_deref(),
@@ -186,7 +186,7 @@ impl EventHandler for OrphanedRoomCloseHandler {
 
         {
             // to close this connection right after the loop
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
 
             let timed_out = db::orphaned_room::get_timed_out(load_till, &mut conn).await?;
 
@@ -345,7 +345,7 @@ mod test {
                 authz::TestAuthz,
                 context::TestContext,
                 db::TestDb,
-                db_sqlx, handle_event,
+                handle_event,
                 prelude::{GlobalContext, TestAgent},
                 shared_helpers,
                 test_deps::LocalDeps,
@@ -357,8 +357,7 @@ mod test {
         async fn close_orphaned_rooms() -> anyhow::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
@@ -366,8 +365,8 @@ mod test {
             let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
             authz.allow(agent.account_id(), vec!["system"], "update");
 
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut context = TestContext::new(db, authz).await;
+            let mut conn = context.get_conn().await?;
 
             let opened_room = shared_helpers::insert_room(&mut conn).await;
             let opened_room2 = shared_helpers::insert_room(&mut conn).await;
@@ -424,7 +423,7 @@ mod test {
                 transactions::{Transaction, TransactionKind},
                 IncomingEvent,
             },
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -434,14 +433,13 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
 
-            let mut conn_sqlx = db_sqlx.get_conn().await;
+            let mut conn_sqlx = db.get_conn().await;
             // Insert janus backend and rooms.
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn_sqlx,
@@ -481,7 +479,7 @@ mod test {
             authz.allow(agent.account_id(), vec!["system"], "update");
 
             // Make system.vacuum request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx.clone());
             let payload = VacuumRequest {};
@@ -517,15 +515,14 @@ mod test {
         async fn vacuum_system_unauthorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
 
             // Make system.vacuum request.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let payload = VacuumRequest {};
 
             let err = handle_request::<VacuumHandler>(&mut context, &agent, payload)

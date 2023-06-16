@@ -179,7 +179,7 @@ impl RequestHandler for UpdateHandler {
         }
 
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             let room = helpers::find_room_by_id(
                 payload.room_id,
                 helpers::RoomTimeRequirement::Open,
@@ -221,7 +221,7 @@ impl RequestHandler for UpdateHandler {
             Some(authz_time)
         };
 
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         // Find backend and send updates to it if present.
         let maybe_backend = match room.backend_id() {
             None => None,
@@ -389,7 +389,7 @@ impl RequestHandler for ReadHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let (room, rtc_writer_configs_with_rtcs) = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             let room = helpers::find_room_by_id(
                 payload.room_id,
                 helpers::RoomTimeRequirement::Open,
@@ -443,7 +443,7 @@ mod tests {
 
         use crate::{
             db::rtc::SharingPolicy as RtcSharingPolicy,
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
         use chrono::{Duration, Utc};
 
@@ -454,8 +454,7 @@ mod tests {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -464,7 +463,7 @@ mod tests {
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
             let agent4 = TestAgent::new("web", "user4", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend =
                 shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
                     .await;
@@ -495,7 +494,7 @@ mod tests {
             authz.allow(agent1.account_id(), object, "update");
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -695,11 +694,10 @@ mod tests {
         async fn not_authorized() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert a room with agents.
             let room = factory::Room::new()
@@ -712,7 +710,7 @@ mod tests {
             shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -734,10 +732,9 @@ mod tests {
             // Make agent_writer_config.update request.
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let configs = (0..(MAX_STATE_CONFIGS_LEN + 1))
                 .map(|i| {
@@ -773,16 +770,15 @@ mod tests {
         async fn not_entered() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room.
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let room = shared_helpers::insert_room_with_owned(&mut conn).await;
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -804,11 +800,10 @@ mod tests {
         async fn closed_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert a room with an agent.
             let room = factory::Room::new()
@@ -824,7 +819,7 @@ mod tests {
             shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -846,11 +841,10 @@ mod tests {
         async fn room_with_wrong_rtc_policy() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert a room with an agent.
             let room = factory::Room::new()
@@ -863,7 +857,7 @@ mod tests {
             shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -886,11 +880,10 @@ mod tests {
             // Make agent_writer_config.update request.
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -916,7 +909,7 @@ mod tests {
 
         use crate::{
             db::rtc::SharingPolicy as RtcSharingPolicy,
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -925,13 +918,12 @@ mod tests {
         async fn read_state() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert a room with RTCs and agent writer configs.
             let room = factory::Room::new()
@@ -969,7 +961,7 @@ mod tests {
                 .await;
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1016,16 +1008,15 @@ mod tests {
         async fn not_entered() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room.
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let room = shared_helpers::insert_room_with_owned(&mut conn).await;
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1043,11 +1034,10 @@ mod tests {
         async fn closed_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert a room with an agent.
             let room = factory::Room::new()
@@ -1063,7 +1053,7 @@ mod tests {
             shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1081,11 +1071,10 @@ mod tests {
         async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert a room with an agent.
             let room = factory::Room::new()
@@ -1098,7 +1087,7 @@ mod tests {
             shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1117,10 +1106,9 @@ mod tests {
             // Make agent_writer_config.read request.
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest {
                 room_id: db::room::Id::random(),

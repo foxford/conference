@@ -109,7 +109,7 @@ pub async fn start_rtc_stream<C: Context>(
     let room = room.clone();
 
     let max_room_duration = ctx.config().max_room_duration;
-    let mut conn = ctx.get_conn_sqlx().await?;
+    let mut conn = ctx.get_conn().await?;
 
     conn.transaction(|conn| {
         Box::pin(async move {
@@ -161,7 +161,7 @@ impl RequestHandler for CreateHandler {
             let agent_id = reqp.as_agent_id().clone();
             let handle_id = payload.handle_id.clone();
 
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             let janus_backend = db::janus_backend::FindQuery::new(handle_id.backend_id())
                 .execute(&mut conn)
                 .await?
@@ -232,7 +232,7 @@ impl RequestHandler for CreateHandler {
                         if is_recvonly {
                             current_span.record("intent", "read");
 
-                            let mut conn = context.get_conn_sqlx().await?;
+                            let mut conn = context.get_conn().await?;
                             let reader_config = db::rtc_reader_config::read_config(
                                 payload.handle_id.rtc_id(),
                                 &mut conn,
@@ -338,7 +338,7 @@ impl RequestHandler for CreateHandler {
                             )
                             .await?;
 
-                            let mut conn = context.get_conn_sqlx().await?;
+                            let mut conn = context.get_conn().await?;
                             let reader_config = db::rtc_reader_config::read_config(
                                 payload.handle_id.rtc_id(),
                                 &mut conn,
@@ -522,7 +522,7 @@ impl<C: Context> Trickle<'_, C> {
             let agent_id = self.agent_id.clone();
             let handle_id = self.handle_id.clone();
 
-            let mut conn = self.ctx.get_conn_sqlx().await?;
+            let mut conn = self.ctx.get_conn().await?;
             let janus_backend = db::janus_backend::FindQuery::new(handle_id.backend_id())
                 .execute(&mut conn)
                 .await?
@@ -663,7 +663,6 @@ mod test {
         use std::ops::Bound;
 
         use chrono::{SubsecRound, Utc};
-        use diesel::prelude::*;
         use serde::Deserialize;
         use serde_json::json;
         use svc_agent::mqtt::ResponseStatus;
@@ -676,7 +675,7 @@ mod test {
                 IncomingEvent, SessionId,
             },
             db::{room::FindQueryable, rtc::SharingPolicy as RtcSharingPolicy},
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -732,15 +731,14 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend =
                 shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
                     .await;
@@ -766,7 +764,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             authz.allow(agent.account_id(), object.clone(), "update");
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             let rtc_stream_id = db::janus_rtc_stream::Id::random();
@@ -812,7 +810,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             }
 
             // Assert rtc stream presence in the DB.
-            let mut conn = context.get_conn_sqlx().await.unwrap();
+            let mut conn = context.get_conn().await.unwrap();
             let rtc_stream: crate::db::janus_rtc_stream::Object =
                 crate::db::janus_rtc_stream::get_rtc_stream(&mut conn, rtc_stream_id)
                     .await
@@ -831,12 +829,11 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
         async fn offer_unauthorized() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -858,7 +855,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -920,11 +917,10 @@ a=rtcp-fb:120 ccm fir
         async fn answer() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -946,7 +942,7 @@ a=rtcp-fb:120 ccm fir
             .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1001,15 +997,14 @@ a=rtcp-fb:120 ccm fir
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend =
                 shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
                     .await;
@@ -1035,7 +1030,7 @@ a=rtcp-fb:120 ccm fir
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -1076,11 +1071,10 @@ a=rtcp-fb:120 ccm fir
         async fn candidate_unauthorized() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -1102,7 +1096,7 @@ a=rtcp-fb:120 ccm fir
             .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1139,11 +1133,10 @@ a=rtcp-fb:120 ccm fir
         async fn wrong_rtc_id() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -1158,7 +1151,7 @@ a=rtcp-fb:120 ccm fir
             shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1191,11 +1184,10 @@ a=rtcp-fb:120 ccm fir
         async fn rtc_id_from_another_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -1217,7 +1209,7 @@ a=rtcp-fb:120 ccm fir
             .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1250,11 +1242,10 @@ a=rtcp-fb:120 ccm fir
         async fn wrong_backend_id() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let _backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -1284,7 +1275,7 @@ a=rtcp-fb:120 ccm fir
             .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1317,13 +1308,12 @@ a=rtcp-fb:120 ccm fir
         async fn offline_backend() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let backend = TestAgent::new("offline-instance", "janus-gateway", SVC_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert room with backend, rtc and connected agent.
             let room =
@@ -1339,7 +1329,7 @@ a=rtcp-fb:120 ccm fir
             .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1372,11 +1362,10 @@ a=rtcp-fb:120 ccm fir
         async fn not_entered() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -1390,7 +1379,7 @@ a=rtcp-fb:120 ccm fir
             let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1423,11 +1412,10 @@ a=rtcp-fb:120 ccm fir
         async fn not_connected() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -1443,7 +1431,7 @@ a=rtcp-fb:120 ccm fir
             shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1476,11 +1464,10 @@ a=rtcp-fb:120 ccm fir
         async fn wrong_handle_id() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -1502,7 +1489,7 @@ a=rtcp-fb:120 ccm fir
             .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1535,13 +1522,12 @@ a=rtcp-fb:120 ccm fir
         async fn spoof_handle_id() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -1565,7 +1551,7 @@ a=rtcp-fb:120 ccm fir
             let agent = shared_helpers::insert_agent(&mut conn, agent2.agent_id(), room.id()).await;
 
             let agent2_connection = factory::AgentConnection::new(
-                *agent.id(),
+                agent.id(),
                 rtc.id(),
                 crate::backend::janus::client::HandleId::random(),
             )
@@ -1573,7 +1559,7 @@ a=rtcp-fb:120 ccm fir
             .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1606,11 +1592,10 @@ a=rtcp-fb:120 ccm fir
         async fn closed_room() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -1633,7 +1618,7 @@ a=rtcp-fb:120 ccm fir
             .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1666,14 +1651,13 @@ a=rtcp-fb:120 ccm fir
         async fn spoof_owned_rtc() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let now = Utc::now();
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -1705,7 +1689,7 @@ a=rtcp-fb:120 ccm fir
             .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1739,15 +1723,14 @@ a=rtcp-fb:120 ccm fir
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend =
                 shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
                     .await;
@@ -1781,7 +1764,7 @@ a=rtcp-fb:120 ccm fir
             authz.allow(agent.account_id(), object.clone(), "update");
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             let rtc_stream_id = db::janus_rtc_stream::Id::random();

@@ -1,7 +1,6 @@
 use std::{fmt, ops::Bound};
 
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::AgentId;
@@ -18,7 +17,6 @@ use crate::{
         recording::{Object as Recording, Status as RecordingStatus},
         rtc::SharingPolicy as RtcSharingPolicy,
     },
-    schema::room,
 };
 
 use super::recording::SegmentSqlx;
@@ -47,9 +45,8 @@ impl From<TimeSqlx> for Time {
 pub type Id = db::id::Id;
 
 // Deprecated in favor of `crate::db::rtc::SharingPolicy`.
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
-#[DieselType = "Room_backend"]
 // This is not just `Backend` because of clash with `diesel::backend::Backend`.
 pub enum RoomBackend {
     None,
@@ -83,11 +80,7 @@ impl From<RoomBackend> for RtcSharingPolicy {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(
-    Clone, Debug, Deserialize, Serialize, Identifiable, Queryable, QueryableByName, Associations,
-)]
-#[belongs_to(JanusBackend, foreign_key = "backend_id")]
-#[table_name = "room"]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Object {
     pub id: Id,
     #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
@@ -173,6 +166,7 @@ impl Object {
         }
     }
 
+    #[cfg(test)]
     pub fn tags(&self) -> &JsonValue {
         &self.tags
     }
@@ -193,6 +187,7 @@ impl Object {
         self.host.as_ref()
     }
 
+    #[cfg(test)]
     pub fn timed_out(&self) -> bool {
         self.timed_out
     }
@@ -706,16 +701,16 @@ mod tests {
         use super::super::*;
         use crate::{
             backend::janus::client::{HandleId, SessionId},
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db, prelude::*, test_deps::LocalDeps},
         };
 
         #[tokio::test]
         async fn selects_appropriate_backend() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = db::TestDb::with_local_postgres(&postgres).await;
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             let backend1 = shared_helpers::insert_janus_backend(
                 &mut conn,
@@ -780,7 +775,7 @@ mod tests {
         async fn selects_appropriate_backend_by_group() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db_sqlx = db::TestDb::with_local_postgres(&postgres).await;
 
             let mut conn = db_sqlx.get_conn().await;
 

@@ -1,63 +1,5 @@
 {
   "db": "PostgreSQL",
-  "01eca698b7bcb2b8ae32e6a07c2be212bf1e35402cf43ee0994a8f00644d95a4": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "entity_type",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "stage",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "delivery_deadline_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "error_kind",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "retry_count",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 6,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Timestamptz",
-          "Int8",
-          "Text"
-        ]
-      }
-    },
-    "query": "\n            UPDATE outbox\n            SET\n                delivery_deadline_at = $1,\n                retry_count = retry_count + 1\n            WHERE\n                id = $2 AND\n                entity_type = $3\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            "
-  },
   "0a1d60744d2b1f707f529bd8a51f14a322199616d679c4a1f24e0f60a71a8bee": {
     "describe": {
       "columns": [
@@ -547,6 +489,65 @@
       }
     },
     "query": "\n        INSERT INTO orphaned_room\n        VALUES ($1, $2)\n        ON CONFLICT (id) DO UPDATE\n        SET\n            host_left_at = $2\n        "
+  },
+  "18d6a334debacd190f663f9db94cb0c32398bcf4a953298dfcda16c0ee2a73c3": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "entity_type",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "stage",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "delivery_deadline_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "error_kind",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "retry_count",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 6,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Text",
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n            UPDATE outbox\n            SET\n                delivery_deadline_at = $1,\n                retry_count = retry_count + 1,\n                error_kind = $2\n            WHERE\n                id = $3 AND\n                entity_type = $4\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            "
   },
   "1d3c074fcededd8ba566d9df8563a4c9497e5f864fbda9cd7087a396ade1a993": {
     "describe": {
@@ -3537,6 +3538,18 @@
     },
     "query": "\n            SELECT COUNT(1) as \"count!: i64\"\n            FROM agent_connection\n            "
   },
+  "a7dc74377f99ca1c9dc1ab08e76a438df0a78059aaa18bd73e09c77a67248fed": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM agent_connection\n            WHERE\n                rtc_id = $1\n            "
+  },
   "a923eaed597bc1f42dbe3a31131dc8c656b67d2d5d1342991ae5ceead196fff8": {
     "describe": {
       "columns": [
@@ -4770,6 +4783,111 @@
       }
     },
     "query": "\n        DELETE FROM orphaned_room\n        WHERE\n            id = $1\n        "
+  },
+  "eb377e7e913d28eea3f7274b61a8d3df40df7de48ab73a3513dfcdb9dbacc8e1": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "room_id: db::room::Id",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_by: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "started_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "segments: Vec<db::recording::SegmentSqlx>",
+          "ordinal": 5,
+          "type_info": "Int8RangeArray"
+        },
+        {
+          "name": "status?: db::recording::Status",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready",
+                  "missing"
+                ]
+              },
+              "name": "recording_status"
+            }
+          }
+        },
+        {
+          "name": "mjr_dumps_uris",
+          "ordinal": 7,
+          "type_info": "TextArray"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                rtc.id as \"id: db::rtc::Id\",\n                rtc.room_id as \"room_id: db::room::Id\",\n                rtc.created_at,\n                rtc.created_by as \"created_by: AgentId\",\n                recording.started_at,\n                recording.segments as \"segments: Vec<db::recording::SegmentSqlx>\",\n                recording.status as \"status?: db::recording::Status\",\n                recording.mjr_dumps_uris\n            FROM rtc\n            LEFT JOIN recording\n            ON rtc.id = recording.rtc_id\n            WHERE\n                rtc.room_id = $1\n            "
   },
   "f7e09f828e73da9760036d2358e8f2e9d43a6482417e86c5ea920db6628c4016": {
     "describe": {

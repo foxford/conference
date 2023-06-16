@@ -3,7 +3,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::db;
-use crate::schema::rtc_writer_config_snapshot;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -75,8 +74,7 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Debug, Insertable, AsChangeset)]
-#[table_name = "rtc_writer_config_snapshot"]
+#[derive(Clone, Debug)]
 pub struct InsertQuery {
     rtc_id: db::rtc::Id,
     send_video: Option<bool>,

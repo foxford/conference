@@ -4,11 +4,7 @@ use serde_json::Value as JsonValue;
 
 use svc_nats_client::EventId;
 
-use crate::schema::outbox;
-
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Clone)]
-#[table_name = "outbox"]
-#[primary_key(entity_type, id)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Object {
     id: i64,
     entity_type: String,
@@ -77,8 +73,7 @@ impl ListQuery {
     }
 }
 
-#[derive(Debug, Insertable)]
-#[table_name = "outbox"]
+#[derive(Debug)]
 pub struct InsertQuery<'a> {
     entity_type: &'a str,
     stage: JsonValue,
@@ -123,8 +118,7 @@ impl<'a> InsertQuery<'a> {
     }
 }
 
-#[derive(Debug, AsChangeset)]
-#[table_name = "outbox"]
+#[derive(Debug)]
 pub struct UpdateQuery<'a> {
     id: &'a EventId,
     delivery_deadline_at: DateTime<Utc>,
@@ -147,10 +141,11 @@ impl<'a> UpdateQuery<'a> {
             UPDATE outbox
             SET
                 delivery_deadline_at = $1,
-                retry_count = retry_count + 1
+                retry_count = retry_count + 1,
+                error_kind = $2
             WHERE
-                id = $2 AND
-                entity_type = $3
+                id = $3 AND
+                entity_type = $4
             RETURNING
                 id,
                 entity_type,
@@ -161,6 +156,7 @@ impl<'a> UpdateQuery<'a> {
                 created_at
             "#,
             self.delivery_deadline_at,
+            self.error_kind,
             self.id.sequence_id(),
             self.id.entity_type(),
         )

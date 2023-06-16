@@ -1,15 +1,13 @@
 use chrono::{DateTime, Utc};
 use svc_agent::AgentId;
 
-use crate::{db, db::rtc::Object as Rtc, schema::rtc_writer_config};
+use crate::{db, db::rtc::Object as Rtc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Identifiable, Queryable, QueryableByName, Associations)]
-#[belongs_to(Rtc, foreign_key = "rtc_id")]
-#[table_name = "rtc_writer_config"]
-#[primary_key(rtc_id)]
+#[derive(Debug)]
 pub struct Object {
+    #[allow(unused)]
     rtc_id: db::rtc::Id,
     send_video: bool,
     send_audio: bool,
@@ -140,8 +138,7 @@ pub async fn read_config(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Debug, Insertable, AsChangeset)]
-#[table_name = "rtc_writer_config"]
+#[derive(Clone, Debug)]
 pub struct UpsertQuery<'a> {
     rtc_id: db::rtc::Id,
     send_video: Option<bool>,

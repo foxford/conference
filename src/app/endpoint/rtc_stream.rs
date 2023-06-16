@@ -96,7 +96,7 @@ impl RequestHandler for ListHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             helpers::find_room_by_id(
                 payload.room_id,
                 helpers::RoomTimeRequirement::Open,
@@ -140,7 +140,7 @@ impl RequestHandler for ListHandler {
         }
         query = query.limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT));
 
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let rtc_streams = query.execute(&mut conn).await?;
 
         context
@@ -181,11 +181,10 @@ mod test {
         use std::ops::Bound;
 
         use chrono::SubsecRound;
-        use diesel::prelude::*;
 
         use crate::{
-            db::{janus_rtc_stream::Object as JanusRtcStream, rtc::Object as Rtc},
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            db::janus_rtc_stream::Object as JanusRtcStream,
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -194,42 +193,41 @@ mod test {
         async fn list_rtc_streams() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let mut authz = TestAuthz::new();
 
-            let mut conn_sqlx = db_sqlx.get_conn().await;
-            let conn = db.connection_pool().get().unwrap();
+            let mut conn = db.get_conn().await;
 
             let (rtc_stream, rtc, classroom_id) = {
                 // Insert janus rtc streams.
                 let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE)
-                    .insert(&mut conn_sqlx)
+                    .insert(&mut conn)
                     .await;
 
-                let rtc_stream = db::janus_rtc_stream::start(rtc_stream.id(), &mut conn_sqlx)
+                let rtc_stream = db::janus_rtc_stream::start(rtc_stream.id(), &mut conn)
                     .await
                     .expect("Failed to start rtc stream")
                     .expect("Missing rtc stream");
 
                 let other_rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE)
-                    .insert(&mut conn_sqlx)
+                    .insert(&mut conn)
                     .await;
 
-                db::janus_rtc_stream::start(other_rtc_stream.id(), &mut conn_sqlx)
+                db::janus_rtc_stream::start(other_rtc_stream.id(), &mut conn)
                     .await
                     .expect("Failed to start rtc stream");
 
                 // Find rtc.
-                let rtc: Rtc = crate::schema::rtc::table
-                    .find(rtc_stream.rtc_id())
-                    .get_result(&conn)
-                    .expect("Rtc not found");
+                let rtc = db::rtc::FindQuery::new(rtc_stream.rtc_id())
+                    .execute(&mut conn)
+                    .await
+                    .expect("rtc find query failed")
+                    .expect("rtc not found");
 
                 let room = helpers::find_room_by_id(
                     rtc.room_id(),
                     helpers::RoomTimeRequirement::Open,
-                    &mut conn_sqlx,
+                    &mut conn,
                 )
                 .await
                 .expect("Room not found");
@@ -243,7 +241,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc_stream.list request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = ListRequest {
                 room_id: rtc.room_id(),
@@ -283,17 +281,16 @@ mod test {
         async fn list_rtc_streams_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 shared_helpers::insert_room(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -315,11 +312,10 @@ mod test {
         async fn list_rtc_streams_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: db::room::Id::random(),

@@ -71,7 +71,7 @@ impl RequestHandler for ListHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             helpers::find_room_by_id(
                 payload.room_id,
                 helpers::RoomTimeRequirement::Open,
@@ -95,7 +95,7 @@ impl RequestHandler for ListHandler {
         context.metrics().observe_auth(authz_time);
 
         // Get agents list in the room.
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let agents = db::agent::ListQuery::new()
             .room_id(payload.room_id)
             .offset(payload.offset.unwrap_or(0))
@@ -127,7 +127,7 @@ mod tests {
         use serde::Deserialize;
         use svc_agent::AgentId;
 
-        use crate::test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps};
+        use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
 
         use super::super::*;
 
@@ -143,11 +143,10 @@ mod tests {
         async fn list_agents() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Create room and put the agent online.
             let room = shared_helpers::insert_room(&mut conn).await;
@@ -162,7 +161,7 @@ mod tests {
             );
 
             // Make agent.list request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -186,16 +185,15 @@ mod tests {
         async fn list_agents_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 shared_helpers::insert_room(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -215,12 +213,11 @@ mod tests {
         async fn list_agents_closed_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 // Create closed room.
                 shared_helpers::insert_closed_room(&mut conn).await
             };
@@ -234,7 +231,7 @@ mod tests {
             );
 
             // Make agent.list request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -254,10 +251,9 @@ mod tests {
         async fn list_agents_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: db::room::Id::random(),

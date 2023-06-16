@@ -4,24 +4,21 @@
 
 use std::fmt;
 
-use crate::db;
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
-use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
-use super::{recording::Object as Recording, room::Object as Room, AgentIds};
-use crate::schema::{recording, rtc};
+use crate::db;
+
+use super::{recording::Object as Recording, AgentIds};
 
 ////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////
 pub type Id = db::id::Id;
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
-#[DieselType = "Rtc_sharing_policy"]
 pub enum SharingPolicy {
     None,
     Shared,
@@ -37,11 +34,7 @@ impl fmt::Display for SharingPolicy {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(
-    Clone, Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations,
-)]
-#[belongs_to(Room, foreign_key = "room_id")]
-#[table_name = "rtc"]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Object {
     pub id: Id,
     pub room_id: db::room::Id,
@@ -174,27 +167,81 @@ pub struct ListWithRecordingQuery {
     room_id: db::room::Id,
 }
 
+struct ListWithRecordingRow {
+    id: db::rtc::Id,
+    room_id: db::room::Id,
+    created_at: DateTime<Utc>,
+    created_by: AgentId,
+    started_at: Option<DateTime<Utc>>,
+    segments: Option<Vec<db::recording::SegmentSqlx>>,
+    status: Option<db::recording::Status>,
+    mjr_dumps_uris: Option<Vec<String>>,
+}
+
+impl ListWithRecordingRow {
+    fn split(self) -> (Object, Option<Recording>) {
+        (
+            Object {
+                id: self.id,
+                room_id: self.room_id,
+                created_at: self.created_at,
+                created_by: self.created_by,
+            },
+            match self.status {
+                Some(status) => Some(Recording {
+                    rtc_id: self.id,
+                    started_at: self.started_at,
+                    segments: self
+                        .segments
+                        .map(|ss| ss.into_iter().map(db::recording::Segment::from).collect()),
+                    status,
+                    mjr_dumps_uris: self.mjr_dumps_uris,
+                }),
+                None => None,
+            },
+        )
+    }
+}
+
 impl ListWithRecordingQuery {
     pub fn new(room_id: db::room::Id) -> Self {
         Self { room_id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Option<Recording>)>, Error> {
-        use diesel::prelude::*;
-
-        rtc::table
-            .left_join(recording::table)
-            .filter(rtc::room_id.eq(self.room_id))
-            .get_results(conn)
+    pub async fn execute(
+        &self,
+        conn: &mut sqlx::PgConnection,
+    ) -> sqlx::Result<Vec<(Object, Option<Recording>)>> {
+        sqlx::query_as!(
+            ListWithRecordingRow,
+            r#"
+            SELECT
+                rtc.id as "id: db::rtc::Id",
+                rtc.room_id as "room_id: db::room::Id",
+                rtc.created_at,
+                rtc.created_by as "created_by: AgentId",
+                recording.started_at,
+                recording.segments as "segments: Vec<db::recording::SegmentSqlx>",
+                recording.status as "status?: db::recording::Status",
+                recording.mjr_dumps_uris
+            FROM rtc
+            LEFT JOIN recording
+            ON rtc.id = recording.rtc_id
+            WHERE
+                rtc.room_id = $1
+            "#,
+            self.room_id as db::room::Id,
+        )
+        .fetch_all(conn)
+        .await
+        .map(|r| r.into_iter().map(|r| r.split()).collect())
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable)]
-#[table_name = "rtc"]
+#[derive(Debug)]
 pub struct InsertQuery<'a> {
-    id: Option<Id>,
     room_id: db::room::Id,
     created_by: &'a AgentId,
 }
@@ -202,7 +249,6 @@ pub struct InsertQuery<'a> {
 impl<'a> InsertQuery<'a> {
     pub fn new(room_id: db::room::Id, created_by: &'a AgentId) -> Self {
         Self {
-            id: None,
             room_id,
             created_by,
         }

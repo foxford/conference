@@ -19,7 +19,6 @@ use crate::{
         room::Object as Room,
         rtc::{Object as Rtc, SharingPolicy as RtcSharingPolicy},
     },
-    diesel::Identifiable,
 };
 
 use super::{agent::TestAgent, factory, SVC_AUDIENCE, USR_AUDIENCE};
@@ -171,7 +170,7 @@ pub async fn insert_connected_to_handle_agent(
     handle_id: crate::backend::janus::client::HandleId,
 ) -> (Agent, AgentConnection) {
     let agent = insert_agent(conn, agent_id, room_id).await;
-    let agent_connection = factory::AgentConnection::new(*agent.id(), rtc_id, handle_id)
+    let agent_connection = factory::AgentConnection::new(agent.id(), rtc_id, handle_id)
         .insert(conn)
         .await;
     (agent, agent_connection)

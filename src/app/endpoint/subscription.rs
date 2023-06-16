@@ -185,7 +185,7 @@ async fn leave_room<C: Context>(
     agent_id: &AgentId,
     room_id: db::room::Id,
 ) -> StdResult<bool, AppError> {
-    let mut conn = context.get_conn_sqlx().await?;
+    let mut conn = context.get_conn().await?;
     let row_count = db::agent::DeleteQuery::new()
         .agent_id(agent_id)
         // in theory we should delete agent row only for this room id
@@ -241,7 +241,7 @@ mod tests {
         use crate::{
             app::API_VERSION,
             db::agent::ListQuery as AgentListQuery,
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -250,21 +250,20 @@ mod tests {
         async fn delete_subscription() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Create room and put the agent online.
             let room = shared_helpers::insert_room(&mut conn).await;
 
-            let mut conn_sqlx = db_sqlx.get_conn().await;
+            let mut conn_sqlx = db.get_conn().await;
             shared_helpers::insert_agent(&mut conn_sqlx, agent.agent_id(), room.id()).await;
 
             // Send subscription.delete response.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let reqp = build_reqp(agent.agent_id(), "room.leave");
             let room_id = room.id().to_string();
 
@@ -310,7 +309,7 @@ mod tests {
 
             // Assert agent deleted from the DB.
             let mut conn = context
-                .get_conn_sqlx()
+                .get_conn()
                 .await
                 .expect("Failed to get DB connection");
 
@@ -328,16 +327,15 @@ mod tests {
         async fn delete_subscription_missing_agent() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 shared_helpers::insert_room(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let room_id = room.id().to_string();
 
             let corr_data = CorrelationDataPayload {
@@ -366,11 +364,10 @@ mod tests {
         async fn delete_subscription_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let room_id = db::room::Id::random().to_string();
 
             let corr_data = CorrelationDataPayload {
@@ -399,7 +396,7 @@ mod tests {
     mod delete_event {
         use crate::{
             db::agent::ListQuery as AgentListQuery,
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -408,12 +405,11 @@ mod tests {
         async fn delete_subscription() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // First room, we were online in it but then session was taken over and we disconnected (not in the db tho).
             // By the end of this test subscription for this room should be absent.
@@ -425,7 +421,7 @@ mod tests {
             shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Send subscription.delete event.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let room_id = room.id().to_string();
 
             let payload = DeleteEventPayload {
@@ -449,7 +445,7 @@ mod tests {
 
             // Assert agent deleted from the DB.
             let mut conn = context
-                .get_conn_sqlx()
+                .get_conn()
                 .await
                 .expect("Failed to get DB connection");
 
@@ -476,16 +472,15 @@ mod tests {
         async fn delete_subscription_missing_agent() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 shared_helpers::insert_room(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let room_id = room.id().to_string();
 
             let payload = DeleteEventPayload {

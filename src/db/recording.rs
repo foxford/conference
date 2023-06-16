@@ -1,13 +1,9 @@
 use std::{fmt, ops::Bound};
 
 use chrono::{DateTime, Utc};
-use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 
 use crate::db;
-use crate::schema::recording;
-
-use super::rtc::Object as Rtc;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -29,10 +25,8 @@ impl From<SegmentSqlx> for Segment {
     }
 }
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
-#[PgType = "recording_status"]
-#[DieselType = "Recording_status"]
 #[sqlx(type_name = "recording_status")]
 pub enum Status {
     #[serde(rename = "in_progress")]
@@ -50,10 +44,7 @@ impl fmt::Display for Status {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Serialize, Identifiable, Associations, Queryable)]
-#[belongs_to(Rtc, foreign_key = "rtc_id")]
-#[primary_key(rtc_id)]
-#[table_name = "recording"]
+#[derive(Debug, Serialize)]
 pub struct Object {
     pub rtc_id: db::rtc::Id,
     #[serde(with = "crate::serde::ts_seconds_option")]
@@ -66,14 +57,6 @@ pub struct Object {
 impl Object {
     pub fn rtc_id(&self) -> db::rtc::Id {
         self.rtc_id
-    }
-
-    pub fn started_at(&self) -> &Option<DateTime<Utc>> {
-        &self.started_at
-    }
-
-    pub fn segments(&self) -> &Option<Vec<Segment>> {
-        &self.segments
     }
 
     pub fn status(&self) -> Status {
@@ -144,8 +127,7 @@ impl FindQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable)]
-#[table_name = "recording"]
+#[derive(Debug)]
 pub struct InsertQuery {
     rtc_id: db::rtc::Id,
 }
@@ -178,9 +160,7 @@ impl InsertQuery {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Identifiable, AsChangeset, Queryable)]
-#[table_name = "recording"]
-#[primary_key(rtc_id)]
+#[derive(Debug)]
 pub struct UpdateQuery {
     rtc_id: db::rtc::Id,
     status: Option<Status>,

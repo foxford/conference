@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::ops::Bound;
 use svc_agent::AgentId;
 
-use crate::{backend::janus::client::HandleId, db, schema::janus_rtc_stream};
+use crate::{backend::janus::client::HandleId, db};
 
 use super::room::TimeSqlx;
 
@@ -14,8 +14,7 @@ pub type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 ////////////////////////////////////////////////////////////////////////////////
 pub type Id = db::id::Id;
 
-#[derive(Debug, Deserialize, Serialize, Identifiable, Queryable, QueryableByName, Associations)]
-#[table_name = "janus_rtc_stream"]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Object {
     id: Id,
     handle_id: HandleId,
@@ -31,6 +30,7 @@ pub struct Object {
 }
 
 impl Object {
+    #[cfg(test)]
     pub fn id(&self) -> Id {
         self.id
     }
@@ -44,6 +44,7 @@ impl Object {
         self.rtc_id
     }
 
+    #[cfg(test)]
     pub fn backend_id(&self) -> &AgentId {
         &self.backend_id
     }
@@ -53,6 +54,7 @@ impl Object {
         self.label.as_ref()
     }
 
+    #[cfg(test)]
     pub fn sent_by(&self) -> &AgentId {
         &self.sent_by
     }
@@ -64,11 +66,6 @@ impl Object {
     #[cfg(test)]
     pub fn created_at(&self) -> DateTime<Utc> {
         self.created_at
-    }
-
-    pub fn set_time(&mut self, time: Option<Time>) -> &mut Self {
-        self.time = time.map(TimeSqlx::from);
-        self
     }
 }
 
@@ -173,8 +170,7 @@ impl ListQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable, AsChangeset)]
-#[table_name = "janus_rtc_stream"]
+#[derive(Debug)]
 pub struct InsertQuery<'a> {
     id: Id,
     handle_id: HandleId,
@@ -399,13 +395,13 @@ pub async fn get_rtc_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps};
+    use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
 
     #[tokio::test]
     async fn test_stop_running_streams_by_backend() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::with_local_postgres(&postgres).await;
 
         let mut conn = db.get_conn().await;
 

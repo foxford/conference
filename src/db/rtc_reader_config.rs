@@ -2,17 +2,14 @@ use chrono::{DateTime, Utc};
 use svc_agent::AgentId;
 
 use crate::db::Ids;
-use crate::{db, db::rtc::Object as Rtc, schema::rtc_reader_config};
+use crate::{db, db::rtc::Object as Rtc};
 
 use super::AgentIds;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Identifiable, Queryable, QueryableByName, Associations)]
-#[belongs_to(Rtc, foreign_key = "rtc_id")]
-#[table_name = "rtc_reader_config"]
-#[primary_key(rtc_id, reader_id)]
 pub struct Object {
+    #[allow(unused)]
     rtc_id: db::rtc::Id,
     reader_id: AgentId,
     receive_video: bool,
@@ -20,6 +17,7 @@ pub struct Object {
 }
 
 impl Object {
+    #[cfg(test)]
     pub fn rtc_id(&self) -> db::rtc::Id {
         self.rtc_id
     }
@@ -136,8 +134,7 @@ pub async fn read_config(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Debug, Insertable, AsChangeset)]
-#[table_name = "rtc_reader_config"]
+#[derive(Clone, Debug)]
 pub struct UpsertQuery<'a> {
     rtc_id: db::rtc::Id,
     reader_id: &'a AgentId,

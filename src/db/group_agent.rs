@@ -1,16 +1,12 @@
-use super::room::Object as Room;
-use crate::{db, schema::group_agent};
-use diesel::{pg::Pg, sql_types::Jsonb};
+use crate::db;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, slice::Iter};
 use svc_agent::AgentId;
 
 pub type Id = db::id::Id;
 
-#[derive(Clone, Debug, Deserialize, Serialize, FromSqlRow, AsExpression, Eq, PartialEq)]
-#[sql_type = "Jsonb"]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct Groups(Vec<GroupItem>);
-impl_jsonb!(Groups);
 
 impl Groups {
     pub fn new(items: Vec<GroupItem>) -> Self {
@@ -101,13 +97,11 @@ impl sqlx::Type<sqlx::Postgres> for Groups {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, FromSqlRow, AsExpression, Eq, PartialEq)]
-#[sql_type = "Jsonb"]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct GroupItem {
     number: i32,
     agents: Vec<AgentId>,
 }
-impl_jsonb!(GroupItem);
 
 impl GroupItem {
     pub fn new(number: i32, agents: Vec<AgentId>) -> Self {
@@ -123,9 +117,7 @@ impl GroupItem {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
-#[belongs_to(Room, foreign_key = "room_id")]
-#[table_name = "group_agent"]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Object {
     id: Id,
     room_id: db::room::Id,
@@ -138,8 +130,7 @@ impl Object {
     }
 }
 
-#[derive(Debug, Insertable, AsChangeset)]
-#[table_name = "group_agent"]
+#[derive(Debug)]
 pub struct UpsertQuery<'a> {
     room_id: db::room::Id,
     groups: &'a Groups,
@@ -148,10 +139,6 @@ pub struct UpsertQuery<'a> {
 impl<'a> UpsertQuery<'a> {
     pub fn new(room_id: db::room::Id, groups: &'a Groups) -> Self {
         Self { room_id, groups }
-    }
-
-    pub fn groups(self, groups: &'a Groups) -> Self {
-        Self { groups, ..self }
     }
 
     pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {

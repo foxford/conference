@@ -8,7 +8,6 @@ use crate::{
     backend::janus::{client_pool::Clients, online_handler::start_internal_api, JANUS_API_VERSION},
     client::{conference::ConferenceHttpClient, mqtt_gateway::MqttGatewayHttpClient},
     config::{self, Config},
-    db::ConnectionPool,
 };
 use anyhow::{Context as AnyhowContext, Result};
 use context::{AppContext, GlobalContext};
@@ -34,8 +33,7 @@ pub const API_VERSION: &str = "v1";
 ////////////////////////////////////////////////////////////////////////////////
 
 pub async fn run(
-    db: &ConnectionPool,
-    db_sqlx: sqlx::PgPool,
+    db: sqlx::PgPool,
     redis_pool: Option<RedisConnectionPool>,
     authz_cache: Option<Box<RedisCache>>,
 ) -> Result<()> {
@@ -85,14 +83,14 @@ pub async fn run(
     let clients = Clients::new(
         ev_tx,
         config.janus_group.clone(),
-        db_sqlx.clone(),
+        db.clone(),
         config.waitlist_epoch_duration,
         own_ip_addr,
         Some(agent.clone()),
     );
 
     task::spawn({
-        let db = db_sqlx.clone();
+        let db = db.clone();
         let collect_interval = config.metrics.janus_metrics_collect_interval;
         let clients = clients.clone();
         janus_metrics.start_collector(db, clients, collect_interval)
@@ -116,8 +114,7 @@ pub async fn run(
     let context = AppContext::new(
         config.clone(),
         authz,
-        db.clone(),
-        db_sqlx,
+        db,
         clients.clone(),
         metrics.clone(),
         mqtt_gateway_client,
@@ -140,7 +137,7 @@ pub async fn run(
     let reg_handler = tokio::spawn(start_internal_api(
         config.janus_registry.clone(),
         context.janus_clients(),
-        context.db_sqlx().clone(),
+        context.db().clone(),
         config.authn.clone(),
     ));
 

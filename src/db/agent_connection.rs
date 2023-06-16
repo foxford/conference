@@ -1,21 +1,13 @@
 use chrono::{DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
-use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
-use crate::{
-    backend::janus::client::HandleId,
-    db::{self, agent::Object as Agent},
-    schema::agent_connection,
-};
+use crate::{backend::janus::client::HandleId, db};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
-#[PgType = "agent_connection_status"]
-#[DieselType = "Agent_connection_status"]
 #[sqlx(type_name = "agent_connection_status")]
 pub enum Status {
     #[serde(rename = "in_progress")]
@@ -25,11 +17,9 @@ pub enum Status {
     Connected,
 }
 
-#[derive(Debug, Identifiable, Queryable, QueryableByName, Associations)]
-#[belongs_to(Agent, foreign_key = "agent_id")]
-#[table_name = "agent_connection"]
-#[primary_key(agent_id)]
+#[derive(Debug)]
 pub struct Object {
+    #[allow(unused)]
     agent_id: super::agent::Id,
     handle_id: HandleId,
     #[allow(dead_code)]
@@ -112,8 +102,7 @@ impl CountQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable, AsChangeset)]
-#[table_name = "agent_connection"]
+#[derive(Debug)]
 pub struct UpsertQuery {
     agent_id: db::agent::Id,
     rtc_id: db::rtc::Id,
@@ -167,8 +156,7 @@ impl UpsertQuery {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, AsChangeset)]
-#[table_name = "agent_connection"]
+#[derive(Debug)]
 pub struct UpdateQuery {
     handle_id: HandleId,
     status: Status,
@@ -269,12 +257,18 @@ impl BulkDisconnectByRtcQuery {
         Self { rtc_id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-
-        diesel::delete(agent_connection::table)
-            .filter(agent_connection::rtc_id.eq(self.rtc_id))
-            .execute(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM agent_connection
+            WHERE
+                rtc_id = $1
+            "#,
+            self.rtc_id as db::rtc::Id,
+        )
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 
@@ -311,15 +305,14 @@ impl<'a> BulkDisconnectByBackendQuery<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps};
+    use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
     use chrono::{Duration, Utc};
-    use diesel::Identifiable;
 
     #[tokio::test]
     async fn test_cleanup_not_connected_query() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::with_local_postgres(&postgres).await;
 
         let old = TestAgent::new("web", "old_agent", USR_AUDIENCE);
         let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);
@@ -339,7 +332,7 @@ mod tests {
             .await;
 
         factory::AgentConnection::new(
-            *old.id(),
+            old.id(),
             rtc.id(),
             crate::backend::janus::client::HandleId::random(),
         )
@@ -354,7 +347,7 @@ mod tests {
             .insert(&mut conn)
             .await;
         let new_agent_conn = factory::AgentConnection::new(
-            *new.id(),
+            new.id(),
             rtc.id(),
             crate::backend::janus::client::HandleId::random(),
         )

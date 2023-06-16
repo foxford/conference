@@ -117,7 +117,7 @@ mod tests {
     use crate::{
         db::rtc::SharingPolicy as RtcSharingPolicy,
         test_helpers::{
-            db_sqlx::TestDb, factory, prelude::TestAgent, test_deps::LocalDeps, USR_AUDIENCE,
+            db::TestDb, factory, prelude::TestAgent, test_deps::LocalDeps, USR_AUDIENCE,
         },
     };
 

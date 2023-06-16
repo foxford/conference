@@ -52,7 +52,7 @@ impl RequestHandler for Handler {
             None,
         );
 
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         // TODO: move to constant but chrono doesnt support const fns
         db::agent_connection::CleanupNotConnectedQuery::new(
             Utc::now() - chrono::Duration::minutes(2),

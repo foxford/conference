@@ -61,7 +61,7 @@ impl RequestHandler for UnicastHandler {
     ) -> RequestResult {
         let mqtt_params = reqp.as_mqtt_params()?;
 
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let room = helpers::find_room_by_id(
             payload.room_id,
             helpers::RoomTimeRequirement::Open,
@@ -136,7 +136,7 @@ impl RequestHandler for BroadcastHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let room = helpers::find_room_by_id(
             payload.room_id,
             helpers::RoomTimeRequirement::Open,
@@ -221,7 +221,7 @@ mod test {
 
         use crate::{
             app::API_VERSION,
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -230,12 +230,12 @@ mod test {
         async fn unicast_message() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+            let db = TestDb::with_local_postgres(&postgres).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert room with online both sender and receiver.
             let room = shared_helpers::insert_room(&mut conn).await;
@@ -244,7 +244,7 @@ mod test {
             shared_helpers::insert_agent(&mut conn, receiver.agent_id(), room.id()).await;
 
             // Make message.unicast request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = UnicastRequest {
                 agent_id: receiver.agent_id().to_owned(),
@@ -274,10 +274,10 @@ mod test {
         async fn unicast_message_to_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
+
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -299,19 +299,19 @@ mod test {
         async fn unicast_message_when_sender_is_not_in_the_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+            let db = TestDb::with_local_postgres(&postgres).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert room with online receiver only.
             let room = shared_helpers::insert_room(&mut conn).await;
             shared_helpers::insert_agent(&mut conn, receiver.agent_id(), room.id()).await;
 
             // Make message.unicast request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = UnicastRequest {
                 agent_id: receiver.agent_id().to_owned(),
@@ -331,19 +331,19 @@ mod test {
         async fn unicast_message_when_receiver_is_not_in_the_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+            let db = TestDb::with_local_postgres(&postgres).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert room with online sender only.
             let room = shared_helpers::insert_room(&mut conn).await;
             shared_helpers::insert_agent(&mut conn, sender.agent_id(), room.id()).await;
 
             // Make message.unicast request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = UnicastRequest {
                 agent_id: receiver.agent_id().to_owned(),
@@ -363,7 +363,7 @@ mod test {
     mod broadcast {
         use crate::{
             app::API_VERSION,
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -372,11 +372,11 @@ mod test {
         async fn broadcast_message() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+            let db = TestDb::with_local_postgres(&postgres).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert room with online agent.
             let room = shared_helpers::insert_room(&mut conn).await;
@@ -387,7 +387,7 @@ mod test {
                 .await;
 
             // Make message.broadcast request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = BroadcastRequest {
                 room_id: room.id(),
@@ -421,9 +421,9 @@ mod test {
         async fn broadcast_message_to_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+
+            let db = TestDb::with_local_postgres(&postgres).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
             let payload = BroadcastRequest {
@@ -444,16 +444,16 @@ mod test {
         async fn broadcast_message_when_not_in_the_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+            let db = TestDb::with_local_postgres(&postgres).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
             // Insert room with online agent.
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let room = shared_helpers::insert_room(&mut conn).await;
 
             // Make message.broadcast request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = BroadcastRequest {
                 room_id: room.id(),

@@ -568,7 +568,7 @@ mod tests {
     use crate::{
         backend::janus::client::{HandleId, SessionId},
         db::rtc::SharingPolicy as RtcSharingPolicy,
-        test_helpers::{db_sqlx::TestDb, prelude::*, test_deps::LocalDeps},
+        test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
     };
 
     #[tokio::test]

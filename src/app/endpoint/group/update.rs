@@ -72,7 +72,7 @@ impl Handler {
         let Payload { room_id, groups } = payload;
 
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &mut conn)
                 .await?
         };
@@ -105,7 +105,7 @@ impl Handler {
             .context("backend not found")
             .error(AppErrorKind::BackendNotFound)?;
 
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let event_id = conn
             .transaction::<_, _, AppError>(|conn| {
                 Box::pin(async move {
@@ -180,7 +180,7 @@ impl Handler {
             .await?;
 
         let pipeline = DieselPipeline::new(
-            context.db_sqlx().clone(),
+            context.db().clone(),
             outbox_config.try_wake_interval,
             outbox_config.max_delivery_interval,
         );
@@ -217,8 +217,9 @@ mod tests {
     use super::*;
     use crate::db::{group_agent::GroupItem, rtc::SharingPolicy as RtcSharingPolicy};
     use crate::test_helpers::{
-        db_sqlx, factory,
-        prelude::{GlobalContext, TestAgent, TestAuthz, TestContext, TestDb},
+        db::TestDb,
+        factory,
+        prelude::{GlobalContext, TestAgent, TestAuthz, TestContext},
         shared_helpers,
         test_deps::LocalDeps,
         USR_AUDIENCE,
@@ -231,10 +232,10 @@ mod tests {
     async fn missing_room() -> std::io::Result<()> {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+        let db = TestDb::with_local_postgres(&postgres).await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-        let context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+        let context = TestContext::new(db, TestAuthz::new()).await;
 
         let payload = Payload {
             room_id: db::room::Id::random(),
@@ -259,11 +260,11 @@ mod tests {
     async fn closed_room() -> std::io::Result<()> {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+        let db = TestDb::with_local_postgres(&postgres).await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-        let mut conn = db_sqlx.get_conn().await;
+        let mut conn = db.get_conn().await;
 
         let room = factory::Room::new()
             .audience(USR_AUDIENCE)
@@ -277,7 +278,7 @@ mod tests {
 
         shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
-        let context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+        let context = TestContext::new(db, TestAuthz::new()).await;
 
         let payload = Payload {
             room_id: room.id(),
@@ -302,11 +303,11 @@ mod tests {
     async fn wrong_rtc_sharing_policy() {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+        let db = TestDb::with_local_postgres(&postgres).await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-        let mut conn = db_sqlx.get_conn().await;
+        let mut conn = db.get_conn().await;
         let room = factory::Room::new()
             .audience(USR_AUDIENCE)
             .time((Bound::Included(Utc::now()), Bound::Unbounded))
@@ -323,7 +324,7 @@ mod tests {
             "update",
         );
 
-        let context = TestContext::new(db, db_sqlx, authz).await;
+        let context = TestContext::new(db, authz).await;
         let payload = Payload {
             room_id: room.id(),
             groups: Groups::new(vec![]),
@@ -348,13 +349,13 @@ mod tests {
         let postgres = local_deps.run_postgres();
         let janus = local_deps.run_janus();
         let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+
+        let db = TestDb::with_local_postgres(&postgres).await;
 
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-        let mut conn = db_sqlx.get_conn().await;
+        let mut conn = db.get_conn().await;
 
         let backend =
             shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
@@ -391,7 +392,7 @@ mod tests {
             "update",
         );
 
-        let mut context = TestContext::new(db.clone(), db_sqlx, authz).await;
+        let mut context = TestContext::new(db, authz).await;
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
 

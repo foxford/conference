@@ -59,7 +59,7 @@ impl StageHandle for VideoGroupUpdateJanusConfig {
         ctx: &Self::Context,
         _id: &EventId,
     ) -> Result<Option<Self::Stage>, StageError> {
-        let mut conn = ctx.get_conn_sqlx().await?;
+        let mut conn = ctx.get_conn().await?;
 
         let janus_backend = db::janus_backend::FindQuery::new(&self.backend_id)
             .execute(&mut conn)

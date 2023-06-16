@@ -263,7 +263,6 @@ mod test {
             authz::TestAuthz,
             context::TestContext,
             db::TestDb,
-            db_sqlx,
             prelude::{GlobalContext, TestAgent},
             shared_helpers,
             test_deps::LocalDeps,
@@ -276,10 +275,9 @@ mod test {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let janus = local_deps.run_janus();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::with_local_postgres(&postgres).await;
 
-        let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+        let mut context = TestContext::new(db, TestAuthz::new()).await;
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
         let rng = rand::thread_rng();
@@ -298,9 +296,9 @@ mod test {
             janus_url: janus.url.clone(),
         };
 
-        handle_online(event, context.janus_clients(), context.db_sqlx().clone()).await?;
+        handle_online(event, context.janus_clients(), context.db().clone()).await?;
 
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let backend = db::janus_backend::FindQuery::new(backend_id.agent_id())
             .execute(&mut conn)
             .await?
@@ -325,16 +323,15 @@ mod test {
         let local_deps = LocalDeps::new();
         let postgres = local_deps.run_postgres();
         let janus = local_deps.run_janus();
-        let db = TestDb::with_local_postgres(&postgres);
-        let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::with_local_postgres(&postgres).await;
 
-        let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+        let mut context = TestContext::new(db, TestAuthz::new()).await;
 
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
         let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let backend =
             shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
                 .await;
@@ -347,7 +344,7 @@ mod test {
             janus_url: janus.url.clone(),
         };
 
-        handle_online(event, context.janus_clients(), context.db_sqlx().clone()).await?;
+        handle_online(event, context.janus_clients(), context.db().clone()).await?;
 
         let new_backend = db::janus_backend::FindQuery::new(backend.id())
             .execute(&mut conn)

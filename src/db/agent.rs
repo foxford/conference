@@ -1,19 +1,14 @@
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
-use super::room::Object as Room;
 use crate::db;
-use crate::schema::agent;
 
 ////////////////////////////////////////////////////////////////////////////////
 pub type Id = db::id::Id;
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
-#[PgType = "agent_status"]
-#[DieselType = "Agent_status"]
 #[sqlx(type_name = "agent_status")]
 pub enum Status {
     #[serde(rename = "in_progress")]
@@ -23,9 +18,7 @@ pub enum Status {
     Ready,
 }
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
-#[belongs_to(Room, foreign_key = "room_id")]
-#[table_name = "agent"]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Object {
     id: Id,
     agent_id: AgentId,
@@ -36,13 +29,8 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn agent_id(&self) -> &AgentId {
-        &self.agent_id
-    }
-
-    #[cfg(test)]
-    pub fn status(&self) -> Status {
-        self.status
+    pub fn id(&self) -> Id {
+        self.id
     }
 }
 
@@ -135,10 +123,8 @@ impl<'a> ListQuery<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable)]
-#[table_name = "agent"]
+#[derive(Debug)]
 pub struct InsertQuery<'a> {
-    id: Option<Id>,
     agent_id: &'a AgentId,
     room_id: db::room::Id,
     status: Status,
@@ -148,7 +134,6 @@ pub struct InsertQuery<'a> {
 impl<'a> InsertQuery<'a> {
     pub fn new(agent_id: &'a AgentId, room_id: db::room::Id) -> Self {
         Self {
-            id: None,
             agent_id,
             room_id,
             status: Status::InProgress,
@@ -197,8 +182,7 @@ impl<'a> InsertQuery<'a> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, AsChangeset)]
-#[table_name = "agent"]
+#[derive(Debug)]
 pub struct UpdateQuery<'a> {
     agent_id: &'a AgentId,
     room_id: db::room::Id,
@@ -323,7 +307,7 @@ impl CleanupQuery {
 #[cfg(test)]
 mod tests {
     use super::{CleanupQuery, ListQuery, Status};
-    use crate::test_helpers::{db_sqlx::TestDb, prelude::*, test_deps::LocalDeps};
+    use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
     use chrono::{Duration, Utc};
 
     #[tokio::test]

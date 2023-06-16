@@ -116,13 +116,6 @@ impl From<StageError> for PipelineError {
     }
 }
 
-impl From<diesel::result::Error> for PipelineErrors {
-    fn from(source: diesel::result::Error) -> Self {
-        let error = PipelineError::new(ErrorKind::DbQueryFailed, Box::new(source));
-        PipelineErrors(vec![error])
-    }
-}
-
 impl From<sqlx::Error> for PipelineErrors {
     fn from(value: sqlx::Error) -> Self {
         let error = PipelineError::new(ErrorKind::DbQueryFailed, Box::new(value));

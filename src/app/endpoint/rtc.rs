@@ -35,7 +35,6 @@ use crate::{
         Jsep, JsonSdp,
     },
     db::{self, agent, agent_connection, rtc::SharingPolicy as RtcSharingPolicy},
-    diesel::Identifiable,
 };
 use tracing_attributes::instrument;
 
@@ -146,7 +145,7 @@ impl<'a, C: GlobalContext + ?Sized> RtcCreate<'a, C> {
         let room = match self.room {
             Either::Left(room) => room,
             Either::Right(room_id) => {
-                let mut conn = self.ctx.get_conn_sqlx().await?;
+                let mut conn = self.ctx.get_conn().await?;
                 helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &mut conn)
                     .await?
             }
@@ -168,7 +167,7 @@ impl<'a, C: GlobalContext + ?Sized> RtcCreate<'a, C> {
             .await?;
 
         // Create an rtc.
-        let mut conn = self.ctx.get_conn_sqlx().await?;
+        let mut conn = self.ctx.get_conn().await?;
         let rtc = db::rtc::InsertQuery::new(room.id(), self.reqp.as_agent_id())
             .execute(&mut conn)
             .await?;
@@ -222,7 +221,7 @@ impl RequestHandler for ReadHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             helpers::find_room_by_rtc_id(payload.id, helpers::RoomTimeRequirement::Open, &mut conn)
                 .await?
         };
@@ -245,7 +244,7 @@ impl RequestHandler for ReadHandler {
         context.metrics().observe_auth(authz_time);
 
         // Return rtc.
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let rtc = db::rtc::FindQuery::new(payload.id)
             .execute(&mut conn)
             .await?
@@ -327,7 +326,7 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let room = helpers::find_room_by_id(
             payload.room_id,
             helpers::RoomTimeRequirement::Open,
@@ -351,7 +350,7 @@ impl RequestHandler for ListHandler {
         context.metrics().observe_auth(authz_time);
 
         // Return rtc list.
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
 
         if let Some(offset) = payload.offset {
@@ -506,7 +505,7 @@ where
             RtcSharingPolicy::Owned => {
                 if self.intent == ConnectIntent::Write {
                     // Check that the RTC is owned by the same agent.
-                    let mut conn = self.ctx.get_conn_sqlx().await?;
+                    let mut conn = self.ctx.get_conn().await?;
                     let rtc_object = db::rtc::FindQuery::new(self.rtc_id)
                         .execute(&mut conn)
                         .await?
@@ -534,7 +533,7 @@ where
         ),
         AppError,
     > {
-        let mut conn = self.ctx.get_conn_sqlx().await?;
+        let mut conn = self.ctx.get_conn().await?;
         let reader_config =
             db::rtc_reader_config::read_config(handle_id.rtc_id(), &mut conn).await?;
         let writer_config =
@@ -546,7 +545,7 @@ where
     async fn run(self) -> Result<ConnectAndSignalResult, AppError> {
         let payload_id = self.rtc_id;
         let room = {
-            let mut conn = self.ctx.get_conn_sqlx().await?;
+            let mut conn = self.ctx.get_conn().await?;
             helpers::find_room_by_rtc_id(payload_id, helpers::RoomTimeRequirement::Open, &mut conn)
                 .await?
         };
@@ -560,7 +559,7 @@ where
 
         tokio::try_join!(self.check_room_policy(&room), self.authz(&room))?;
 
-        let mut conn = self.ctx.get_conn_sqlx().await?;
+        let mut conn = self.ctx.get_conn().await?;
         let group = self.ctx.config().janus_group.clone();
         // There are 4 cases:
         // 1. Connecting as a writer for a webinar for the first time. There's no `backend_id` in that case.
@@ -667,7 +666,7 @@ where
         let handle_id = handle.id;
         let room_id = room.id();
 
-        let mut conn = self.ctx.get_conn_sqlx().await?;
+        let mut conn = self.ctx.get_conn().await?;
         conn.transaction(|conn| {
             Box::pin(async move {
                 // Find agent in the DB who made the original `rtc.connect` request.
@@ -681,7 +680,7 @@ where
 
                 if let Some(agent) = maybe_agent.first() {
                     // Create agent connection in the DB.
-                    agent_connection::UpsertQuery::new(*agent.id(), payload_id, handle_id)
+                    agent_connection::UpsertQuery::new(agent.id(), payload_id, handle_id)
                         .execute(conn)
                         .await?;
 
@@ -711,7 +710,7 @@ where
         let jsep = Jsep::OfferOrAnswer(self.jsep.clone());
 
         let answer = if is_recvonly {
-            let mut conn = self.ctx.get_conn_sqlx().await?;
+            let mut conn = self.ctx.get_conn().await?;
             let reader_config =
                 db::rtc_reader_config::read_config(handle_id.rtc_id(), &mut conn).await?;
 
@@ -822,7 +821,7 @@ where
         // which are not really bound to anything.
         if let ConnectIntent::Write = self.intent {
             let id = self.rtc_id;
-            let mut conn = self.ctx.get_conn_sqlx().await?;
+            let mut conn = self.ctx.get_conn().await?;
 
             conn.transaction::<_, _, AppError>(|conn| {
                 Box::pin(async move {
@@ -904,7 +903,7 @@ impl RequestHandler for ConnectHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             helpers::find_room_by_rtc_id(payload.id, helpers::RoomTimeRequirement::Open, &mut conn)
                 .await?
         };
@@ -927,7 +926,7 @@ impl RequestHandler for ConnectHandler {
             RtcSharingPolicy::Shared => (),
             RtcSharingPolicy::Owned => {
                 if payload.intent == ConnectIntent::Write {
-                    let mut conn = context.get_conn_sqlx().await?;
+                    let mut conn = context.get_conn().await?;
                     // Check that the RTC is owned by the same agent.
                     let rtc = db::rtc::FindQuery::new(payload.id)
                         .execute(&mut conn)
@@ -960,7 +959,7 @@ impl RequestHandler for ConnectHandler {
         let room_id = room.id();
 
         // Choose backend to connect.
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let group = context.config().janus_group.clone();
         // There are 4 cases:
         // 1. Connecting as a writer for a webinar for the first time. There's no `backend_id` in that case.
@@ -1065,7 +1064,7 @@ impl RequestHandler for ConnectHandler {
         let agent_id = reqp.as_agent_id().clone();
         let handle_id = handle.id;
 
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let payload_id = payload.id;
         conn.transaction(|conn| {
             Box::pin(async move {
@@ -1080,7 +1079,7 @@ impl RequestHandler for ConnectHandler {
 
                 if let Some(agent) = maybe_agent.first() {
                     // Create agent connection in the DB.
-                    agent_connection::UpsertQuery::new(*agent.id(), payload_id, handle_id)
+                    agent_connection::UpsertQuery::new(agent.id(), payload_id, handle_id)
                         .execute(conn)
                         .await?;
 
@@ -1123,7 +1122,7 @@ mod test {
     mod create {
         use crate::{
             db::rtc::Object as Rtc,
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1132,11 +1131,10 @@ mod test {
         async fn create() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let mut authz = TestAuthz::new();
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert a room.
             let room = shared_helpers::insert_room(&mut conn).await;
@@ -1148,7 +1146,7 @@ mod test {
             authz.allow(agent.account_id(), object, "create");
 
             // Make rtc.create request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1171,11 +1169,10 @@ mod test {
         async fn create_rtc_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = CreateRequest {
                 room_id: db::room::Id::random(),
             };
@@ -1192,11 +1189,10 @@ mod test {
         async fn create_rtc_duplicate() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let mut authz = TestAuthz::new();
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert a room.
             let room = shared_helpers::insert_room(&mut conn).await;
@@ -1208,7 +1204,7 @@ mod test {
             authz.allow(agent.account_id(), object, "create");
 
             // Make rtc.create request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1235,12 +1231,11 @@ mod test {
         async fn create_rtc_for_different_agents_with_owned_sharing_policy() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let mut authz = TestAuthz::new();
 
             // Insert a room.
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let room = shared_helpers::insert_room_with_owned(&mut conn).await;
 
             // Allow agents to create RTCs in the room.
@@ -1252,7 +1247,7 @@ mod test {
             authz.allow(agent2.account_id(), object, "create");
 
             // Make two rtc.create requests.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let messages1 = handle_request::<CreateHandler>(&mut context, &agent1, payload)
@@ -1281,12 +1276,11 @@ mod test {
         async fn create_rtc_for_the_same_agent_with_owned_sharing_policy() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let mut authz = TestAuthz::new();
 
             // Insert a room.
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let room = shared_helpers::insert_room_with_owned(&mut conn).await;
 
             // Allow agent to create RTCs in the room.
@@ -1296,7 +1290,7 @@ mod test {
             authz.allow(agent.account_id(), object, "create");
 
             // Make the first rtc.create request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let messages = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1324,17 +1318,16 @@ mod test {
         async fn create_rtc_unauthorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             // Insert a room.
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let room = shared_helpers::insert_room(&mut conn).await;
 
             // Make rtc.create request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = CreateRequest { room_id: room.id() };
 
             let err = handle_request::<CreateHandler>(&mut context, &agent, payload)
@@ -1349,7 +1342,7 @@ mod test {
     mod read {
         use crate::{
             db::rtc::Object as Rtc,
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1358,12 +1351,11 @@ mod test {
         async fn read_rtc() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (rtc, classroom_id) = {
                 // Insert a room.
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 let room = shared_helpers::insert_room_with_owned(&mut conn).await;
 
                 // Create rtc.
@@ -1380,7 +1372,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.read request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let payload = ReadRequest { id: rtc.id() };
 
             let messages = handle_request::<ReadHandler>(&mut context, &agent, payload)
@@ -1397,17 +1389,16 @@ mod test {
         async fn read_rtc_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let rtc = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 shared_helpers::insert_rtc(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = ReadRequest { id: rtc.id() };
 
             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
@@ -1422,11 +1413,10 @@ mod test {
         async fn read_rtc_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = ReadRequest {
                 id: db::rtc::Id::random(),
             };
@@ -1443,7 +1433,7 @@ mod test {
     mod list {
         use crate::{
             db::rtc::Object as Rtc,
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1452,14 +1442,13 @@ mod test {
         async fn list_rtcs() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let (rtc, classroom_id) = {
                 // Insert a room.
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 let room = shared_helpers::insert_room_with_owned(&mut conn).await;
 
                 // Create rtc.
@@ -1474,7 +1463,7 @@ mod test {
             authz.allow(agent.account_id(), object, "list");
 
             // Make rtc.list request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = ListRequest {
                 room_id: rtc.room_id(),
@@ -1498,16 +1487,15 @@ mod test {
         async fn list_rtcs_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 shared_helpers::insert_room(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -1527,11 +1515,10 @@ mod test {
         async fn list_rtcs_missing_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: db::room::Id::random(),
@@ -1556,7 +1543,7 @@ mod test {
 
         use crate::{
             db::{agent::Status as AgentStatus, rtc::SharingPolicy as RtcSharingPolicy},
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1566,13 +1553,12 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let mut authz = TestAuthz::new();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             // Insert janus backends.
             let backend1 =
                 shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
@@ -1631,7 +1617,7 @@ mod test {
             let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(s3a1.account_id(), object, "read");
 
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             // Make rtc.connect request.
@@ -1659,13 +1645,12 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let mut authz = TestAuthz::new();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let _backend1 =
                 shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
                     .await;
@@ -1689,7 +1674,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -1716,13 +1701,12 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             // The first backend is big enough but has some load.
             let backend1_id = {
                 let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
@@ -1780,7 +1764,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -1807,8 +1791,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -1817,7 +1800,7 @@ mod test {
             let writer1 = TestAgent::new("web", "writer1", USR_AUDIENCE);
             let writer2 = TestAgent::new("web", "writer2", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert backend with capacity = 4.
             let backend_id = {
@@ -1884,7 +1867,7 @@ mod test {
             }
 
             // Connect to the rtc in the room without reserve.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -1926,15 +1909,14 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             // Insert backend.
             let backend_id = {
                 let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
@@ -1969,7 +1951,7 @@ mod test {
             authz.allow(reader.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -1989,8 +1971,7 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -1998,7 +1979,7 @@ mod test {
             let reader1 = TestAgent::new("web", "reader1", USR_AUDIENCE);
             let reader2 = TestAgent::new("web", "reader2", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             // Insert backend.
             let backend_id = {
                 let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
@@ -2046,7 +2027,7 @@ mod test {
             authz.allow(reader2.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2068,15 +2049,14 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let writer = TestAgent::new("web", "writer", USR_AUDIENCE);
             let reader = TestAgent::new("web", "reader", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             // Insert backend.
             let backend_id = {
                 let agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
@@ -2111,7 +2091,7 @@ mod test {
             authz.allow(writer.account_id(), object, "update");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2131,14 +2111,13 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let new_writer = TestAgent::new("web", "new-writer", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let now = Utc::now();
 
             // We have two backends with cap=800 and balance_cap=700 each
@@ -2290,7 +2269,7 @@ mod test {
             // Make an rtc.connect request.
             // Despite none of the backends are capable to host the reserve it should
             // select the least loaded one.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2318,14 +2297,13 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let new_reader = TestAgent::new("web", "new-reader", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let now = Utc::now();
 
             // Lets say we have a single backend with cap=800
@@ -2445,7 +2423,7 @@ mod test {
                 authz.allow(new_reader.account_id(), object, "read");
             }
 
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2492,14 +2470,13 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend =
                 shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
                     .await;
@@ -2531,7 +2508,7 @@ mod test {
             authz.allow(agent.account_id(), object, "update");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2551,14 +2528,13 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend =
                 shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
                     .await;
@@ -2589,7 +2565,7 @@ mod test {
             authz.allow(agent.account_id(), object, "update");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2612,14 +2588,13 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             let backend =
                 shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
                     .await;
@@ -2650,7 +2625,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc.connect request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2670,14 +2645,13 @@ mod test {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
             // Insert two backends in different groups.
             let backend1_agent = TestAgent::new("alpha", "janus", SVC_AUDIENCE);
 
@@ -2729,7 +2703,7 @@ mod test {
             authz.allow(agent.account_id(), object, "read");
 
             // Configure the app to the `right` janus group.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             context.config_mut().janus_group = Some(String::from("right"));
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_grouped_janus("right", tx);
@@ -2757,16 +2731,15 @@ mod test {
         async fn connect_to_rtc_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let rtc = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 shared_helpers::insert_rtc(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ConnectRequest {
                 id: rtc.id(),
@@ -2785,11 +2758,10 @@ mod test {
         async fn connect_to_rtc_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ConnectRequest {
                 id: db::rtc::Id::random(),

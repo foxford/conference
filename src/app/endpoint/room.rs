@@ -133,7 +133,7 @@ impl RequestHandler for CreateHandler {
 
         // Create a room.
         let audience = payload.audience.clone();
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
         let mut q = db::room::InsertQuery::new(
             payload.time,
             &payload.audience,
@@ -153,7 +153,7 @@ impl RequestHandler for CreateHandler {
 
         // Create a default group for minigroups
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             let groups = Groups::new(vec![GroupItem::new(0, vec![])]);
             db::group_agent::UpsertQuery::new(room.id(), &groups)
                 .execute(&mut conn)
@@ -223,7 +223,7 @@ impl RequestHandler for ReadHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &mut conn)
                 .await?
         };
@@ -328,7 +328,7 @@ impl RequestHandler for UpdateHandler {
         };
 
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             helpers::find_room_by_id(payload.id, time_requirement, &mut conn).await?
         };
 
@@ -351,7 +351,7 @@ impl RequestHandler for UpdateHandler {
 
         // Update room.
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
 
             let time = match payload.time {
                 None => None,
@@ -424,7 +424,7 @@ impl RequestHandler for UpdateHandler {
         if let (_, Bound::Excluded(closed_at)) = room.time() {
             if room_was_open && *closed_at <= Utc::now() {
                 let room = {
-                    let mut conn = context.get_conn_sqlx().await?;
+                    let mut conn = context.get_conn().await?;
                     db::room::set_closed_by(room.id(), reqp.as_agent_id(), &mut conn).await?
                 };
 
@@ -491,7 +491,7 @@ impl RequestHandler for CloseHandler {
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             helpers::find_room_by_id(
                 payload.id,
                 helpers::RoomTimeRequirement::NotClosedOrUnboundedOpen,
@@ -522,7 +522,7 @@ impl RequestHandler for CloseHandler {
 
         // Update room.
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             db::room::set_closed_by(room.id(), reqp.as_agent_id(), &mut conn).await?
         };
 
@@ -613,7 +613,7 @@ impl EnterHandler {
         start_timestamp: DateTime<Utc>,
     ) -> RequestResult {
         let room = {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             helpers::find_room_by_id(
                 payload.id,
                 helpers::RoomTimeRequirement::NotClosed,
@@ -640,7 +640,7 @@ impl EnterHandler {
 
         // Register agent in `in_progress` state.
         {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             db::agent::InsertQuery::new(reqp.as_agent_id(), room.id())
                 .execute(&mut conn)
                 .await?;
@@ -663,7 +663,7 @@ impl EnterHandler {
             .error(AppErrorKind::BrokerRequestFailed)?;
 
         {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
 
             if room.host() == Some(&subject) {
                 db::orphaned_room::remove_room(room.id(), &mut conn).await?;
@@ -682,7 +682,7 @@ impl EnterHandler {
         let room_id = room.id();
         let outbox_config = ctx.config().clone().outbox;
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             let rtcs = db::rtc::ListQuery::new()
                 .room_id(room_id)
                 .created_by(&[reqp.as_agent_id()])
@@ -716,7 +716,7 @@ impl EnterHandler {
             }
 
             // Adds participants to the default group for minigroups
-            let mut conn = context.get_conn_sqlx().await?;
+            let mut conn = context.get_conn().await?;
             let agent_id = reqp.as_agent_id().clone();
 
             let maybe_event_id = conn
@@ -801,7 +801,7 @@ impl EnterHandler {
             match maybe_event_id {
                 Some(event_id) => {
                     let pipeline = DieselPipeline::new(
-                        ctx.db_sqlx().clone(),
+                        ctx.db().clone(),
                         outbox_config.try_wake_interval,
                         outbox_config.max_delivery_interval,
                     );
@@ -863,7 +863,7 @@ impl RequestHandler for LeaveHandler {
     ) -> RequestResult {
         let mqtt_params = reqp.as_mqtt_params()?;
 
-        let mut conn = context.get_conn_sqlx().await?;
+        let mut conn = context.get_conn().await?;
 
         let room =
             helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &mut conn)
@@ -949,7 +949,7 @@ mod test {
         use crate::db::group_agent::{GroupItem, Groups};
         use crate::{
             db::room::Object as Room,
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -958,8 +958,7 @@ mod test {
         async fn create() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             // Allow user to create rooms.
             let mut authz = TestAuthz::new();
@@ -967,7 +966,7 @@ mod test {
             authz.allow(agent.account_id(), vec!["classrooms"], "create");
 
             // Make room.create request.
-            let mut context = TestContext::new(db.clone(), db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let time = (Bound::Unbounded, Bound::Unbounded);
             let classroom_id = Uuid::new_v4();
 
@@ -1011,10 +1010,9 @@ mod test {
         async fn create_room_unauthorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             // Make room.create request.
@@ -1040,8 +1038,7 @@ mod test {
         async fn create_default_group() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             // Allow user to create rooms.
             let mut authz = TestAuthz::new();
@@ -1049,7 +1046,7 @@ mod test {
             authz.allow(agent.account_id(), vec!["classrooms"], "create");
 
             // Make room.create request.
-            let mut context = TestContext::new(db.clone(), db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let time = (Bound::Unbounded, Bound::Unbounded);
             let classroom_id = Uuid::new_v4();
 
@@ -1070,7 +1067,7 @@ mod test {
             let (room, _, _) = find_response::<Room>(messages.as_slice());
 
             let mut conn = context
-                .get_conn_sqlx()
+                .get_conn()
                 .await
                 .expect("failed to get db connection");
 
@@ -1087,7 +1084,7 @@ mod test {
     mod read {
         use crate::{
             db::room::Object as Room,
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1096,11 +1093,10 @@ mod test {
         async fn read_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 // Create room.
                 shared_helpers::insert_room(&mut conn).await
             };
@@ -1116,7 +1112,7 @@ mod test {
             );
 
             // Make room.read request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let payload = ReadRequest { id: room.id() };
 
             let messages = handle_request::<ReadHandler>(&mut context, &agent, payload)
@@ -1135,16 +1131,15 @@ mod test {
         async fn read_room_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 shared_helpers::insert_room(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = ReadRequest { id: room.id() };
 
             let err = handle_request::<ReadHandler>(&mut context, &agent, payload)
@@ -1159,11 +1154,10 @@ mod test {
         async fn read_room_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = ReadRequest {
                 id: db::room::Id::random(),
             };
@@ -1186,7 +1180,7 @@ mod test {
 
         use crate::{
             db::room::Object as Room,
-            test_helpers::{db_sqlx, find_event_by_predicate, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, find_event_by_predicate, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1195,12 +1189,11 @@ mod test {
         async fn update_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
@@ -1222,7 +1215,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let classroom_id = Uuid::new_v4();
 
             let time = (
@@ -1263,12 +1256,11 @@ mod test {
         async fn update_room_with_wrong_time() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
@@ -1293,7 +1285,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
 
             let time = (
                 Bound::Included(now + Duration::hours(3)),
@@ -1318,12 +1310,11 @@ mod test {
         async fn update_and_close_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
@@ -1348,7 +1339,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
 
             let time = (
                 Bound::Included(now - Duration::hours(1)),
@@ -1399,12 +1390,11 @@ mod test {
         async fn update_and_close_unbounded_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
@@ -1425,7 +1415,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
 
             let time = (
                 Bound::Included(now - Duration::hours(1)),
@@ -1450,11 +1440,10 @@ mod test {
         async fn update_room_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = UpdateRequest {
                 id: db::room::Id::random(),
@@ -1477,18 +1466,17 @@ mod test {
         async fn update_room_closed() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
 
                 // Create closed room.
                 shared_helpers::insert_closed_room(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = UpdateRequest {
                 id: room.id(),
@@ -1515,7 +1503,7 @@ mod test {
 
         use crate::{
             db::room::Object as Room,
-            test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -1524,11 +1512,10 @@ mod test {
         async fn close_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
@@ -1550,7 +1537,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = CloseRequest { id: room.id() };
 
@@ -1577,11 +1564,10 @@ mod test {
         async fn close_infinite_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
@@ -1604,7 +1590,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = CloseRequest { id: room.id() };
 
@@ -1617,11 +1603,10 @@ mod test {
         async fn close_bounded_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
 
                 // Create room.
                 factory::Room::new()
@@ -1646,7 +1631,7 @@ mod test {
             );
 
             // Make room.update request.
-            let mut context = TestContext::new(db, db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = CloseRequest { id: room.id() };
 
@@ -1673,11 +1658,10 @@ mod test {
         async fn close_room_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = CloseRequest {
                 id: db::room::Id::random(),
@@ -1695,18 +1679,17 @@ mod test {
         async fn close_room_closed() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
 
                 // Create closed room.
                 shared_helpers::insert_closed_room(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = CloseRequest { id: room.id() };
 
@@ -1723,7 +1706,7 @@ mod test {
         use chrono::{Duration, Utc};
 
         use crate::db::group_agent::{GroupItem, Groups};
-        use crate::test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps};
+        use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
 
         use super::super::*;
 
@@ -1731,11 +1714,10 @@ mod test {
         async fn enter_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
 
                 // Create room.
                 shared_helpers::insert_room(&mut conn).await
@@ -1757,7 +1739,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db, db_sqlx, authz).await;
+            let context = TestContext::new(db, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1772,16 +1754,15 @@ mod test {
         async fn enter_room_not_authorized() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 shared_helpers::insert_room(&mut conn).await
             };
 
-            let context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let context = TestContext::new(db, TestAuthz::new()).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1800,10 +1781,9 @@ mod test {
         async fn enter_room_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = EnterRequest {
                 id: db::room::Id::random(),
@@ -1825,11 +1805,10 @@ mod test {
         async fn enter_room_closed() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 // Create closed room.
                 shared_helpers::insert_closed_room(&mut conn).await
             };
@@ -1845,7 +1824,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db, db_sqlx, authz).await;
+            let context = TestContext::new(db, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1864,11 +1843,10 @@ mod test {
         async fn enter_room_with_no_opening_time() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
 
                 // Create room without time.
                 factory::Room::new()
@@ -1889,7 +1867,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db, db_sqlx, authz).await;
+            let context = TestContext::new(db, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1908,11 +1886,10 @@ mod test {
         async fn enter_room_that_opens_in_the_future() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
 
                 // Create room without time.
                 factory::Room::new()
@@ -1936,7 +1913,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db, db_sqlx, authz).await;
+            let context = TestContext::new(db, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -1951,10 +1928,9 @@ mod test {
         async fn add_new_participant_to_default_group() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Create room.
             let room = shared_helpers::insert_room_with_owned(&mut conn).await;
@@ -1979,7 +1955,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db.clone(), db_sqlx, authz).await;
+            let context = TestContext::new(db, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -2002,11 +1978,10 @@ mod test {
         async fn existed_participant_in_group() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Create room.
             let room = shared_helpers::insert_room_with_owned(&mut conn).await;
@@ -2033,7 +2008,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let context = TestContext::new(db.clone(), db_sqlx, authz).await;
+            let context = TestContext::new(db, authz).await;
             let payload = EnterRequest { id: room.id() };
 
             let reqp = RequestParams::Http {
@@ -2057,13 +2032,12 @@ mod test {
             let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
 
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             let backend =
                 shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
@@ -2104,7 +2078,7 @@ mod test {
             );
 
             // Make room.enter request.
-            let mut context = TestContext::new(db.clone(), db_sqlx, authz).await;
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -2139,7 +2113,7 @@ mod test {
     }
 
     mod leave {
-        use crate::test_helpers::{db_sqlx, prelude::*, test_deps::LocalDeps};
+        use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
 
         use super::{super::*, DynSubRequest};
 
@@ -2147,11 +2121,10 @@ mod test {
         async fn leave_room() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Create room.
             let room = shared_helpers::insert_room(&mut conn).await;
@@ -2159,7 +2132,7 @@ mod test {
             shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make room.leave request.
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = LeaveRequest { id: room.id() };
 
             let messages = handle_request::<LeaveHandler>(&mut context, &agent, payload)
@@ -2189,16 +2162,15 @@ mod test {
         async fn leave_room_while_not_entered() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let mut conn = db_sqlx.get_conn().await;
+                let mut conn = db.get_conn().await;
                 shared_helpers::insert_room(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let payload = LeaveRequest { id: room.id() };
 
             let err = handle_request::<LeaveHandler>(&mut context, &agent, payload)
@@ -2213,10 +2185,9 @@ mod test {
         async fn leave_room_missing() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let db_sqlx = db_sqlx::TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::with_local_postgres(&postgres).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, db_sqlx, TestAuthz::new()).await;
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = LeaveRequest {
                 id: db::room::Id::random(),

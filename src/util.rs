@@ -18,13 +18,3 @@ where
     let r = serde_json::from_str::<T>(s)?;
     Ok(r)
 }
-
-pub async fn spawn_blocking<F, R>(f: F) -> R
-where
-    F: FnOnce() -> R + Send + 'static,
-    R: Send + 'static,
-{
-    tokio::task::spawn_blocking(f)
-        .await
-        .expect("Spawn blocking closure panicked")
-}

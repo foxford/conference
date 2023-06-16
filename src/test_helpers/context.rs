@@ -26,10 +26,9 @@ use crate::{
         conference::ConferenceHttpClient, mqtt::MqttClient, mqtt_gateway::MqttGatewayHttpClient,
     },
     config::Config,
-    db::ConnectionPool as Db,
 };
 
-use super::{authz::TestAuthz, db::TestDb, db_sqlx, SVC_AUDIENCE, USR_AUDIENCE};
+use super::{authz::TestAuthz, db, SVC_AUDIENCE, USR_AUDIENCE};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -132,8 +131,7 @@ impl MqttClient for TestMqttClient {
 pub struct TestContext {
     config: Config,
     authz: Authz,
-    db: TestDb,
-    db_sqlx: db_sqlx::TestDb,
+    db: db::TestDb,
     agent_id: AgentId,
     start_timestamp: DateTime<Utc>,
     clients: Option<Clients>,
@@ -146,7 +144,7 @@ pub struct TestContext {
 const WAITLIST_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl TestContext {
-    pub async fn new(db: TestDb, db_sqlx: super::db_sqlx::TestDb, authz: TestAuthz) -> Self {
+    pub async fn new(db: super::db::TestDb, authz: TestAuthz) -> Self {
         // can be safely dropped
         let mock_server = MockServer::start();
         let _subscriptions_mock = mock_server.mock(|when, then| {
@@ -163,7 +161,6 @@ impl TestContext {
             config,
             authz: authz.into(),
             db,
-            db_sqlx,
             agent_id,
             start_timestamp: Utc::now(),
             clients: None,
@@ -178,7 +175,7 @@ impl TestContext {
         self.clients = Some(Clients::new(
             events_sink,
             None,
-            self.db_sqlx().clone(),
+            self.db().clone(),
             WAITLIST_DURATION,
             IpAddr::V4(Ipv4Addr::LOCALHOST),
             None,
@@ -189,7 +186,7 @@ impl TestContext {
         self.clients = Some(Clients::new(
             events_sink,
             Some(group.to_string()),
-            self.db_sqlx().clone(),
+            self.db().clone(),
             WAITLIST_DURATION,
             IpAddr::V4(Ipv4Addr::LOCALHOST),
             None,
@@ -210,12 +207,8 @@ impl GlobalContext for TestContext {
         &self.config
     }
 
-    fn db(&self) -> &Db {
-        self.db.connection_pool()
-    }
-
-    fn db_sqlx(&self) -> &sqlx::PgPool {
-        &self.db_sqlx.pool
+    fn db(&self) -> &sqlx::PgPool {
+        &self.db.pool
     }
 
     fn agent_id(&self) -> &AgentId {

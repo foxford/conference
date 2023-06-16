@@ -2,10 +2,6 @@ use std::sync::Arc;
 
 use anyhow::Context as AnyhowContext;
 use chrono::{DateTime, Utc};
-use diesel::{
-    pg::PgConnection,
-    r2d2::{ConnectionManager, PooledConnection},
-};
 use futures::{future::BoxFuture, FutureExt};
 use parking_lot::Mutex;
 
@@ -20,7 +16,6 @@ use crate::{
         conference::ConferenceHttpClient, mqtt::MqttClient, mqtt_gateway::MqttGatewayHttpClient,
     },
     config::Config,
-    db::ConnectionPool as Db,
 };
 
 use super::metrics::Metrics;
@@ -32,8 +27,7 @@ pub trait Context: GlobalContext + MessageContext {}
 pub trait GlobalContext {
     fn authz(&self) -> &Authz;
     fn config(&self) -> &Config;
-    fn db(&self) -> &Db;
-    fn db_sqlx(&self) -> &sqlx::PgPool;
+    fn db(&self) -> &sqlx::PgPool;
     fn agent_id(&self) -> &AgentId;
     fn janus_clients(&self) -> Clients;
     fn redis_pool(&self) -> &Option<RedisConnectionPool>;
@@ -42,24 +36,8 @@ pub trait GlobalContext {
     fn conference_client(&self) -> &ConferenceHttpClient;
     fn mqtt_client(&self) -> &Mutex<dyn MqttClient>;
     fn nats_client(&self) -> Option<&dyn NatsClient>;
-    fn get_conn(
-        &self,
-    ) -> BoxFuture<Result<PooledConnection<ConnectionManager<PgConnection>>, AppError>> {
+    fn get_conn(&self) -> BoxFuture<Result<sqlx::pool::PoolConnection<sqlx::Postgres>, AppError>> {
         let db = self.db().clone();
-        async move {
-            crate::util::spawn_blocking(move || {
-                db.get()
-                    .context("Failed to acquire DB connection")
-                    .error(AppErrorKind::DbConnAcquisitionFailed)
-            })
-            .await
-        }
-        .boxed()
-    }
-    fn get_conn_sqlx(
-        &self,
-    ) -> BoxFuture<Result<sqlx::pool::PoolConnection<sqlx::Postgres>, AppError>> {
-        let db = self.db_sqlx().clone();
         async move {
             db.acquire()
                 .await
@@ -79,12 +57,8 @@ impl GlobalContext for Arc<dyn GlobalContext> {
         self.as_ref().config()
     }
 
-    fn db(&self) -> &Db {
+    fn db(&self) -> &sqlx::PgPool {
         self.as_ref().db()
-    }
-
-    fn db_sqlx(&self) -> &sqlx::PgPool {
-        self.as_ref().db_sqlx()
     }
 
     fn agent_id(&self) -> &AgentId {
@@ -130,8 +104,7 @@ pub trait MessageContext {
 pub struct AppContext {
     config: Arc<Config>,
     authz: Authz,
-    db: Db,
-    db_sqlx: sqlx::PgPool,
+    db: sqlx::PgPool,
     agent_id: AgentId,
     redis_pool: Option<RedisConnectionPool>,
     clients: Clients,
@@ -147,8 +120,7 @@ impl AppContext {
     pub fn new<M>(
         config: Config,
         authz: Authz,
-        db: Db,
-        db_sqlx: sqlx::PgPool,
+        db: sqlx::PgPool,
         clients: Clients,
         metrics: Arc<Metrics>,
         mqtt_gateway_client: MqttGatewayHttpClient,
@@ -163,7 +135,6 @@ impl AppContext {
         Self {
             config: Arc::new(config),
             authz,
-            db,
             agent_id,
             redis_pool: None,
             clients,
@@ -172,7 +143,7 @@ impl AppContext {
             conference_client,
             mqtt_client: Arc::new(Mutex::new(mqtt_client)),
             nats_client: None,
-            db_sqlx,
+            db,
         }
     }
 
@@ -204,12 +175,8 @@ impl GlobalContext for AppContext {
         &self.config
     }
 
-    fn db(&self) -> &Db {
+    fn db(&self) -> &sqlx::PgPool {
         &self.db
-    }
-
-    fn db_sqlx(&self) -> &sqlx::PgPool {
-        &self.db_sqlx
     }
 
     fn agent_id(&self) -> &AgentId {
@@ -270,12 +237,8 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.config()
     }
 
-    fn db(&self) -> &Db {
+    fn db(&self) -> &sqlx::PgPool {
         self.global_context.db()
-    }
-
-    fn db_sqlx(&self) -> &sqlx::PgPool {
-        self.global_context.db_sqlx()
     }
 
     fn agent_id(&self) -> &AgentId {

@@ -221,8 +221,8 @@ pub mod prelude {
     #[allow(unused_imports)]
     pub use super::{
         agent::TestAgent, authz::TestAuthz, build_evp, build_reqp, build_respp,
-        context::TestContext, db::TestDb, factory, find_event, find_request, find_response,
-        handle_event, handle_request, handle_response, shared_helpers, SVC_AUDIENCE, USR_AUDIENCE,
+        context::TestContext, factory, find_event, find_request, find_response, handle_event,
+        handle_request, handle_response, shared_helpers, SVC_AUDIENCE, USR_AUDIENCE,
     };
 }
 
@@ -230,7 +230,6 @@ pub mod agent;
 pub mod authz;
 pub mod context;
 pub mod db;
-pub mod db_sqlx;
 pub mod factory;
 pub mod outgoing_envelope;
 pub mod shared_helpers;
