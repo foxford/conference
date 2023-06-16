@@ -47,6 +47,7 @@ pub type Id = db::id::Id;
 // Deprecated in favor of `crate::db::rtc::SharingPolicy`.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
+#[sqlx(type_name = "room_backend")]
 // This is not just `Backend` because of clash with `diesel::backend::Backend`.
 pub enum RoomBackend {
     None,
