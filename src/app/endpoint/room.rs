@@ -13,7 +13,7 @@ use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Authenticable, Subscription,
 };
-use svc_conference_events::{EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
+use svc_events::{EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
 use svc_utils::extractors::AgentIdExtractor;
 use tracing::error;
 use tracing_attributes::instrument;
@@ -810,7 +810,7 @@ impl EnterHandler {
                         .await
                     {
                         if let ErrorKind::StageError(kind) = &err.kind {
-                            context.metrics().observe_outbox_error(kind);
+                            context.metrics().observe_outbox_error(&kind);
                         }
 
                         error!(%err, "failed to complete stage");

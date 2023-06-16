@@ -12,7 +12,8 @@ use serde_json::json;
 use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 use svc_nats_client::{
-    Event, Message, MessageStream, NatsClient, PublishError, SubscribeError, TermMessageError,
+    AckPolicy, DeliverPolicy, Event, Message, MessageStream, Messages, NatsClient, PublishError,
+    Subject, SubscribeError, TermMessageError,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -110,11 +111,20 @@ impl NatsClient for TestNatsClient {
         Ok(())
     }
 
-    async fn subscribe(&self) -> Result<MessageStream, SubscribeError> {
+    async fn subscribe_durable(&self) -> Result<MessageStream, SubscribeError> {
         unimplemented!()
     }
 
-    async fn terminate(&self, _message: Message) -> Result<(), TermMessageError> {
+    async fn subscribe_ephemeral(
+        &self,
+        _subject: Subject,
+        _deliver_policy: DeliverPolicy,
+        _ack_policy: AckPolicy,
+    ) -> Result<Messages, SubscribeError> {
+        unimplemented!()
+    }
+
+    async fn terminate(&self, _message: &Message) -> Result<(), TermMessageError> {
         unimplemented!()
     }
 }

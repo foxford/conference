@@ -29,7 +29,7 @@ use serde_json::json;
 use sqlx::Connection;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
-use svc_conference_events::{EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
+use svc_events::{EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
 use svc_utils::extractors::AgentIdExtractor;
 use tracing::error;
 
@@ -190,7 +190,7 @@ impl Handler {
             .await
         {
             if let ErrorKind::StageError(kind) = &err.kind {
-                context.metrics().observe_outbox_error(kind);
+                context.metrics().observe_outbox_error(&kind);
             }
 
             error!(%err, "failed to complete stage");

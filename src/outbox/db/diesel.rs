@@ -2,7 +2,7 @@ use chrono::{serde::ts_seconds, DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use svc_nats_client::EventId;
+use svc_events::EventId;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Object {
@@ -19,7 +19,8 @@ pub struct Object {
 
 impl Object {
     pub fn id(&self) -> EventId {
-        EventId::from((self.entity_type.clone(), self.id))
+        // TODO: add operation
+        EventId::from((self.entity_type.clone(), "".to_owned(), self.id))
     }
 
     pub fn retry_count(&self) -> i32 {

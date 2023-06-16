@@ -11,7 +11,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use svc_nats_client::EventId;
+use svc_events::EventId;
 
 pub mod video_group;
 

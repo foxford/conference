@@ -16,8 +16,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use svc_agent::AgentId;
-use svc_conference_events::EventV1 as Event;
-use svc_nats_client::EventId;
+use svc_events::{EventId, EventV1 as Event};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
