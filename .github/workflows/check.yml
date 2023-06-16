@@ -51,7 +51,7 @@ jobs:
         cargo sqlx database create &&
         cargo sqlx migrate run &&
         cargo sqlx prepare --check -- --tests &&
-        cargo test --verbose
+        cargo test
       env:
         RUST_BACKTRACE: 1
         DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
