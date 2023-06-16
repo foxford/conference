@@ -105,7 +105,7 @@ where
                 (Bound::Unbounded, _) => {
                     Err(anyhow!("Room has no opening time")).error(AppErrorKind::RoomClosed)
                 }
-                (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if *dt < now => {
+                (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if dt < now => {
                     Err(anyhow!("Room closed")).error(AppErrorKind::RoomClosed)
                 }
                 _ => Ok(room),
@@ -118,7 +118,7 @@ where
             let now = Utc::now();
 
             match room.time() {
-                (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if *dt < now => {
+                (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if dt < now => {
                     Err(anyhow!("Room closed")).error(AppErrorKind::RoomClosed)
                 }
                 _ => Ok(room),
@@ -133,14 +133,14 @@ where
                 Bound::Unbounded => {
                     Err(anyhow!("Room has no opening time")).error(AppErrorKind::RoomClosed)
                 }
-                Bound::Included(dt) | Bound::Excluded(dt) if *dt >= now => {
+                Bound::Included(dt) | Bound::Excluded(dt) if dt >= now => {
                     Err(anyhow!("Room not opened")).error(AppErrorKind::RoomClosed)
                 }
                 _ => Ok(()),
             }?;
 
             match closed_at {
-                Bound::Included(dt) | Bound::Excluded(dt) if *dt < now => {
+                Bound::Included(dt) | Bound::Excluded(dt) if dt < now => {
                     Err(anyhow!("Room closed")).error(AppErrorKind::RoomClosed)
                 }
                 _ => Ok(()),

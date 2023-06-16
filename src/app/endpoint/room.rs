@@ -43,7 +43,7 @@ use crate::{
     db::{
         self,
         group_agent::{GroupItem, Groups},
-        room::RoomBackend,
+        room::{RoomBackend, Time},
         rtc::SharingPolicy as RtcSharingPolicy,
     },
     outbox::{
@@ -74,7 +74,7 @@ impl SubscriptionRequest {
 #[derive(Debug, Deserialize)]
 pub struct CreateRequest {
     #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
-    time: (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>),
+    time: Time,
     audience: String,
     // Deprecated in favor of `rtc_sharing_policy`.
     #[serde(default)]
@@ -374,12 +374,12 @@ impl RequestHandler for UpdateHandler {
                             // Allow any change when no closing date specified.
                             _ => Some(new_time),
                         },
-                        (Bound::Included(o), Bound::Excluded(c)) if *c > Utc::now() => {
+                        (Bound::Included(o), Bound::Excluded(c)) if c > Utc::now() => {
                             match new_time {
                                 // Allow reschedule future closing.
                                 (_, Bound::Excluded(nc)) => {
                                     let nc = std::cmp::max(nc, Utc::now());
-                                    Some((Bound::Included(*o), Bound::Excluded(nc)))
+                                    Some((Bound::Included(o), Bound::Excluded(nc)))
                                 }
                                 _ => {
                                     return Err(anyhow!("Setting unbounded closing time is not allowed in this room anymore"))
@@ -422,7 +422,7 @@ impl RequestHandler for UpdateHandler {
 
         // Publish room closed notification.
         if let (_, Bound::Excluded(closed_at)) = room.time() {
-            if room_was_open && *closed_at <= Utc::now() {
+            if room_was_open && closed_at <= Utc::now() {
                 let room = {
                     let mut conn = context.get_conn().await?;
                     db::room::set_closed_by(room.id(), reqp.as_agent_id(), &mut conn).await?
@@ -810,7 +810,7 @@ impl EnterHandler {
                         .await
                     {
                         if let ErrorKind::StageError(kind) = &err.kind {
-                            context.metrics().observe_outbox_error(&kind);
+                            context.metrics().observe_outbox_error(kind);
                         }
 
                         error!(%err, "failed to complete stage");
@@ -988,7 +988,7 @@ mod test {
             let (room, respp, _) = find_response::<Room>(messages.as_slice());
             assert_eq!(respp.status(), ResponseStatus::OK);
             assert_eq!(room.audience(), USR_AUDIENCE);
-            assert_eq!(room.time(), &time);
+            assert_eq!(room.time(), time);
             assert_eq!(room.rtc_sharing_policy(), db::rtc::SharingPolicy::Shared);
             assert_eq!(room.reserve(), Some(123));
             assert_eq!(room.tags(), &json!({ "foo": "bar" }));
@@ -999,7 +999,7 @@ mod test {
             assert!(topic.ends_with(&format!("/audiences/{}/events", USR_AUDIENCE)));
             assert_eq!(evp.label(), "room.create");
             assert_eq!(room.audience(), USR_AUDIENCE);
-            assert_eq!(room.time(), &time);
+            assert_eq!(room.time(), time);
             assert_eq!(room.rtc_sharing_policy(), db::rtc::SharingPolicy::Shared);
             assert_eq!(room.reserve(), Some(123));
             assert_eq!(room.tags(), &json!({ "foo": "bar" }));
@@ -1241,7 +1241,7 @@ mod test {
             assert_eq!(respp.status(), ResponseStatus::OK);
             assert_eq!(resp_room.id(), room.id());
             assert_eq!(resp_room.audience(), room.audience());
-            assert_eq!(resp_room.time(), &time);
+            assert_eq!(resp_room.time(), time);
             assert_eq!(
                 resp_room.rtc_sharing_policy(),
                 db::rtc::SharingPolicy::Shared

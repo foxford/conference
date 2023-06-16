@@ -19,7 +19,7 @@ use crate::{
     },
 };
 
-use super::recording::SegmentSqlx;
+use super::recording::SegmentPg;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -27,16 +27,16 @@ pub type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
 #[derive(sqlx::Type, Debug, Clone)]
 #[sqlx(transparent)]
-pub struct TimeSqlx(sqlx::postgres::types::PgRange<DateTime<Utc>>);
+pub struct TimePg(sqlx::postgres::types::PgRange<DateTime<Utc>>);
 
-impl From<Time> for TimeSqlx {
+impl From<Time> for TimePg {
     fn from(value: Time) -> Self {
         Self(sqlx::postgres::types::PgRange::from(value))
     }
 }
 
-impl From<TimeSqlx> for Time {
-    fn from(value: TimeSqlx) -> Self {
+impl From<TimePg> for Time {
+    fn from(value: TimePg) -> Self {
         (value.0.start, value.0.end)
     }
 }
@@ -83,8 +83,8 @@ impl From<RoomBackend> for RtcSharingPolicy {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Object {
     pub id: Id,
-    #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
-    pub time: Time,
+    #[serde(with = "crate::serde::ts_seconds_bound_tuple_pg")]
+    pub time: TimePg,
     pub audience: String,
     #[serde(with = "ts_seconds")]
     pub created_at: DateTime<Utc>,
@@ -103,44 +103,6 @@ pub struct Object {
     pub infinite: bool,
 }
 
-pub struct ObjectSqlx {
-    id: Id,
-    time: TimeSqlx,
-    audience: String,
-    created_at: DateTime<Utc>,
-    backend: RoomBackend,
-    reserve: Option<i32>,
-    tags: JsonValue,
-    backend_id: Option<AgentId>,
-    rtc_sharing_policy: RtcSharingPolicy,
-    classroom_id: sqlx::types::Uuid,
-    host: Option<AgentId>,
-    timed_out: bool,
-    closed_by: Option<AgentId>,
-    infinite: bool,
-}
-
-impl From<ObjectSqlx> for Object {
-    fn from(o: ObjectSqlx) -> Self {
-        Self {
-            id: o.id,
-            time: o.time.into(),
-            audience: o.audience,
-            created_at: o.created_at,
-            backend: o.backend,
-            reserve: o.reserve,
-            tags: o.tags,
-            backend_id: o.backend_id,
-            rtc_sharing_policy: o.rtc_sharing_policy,
-            classroom_id: sqlx_to_uuid(o.classroom_id),
-            host: o.host,
-            timed_out: o.timed_out,
-            closed_by: o.closed_by,
-            infinite: o.infinite,
-        }
-    }
-}
-
 impl Object {
     pub fn audience(&self) -> &str {
         &self.audience
@@ -150,8 +112,8 @@ impl Object {
         self.id
     }
 
-    pub fn time(&self) -> &Time {
-        &self.time
+    pub fn time(&self) -> Time {
+        Time::from(self.time.clone())
     }
 
     pub fn reserve(&self) -> Option<i32> {
@@ -159,7 +121,7 @@ impl Object {
     }
 
     pub fn is_closed(&self) -> bool {
-        match self.time.1 {
+        match self.time().1 {
             Bound::Included(t) => t < Utc::now(),
             Bound::Excluded(t) => t <= Utc::now(),
             Bound::Unbounded => false,
@@ -219,12 +181,12 @@ impl FindQuery {
 impl FindQueryable for FindQuery {
     async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
         sqlx::query_as!(
-            ObjectSqlx,
+            Object,
             r#"
             SELECT
                 id as "id: Id",
                 backend_id as "backend_id: AgentId",
-                time as "time: TimeSqlx",
+                time as "time: TimePg",
                 reserve,
                 tags,
                 classroom_id,
@@ -244,7 +206,6 @@ impl FindQueryable for FindQuery {
         )
         .fetch_optional(conn)
         .await
-        .map(|o| o.map(Object::from))
     }
 }
 
@@ -263,12 +224,12 @@ impl FindByRtcIdQuery {
 impl FindQueryable for FindByRtcIdQuery {
     async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
         sqlx::query_as!(
-            ObjectSqlx,
+            Object,
             r#"
             SELECT
                 r.id as "id: Id",
                 r.backend_id as "backend_id: AgentId",
-                r.time as "time: TimeSqlx",
+                r.time as "time: TimePg",
                 r.reserve,
                 r.tags,
                 r.classroom_id,
@@ -290,7 +251,6 @@ impl FindQueryable for FindByRtcIdQuery {
         )
         .fetch_optional(conn)
         .await
-        .map(|o| o.map(Object::from))
     }
 }
 
@@ -298,7 +258,7 @@ impl FindQueryable for FindByRtcIdQuery {
 
 struct FinishedInProgressRecordingsRow {
     room_id: Id,
-    time: TimeSqlx,
+    time: TimePg,
     audience: String,
     room_created_at: DateTime<Utc>,
     backend: RoomBackend,
@@ -313,7 +273,7 @@ struct FinishedInProgressRecordingsRow {
     infinite: bool,
     rtc_id: db::rtc::Id,
     started_at: Option<DateTime<Utc>>,
-    segments: Option<Vec<SegmentSqlx>>,
+    segments: Option<Vec<SegmentPg>>,
     status: RecordingStatus,
     mjr_dumps_uris: Option<Vec<String>>,
     handle_id: HandleId,
@@ -331,7 +291,7 @@ impl FinishedInProgressRecordingsRow {
         (
             Object {
                 id: self.room_id,
-                time: Time::from(self.time),
+                time: self.time,
                 audience: self.audience,
                 created_at: self.room_created_at,
                 backend: self.backend,
@@ -339,7 +299,7 @@ impl FinishedInProgressRecordingsRow {
                 tags: self.tags,
                 backend_id: Some(self.backend_id.clone()),
                 rtc_sharing_policy: self.rtc_sharing_policy,
-                classroom_id: sqlx_to_uuid(self.classroom_id),
+                classroom_id: self.classroom_id,
                 host: self.host,
                 timed_out: self.timed_out,
                 closed_by: self.closed_by,
@@ -348,9 +308,7 @@ impl FinishedInProgressRecordingsRow {
             Recording {
                 rtc_id: self.rtc_id,
                 started_at: self.started_at,
-                segments: self
-                    .segments
-                    .map(|ss| ss.into_iter().map(|s| s.into()).collect()),
+                segments: self.segments,
                 status: self.status,
                 mjr_dumps_uris: self.mjr_dumps_uris,
             },
@@ -386,7 +344,7 @@ pub async fn finished_with_in_progress_recordings(
         r#"
         SELECT
             room.id as "room_id: Id",
-            room.time as "time: TimeSqlx",
+            room.time as "time: TimePg",
             room.audience,
             room.created_at "room_created_at: _",
             room.backend as "backend: RoomBackend",
@@ -401,7 +359,7 @@ pub async fn finished_with_in_progress_recordings(
             room.infinite,
             recording.rtc_id as "rtc_id: db::rtc::Id",
             recording.started_at,
-            recording.segments as "segments: Vec<SegmentSqlx>",
+            recording.segments as "segments: Vec<SegmentPg>",
             recording.status as "status: RecordingStatus",
             recording.mjr_dumps_uris,
             janus_backend.handle_id as "handle_id: HandleId",
@@ -498,7 +456,7 @@ impl<'a> InsertQuery<'a> {
 
     pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
         sqlx::query_as!(
-            ObjectSqlx,
+            Object,
             r#"
             INSERT INTO room (
                 time, audience, backend, reserve, tags,
@@ -508,7 +466,7 @@ impl<'a> InsertQuery<'a> {
             RETURNING
                 id as "id: Id",
                 backend_id as "backend_id: AgentId",
-                time as "time: TimeSqlx",
+                time as "time: TimePg",
                 reserve,
                 tags,
                 classroom_id,
@@ -521,19 +479,18 @@ impl<'a> InsertQuery<'a> {
                 infinite,
                 closed_by as "closed_by: AgentId"
             "#,
-            TimeSqlx::from(self.time) as TimeSqlx,
+            TimePg::from(self.time) as TimePg,
             self.audience,
             self.backend as RoomBackend,
             self.reserve,
             self.tags,
             self.backend_id as Option<&AgentId>,
             self.rtc_sharing_policy as RtcSharingPolicy,
-            uuid_to_sqlx(self.classroom_id),
+            self.classroom_id,
             self.infinite,
         )
         .fetch_one(conn)
         .await
-        .map(Object::from)
     }
 }
 
@@ -601,7 +558,7 @@ impl<'a> UpdateQuery<'a> {
 
     pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
         sqlx::query_as!(
-            ObjectSqlx,
+            Object,
             r#"
             UPDATE room
             SET
@@ -617,7 +574,7 @@ impl<'a> UpdateQuery<'a> {
             RETURNING
                 id as "id: Id",
                 backend_id as "backend_id: AgentId",
-                time as "time: TimeSqlx",
+                time as "time: TimePg",
                 reserve,
                 tags,
                 classroom_id,
@@ -632,25 +589,16 @@ impl<'a> UpdateQuery<'a> {
             "#,
             self.id as db::room::Id,
             self.backend_id as Option<&AgentId>,
-            self.time.map(TimeSqlx::from) as Option<TimeSqlx>,
+            self.time.map(TimePg::from) as Option<TimePg>,
             self.reserve.flatten(),
             self.tags,
-            self.classroom_id.map(uuid_to_sqlx),
+            self.classroom_id,
             self.host as Option<&AgentId>,
             self.timed_out
         )
         .fetch_one(conn)
         .await
-        .map(Object::from)
     }
-}
-
-pub fn uuid_to_sqlx(uuid: Uuid) -> sqlx::types::Uuid {
-    sqlx::types::Uuid::from_u128_le(uuid.to_u128_le())
-}
-
-pub fn sqlx_to_uuid(uuid: sqlx::types::Uuid) -> Uuid {
-    Uuid::from_u128_le(uuid.to_u128_le())
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -661,7 +609,7 @@ pub async fn set_closed_by(
     conn: &mut sqlx::PgConnection,
 ) -> sqlx::Result<Object> {
     sqlx::query_as!(
-        ObjectSqlx,
+        Object,
         r#"
         UPDATE room
         SET
@@ -672,7 +620,7 @@ pub async fn set_closed_by(
         RETURNING
             id as "id: Id",
             backend_id as "backend_id: AgentId",
-            time as "time: TimeSqlx",
+            time as "time: TimePg",
             reserve,
             tags,
             classroom_id,
@@ -690,7 +638,6 @@ pub async fn set_closed_by(
     )
     .fetch_one(conn)
     .await
-    .map(Object::from)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -775,9 +722,9 @@ mod tests {
         async fn selects_appropriate_backend_by_group() {
             let local_deps = LocalDeps::new();
             let postgres = local_deps.run_postgres();
-            let db_sqlx = db::TestDb::with_local_postgres(&postgres).await;
+            let db = db::TestDb::with_local_postgres(&postgres).await;
 
-            let mut conn = db_sqlx.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             let backend1 = shared_helpers::insert_janus_backend_with_group(
                 &mut conn,

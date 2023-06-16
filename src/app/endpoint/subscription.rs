@@ -259,8 +259,8 @@ mod tests {
             // Create room and put the agent online.
             let room = shared_helpers::insert_room(&mut conn).await;
 
-            let mut conn_sqlx = db.get_conn().await;
-            shared_helpers::insert_agent(&mut conn_sqlx, agent.agent_id(), room.id()).await;
+            let mut conn = db.get_conn().await;
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Send subscription.delete response.
             let mut context = TestContext::new(db, TestAuthz::new()).await;

@@ -173,7 +173,7 @@ struct ListWithRecordingRow {
     created_at: DateTime<Utc>,
     created_by: AgentId,
     started_at: Option<DateTime<Utc>>,
-    segments: Option<Vec<db::recording::SegmentSqlx>>,
+    segments: Option<Vec<db::recording::SegmentPg>>,
     status: Option<db::recording::Status>,
     mjr_dumps_uris: Option<Vec<String>>,
 }
@@ -191,9 +191,7 @@ impl ListWithRecordingRow {
                 Some(status) => Some(Recording {
                     rtc_id: self.id,
                     started_at: self.started_at,
-                    segments: self
-                        .segments
-                        .map(|ss| ss.into_iter().map(db::recording::Segment::from).collect()),
+                    segments: self.segments,
                     status,
                     mjr_dumps_uris: self.mjr_dumps_uris,
                 }),
@@ -221,7 +219,7 @@ impl ListWithRecordingQuery {
                 rtc.created_at,
                 rtc.created_by as "created_by: AgentId",
                 recording.started_at,
-                recording.segments as "segments: Vec<db::recording::SegmentSqlx>",
+                recording.segments as "segments: Vec<db::recording::SegmentPg>",
                 recording.status as "status?: db::recording::Status",
                 recording.mjr_dumps_uris
             FROM rtc

@@ -18,6 +18,7 @@ pub async fn create_pool(
         .expect("Failed to create sqlx database pool")
 }
 
+// This type helps to fix query type issues.
 #[derive(sqlx::Encode)]
 pub struct AgentIds<'a>(&'a [&'a AgentId]);
 
@@ -27,6 +28,7 @@ impl sqlx::Type<sqlx::Postgres> for AgentIds<'_> {
     }
 }
 
+// This type helps to fix query type issues.
 #[derive(sqlx::Encode)]
 pub struct Ids<'a>(&'a [id::Id]);
 

@@ -2,7 +2,6 @@ use chrono::{serde::ts_seconds, DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
-use super::room::sqlx_to_uuid;
 use super::room::Object as Room;
 use super::Ids;
 
@@ -39,7 +38,7 @@ struct TimedOutRow {
     room_id: super::room::Id,
     host_left_at: DateTime<Utc>,
     backend_id: Option<AgentId>,
-    time: super::room::TimeSqlx,
+    time: super::room::TimePg,
     reserve: Option<i32>,
     tags: serde_json::Value,
     classroom_id: Option<sqlx::types::Uuid>,
@@ -62,7 +61,7 @@ impl TimedOutRow {
             },
             self.classroom_id.map(|classroom_id| Room {
                 id: self.room_id,
-                time: self.time.into(),
+                time: self.time,
                 audience: self.audience,
                 created_at: self.created_at,
                 backend: self.backend,
@@ -70,7 +69,7 @@ impl TimedOutRow {
                 tags: self.tags,
                 backend_id: self.backend_id,
                 rtc_sharing_policy: self.rtc_sharing_policy,
-                classroom_id: sqlx_to_uuid(classroom_id),
+                classroom_id,
                 host: self.host,
                 timed_out: self.timed_out,
                 closed_by: self.closed_by,
@@ -91,7 +90,7 @@ pub async fn get_timed_out(
             orph.id as "room_id: super::room::Id",
             orph.host_left_at,
             r.backend_id as "backend_id: AgentId",
-            r.time as "time: super::room::TimeSqlx",
+            r.time as "time: super::room::TimePg",
             r.reserve,
             r.tags,
             r.classroom_id as "classroom_id?: _",

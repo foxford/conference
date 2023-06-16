@@ -5,7 +5,7 @@ use svc_agent::AgentId;
 
 use crate::{backend::janus::client::HandleId, db};
 
-use super::room::TimeSqlx;
+use super::room::TimePg;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -23,8 +23,8 @@ pub struct Object {
     label: String,
     sent_by: AgentId,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(with = "crate::serde::ts_seconds_option_bound_tuple_sqlx")]
-    time: Option<TimeSqlx>,
+    #[serde(with = "crate::serde::ts_seconds_option_bound_tuple_pg")]
+    time: Option<TimePg>,
     #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
 }
@@ -133,7 +133,7 @@ impl ListQuery {
                 janus_rtc_stream.created_at,
                 janus_rtc_stream.label,
                 janus_rtc_stream.sent_by as "sent_by: AgentId",
-                janus_rtc_stream.time as "time: TimeSqlx"
+                janus_rtc_stream.time as "time: TimePg"
             FROM janus_rtc_stream
             INNER JOIN rtc
             ON rtc.id = janus_rtc_stream.rtc_id
@@ -157,7 +157,7 @@ impl ListQuery {
             LIMIT $6
             "#,
             self.rtc_id as Option<Id>,
-            self.time.map(|t| TimeSqlx::from(t)) as Option<TimeSqlx>,
+            self.time.map(|t| TimePg::from(t)) as Option<TimePg>,
             self.active,
             self.room_id as Option<Id>,
             self.offset,
@@ -213,7 +213,7 @@ impl<'a> InsertQuery<'a> {
                 created_at,
                 label,
                 sent_by as "sent_by: AgentId",
-                time as "time: TimeSqlx"
+                time as "time: TimePg"
             "#,
             self.id as Id,
             self.handle_id as HandleId,
@@ -249,7 +249,7 @@ pub async fn start(
             created_at,
             label,
             sent_by as "sent_by: AgentId",
-            time as "time: TimeSqlx"
+            time as "time: TimePg"
         "#,
         id as Id,
     )
@@ -288,7 +288,7 @@ pub async fn stop(
             created_at,
             label,
             sent_by as "sent_by: AgentId",
-            time as "time: TimeSqlx"
+            time as "time: TimePg"
         "#,
         id as Id,
     )
@@ -304,7 +304,7 @@ pub struct StreamWithRoomId {
     pub backend_id: AgentId,
     pub label: String,
     pub sent_by: AgentId,
-    pub time: Option<TimeSqlx>,
+    pub time: Option<TimePg>,
     pub created_at: DateTime<Utc>,
     pub room_id: db::room::Id,
 }
@@ -356,7 +356,7 @@ pub async fn stop_running_streams_by_backend(
             "janus_rtc_stream"."created_at",
             "janus_rtc_stream"."label",
             "janus_rtc_stream"."sent_by" as "sent_by: AgentId",
-            "janus_rtc_stream"."time" as "time: TimeSqlx",
+            "janus_rtc_stream"."time" as "time: TimePg",
             "rtc"."room_id" as "room_id: Id"
         "#,
         backend_id as &AgentId
@@ -381,7 +381,7 @@ pub async fn get_rtc_stream(
             "janus_rtc_stream"."created_at",
             "janus_rtc_stream"."label",
             "janus_rtc_stream"."sent_by" as "sent_by: AgentId",
-            "janus_rtc_stream"."time" as "time: TimeSqlx"
+            "janus_rtc_stream"."time" as "time: TimePg"
         FROM janus_rtc_stream
         WHERE
             id = $1

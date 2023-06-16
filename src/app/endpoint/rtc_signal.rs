@@ -117,7 +117,7 @@ pub async fn start_rtc_stream<C: Context>(
                 if !room.infinite() {
                     if let (start, Bound::Unbounded) = room.time() {
                         let new_time = (
-                            *start,
+                            start,
                             Bound::Excluded(Utc::now() + Duration::hours(max_room_duration)),
                         );
 

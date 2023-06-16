@@ -124,37 +124,37 @@ mod tests {
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
             let dispatcher = TestAgent::new("dispatcher-0", "dispatcher", SVC_AUDIENCE);
 
-            let mut conn_sqlx = db.get_conn().await;
+            let mut conn = db.get_conn().await;
 
             // Insert a room with RTCs and agent writer configs.
             let room = factory::Room::new()
                 .audience(USR_AUDIENCE)
                 .time((Bound::Included(Utc::now()), Bound::Unbounded))
                 .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                .insert(&mut conn_sqlx)
+                .insert(&mut conn)
                 .await;
 
-            shared_helpers::insert_agent(&mut conn_sqlx, agent1.agent_id(), room.id()).await;
+            shared_helpers::insert_agent(&mut conn, agent1.agent_id(), room.id()).await;
 
             let rtc2 = factory::Rtc::new(room.id())
                 .created_by(agent2.agent_id().to_owned())
-                .insert(&mut conn_sqlx)
+                .insert(&mut conn)
                 .await;
 
             factory::RtcWriterConfigSnaphost::new(&rtc2, Some(true), Some(true))
-                .insert(&mut conn_sqlx)
+                .insert(&mut conn)
                 .await;
 
             let rtc3 = factory::Rtc::new(room.id())
                 .created_by(agent3.agent_id().to_owned())
-                .insert(&mut conn_sqlx)
+                .insert(&mut conn)
                 .await;
 
             factory::RtcWriterConfigSnaphost::new(&rtc3, Some(false), Some(false))
-                .insert(&mut conn_sqlx)
+                .insert(&mut conn)
                 .await;
             factory::RtcWriterConfigSnaphost::new(&rtc3, Some(true), None)
-                .insert(&mut conn_sqlx)
+                .insert(&mut conn)
                 .await;
 
             // Make agent_writer_config.read request.

@@ -190,7 +190,7 @@ impl Handler {
             .await
         {
             if let ErrorKind::StageError(kind) = &err.kind {
-                context.metrics().observe_outbox_error(&kind);
+                context.metrics().observe_outbox_error(kind);
             }
 
             error!(%err, "failed to complete stage");

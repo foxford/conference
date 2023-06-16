@@ -11,16 +11,25 @@ pub type Segment = (Bound<i64>, Bound<i64>);
 
 #[derive(sqlx::Type, Debug, Clone)]
 #[sqlx(transparent)]
-pub struct SegmentSqlx(sqlx::postgres::types::PgRange<i64>);
+pub struct SegmentPg(sqlx::postgres::types::PgRange<i64>);
 
-impl From<Segment> for SegmentSqlx {
-    fn from(value: Segment) -> Self {
-        SegmentSqlx(sqlx::postgres::types::PgRange::from(value))
+impl Serialize for SegmentPg {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Segment::from(self.clone()).serialize(serializer)
     }
 }
 
-impl From<SegmentSqlx> for Segment {
-    fn from(value: SegmentSqlx) -> Self {
+impl From<Segment> for SegmentPg {
+    fn from(value: Segment) -> Self {
+        SegmentPg(sqlx::postgres::types::PgRange::from(value))
+    }
+}
+
+impl From<SegmentPg> for Segment {
+    fn from(value: SegmentPg) -> Self {
         (value.0.start, value.0.end)
     }
 }
@@ -49,7 +58,7 @@ pub struct Object {
     pub rtc_id: db::rtc::Id,
     #[serde(with = "crate::serde::ts_seconds_option")]
     pub started_at: Option<DateTime<Utc>>,
-    pub segments: Option<Vec<Segment>>,
+    pub segments: Option<Vec<SegmentPg>>,
     pub status: Status,
     pub mjr_dumps_uris: Option<Vec<String>>,
 }
@@ -69,28 +78,6 @@ impl Object {
     }
 }
 
-pub struct ObjectSqlx {
-    rtc_id: db::rtc::Id,
-    started_at: Option<DateTime<Utc>>,
-    segments: Option<Vec<SegmentSqlx>>,
-    status: Status,
-    mjr_dumps_uris: Option<Vec<String>>,
-}
-
-impl From<ObjectSqlx> for Object {
-    fn from(value: ObjectSqlx) -> Self {
-        Object {
-            rtc_id: value.rtc_id,
-            started_at: value.started_at,
-            segments: value
-                .segments
-                .map(|ss| ss.into_iter().map(Segment::from).collect()),
-            status: value.status,
-            mjr_dumps_uris: value.mjr_dumps_uris,
-        }
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
@@ -105,12 +92,12 @@ impl FindQuery {
 
     pub async fn execute(self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
         sqlx::query_as!(
-            ObjectSqlx,
+            Object,
             r#"
             SELECT
                 rtc_id as "rtc_id: db::rtc::Id",
                 started_at,
-                segments as "segments: Vec<SegmentSqlx>",
+                segments as "segments: Vec<SegmentPg>",
                 status as "status: Status",
                 mjr_dumps_uris
             FROM recording
@@ -121,7 +108,6 @@ impl FindQuery {
         )
         .fetch_optional(conn)
         .await
-        .map(|o| o.map(Object::from))
     }
 }
 
@@ -139,14 +125,14 @@ impl InsertQuery {
 
     pub async fn execute(self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
         sqlx::query_as!(
-            ObjectSqlx,
+            Object,
             r#"
             INSERT INTO recording (rtc_id)
             VALUES ($1)
             RETURNING
                 rtc_id as "rtc_id: db::rtc::Id",
                 started_at,
-                segments as "segments: Vec<SegmentSqlx>",
+                segments as "segments: Vec<SegmentPg>",
                 status as "status: Status",
                 mjr_dumps_uris
             "#,
@@ -154,7 +140,6 @@ impl InsertQuery {
         )
         .fetch_one(conn)
         .await
-        .map(Object::from)
     }
 }
 
@@ -192,7 +177,7 @@ impl UpdateQuery {
 
     pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
         sqlx::query_as!(
-            ObjectSqlx,
+            Object,
             r#"
             UPDATE recording
             SET
@@ -208,7 +193,7 @@ impl UpdateQuery {
             RETURNING
                 rtc_id as "rtc_id: db::rtc::Id",
                 started_at,
-                segments as "segments: Vec<SegmentSqlx>",
+                segments as "segments: Vec<SegmentPg>",
                 status as "status: Status",
                 mjr_dumps_uris
             "#,
@@ -218,6 +203,5 @@ impl UpdateQuery {
         )
         .fetch_one(conn)
         .await
-        .map(Object::from)
     }
 }
