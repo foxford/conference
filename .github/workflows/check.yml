@@ -43,7 +43,7 @@ jobs:
         DOCKER_PASSWORD: ${{ secrets.YANDEX_DOCKER_PASSWORD }}
         DOCKER_USERNAME: ${{ secrets.YANDEX_DOCKER_USERNAME }}
     - name: Install sqlx-cli
-      run: cargo install sqlx-cli --version 0.6.3 --no-default-features -F postgres,runtime-tokio-native-tls
+      run: cargo install sqlx-cli --version 0.6.3 --no-default-features -F native-tls,postgres
     - name: Run tests
       run: >
         cargo sqlx database create &&
