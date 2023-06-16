@@ -17,6 +17,8 @@ jobs:
         image: postgres
         env:
           POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -52,6 +54,5 @@ jobs:
         cargo test --verbose
       env:
         RUST_BACKTRACE: 1
-        PGPORT: 5432
         DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
         SQLX_OFFLINE: true
