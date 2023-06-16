@@ -17,6 +17,7 @@ RUN mkdir /build/src && echo "fn main() {}" > /build/src/main.rs
 RUN cargo build --release
 
 # Build app
+COPY sqlx-data.json /build/sqlx-data.json
 COPY src/ /build/src/
 RUN touch src/main.rs && cargo build --release
 
