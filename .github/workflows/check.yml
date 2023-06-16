@@ -32,8 +32,10 @@ jobs:
       env:
         DOCKER_PASSWORD: ${{ secrets.YANDEX_DOCKER_PASSWORD }}
         DOCKER_USERNAME: ${{ secrets.YANDEX_DOCKER_USERNAME }}
+    - name: Install sqlx-cli
+      run: cargo install sqlx-cli --version 0.6.3
     - name: Run tests
-      run: cargo test --verbose 
+      run: cargo sqlx database create && cargo sqlx migrate run && cargo test --verbose
       env:
         RUST_BACKTRACE: 1
         PGPORT: 5432
