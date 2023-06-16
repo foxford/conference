@@ -465,7 +465,7 @@ impl<'a> InsertQuery<'a> {
                 time, audience, backend, reserve, tags,
                 backend_id, rtc_sharing_policy, classroom_id, infinite
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, COALESCE($5, '{}'::jsonb), $6, $7, $8, $9)
             RETURNING
                 id as "id: Id",
                 backend_id as "backend_id: AgentId",

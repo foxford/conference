@@ -201,79 +201,7 @@
     },
     "query": "\n            SELECT\n                id as \"id: Id\",\n                room_id as \"room_id: Id\",\n                groups as \"groups: Groups\"\n            FROM group_agent\n            WHERE\n                room_id = $1\n            FOR UPDATE\n            "
   },
-  "177804d5d891d345ab11479b583e5796e5003e7250d1edb8867f526c588053c0": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Timestamptz"
-        ]
-      }
-    },
-    "query": "\n        INSERT INTO orphaned_room\n        VALUES ($1, $2)\n        ON CONFLICT (id) DO UPDATE\n        SET\n            host_left_at = $2\n        "
-  },
-  "18d6a334debacd190f663f9db94cb0c32398bcf4a953298dfcda16c0ee2a73c3": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "entity_type",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "stage",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "delivery_deadline_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "error_kind",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "retry_count",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 6,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Timestamptz",
-          "Text",
-          "Int8",
-          "Text"
-        ]
-      }
-    },
-    "query": "\n            UPDATE outbox\n            SET\n                delivery_deadline_at = $1,\n                retry_count = retry_count + 1,\n                error_kind = $2\n            WHERE\n                id = $3 AND\n                entity_type = $4\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            "
-  },
-  "1ca5b1da466bbd63f1d5b360f4a677ec02eaa94f055cae4a84570e1e70ccea09": {
+  "14dcfdd8bfdb560cb6312c8c8277104d39038c772107f05237b49c6d732bb4f1": {
     "describe": {
       "columns": [
         {
@@ -496,7 +424,7 @@
             }
           },
           "Int4",
-          "Json",
+          "Jsonb",
           {
             "Custom": {
               "kind": {
@@ -547,7 +475,79 @@
         ]
       }
     },
-    "query": "\n            INSERT INTO room (\n                time, audience, backend, reserve, tags,\n                backend_id, rtc_sharing_policy, classroom_id, infinite\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            RETURNING\n                id as \"id: Id\",\n                backend_id as \"backend_id: AgentId\",\n                time as \"time: TimePg\",\n                reserve,\n                tags,\n                classroom_id,\n                host as \"host: AgentId\",\n                timed_out,\n                audience,\n                created_at,\n                backend as \"backend: RoomBackend\",\n                rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n                infinite,\n                closed_by as \"closed_by: AgentId\"\n            "
+    "query": "\n            INSERT INTO room (\n                time, audience, backend, reserve, tags,\n                backend_id, rtc_sharing_policy, classroom_id, infinite\n            )\n            VALUES ($1, $2, $3, $4, COALESCE($5, '{}'::jsonb), $6, $7, $8, $9)\n            RETURNING\n                id as \"id: Id\",\n                backend_id as \"backend_id: AgentId\",\n                time as \"time: TimePg\",\n                reserve,\n                tags,\n                classroom_id,\n                host as \"host: AgentId\",\n                timed_out,\n                audience,\n                created_at,\n                backend as \"backend: RoomBackend\",\n                rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n                infinite,\n                closed_by as \"closed_by: AgentId\"\n            "
+  },
+  "177804d5d891d345ab11479b583e5796e5003e7250d1edb8867f526c588053c0": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n        INSERT INTO orphaned_room\n        VALUES ($1, $2)\n        ON CONFLICT (id) DO UPDATE\n        SET\n            host_left_at = $2\n        "
+  },
+  "18d6a334debacd190f663f9db94cb0c32398bcf4a953298dfcda16c0ee2a73c3": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "entity_type",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "stage",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "delivery_deadline_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "error_kind",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "retry_count",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 6,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Text",
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n            UPDATE outbox\n            SET\n                delivery_deadline_at = $1,\n                retry_count = retry_count + 1,\n                error_kind = $2\n            WHERE\n                id = $3 AND\n                entity_type = $4\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            "
   },
   "1d3c074fcededd8ba566d9df8563a4c9497e5f864fbda9cd7087a396ade1a993": {
     "describe": {
