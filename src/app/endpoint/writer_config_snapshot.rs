@@ -108,16 +108,14 @@ mod tests {
 
         use crate::{
             db::rtc::SharingPolicy as RtcSharingPolicy,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn read() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
@@ -189,9 +187,7 @@ mod tests {
 
         #[tokio::test]
         async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
             let dispatcher = TestAgent::new("dispatcher-0", "dispatcher", SVC_AUDIENCE);
@@ -225,9 +221,7 @@ mod tests {
 
         #[tokio::test]
         async fn missing_room() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             // Make agent_writer_config.read request.
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);

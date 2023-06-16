@@ -134,9 +134,7 @@ mod tests {
             db::TestDb,
             factory, find_response, handle_request,
             prelude::{TestAgent, TestAuthz, TestContext},
-            shared_helpers,
-            test_deps::LocalDeps,
-            USR_AUDIENCE,
+            shared_helpers, USR_AUDIENCE,
         },
     };
     use chrono::{Duration, Utc};
@@ -145,10 +143,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_room() -> std::io::Result<()> {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-
-        let db = TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::new().await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
         let mut context = TestContext::new(db, TestAuthz::new()).await;
 
@@ -169,10 +164,7 @@ mod tests {
 
     #[tokio::test]
     async fn closed_room() -> std::io::Result<()> {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-
-        let db = TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::new().await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let mut conn = db.get_conn().await;
@@ -208,10 +200,7 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_rtc_sharing_policy() {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-
-        let db = TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::new().await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let mut conn = db.get_conn().await;
@@ -248,10 +237,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_agents_with_groups() {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-
-        let db = TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::new().await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
@@ -301,10 +287,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_agents_within_group() {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-
-        let db = TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::new().await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 

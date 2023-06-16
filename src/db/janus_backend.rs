@@ -568,7 +568,7 @@ mod tests {
     use crate::{
         backend::janus::client::{HandleId, SessionId},
         db::rtc::SharingPolicy as RtcSharingPolicy,
-        test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+        test_helpers::{db::TestDb, prelude::*},
     };
 
     #[tokio::test]
@@ -576,13 +576,7 @@ mod tests {
         // Insert an rtc and janus backend.
         let now = Utc::now();
 
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-
-        let mut conn = TestDb::with_local_postgres(&postgres)
-            .await
-            .get_conn()
-            .await;
+        let mut conn = TestDb::new().await.get_conn().await;
 
         // Insert janus backends.
         let backend1 = shared_helpers::insert_janus_backend(

@@ -241,20 +241,17 @@ mod tests {
         use crate::{
             app::API_VERSION,
             db::agent::ListQuery as AgentListQuery,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn delete_subscription() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
+            let mut conn = db.get_conn().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-
-            let mut conn = db.get_conn().await;
 
             // Create room and put the agent online.
             let room = shared_helpers::insert_room(&mut conn).await;
@@ -325,9 +322,7 @@ mod tests {
 
         #[tokio::test]
         async fn delete_subscription_missing_agent() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -362,9 +357,7 @@ mod tests {
 
         #[tokio::test]
         async fn delete_subscription_missing_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
@@ -396,20 +389,17 @@ mod tests {
     mod delete_event {
         use crate::{
             db::agent::ListQuery as AgentListQuery,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn delete_subscription() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
+            let mut conn = db.get_conn().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-
-            let mut conn = db.get_conn().await;
 
             // First room, we were online in it but then session was taken over and we disconnected (not in the db tho).
             // By the end of this test subscription for this room should be absent.
@@ -470,9 +460,7 @@ mod tests {
 
         #[tokio::test]
         async fn delete_subscription_missing_agent() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {

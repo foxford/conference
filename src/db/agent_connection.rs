@@ -305,14 +305,12 @@ impl<'a> BulkDisconnectByBackendQuery<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
+    use crate::test_helpers::{db::TestDb, prelude::*};
     use chrono::{Duration, Utc};
 
     #[tokio::test]
     async fn test_cleanup_not_connected_query() {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::new().await;
 
         let old = TestAgent::new("web", "old_agent", USR_AUDIENCE);
         let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);

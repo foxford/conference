@@ -230,10 +230,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_room() -> std::io::Result<()> {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-
-        let db = TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::new().await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
         let context = TestContext::new(db, TestAuthz::new()).await;
 
@@ -258,10 +255,7 @@ mod tests {
 
     #[tokio::test]
     async fn closed_room() -> std::io::Result<()> {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-
-        let db = TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::new().await;
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let mut conn = db.get_conn().await;
@@ -301,10 +295,7 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_rtc_sharing_policy() {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-
-        let db = TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::new().await;
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let mut conn = db.get_conn().await;
@@ -346,11 +337,10 @@ mod tests {
     #[tokio::test]
     async fn update_group_agents() {
         let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
         let janus = local_deps.run_janus();
         let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
-        let db = TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::new().await;
 
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);

@@ -347,17 +347,13 @@ mod test {
                 db::TestDb,
                 handle_event,
                 prelude::{GlobalContext, TestAgent},
-                shared_helpers,
-                test_deps::LocalDeps,
-                SVC_AUDIENCE,
+                shared_helpers, SVC_AUDIENCE,
             },
         };
 
         #[tokio::test]
         async fn close_orphaned_rooms() -> anyhow::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
@@ -431,9 +427,8 @@ mod test {
         #[tokio::test]
         async fn vacuum_system() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -507,9 +502,7 @@ mod test {
 
         #[tokio::test]
         async fn vacuum_system_unauthorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);

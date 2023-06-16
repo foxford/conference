@@ -395,14 +395,11 @@ pub async fn get_rtc_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
+    use crate::test_helpers::{db::TestDb, prelude::*};
 
     #[tokio::test]
     async fn test_stop_running_streams_by_backend() {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres).await;
-
+        let db = TestDb::new().await;
         let mut conn = db.get_conn().await;
 
         let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE)

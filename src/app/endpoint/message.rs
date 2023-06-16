@@ -221,17 +221,14 @@ mod test {
 
         use crate::{
             app::API_VERSION,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn unicast_message() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -272,10 +269,7 @@ mod test {
 
         #[tokio::test]
         async fn unicast_message_to_missing_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let mut context = TestContext::new(db, TestAuthz::new()).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
@@ -297,10 +291,7 @@ mod test {
 
         #[tokio::test]
         async fn unicast_message_when_sender_is_not_in_the_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -329,10 +320,7 @@ mod test {
 
         #[tokio::test]
         async fn unicast_message_when_receiver_is_not_in_the_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -363,17 +351,14 @@ mod test {
     mod broadcast {
         use crate::{
             app::API_VERSION,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn broadcast_message() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -419,10 +404,7 @@ mod test {
 
         #[tokio::test]
         async fn broadcast_message_to_missing_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let mut context = TestContext::new(db, TestAuthz::new()).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
@@ -442,10 +424,7 @@ mod test {
 
         #[tokio::test]
         async fn broadcast_message_when_not_in_the_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
             // Insert room with online agent.

@@ -949,16 +949,14 @@ mod test {
         use crate::db::group_agent::{GroupItem, Groups};
         use crate::{
             db::room::Object as Room,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn create() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             // Allow user to create rooms.
             let mut authz = TestAuthz::new();
@@ -1008,9 +1006,7 @@ mod test {
 
         #[tokio::test]
         async fn create_room_unauthorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let mut context = TestContext::new(db, TestAuthz::new()).await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -1036,9 +1032,7 @@ mod test {
 
         #[tokio::test]
         async fn create_default_group() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             // Allow user to create rooms.
             let mut authz = TestAuthz::new();
@@ -1084,16 +1078,14 @@ mod test {
     mod read {
         use crate::{
             db::room::Object as Room,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn read_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let room = {
                 let mut conn = db.get_conn().await;
@@ -1129,9 +1121,7 @@ mod test {
 
         #[tokio::test]
         async fn read_room_not_authorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -1152,9 +1142,7 @@ mod test {
 
         #[tokio::test]
         async fn read_room_missing() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
@@ -1180,16 +1168,14 @@ mod test {
 
         use crate::{
             db::room::Object as Room,
-            test_helpers::{db::TestDb, find_event_by_predicate, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, find_event_by_predicate, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn update_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
@@ -1254,9 +1240,7 @@ mod test {
 
         #[tokio::test]
         async fn update_room_with_wrong_time() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
@@ -1308,9 +1292,7 @@ mod test {
 
         #[tokio::test]
         async fn update_and_close_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
@@ -1388,9 +1370,7 @@ mod test {
 
         #[tokio::test]
         async fn update_and_close_unbounded_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let now = Utc::now().trunc_subsecs(0);
 
             let room = {
@@ -1438,9 +1418,7 @@ mod test {
 
         #[tokio::test]
         async fn update_room_missing() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
@@ -1464,9 +1442,7 @@ mod test {
 
         #[tokio::test]
         async fn update_room_closed() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -1503,16 +1479,14 @@ mod test {
 
         use crate::{
             db::room::Object as Room,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn close_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let room = {
                 let mut conn = db.get_conn().await;
@@ -1562,9 +1536,7 @@ mod test {
 
         #[tokio::test]
         async fn close_infinite_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let room = {
                 let mut conn = db.get_conn().await;
@@ -1601,9 +1573,7 @@ mod test {
 
         #[tokio::test]
         async fn close_bounded_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let room = {
                 let mut conn = db.get_conn().await;
@@ -1656,9 +1626,7 @@ mod test {
 
         #[tokio::test]
         async fn close_room_missing() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
@@ -1677,9 +1645,7 @@ mod test {
 
         #[tokio::test]
         async fn close_room_closed() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -1712,9 +1678,7 @@ mod test {
 
         #[tokio::test]
         async fn enter_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let room = {
                 let mut conn = db.get_conn().await;
@@ -1752,9 +1716,7 @@ mod test {
 
         #[tokio::test]
         async fn enter_room_not_authorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -1779,9 +1741,7 @@ mod test {
 
         #[tokio::test]
         async fn enter_room_missing() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let context = TestContext::new(db, TestAuthz::new()).await;
 
@@ -1803,9 +1763,7 @@ mod test {
 
         #[tokio::test]
         async fn enter_room_closed() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let room = {
                 let mut conn = db.get_conn().await;
@@ -1841,9 +1799,7 @@ mod test {
 
         #[tokio::test]
         async fn enter_room_with_no_opening_time() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let room = {
                 let mut conn = db.get_conn().await;
@@ -1884,9 +1840,7 @@ mod test {
 
         #[tokio::test]
         async fn enter_room_that_opens_in_the_future() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let room = {
                 let mut conn = db.get_conn().await;
@@ -1926,10 +1880,7 @@ mod test {
 
         #[tokio::test]
         async fn add_new_participant_to_default_group() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
-
+            let db = TestDb::new().await;
             let mut conn = db.get_conn().await;
 
             // Create room.
@@ -1976,12 +1927,10 @@ mod test {
 
         #[tokio::test]
         async fn existed_participant_in_group() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
-            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-
+            let db = TestDb::new().await;
             let mut conn = db.get_conn().await;
+
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             // Create room.
             let room = shared_helpers::insert_room_with_owned(&mut conn).await;
@@ -2029,10 +1978,9 @@ mod test {
         #[tokio::test]
         async fn create_reader_configs() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
@@ -2113,15 +2061,13 @@ mod test {
     }
 
     mod leave {
-        use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
+        use crate::test_helpers::{db::TestDb, prelude::*};
 
         use super::{super::*, DynSubRequest};
 
         #[tokio::test]
         async fn leave_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -2160,9 +2106,7 @@ mod test {
 
         #[tokio::test]
         async fn leave_room_while_not_entered() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -2183,9 +2127,7 @@ mod test {
 
         #[tokio::test]
         async fn leave_room_missing() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
 

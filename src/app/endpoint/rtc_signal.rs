@@ -729,9 +729,8 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
         #[tokio::test]
         async fn offer() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
@@ -827,9 +826,7 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
 
         #[tokio::test]
         async fn offer_unauthorized() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -915,9 +912,7 @@ a=rtcp-fb:120 ccm fir
 
         #[tokio::test]
         async fn answer() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -995,9 +990,8 @@ a=rtcp-fb:120 ccm fir
         #[tokio::test]
         async fn candidate() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
@@ -1069,9 +1063,7 @@ a=rtcp-fb:120 ccm fir
 
         #[tokio::test]
         async fn candidate_unauthorized() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1131,9 +1123,7 @@ a=rtcp-fb:120 ccm fir
 
         #[tokio::test]
         async fn wrong_rtc_id() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1182,9 +1172,7 @@ a=rtcp-fb:120 ccm fir
 
         #[tokio::test]
         async fn rtc_id_from_another_room() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1240,9 +1228,7 @@ a=rtcp-fb:120 ccm fir
 
         #[tokio::test]
         async fn wrong_backend_id() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1306,9 +1292,7 @@ a=rtcp-fb:120 ccm fir
 
         #[tokio::test]
         async fn offline_backend() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let backend = TestAgent::new("offline-instance", "janus-gateway", SVC_AUDIENCE);
@@ -1360,9 +1344,7 @@ a=rtcp-fb:120 ccm fir
 
         #[tokio::test]
         async fn not_entered() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1410,9 +1392,7 @@ a=rtcp-fb:120 ccm fir
 
         #[tokio::test]
         async fn not_connected() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1462,9 +1442,7 @@ a=rtcp-fb:120 ccm fir
 
         #[tokio::test]
         async fn wrong_handle_id() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1520,9 +1498,7 @@ a=rtcp-fb:120 ccm fir
 
         #[tokio::test]
         async fn spoof_handle_id() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
@@ -1590,9 +1566,7 @@ a=rtcp-fb:120 ccm fir
 
         #[tokio::test]
         async fn closed_room() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1649,9 +1623,7 @@ a=rtcp-fb:120 ccm fir
 
         #[tokio::test]
         async fn spoof_owned_rtc() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
@@ -1721,9 +1693,8 @@ a=rtcp-fb:120 ccm fir
         #[tokio::test]
         async fn create_in_unbounded_room() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;

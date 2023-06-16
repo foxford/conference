@@ -397,10 +397,9 @@ mod tests {
         #[tokio::test]
         async fn update_agent_reader_config() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
 
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
@@ -567,10 +566,7 @@ mod tests {
         #[tokio::test]
         async fn too_many_config_items() -> std::io::Result<()> {
             // Make agent_reader_config.update request.
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
 
@@ -603,10 +599,7 @@ mod tests {
 
         #[tokio::test]
         async fn agent_without_rtc() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
@@ -660,10 +653,7 @@ mod tests {
 
         #[tokio::test]
         async fn not_entered() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room.
@@ -699,10 +689,7 @@ mod tests {
 
         #[tokio::test]
         async fn closed_room() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -740,10 +727,7 @@ mod tests {
 
         #[tokio::test]
         async fn room_with_wrong_rtc_policy() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -788,10 +772,7 @@ mod tests {
         #[tokio::test]
         async fn missing_room() -> std::io::Result<()> {
             // Make agent_reader_config.update request.
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
 
@@ -813,10 +794,9 @@ mod tests {
         #[tokio::test]
         async fn agent_in_another_group() -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
 
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
@@ -898,17 +878,14 @@ mod tests {
 
         use crate::{
             db::rtc::SharingPolicy as RtcSharingPolicy,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn read_state() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
@@ -994,10 +971,7 @@ mod tests {
 
         #[tokio::test]
         async fn not_entered() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room.
@@ -1030,10 +1004,7 @@ mod tests {
 
         #[tokio::test]
         async fn closed_room() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1068,10 +1039,7 @@ mod tests {
 
         #[tokio::test]
         async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1112,11 +1080,7 @@ mod tests {
 
         #[tokio::test]
         async fn missing_room() -> std::io::Result<()> {
-            // Make agent_reader_config.read request.
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
 

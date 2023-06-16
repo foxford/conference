@@ -127,7 +127,7 @@ mod tests {
         use serde::Deserialize;
         use svc_agent::AgentId;
 
-        use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
+        use crate::test_helpers::{db::TestDb, prelude::*};
 
         use super::super::*;
 
@@ -141,9 +141,7 @@ mod tests {
 
         #[tokio::test]
         async fn list_agents() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -183,9 +181,7 @@ mod tests {
 
         #[tokio::test]
         async fn list_agents_not_authorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -211,9 +207,7 @@ mod tests {
 
         #[tokio::test]
         async fn list_agents_closed_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -249,9 +243,7 @@ mod tests {
 
         #[tokio::test]
         async fn list_agents_missing_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
 

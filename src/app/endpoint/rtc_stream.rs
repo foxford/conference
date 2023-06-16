@@ -184,16 +184,14 @@ mod test {
 
         use crate::{
             db::janus_rtc_stream::Object as JanusRtcStream,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn list_rtc_streams() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let mut authz = TestAuthz::new();
 
             let mut conn = db.get_conn().await;
@@ -279,9 +277,7 @@ mod test {
 
         #[tokio::test]
         async fn list_rtc_streams_not_authorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -310,9 +306,7 @@ mod test {
 
         #[tokio::test]
         async fn list_rtc_streams_missing_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;

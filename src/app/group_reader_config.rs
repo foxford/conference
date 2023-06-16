@@ -116,9 +116,7 @@ mod tests {
 
     use crate::{
         db::rtc::SharingPolicy as RtcSharingPolicy,
-        test_helpers::{
-            db::TestDb, factory, prelude::TestAgent, test_deps::LocalDeps, USR_AUDIENCE,
-        },
+        test_helpers::{db::TestDb, factory, prelude::TestAgent, USR_AUDIENCE},
     };
 
     use crate::db::group_agent::GroupItem;
@@ -128,9 +126,7 @@ mod tests {
 
     #[tokio::test]
     async fn distribution_by_groups() {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres).await;
+        let db = TestDb::new().await;
 
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);

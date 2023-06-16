@@ -648,15 +648,12 @@ mod tests {
         use super::super::*;
         use crate::{
             backend::janus::client::{HandleId, SessionId},
-            test_helpers::{db, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db, prelude::*},
         };
 
         #[tokio::test]
         async fn selects_appropriate_backend() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = db::TestDb::with_local_postgres(&postgres).await;
-
+            let db = db::TestDb::new().await;
             let mut conn = db.get_conn().await;
 
             let backend1 = shared_helpers::insert_janus_backend(
@@ -720,10 +717,7 @@ mod tests {
 
         #[tokio::test]
         async fn selects_appropriate_backend_by_group() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = db::TestDb::with_local_postgres(&postgres).await;
-
+            let db = db::TestDb::new().await;
             let mut conn = db.get_conn().await;
 
             let backend1 = shared_helpers::insert_janus_backend_with_group(

@@ -273,11 +273,11 @@ mod test {
     #[tokio::test]
     async fn test_online_when_backends_absent() -> anyhow::Result<()> {
         let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
         let janus = local_deps.run_janus();
-        let db = TestDb::with_local_postgres(&postgres).await;
 
+        let db = TestDb::new().await;
         let mut context = TestContext::new(db, TestAuthz::new()).await;
+
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
         let rng = rand::thread_rng();
@@ -321,10 +321,9 @@ mod test {
     #[tokio::test]
     async fn test_online_when_backends_present() -> anyhow::Result<()> {
         let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
         let janus = local_deps.run_janus();
-        let db = TestDb::with_local_postgres(&postgres).await;
 
+        let db = TestDb::new().await;
         let mut context = TestContext::new(db, TestAuthz::new()).await;
 
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();

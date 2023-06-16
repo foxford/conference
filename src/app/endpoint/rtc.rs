@@ -1122,16 +1122,14 @@ mod test {
     mod create {
         use crate::{
             db::rtc::Object as Rtc,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn create() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let mut authz = TestAuthz::new();
 
             let mut conn = db.get_conn().await;
@@ -1167,9 +1165,7 @@ mod test {
 
         #[tokio::test]
         async fn create_rtc_missing_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
@@ -1187,9 +1183,7 @@ mod test {
 
         #[tokio::test]
         async fn create_rtc_duplicate() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let mut authz = TestAuthz::new();
 
             let mut conn = db.get_conn().await;
@@ -1229,9 +1223,7 @@ mod test {
 
         #[tokio::test]
         async fn create_rtc_for_different_agents_with_owned_sharing_policy() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let mut authz = TestAuthz::new();
 
             // Insert a room.
@@ -1274,9 +1266,7 @@ mod test {
 
         #[tokio::test]
         async fn create_rtc_for_the_same_agent_with_owned_sharing_policy() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let mut authz = TestAuthz::new();
 
             // Insert a room.
@@ -1316,9 +1306,7 @@ mod test {
 
         #[tokio::test]
         async fn create_rtc_unauthorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -1342,16 +1330,14 @@ mod test {
     mod read {
         use crate::{
             db::rtc::Object as Rtc,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn read_rtc() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (rtc, classroom_id) = {
                 // Insert a room.
@@ -1387,9 +1373,7 @@ mod test {
 
         #[tokio::test]
         async fn read_rtc_not_authorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -1411,9 +1395,7 @@ mod test {
 
         #[tokio::test]
         async fn read_rtc_missing() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
@@ -1433,16 +1415,14 @@ mod test {
     mod list {
         use crate::{
             db::rtc::Object as Rtc,
-            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
         #[tokio::test]
         async fn list_rtcs() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -1485,9 +1465,7 @@ mod test {
 
         #[tokio::test]
         async fn list_rtcs_not_authorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -1513,9 +1491,7 @@ mod test {
 
         #[tokio::test]
         async fn list_rtcs_missing_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
@@ -1551,9 +1527,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_rtc_only() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let mut authz = TestAuthz::new();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
@@ -1643,9 +1618,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_ongoing_rtc() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let mut authz = TestAuthz::new();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
@@ -1699,9 +1673,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_rtc_with_reservation() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -1789,9 +1762,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_rtc_take_reserved_slot() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -1907,9 +1879,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_rtc_as_last_reader() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -1969,9 +1940,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_rtc_full_server_as_reader() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -2047,9 +2017,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_rtc_full_server_as_writer() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -2109,9 +2078,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_rtc_too_big_reserve() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -2295,9 +2263,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_rtc_reserve_overflow() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -2468,9 +2435,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_shared_rtc_created_by_someone_else() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -2526,9 +2492,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_owned_rtc_created_by_someone_else_for_writing() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -2586,9 +2551,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_owned_rtc_created_by_someone_else_for_reading() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -2643,9 +2607,8 @@ mod test {
         #[tokio::test]
         async fn connect_to_rtc_with_backend_grouping() {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -2729,9 +2692,7 @@ mod test {
 
         #[tokio::test]
         async fn connect_to_rtc_not_authorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let rtc = {
@@ -2756,9 +2717,7 @@ mod test {
 
         #[tokio::test]
         async fn connect_to_rtc_missing() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres).await;
+            let db = TestDb::new().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
