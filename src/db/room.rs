@@ -50,7 +50,9 @@ pub type Id = db::id::Id;
 #[sqlx(type_name = "room_backend")]
 // This is not just `Backend` because of clash with `diesel::backend::Backend`.
 pub enum RoomBackend {
+    #[sqlx(rename = "none")]
     None,
+    #[sqlx(rename = "janus")]
     Janus,
 }
 

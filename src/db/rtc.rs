@@ -21,8 +21,11 @@ pub type Id = db::id::Id;
 #[serde(rename_all = "lowercase")]
 #[sqlx(type_name = "rtc_sharing_policy")]
 pub enum SharingPolicy {
+    #[sqlx(rename = "none")]
     None,
+    #[sqlx(rename = "shared")]
     Shared,
+    #[sqlx(rename = "owned")]
     Owned,
 }
 
