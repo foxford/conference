@@ -39,8 +39,11 @@ impl From<SegmentPg> for Segment {
 #[sqlx(type_name = "recording_status")]
 pub enum Status {
     #[serde(rename = "in_progress")]
+    #[sqlx(rename = "in_progress")]
     InProgress,
+    #[sqlx(rename = "ready")]
     Ready,
+    #[sqlx(rename = "missing")]
     Missing,
 }
 
