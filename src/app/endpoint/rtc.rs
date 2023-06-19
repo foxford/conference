@@ -1127,8 +1127,8 @@ mod test {
 
         use super::super::*;
 
-       #[sqlx::test]
-    async fn create(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn create(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let mut authz = TestAuthz::new();
 
@@ -1163,8 +1163,8 @@ mod test {
             assert_eq!(rtc.room_id(), room.id());
         }
 
-       #[sqlx::test]
-    async fn create_rtc_missing_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn create_rtc_missing_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -1181,8 +1181,8 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-       #[sqlx::test]
-    async fn create_rtc_duplicate(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn create_rtc_duplicate(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let mut authz = TestAuthz::new();
 
@@ -1221,8 +1221,8 @@ mod test {
             assert_eq!(err.kind(), "database_query_failed");
         }
 
-       #[sqlx::test]
-    async fn create_rtc_for_different_agents_with_owned_sharing_policy(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn create_rtc_for_different_agents_with_owned_sharing_policy(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let mut authz = TestAuthz::new();
 
@@ -1264,8 +1264,8 @@ mod test {
             assert_eq!(rtc2.created_by(), agent2.agent_id());
         }
 
-       #[sqlx::test]
-    async fn create_rtc_for_the_same_agent_with_owned_sharing_policy(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn create_rtc_for_the_same_agent_with_owned_sharing_policy(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let mut authz = TestAuthz::new();
 
@@ -1304,8 +1304,8 @@ mod test {
             assert_eq!(err.kind(), "database_query_failed");
         }
 
-       #[sqlx::test]
-    async fn create_rtc_unauthorized(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn create_rtc_unauthorized(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -1335,8 +1335,8 @@ mod test {
 
         use super::super::*;
 
-       #[sqlx::test]
-    async fn read_rtc(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn read_rtc(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let (rtc, classroom_id) = {
@@ -1371,8 +1371,8 @@ mod test {
             assert_eq!(resp_rtc.room_id(), rtc.room_id());
         }
 
-       #[sqlx::test]
-    async fn read_rtc_not_authorized(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn read_rtc_not_authorized(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -1393,8 +1393,8 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-       #[sqlx::test]
-    async fn read_rtc_missing(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn read_rtc_missing(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -1420,8 +1420,8 @@ mod test {
 
         use super::super::*;
 
-       #[sqlx::test]
-    async fn list_rtcs(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn list_rtcs(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -1463,8 +1463,8 @@ mod test {
             assert_eq!(rtcs[0].room_id(), rtc.room_id());
         }
 
-       #[sqlx::test]
-    async fn list_rtcs_not_authorized(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn list_rtcs_not_authorized(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -1489,8 +1489,8 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-       #[sqlx::test]
-    async fn list_rtcs_missing_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn list_rtcs_missing_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -1524,8 +1524,8 @@ mod test {
 
         use super::super::*;
 
-       #[sqlx::test]
-    async fn connect_to_rtc_only(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_rtc_only(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -1615,8 +1615,8 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-       #[sqlx::test]
-    async fn connect_to_ongoing_rtc(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_ongoing_rtc(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -1670,8 +1670,8 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-       #[sqlx::test]
-    async fn connect_to_rtc_with_reservation(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_rtc_with_reservation(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -1759,8 +1759,8 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-       #[sqlx::test]
-    async fn connect_to_rtc_take_reserved_slot(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_rtc_take_reserved_slot(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -1876,8 +1876,8 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-       #[sqlx::test]
-    async fn connect_to_rtc_as_last_reader(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_rtc_as_last_reader(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -1937,8 +1937,8 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-       #[sqlx::test]
-    async fn connect_to_rtc_full_server_as_reader(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_rtc_full_server_as_reader(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -2014,8 +2014,8 @@ mod test {
             assert_eq!(err.kind(), "capacity_exceeded");
         }
 
-       #[sqlx::test]
-    async fn connect_to_rtc_full_server_as_writer(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_rtc_full_server_as_writer(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -2075,8 +2075,8 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-       #[sqlx::test]
-    async fn connect_to_rtc_too_big_reserve(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_rtc_too_big_reserve(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -2260,8 +2260,8 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-       #[sqlx::test]
-    async fn connect_to_rtc_reserve_overflow(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_rtc_reserve_overflow(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -2432,8 +2432,8 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-       #[sqlx::test]
-    async fn connect_to_shared_rtc_created_by_someone_else(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_shared_rtc_created_by_someone_else(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -2489,8 +2489,8 @@ mod test {
             context.janus_clients().remove_client(&backend);
         }
 
-       #[sqlx::test]
-    async fn connect_to_owned_rtc_created_by_someone_else_for_writing(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_owned_rtc_created_by_someone_else_for_writing(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -2548,8 +2548,8 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-       #[sqlx::test]
-    async fn connect_to_owned_rtc_created_by_someone_else_for_reading(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_owned_rtc_created_by_someone_else_for_reading(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -2604,8 +2604,8 @@ mod test {
             context.janus_clients().remove_client(&backend)
         }
 
-       #[sqlx::test]
-    async fn connect_to_rtc_with_backend_grouping(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_rtc_with_backend_grouping(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let db = TestDb::new(pool);
@@ -2690,8 +2690,8 @@ mod test {
             assert_ne!(resp.handle_id.janus_handle_id(), handle_id);
         }
 
-       #[sqlx::test]
-    async fn connect_to_rtc_not_authorized(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_rtc_not_authorized(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -2715,8 +2715,8 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-       #[sqlx::test]
-    async fn connect_to_rtc_missing(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn connect_to_rtc_missing(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);

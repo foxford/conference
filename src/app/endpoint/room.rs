@@ -954,8 +954,8 @@ mod test {
 
         use super::super::*;
 
-       #[sqlx::test]
-    async fn create(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn create(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             // Allow user to create rooms.
@@ -1004,8 +1004,8 @@ mod test {
             assert_eq!(room.classroom_id(), classroom_id);
         }
 
-       #[sqlx::test]
-    async fn create_room_unauthorized(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn create_room_unauthorized(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let mut context = TestContext::new(db, TestAuthz::new()).await;
@@ -1030,8 +1030,8 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-       #[sqlx::test]
-    async fn create_default_group(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn create_default_group(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             // Allow user to create rooms.
@@ -1083,8 +1083,8 @@ mod test {
 
         use super::super::*;
 
-       #[sqlx::test]
-    async fn read_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn read_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let room = {
@@ -1119,8 +1119,8 @@ mod test {
             assert_eq!(resp_room.rtc_sharing_policy(), room.rtc_sharing_policy());
         }
 
-       #[sqlx::test]
-    async fn read_room_not_authorized(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn read_room_not_authorized(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -1140,8 +1140,8 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-       #[sqlx::test]
-    async fn read_room_missing(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn read_room_missing(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -1173,8 +1173,8 @@ mod test {
 
         use super::super::*;
 
-       #[sqlx::test]
-    async fn update_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn update_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let now = Utc::now().trunc_subsecs(0);
 
@@ -1238,8 +1238,8 @@ mod test {
             assert_eq!(resp_room.host(), Some(agent.agent_id()));
         }
 
-       #[sqlx::test]
-    async fn update_room_with_wrong_time(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn update_room_with_wrong_time(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let now = Utc::now().trunc_subsecs(0);
 
@@ -1290,8 +1290,8 @@ mod test {
                 .expect_err("Room update succeeded when it should've failed");
         }
 
-       #[sqlx::test]
-    async fn update_and_close_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn update_and_close_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let now = Utc::now().trunc_subsecs(0);
 
@@ -1368,8 +1368,8 @@ mod test {
             );
         }
 
-       #[sqlx::test]
-    async fn update_and_close_unbounded_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn update_and_close_unbounded_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let now = Utc::now().trunc_subsecs(0);
 
@@ -1416,8 +1416,8 @@ mod test {
                 .expect("Room update failed");
         }
 
-       #[sqlx::test]
-    async fn update_room_missing(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn update_room_missing(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -1440,8 +1440,8 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-       #[sqlx::test]
-    async fn update_room_closed(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn update_room_closed(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -1484,8 +1484,8 @@ mod test {
 
         use super::super::*;
 
-       #[sqlx::test]
-    async fn close_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn close_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let room = {
@@ -1534,8 +1534,8 @@ mod test {
             );
         }
 
-       #[sqlx::test]
-    async fn close_infinite_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn close_infinite_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let room = {
@@ -1571,8 +1571,8 @@ mod test {
                 .expect_err("Room close succeeded even though it shouldn't");
         }
 
-       #[sqlx::test]
-    async fn close_bounded_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn close_bounded_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let room = {
@@ -1624,8 +1624,8 @@ mod test {
             );
         }
 
-       #[sqlx::test]
-    async fn close_room_missing(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn close_room_missing(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -1643,8 +1643,8 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-       #[sqlx::test]
-    async fn close_room_closed(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn close_room_closed(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -1676,8 +1676,8 @@ mod test {
 
         use super::super::*;
 
-       #[sqlx::test]
-    async fn enter_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn enter_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let room = {
@@ -1714,8 +1714,8 @@ mod test {
                 .expect("Room entrance failed");
         }
 
-       #[sqlx::test]
-    async fn enter_room_not_authorized(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn enter_room_not_authorized(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -1739,8 +1739,8 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-       #[sqlx::test]
-    async fn enter_room_missing(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn enter_room_missing(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let context = TestContext::new(db, TestAuthz::new()).await;
@@ -1761,8 +1761,8 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-       #[sqlx::test]
-    async fn enter_room_closed(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn enter_room_closed(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let room = {
@@ -1797,8 +1797,8 @@ mod test {
             assert_eq!(err.kind(), "room_closed");
         }
 
-       #[sqlx::test]
-    async fn enter_room_with_no_opening_time(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn enter_room_with_no_opening_time(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let room = {
@@ -1838,8 +1838,8 @@ mod test {
             assert_eq!(err.kind(), "room_closed");
         }
 
-       #[sqlx::test]
-    async fn enter_room_that_opens_in_the_future(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn enter_room_that_opens_in_the_future(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
 
             let room = {
@@ -1878,8 +1878,8 @@ mod test {
                 .expect("Room entrance failed");
         }
 
-       #[sqlx::test]
-    async fn add_new_participant_to_default_group(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn add_new_participant_to_default_group(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let mut conn = db.get_conn().await;
 
@@ -1925,8 +1925,8 @@ mod test {
             assert_eq!(group_agent.groups(), groups);
         }
 
-       #[sqlx::test]
-    async fn existed_participant_in_group(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn existed_participant_in_group(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let mut conn = db.get_conn().await;
 
@@ -1975,8 +1975,8 @@ mod test {
             assert_eq!(group_agent.groups().len(), 1);
         }
 
-       #[sqlx::test]
-    async fn create_reader_configs(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn create_reader_configs(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
@@ -2065,8 +2065,8 @@ mod test {
 
         use super::{super::*, DynSubRequest};
 
-       #[sqlx::test]
-    async fn leave_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn leave_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -2104,8 +2104,8 @@ mod test {
             assert_eq!(payload.object, vec!["rooms", &room_id, "events"]);
         }
 
-       #[sqlx::test]
-    async fn leave_room_while_not_entered(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn leave_room_while_not_entered(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -2125,8 +2125,8 @@ mod test {
             assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-       #[sqlx::test]
-    async fn leave_room_missing(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn leave_room_missing(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;

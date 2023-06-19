@@ -139,8 +139,8 @@ mod tests {
             room_id: db::room::Id,
         }
 
-       #[sqlx::test]
-    async fn list_agents(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn list_agents(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -179,8 +179,8 @@ mod tests {
             assert_eq!(agents[0].room_id, room.id());
         }
 
-       #[sqlx::test]
-    async fn list_agents_not_authorized(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn list_agents_not_authorized(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -205,8 +205,8 @@ mod tests {
             assert_eq!(err.kind(), "access_denied");
         }
 
-       #[sqlx::test]
-    async fn list_agents_closed_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn list_agents_closed_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -241,8 +241,8 @@ mod tests {
             assert_eq!(err.kind(), "room_closed");
         }
 
-       #[sqlx::test]
-    async fn list_agents_missing_room(pool: sqlx::PgPool) {
+        #[sqlx::test]
+        async fn list_agents_missing_room(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
