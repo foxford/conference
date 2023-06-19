@@ -48,6 +48,8 @@ jobs:
       run: cargo install sqlx-cli --version 0.6.3 --no-default-features -F native-tls,postgres
     - name: Run tests
       run: >
+        cargo sqlx database create &&
+        cargo sqlx migrate run &&
         cargo sqlx prepare --check -- --tests &&
         cargo test
       env:
