@@ -162,12 +162,9 @@ dependencies = [
 [[package]]
 name = "async-nats"
 version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1174495e436c928905018f10a36160f7a8a6786450f50f4ce7fba05d1539704c"
+source = "git+https://github.com/foxford/nats.rs?branch=main#f5fa297c236dcca2e406761e5cc0fe78338a0ae0"
 dependencies = [
- "async-nats-tokio-rustls-deps",
- "base64 0.13.1",
- "base64-url",
+ "base64 0.21.0",
  "bytes",
  "futures",
  "http",
@@ -181,6 +178,7 @@ dependencies = [
  "ring",
  "rustls-native-certs",
  "rustls-pemfile",
+ "rustls-webpki",
  "serde 1.0.152",
  "serde_json",
  "serde_nanos",
@@ -189,19 +187,9 @@ dependencies = [
  "time 0.3.20",
  "tokio",
  "tokio-retry",
+ "tokio-rustls 0.24.1",
  "tracing",
  "url",
-]
-
-[[package]]
-name = "async-nats-tokio-rustls-deps"
-version = "0.24.0-ALPHA.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cdefe54cd7867d937c0a507d2a3a830af410044282cd3e4002b5b7860e1892e"
-dependencies = [
- "rustls 0.21.0",
- "tokio",
- "webpki 0.22.0",
 ]
 
 [[package]]
@@ -390,15 +378,6 @@ name = "base64"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
-
-[[package]]
-name = "base64-url"
-version = "1.4.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67a99c239d0c7e77c85dddfa9cebce48704b3c49550fcd3b84dd637e4484899f"
-dependencies = [
- "base64 0.13.1",
-]
 
 [[package]]
 name = "base64ct"
@@ -605,7 +584,7 @@ dependencies = [
  "svc-agent",
  "svc-authn",
  "svc-authz",
- "svc-error",
+ "svc-error 0.5.0 (git+https://github.com/foxford/svc-error-rs?branch=ULMS-2365/sqlx)",
  "svc-events",
  "svc-nats-client",
  "svc-utils",
@@ -924,10 +903,8 @@ version = "1.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b28135ecf6b7d446b43e27e225622a038cc4e2930a1022f51cdb97ada19b8e4d"
 dependencies = [
- "bitflags",
  "byteorder",
  "diesel_derives",
- "pq-sys",
 ]
 
 [[package]]
@@ -1148,9 +1125,9 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9c384f161156f5260c24a097c56119f9be8c798586aecc13afbcbe7b7e26bf8"
+checksum = "a62bc1cf6f830c2ec14a513a9fb124d0a213a629668a4186f329db21fe045652"
 dependencies = [
  "percent-encoding",
 ]
@@ -1616,9 +1593,9 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
 name = "idna"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e14ddfc70884202db2244c223200c204c2bda1bc6e0998d11b5e024d657209e6"
+checksum = "7d20d6b07bfbc108882d88ed8e37d39636dcc260e15e30c45e6ba089610b917c"
 dependencies = [
  "unicode-bidi",
  "unicode-normalization",
@@ -1733,9 +1710,9 @@ dependencies = [
 
 [[package]]
 name = "k8s-openapi"
-version = "0.15.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ae2c04fcee6b01b04e3aadd56bb418932c8e0a9d8a93f48bc68c6bdcdb559d"
+checksum = "6d9455388f4977de4d0934efa9f7d36296295537d774574113a20f6082de03da"
 dependencies = [
  "base64 0.13.1",
  "bytes",
@@ -1750,9 +1727,9 @@ dependencies = [
 
 [[package]]
 name = "kube"
-version = "0.73.1"
+version = "0.77.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f68b954ea9ad888de953fb1488bd8f377c4c78d82d4642efa5925189210b50b7"
+checksum = "9ba77b857a9581e3d1cb1165f9cb1d1732d65ce52642498addae8fa2c6d5e037"
 dependencies = [
  "k8s-openapi",
  "kube-client",
@@ -1761,9 +1738,9 @@ dependencies = [
 
 [[package]]
 name = "kube-client"
-version = "0.73.1"
+version = "0.77.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9150dc7107d9acf4986088f284a0a6dddc5ae37ef1ffdf142f6811dc5998dd58"
+checksum = "e80db3ca107e89da5f7eae37ea5274e06cefdcf9689d0ebd5ec3575a6f983e4e"
 dependencies = [
  "base64 0.13.1",
  "bytes",
@@ -1796,9 +1773,9 @@ dependencies = [
 
 [[package]]
 name = "kube-core"
-version = "0.73.1"
+version = "0.77.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc8c429676abe6a73b374438d5ca02caaf9ae7a635441253c589b779fa5d0622"
+checksum = "fce686d2fbdaf6cb18d19cdb0692e9485dd9945f79f944b8772bdb2a07e8d39d"
 dependencies = [
  "chrono",
  "form_urlencoded",
@@ -2354,9 +2331,9 @@ dependencies = [
 
 [[package]]
 name = "percent-encoding"
-version = "2.2.0"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "478c572c3d73181ff3c2539045f6eb99e5491218eae919370993b890cdbdd98e"
+checksum = "9b2a4787296e9989611394c33f193f676704af1686e70b8f8033ab5ba9a35a94"
 
 [[package]]
 name = "petgraph"
@@ -2458,15 +2435,6 @@ name = "ppv-lite86"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
-
-[[package]]
-name = "pq-sys"
-version = "0.4.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b845d6d8ec554f972a2c5298aad68953fd64e7441e846075450b44656a016d1"
-dependencies = [
- "vcpkg",
-]
 
 [[package]]
 name = "precomputed-hash"
@@ -2732,8 +2700,8 @@ dependencies = [
  "pollster",
  "thiserror",
  "tokio",
- "tokio-rustls",
- "webpki 0.21.4",
+ "tokio-rustls 0.22.0",
+ "webpki",
 ]
 
 [[package]]
@@ -2767,7 +2735,7 @@ dependencies = [
  "log",
  "ring",
  "sct 0.6.1",
- "webpki 0.21.4",
+ "webpki",
 ]
 
 [[package]]
@@ -3553,8 +3521,7 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 [[package]]
 name = "svc-agent"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c90205083c87c6bc25990d5cdd26f98d8c431441e86dbd4e7421b28c428e04d"
+source = "git+https://github.com/foxford/svc-agent-rs?branch=ULMS-2365/sqlx#b80a3b7a84eb4821b584fb6db4b810b0c894026f"
 dependencies = [
  "async-channel",
  "base64 0.21.0",
@@ -3577,7 +3544,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb5cf659f78c8fff863c17ac4e674829517919716eeecab602e8d2941e89c111"
 dependencies = [
  "chrono",
- "diesel",
  "http",
  "jsonwebtoken",
  "serde 1.0.152",
@@ -3616,6 +3582,21 @@ dependencies = [
  "crossbeam-channel",
  "http",
  "once_cell",
+ "sentry 0.31.5",
+ "sentry-anyhow",
+ "serde 1.0.152",
+ "serde_derive",
+]
+
+[[package]]
+name = "svc-error"
+version = "0.5.0"
+source = "git+https://github.com/foxford/svc-error-rs?branch=ULMS-2365/sqlx#9fcc4ca1b58e49ce303435548dd44d084186528e"
+dependencies = [
+ "anyhow",
+ "crossbeam-channel",
+ "http",
+ "once_cell",
  "r2d2",
  "sentry 0.31.5",
  "sentry-anyhow",
@@ -3629,8 +3610,7 @@ dependencies = [
 [[package]]
 name = "svc-events"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a30b9e3f342270165a9e7543f9ba85a45bff586cc04f4d495ffd8b4a44447974"
+source = "git+https://github.com/foxford/svc-events?branch=ULMS-2365/sqlx#2c8c086d57b115c4d5cb74e43a5439bb31640764"
 dependencies = [
  "serde 1.0.152",
  "serde_json",
@@ -3643,8 +3623,7 @@ dependencies = [
 [[package]]
 name = "svc-nats-client"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c35276c77ae7ff528a5fb243f16bf95065a3ac8c91837356f2ee797c9a697203"
+source = "git+https://github.com/foxford/svc-nats-client?branch=ULMS-2365/sqlx#8a4d9d391619f72541b94e808e50f892e9323e23"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -3655,7 +3634,7 @@ dependencies = [
  "reqwest",
  "serde 1.0.152",
  "svc-agent",
- "svc-error",
+ "svc-error 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "svc-events",
  "thiserror",
  "tokio",
@@ -3665,9 +3644,8 @@ dependencies = [
 
 [[package]]
 name = "svc-utils"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b69ddf12cc8ef6d1cca54f87553bc904c74ad4465b482806b3d6724faa0731b2"
+version = "0.7.4"
+source = "git+https://github.com/foxford/svc-utils-rs?branch=ULMS-2365/sqlx#4a808345ee3bc56d8c8b703abcafb5e5ec71d39f"
 dependencies = [
  "axum",
  "futures",
@@ -3676,7 +3654,7 @@ dependencies = [
  "prometheus 0.13.3",
  "svc-agent",
  "svc-authn",
- "svc-error",
+ "svc-error 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio",
  "tower",
  "tower-http 0.4.0",
@@ -3935,7 +3913,17 @@ checksum = "bc6844de72e57df1980054b38be3a9f4702aba4858be64dd700181a8a6d0e1b6"
 dependencies = [
  "rustls 0.19.1",
  "tokio",
- "webpki 0.21.4",
+ "webpki",
+]
+
+[[package]]
+name = "tokio-rustls"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c28327cf380ac148141087fbfb9de9d7bd4e84ab5d2c28fbc911d753de8a7081"
+dependencies = [
+ "rustls 0.21.0",
+ "tokio",
 ]
 
 [[package]]
@@ -4198,9 +4186,9 @@ dependencies = [
 
 [[package]]
 name = "unicode-bidi"
-version = "0.3.8"
+version = "0.3.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "099b7128301d285f79ddd55b9a83d5e6b9e97c92e0ea0daebee7263e932de992"
+checksum = "92888ba5573ff080736b3648696b70cafad7d250551175acbaa4e0385b3e1460"
 
 [[package]]
 name = "unicode-ident"
@@ -4249,9 +4237,9 @@ checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
 
 [[package]]
 name = "url"
-version = "2.3.1"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d68c799ae75762b8c3fe375feb6600ef5602c883c5d21eb51c09f22b83c4643"
+checksum = "50bff7831e19200a85b17131d085c25d7811bc4e186efdaf54bbd132994a88cb"
 dependencies = [
  "form_urlencoded",
  "idna",
@@ -4416,16 +4404,6 @@ name = "webpki"
 version = "0.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8e38c0608262c46d4a56202ebabdeb094cef7e560ca7a226c6bf055188aa4ea"
-dependencies = [
- "ring",
- "untrusted",
-]
-
-[[package]]
-name = "webpki"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f095d78192e208183081cc07bc5515ef55216397af48b873e5edcd72637fa1bd"
 dependencies = [
  "ring",
  "untrusted",

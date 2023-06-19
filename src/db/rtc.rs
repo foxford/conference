@@ -10,7 +10,7 @@ use svc_agent::AgentId;
 
 use crate::db;
 
-use super::{recording::Object as Recording, AgentIds};
+use super::recording::Object as Recording;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -137,7 +137,6 @@ impl<'a> ListQuery<'a> {
 
     pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Vec<Object>> {
         let created_by = self.created_by.unwrap_or(&[]);
-        let created_by = AgentIds(created_by);
 
         sqlx::query_as!(
             Object,
@@ -156,7 +155,7 @@ impl<'a> ListQuery<'a> {
             LIMIT $4
             "#,
             self.room_id as Option<Id>,
-            created_by as AgentIds,
+            created_by as &[&AgentId],
             self.offset,
             self.limit
         )

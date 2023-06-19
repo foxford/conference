@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
 use super::room::Object as Room;
-use super::Ids;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Object {
@@ -119,15 +118,13 @@ pub async fn remove_rooms(
     ids: &[super::room::Id],
     connection: &mut sqlx::PgConnection,
 ) -> sqlx::Result<()> {
-    let ids = Ids(ids);
-
     sqlx::query!(
         r#"
         DELETE FROM orphaned_room
         WHERE
             id = ANY($1)
         "#,
-        ids as Ids,
+        ids as &[super::room::Id],
     )
     .execute(connection)
     .await?;

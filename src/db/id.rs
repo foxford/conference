@@ -13,3 +13,9 @@ impl Id {
         Id(Uuid::new_v4())
     }
 }
+
+impl sqlx::postgres::PgHasArrayType for Id {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("_uuid")
+    }
+}

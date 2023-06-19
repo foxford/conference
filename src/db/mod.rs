@@ -1,5 +1,4 @@
 use std::time::Duration;
-use svc_agent::AgentId;
 
 pub async fn create_pool(
     url: &str,
@@ -16,26 +15,6 @@ pub async fn create_pool(
         .connect(url)
         .await
         .expect("Failed to create sqlx database pool")
-}
-
-// This type helps to fix query type issues.
-#[derive(sqlx::Encode)]
-pub struct AgentIds<'a>(&'a [&'a AgentId]);
-
-impl sqlx::Type<sqlx::Postgres> for AgentIds<'_> {
-    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
-        AgentId::type_info()
-    }
-}
-
-// This type helps to fix query type issues.
-#[derive(sqlx::Encode)]
-pub struct Ids<'a>(&'a [id::Id]);
-
-impl sqlx::Type<sqlx::Postgres> for Ids<'_> {
-    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
-        id::Id::type_info()
-    }
 }
 
 pub mod agent;

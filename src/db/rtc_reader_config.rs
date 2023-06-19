@@ -1,10 +1,7 @@
 use chrono::{DateTime, Utc};
 use svc_agent::AgentId;
 
-use crate::db::Ids;
 use crate::{db, db::rtc::Object as Rtc};
-
-use super::AgentIds;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -81,8 +78,6 @@ impl<'a> ListWithRtcQuery<'a> {
     }
 
     pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Vec<(Object, Rtc)>> {
-        let reader_ids = AgentIds(self.reader_ids);
-
         sqlx::query_as!(
             ListWithRtcRow,
             r#"
@@ -102,7 +97,7 @@ impl<'a> ListWithRtcQuery<'a> {
                 rrc.reader_id = ANY($2)
             "#,
             self.room_id as db::room::Id,
-            reader_ids as AgentIds,
+            self.reader_ids as &[&AgentId],
         )
         .fetch_all(conn)
         .await
@@ -202,9 +197,6 @@ pub async fn batch_insert(
     receive_video: &[bool],
     receive_audio: &[bool],
 ) -> sqlx::Result<Vec<Object>> {
-    let rtc_ids = Ids(rtc_ids);
-    let reader_ids = AgentIds(reader_ids);
-
     sqlx::query_as!(
         Object,
         r#"
@@ -224,8 +216,8 @@ pub async fn batch_insert(
             receive_video,
             receive_audio
         "#,
-        rtc_ids as Ids,
-        reader_ids as AgentIds,
+        rtc_ids as &[db::rtc::Id],
+        reader_ids as &[&AgentId],
         receive_video,
         receive_audio
     )
