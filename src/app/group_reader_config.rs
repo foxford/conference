@@ -124,9 +124,9 @@ mod tests {
     use std::ops::Bound;
     use svc_agent::Addressable;
 
-    #[tokio::test]
-    async fn distribution_by_groups() {
-        let db = TestDb::new().await;
+    #[sqlx::test]
+    async fn distribution_by_groups(pool: sqlx::PgPool) {
+        let db = TestDb::new(pool);
 
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);

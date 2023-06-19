@@ -189,9 +189,9 @@ mod test {
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn list_rtc_streams() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn list_rtc_streams(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let mut authz = TestAuthz::new();
 
             let mut conn = db.get_conn().await;
@@ -275,9 +275,9 @@ mod test {
             );
         }
 
-        #[tokio::test]
-        async fn list_rtc_streams_not_authorized() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn list_rtc_streams_not_authorized(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -304,9 +304,9 @@ mod test {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[tokio::test]
-        async fn list_rtc_streams_missing_room() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn list_rtc_streams_missing_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;

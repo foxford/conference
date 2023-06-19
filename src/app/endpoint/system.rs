@@ -351,9 +351,9 @@ mod test {
             },
         };
 
-        #[tokio::test]
-        async fn close_orphaned_rooms() -> anyhow::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn close_orphaned_rooms(pool: sqlx::PgPool) -> anyhow::Result<()> {
+            let db = TestDb::new(pool);
 
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
@@ -424,11 +424,11 @@ mod test {
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn vacuum_system() {
+        #[sqlx::test]
+        async fn vacuum_system(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
-            let db = TestDb::new().await;
+            let db = TestDb::new(pool);
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -500,9 +500,9 @@ mod test {
             assert_eq!(recv_rtcs, rtcs);
         }
 
-        #[tokio::test]
-        async fn vacuum_system_unauthorized() {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn vacuum_system_unauthorized(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
 
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);

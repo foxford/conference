@@ -449,11 +449,11 @@ mod tests {
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn update_agent_writer_config() -> std::io::Result<()> {
+        #[sqlx::test]
+        async fn update_agent_writer_config(pool: sqlx::PgPool) -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
-            let db = TestDb::new().await;
+            let db = TestDb::new(pool);
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
@@ -689,9 +689,9 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn not_authorized() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn not_authorized(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -724,10 +724,10 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn too_many_config_items() -> std::io::Result<()> {
+        #[sqlx::test]
+        async fn too_many_config_items(pool: sqlx::PgPool) -> std::io::Result<()> {
             // Make agent_writer_config.update request.
-            let db = TestDb::new().await;
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
 
@@ -761,9 +761,9 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn not_entered() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn not_entered(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room.
@@ -789,9 +789,9 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn closed_room() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn closed_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -828,9 +828,9 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn room_with_wrong_rtc_policy() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn room_with_wrong_rtc_policy(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -864,10 +864,10 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn missing_room() -> std::io::Result<()> {
+        #[sqlx::test]
+        async fn missing_room(pool: sqlx::PgPool) -> std::io::Result<()> {
             // Make agent_writer_config.update request.
-            let db = TestDb::new().await;
+            let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
@@ -901,9 +901,9 @@ mod tests {
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn read_state() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn read_state(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
@@ -989,9 +989,9 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn not_entered() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn not_entered(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room.
@@ -1013,9 +1013,9 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn closed_room() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn closed_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1048,9 +1048,9 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn wrong_rtc_sharing_policy(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1080,10 +1080,10 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn missing_room() -> std::io::Result<()> {
+        #[sqlx::test]
+        async fn missing_room(pool: sqlx::PgPool) -> std::io::Result<()> {
             // Make agent_writer_config.read request.
-            let db = TestDb::new().await;
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
 

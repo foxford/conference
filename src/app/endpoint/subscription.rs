@@ -246,9 +246,9 @@ mod tests {
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn delete_subscription() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn delete_subscription(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let mut conn = db.get_conn().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -320,9 +320,9 @@ mod tests {
             assert_eq!(db_agents.len(), 0);
         }
 
-        #[tokio::test]
-        async fn delete_subscription_missing_agent() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn delete_subscription_missing_agent(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
@@ -355,9 +355,9 @@ mod tests {
             assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-        #[tokio::test]
-        async fn delete_subscription_missing_room() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn delete_subscription_missing_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
@@ -394,9 +394,9 @@ mod tests {
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn delete_subscription() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn delete_subscription(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let mut conn = db.get_conn().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
@@ -458,9 +458,9 @@ mod tests {
             assert_eq!(db_agents.len(), 0);
         }
 
-        #[tokio::test]
-        async fn delete_subscription_missing_agent() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn delete_subscription_missing_agent(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {

@@ -226,9 +226,9 @@ mod test {
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn unicast_message() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn unicast_message(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -267,9 +267,9 @@ mod test {
             assert_eq!(payload, json!({"key": "value"}));
         }
 
-        #[tokio::test]
-        async fn unicast_message_to_missing_room() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn unicast_message_to_missing_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
 
             let mut context = TestContext::new(db, TestAuthz::new()).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
@@ -289,9 +289,9 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[tokio::test]
-        async fn unicast_message_when_sender_is_not_in_the_room() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn unicast_message_when_sender_is_not_in_the_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -318,9 +318,9 @@ mod test {
             assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-        #[tokio::test]
-        async fn unicast_message_when_receiver_is_not_in_the_room() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn unicast_message_when_receiver_is_not_in_the_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -356,9 +356,9 @@ mod test {
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn broadcast_message() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn broadcast_message(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -402,9 +402,9 @@ mod test {
             assert_eq!(payload, json!({"key": "value"}));
         }
 
-        #[tokio::test]
-        async fn broadcast_message_to_missing_room() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn broadcast_message_to_missing_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let mut context = TestContext::new(db, TestAuthz::new()).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
@@ -422,9 +422,9 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[tokio::test]
-        async fn broadcast_message_when_not_in_the_room() {
-            let db = TestDb::new().await;
+       #[sqlx::test]
+    async fn broadcast_message_when_not_in_the_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
             // Insert room with online agent.

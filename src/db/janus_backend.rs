@@ -571,12 +571,12 @@ mod tests {
         test_helpers::{db::TestDb, prelude::*},
     };
 
-    #[tokio::test]
-    async fn reserve_load_for_each_backend() {
+    #[sqlx::test]
+    async fn reserve_load_for_each_backend(pool: sqlx::PgPool) {
         // Insert an rtc and janus backend.
         let now = Utc::now();
 
-        let mut conn = TestDb::new().await.get_conn().await;
+        let mut conn = TestDb::new(pool).get_conn().await;
 
         // Insert janus backends.
         let backend1 = shared_helpers::insert_janus_backend(

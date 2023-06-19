@@ -310,9 +310,9 @@ mod tests {
     use crate::test_helpers::{db::TestDb, prelude::*};
     use chrono::{Duration, Utc};
 
-    #[tokio::test]
-    async fn test_cleanup_query() {
-        let db = TestDb::new().await;
+    #[sqlx::test]
+    async fn test_cleanup_query(pool: sqlx::PgPool) {
+        let db = TestDb::new(pool);
 
         let old = TestAgent::new("web", "old_agent", USR_AUDIENCE);
         let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);

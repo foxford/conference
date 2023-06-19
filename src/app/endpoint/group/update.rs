@@ -228,9 +228,9 @@ mod tests {
     use std::collections::HashMap;
     use std::ops::Bound;
 
-    #[tokio::test]
-    async fn missing_room() -> std::io::Result<()> {
-        let db = TestDb::new().await;
+    #[sqlx::test]
+    async fn missing_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+        let db = TestDb::new(pool);
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
         let context = TestContext::new(db, TestAuthz::new()).await;
 
@@ -253,9 +253,9 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn closed_room() -> std::io::Result<()> {
-        let db = TestDb::new().await;
+    #[sqlx::test]
+    async fn closed_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+        let db = TestDb::new(pool);
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let mut conn = db.get_conn().await;
@@ -293,9 +293,9 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn wrong_rtc_sharing_policy() {
-        let db = TestDb::new().await;
+    #[sqlx::test]
+    async fn wrong_rtc_sharing_policy(pool: sqlx::PgPool) {
+        let db = TestDb::new(pool);
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let mut conn = db.get_conn().await;
@@ -334,13 +334,13 @@ mod tests {
         assert_eq!(err.kind(), "invalid_payload");
     }
 
-    #[tokio::test]
-    async fn update_group_agents() {
+    #[sqlx::test]
+    async fn update_group_agents(pool: sqlx::PgPool) {
         let local_deps = LocalDeps::new();
         let janus = local_deps.run_janus();
         let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
 
-        let db = TestDb::new().await;
+        let db = TestDb::new(pool);
 
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);

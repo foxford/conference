@@ -726,11 +726,11 @@ a=rtcp-fb:120 ccm fir
 a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
 "#;
 
-        #[tokio::test]
-        async fn offer() -> std::io::Result<()> {
+        #[sqlx::test]
+        async fn offer(pool: sqlx::PgPool) -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
-            let db = TestDb::new().await;
+            let db = TestDb::new(pool);
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
@@ -824,9 +824,9 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             Ok(())
         }
 
-        #[tokio::test]
-        async fn offer_unauthorized() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn offer_unauthorized(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
@@ -910,9 +910,9 @@ a=rtcp-fb:120 nack pli
 a=rtcp-fb:120 ccm fir
 "#;
 
-        #[tokio::test]
-        async fn answer() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn answer(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -987,11 +987,11 @@ a=rtcp-fb:120 ccm fir
 
         const ICE_CANDIDATE: &str = "candidate:0 1 UDP 2113667327 198.51.100.7 49203 typ host";
 
-        #[tokio::test]
-        async fn candidate() -> std::io::Result<()> {
+        #[sqlx::test]
+        async fn candidate(pool: sqlx::PgPool) -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
-            let db = TestDb::new().await;
+            let db = TestDb::new(pool);
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
@@ -1061,9 +1061,9 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn candidate_unauthorized() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn candidate_unauthorized(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1121,9 +1121,9 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn wrong_rtc_id() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn wrong_rtc_id(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1170,9 +1170,9 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn rtc_id_from_another_room() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn rtc_id_from_another_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1226,9 +1226,9 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn wrong_backend_id() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn wrong_backend_id(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1290,9 +1290,9 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn offline_backend() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn offline_backend(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let backend = TestAgent::new("offline-instance", "janus-gateway", SVC_AUDIENCE);
@@ -1342,9 +1342,9 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn not_entered() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn not_entered(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1390,9 +1390,9 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn not_connected() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn not_connected(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1440,9 +1440,9 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn wrong_handle_id() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn wrong_handle_id(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1496,9 +1496,9 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn spoof_handle_id() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn spoof_handle_id(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
 
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
@@ -1564,9 +1564,9 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn closed_room() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn closed_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
@@ -1621,9 +1621,9 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn spoof_owned_rtc() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn spoof_owned_rtc(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
 
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
@@ -1690,11 +1690,11 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn create_in_unbounded_room() {
+        #[sqlx::test]
+        async fn create_in_unbounded_room(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
             let janus = local_deps.run_janus();
-            let db = TestDb::new().await;
+            let db = TestDb::new(pool);
 
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;

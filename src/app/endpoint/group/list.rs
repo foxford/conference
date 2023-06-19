@@ -141,9 +141,9 @@ mod tests {
     use std::ops::Bound;
     use svc_agent::mqtt::ResponseStatus;
 
-    #[tokio::test]
-    async fn missing_room() -> std::io::Result<()> {
-        let db = TestDb::new().await;
+    #[sqlx::test]
+    async fn missing_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+        let db = TestDb::new(pool);
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
         let mut context = TestContext::new(db, TestAuthz::new()).await;
 
@@ -162,9 +162,9 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn closed_room() -> std::io::Result<()> {
-        let db = TestDb::new().await;
+    #[sqlx::test]
+    async fn closed_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+        let db = TestDb::new(pool);
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let mut conn = db.get_conn().await;
@@ -198,9 +198,9 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn wrong_rtc_sharing_policy() {
-        let db = TestDb::new().await;
+    #[sqlx::test]
+    async fn wrong_rtc_sharing_policy(pool: sqlx::PgPool) {
+        let db = TestDb::new(pool);
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let mut conn = db.get_conn().await;
@@ -235,9 +235,9 @@ mod tests {
         assert_eq!(err.kind(), "invalid_payload");
     }
 
-    #[tokio::test]
-    async fn list_agents_with_groups() {
-        let db = TestDb::new().await;
+    #[sqlx::test]
+    async fn list_agents_with_groups(pool: sqlx::PgPool) {
+        let db = TestDb::new(pool);
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
@@ -285,9 +285,9 @@ mod tests {
         assert_eq!(state.len(), 2);
     }
 
-    #[tokio::test]
-    async fn list_agents_within_group() {
-        let db = TestDb::new().await;
+    #[sqlx::test]
+    async fn list_agents_within_group(pool: sqlx::PgPool) {
+        let db = TestDb::new(pool);
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 

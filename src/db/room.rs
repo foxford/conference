@@ -385,7 +385,7 @@ pub async fn finished_with_in_progress_recordings(
             janus_backend.api_version = $1 AND
             upper(room.time) < now() AND
             recording.status = 'in_progress' AND
-            ($2::text IS NULL OR janus_backend.group = $2)
+            ($2::text IS NULL OR (janus_backend.group = $2 OR janus_backend.group IS NULL))
         "#,
         JANUS_API_VERSION,
         maybe_group
@@ -654,9 +654,9 @@ mod tests {
             test_helpers::{db, prelude::*},
         };
 
-        #[tokio::test]
-        async fn selects_appropriate_backend() {
-            let db = db::TestDb::new().await;
+        #[sqlx::test]
+        async fn selects_appropriate_backend(pool: sqlx::PgPool) {
+            let db = db::TestDb::new(pool);
             let mut conn = db.get_conn().await;
 
             let backend1 = shared_helpers::insert_janus_backend(
@@ -718,9 +718,9 @@ mod tests {
             }
         }
 
-        #[tokio::test]
-        async fn selects_appropriate_backend_by_group() {
-            let db = db::TestDb::new().await;
+        #[sqlx::test]
+        async fn selects_appropriate_backend_by_group(pool: sqlx::PgPool) {
+            let db = db::TestDb::new(pool);
             let mut conn = db.get_conn().await;
 
             let backend1 = shared_helpers::insert_janus_backend_with_group(

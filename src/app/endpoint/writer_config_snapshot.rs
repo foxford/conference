@@ -113,9 +113,9 @@ mod tests {
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn read() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn read(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
 
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
@@ -185,9 +185,9 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn wrong_rtc_sharing_policy(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
             let dispatcher = TestAgent::new("dispatcher-0", "dispatcher", SVC_AUDIENCE);
@@ -219,9 +219,9 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn missing_room() -> std::io::Result<()> {
-            let db = TestDb::new().await;
+        #[sqlx::test]
+        async fn missing_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
 
             // Make agent_writer_config.read request.
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);

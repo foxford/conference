@@ -270,12 +270,12 @@ mod test {
         },
     };
 
-    #[tokio::test]
-    async fn test_online_when_backends_absent() -> anyhow::Result<()> {
+    #[sqlx::test]
+    async fn test_online_when_backends_absent(pool: sqlx::PgPool) -> anyhow::Result<()> {
         let local_deps = LocalDeps::new();
         let janus = local_deps.run_janus();
 
-        let db = TestDb::new().await;
+        let db = TestDb::new(pool);
         let mut context = TestContext::new(db, TestAuthz::new()).await;
 
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -318,12 +318,12 @@ mod test {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_online_when_backends_present() -> anyhow::Result<()> {
+    #[sqlx::test]
+    async fn test_online_when_backends_present(pool: sqlx::PgPool) -> anyhow::Result<()> {
         let local_deps = LocalDeps::new();
         let janus = local_deps.run_janus();
 
-        let db = TestDb::new().await;
+        let db = TestDb::new(pool);
         let mut context = TestContext::new(db, TestAuthz::new()).await;
 
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
