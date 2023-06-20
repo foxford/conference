@@ -1197,6 +1197,8 @@ a=rtcp-fb:120 ccm fir
             )
             .await;
 
+            let rtc = shared_helpers::insert_rtc(&mut conn).await;
+
             // Make rtc_signal.create request.
             let mut context = TestContext::new(db, TestAuthz::new()).await;
 
