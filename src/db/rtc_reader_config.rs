@@ -172,8 +172,8 @@ impl<'a> UpsertQuery<'a> {
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (rtc_id, reader_id) DO UPDATE
             SET
-                receive_video = $3,
-                receive_audio = $4
+                receive_video = COALESCE($5, rtc_reader_config.receive_video),
+                receive_audio = COALESCE($6, rtc_reader_config.receive_audio)
             RETURNING
                 rtc_id as "rtc_id: db::rtc::Id",
                 reader_id as "reader_id: AgentId",
@@ -184,6 +184,8 @@ impl<'a> UpsertQuery<'a> {
             self.reader_id as &AgentId,
             receive_video,
             receive_audio,
+            self.receive_video,
+            self.receive_audio
         )
         .fetch_one(conn)
         .await

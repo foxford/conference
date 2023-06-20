@@ -197,10 +197,10 @@ impl<'a> UpsertQuery<'a> {
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (rtc_id) DO UPDATE
             SET
-                send_video = $2,
-                send_audio = $3,
                 video_remb = $4,
-                send_audio_updated_by = $5
+                send_audio_updated_by = $5,
+                send_video = COALESCE($6, rtc_writer_config.send_video),
+                send_audio = COALESCE($7, rtc_writer_config.send_audio)
             RETURNING
                 rtc_id as "rtc_id: db::rtc::Id",
                 send_video,
@@ -214,6 +214,8 @@ impl<'a> UpsertQuery<'a> {
             send_audio,
             self.video_remb,
             self.send_audio_updated_by as Option<&AgentId>,
+            self.send_video,
+            self.send_audio
         )
         .fetch_one(conn)
         .await
