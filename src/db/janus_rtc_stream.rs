@@ -405,6 +405,9 @@ mod tests {
         let rtc_stream = factory::JanusRtcStream::new(USR_AUDIENCE)
             .insert(&mut conn)
             .await;
+        start(rtc_stream.id(), &mut conn)
+            .await
+            .expect("Failed to start rtc stream");
 
         let r = stop_running_streams_by_backend(rtc_stream.backend_id(), &mut conn)
             .await
