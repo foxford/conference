@@ -1053,18 +1053,6 @@
     },
     "query": "\n            DELETE FROM janus_backend\n            WHERE\n                id = $1 AND\n                session_id = $2 AND\n                handle_id = $3\n            "
   },
-  "270cbb867406d2e9b89cb44ef0f1513e6addae65ac084949231a61aefb1f9a32": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Timestamptz"
-        ]
-      }
-    },
-    "query": "\n            DELETE FROM agent_connection\n            WHERE\n                created_at = $1 AND\n                status = 'in_progress'\n            "
-  },
   "277ae41037463fc2ff0b092086dd85458724e77c056040cffbb8709635d79ace": {
     "describe": {
       "columns": [
@@ -4026,6 +4014,18 @@
       }
     },
     "query": "\n            SELECT\n                rwcs.id as \"id: Id\",\n                rwcs.rtc_id as \"rtc_id: Id\",\n                rwcs.send_video,\n                rwcs.send_audio,\n                rwcs.created_at\n            FROM rtc_writer_config_snapshot AS rwcs\n            INNER JOIN rtc\n            ON rwcs.rtc_id = rtc.id\n            WHERE\n                rtc.room_id = $1\n            ORDER BY rwcs.created_at\n            "
+  },
+  "cab2a6258a1f063981c0bd825b8171e1f515b152bc6a637985c63601f0e6a43f": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM agent_connection\n            WHERE\n                created_at < $1 AND\n                status = 'in_progress'\n            "
   },
   "cc0a087e91af7f4c9c167dcb7b5ddaad8e191d367a36c5eff38872e71739800b": {
     "describe": {

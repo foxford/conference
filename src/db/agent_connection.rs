@@ -207,7 +207,7 @@ impl CleanupNotConnectedQuery {
             r#"
             DELETE FROM agent_connection
             WHERE
-                created_at = $1 AND
+                created_at < $1 AND
                 status = 'in_progress'
             "#,
             self.created_at
