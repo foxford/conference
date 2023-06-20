@@ -2107,7 +2107,7 @@ mod test {
                     .await
             };
 
-            let backend_beta = {
+            let backend2 = {
                 let agent = TestAgent::new("beta", "janus", SVC_AUDIENCE);
                 let id = agent.agent_id().to_owned();
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
@@ -2117,7 +2117,7 @@ mod test {
                     .await
             };
 
-            let backend_gamma = {
+            let backend3 = {
                 let agent = TestAgent::new("gamma", "janus", SVC_AUDIENCE);
                 let id = agent.agent_id().to_owned();
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
@@ -2127,7 +2127,7 @@ mod test {
                     .await
             };
 
-            let backend_delta = {
+            let backend4 = {
                 let agent = TestAgent::new("delta", "janus", SVC_AUDIENCE);
                 let id = agent.agent_id().to_owned();
                 factory::JanusBackend::new(id, handle_id, session_id, janus.url.clone())
@@ -2158,7 +2158,7 @@ mod test {
                 ))
                 .reserve(600)
                 .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                .backend_id(backend_beta.id())
+                .backend_id(backend2.id())
                 .insert(&mut conn)
                 .await;
 
@@ -2227,10 +2227,18 @@ mod test {
             )
             .await;
 
-            let classroom_id = room3.classroom_id().to_string();
+            shared_helpers::insert_agent(&mut conn, new_writer.agent_id(), room3.id()).await;
+
+            let (rtc, backend_beta, backend_gamma, backend_delta, classroom_id) = (
+                rtc3,
+                backend2,
+                backend3,
+                backend4,
+                room3.classroom_id().to_string(),
+            );
 
             // Allow user to update the rtc.
-            let rtc_id = rtc3.id().to_string();
+            let rtc_id = rtc.id().to_string();
             let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(new_writer.account_id(), object, "update");
 
@@ -2238,11 +2246,11 @@ mod test {
             // Despite none of the backends are capable to host the reserve it should
             // select the least loaded one.
             let mut context = TestContext::new(db, authz).await;
-            let (tx, _) = tokio::sync::mpsc::unbounded_channel();
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
             let payload = ConnectRequest {
-                id: rtc3.id(),
+                id: rtc.id(),
                 intent: ConnectIntent::Write,
             };
 
@@ -2253,7 +2261,7 @@ mod test {
             context.janus_clients().remove_client(&backend_beta);
 
             assert_eq!(respp.status(), StatusCode::OK);
-            assert_eq!(resp.handle_id.rtc_id(), rtc3.id());
+            assert_eq!(resp.handle_id.rtc_id(), rtc.id());
             assert_eq!(resp.handle_id.janus_session_id(), session_id);
             assert!([backend_beta.id(), backend_gamma.id(), backend_delta.id()]
                 .contains(&resp.handle_id.backend_id()));

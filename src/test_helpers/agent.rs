@@ -2,6 +2,7 @@ use svc_agent::{mqtt::Address, AccountId, AgentId, Authenticable};
 
 use crate::app::API_VERSION;
 
+#[derive(Debug)]
 pub struct TestAgent {
     address: Address,
 }
