@@ -281,5 +281,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS recording_rtc_id_idx ON recording USING btree 
 CREATE INDEX IF NOT EXISTS room_time ON room USING gist ("time") WHERE (backend_id IS NOT NULL);
 CREATE INDEX IF NOT EXISTS rtc_room_id ON rtc USING btree (room_id);
 
-CREATE OR REPLACE TRIGGER rtc_insert_trigger BEFORE INSERT ON rtc FOR EACH ROW EXECUTE FUNCTION on_rtc_insert();
-CREATE OR REPLACE TRIGGER set_timestamp BEFORE UPDATE ON rtc_writer_config FOR EACH ROW EXECUTE FUNCTION trigger_set_timestamp();
+DO $$
+BEGIN
+    -- support for postgresql 13
+    -- CREATE OR REPLACE is available after version 14
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.triggers
+        WHERE event_object_table = 'rtc'
+        AND   trigger_name = 'rtc_insert_trigger'
+    ) THEN
+        CREATE TRIGGER rtc_insert_trigger BEFORE INSERT ON rtc FOR EACH ROW EXECUTE FUNCTION on_rtc_insert();
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.triggers
+        WHERE event_object_table = 'rtc_writer_config'
+        AND   trigger_name = 'set_timestamp'
+    ) THEN
+        CREATE TRIGGER set_timestamp BEFORE UPDATE ON rtc_writer_config FOR EACH ROW EXECUTE FUNCTION trigger_set_timestamp();
+    END IF;
+END;
+$$
