@@ -162,29 +162,12 @@ impl RequestHandler for CreateHandler {
             let handle_id = payload.handle_id.clone();
 
             let mut conn = context.get_conn().await?;
-            let janus_backend = db::janus_backend::FindQuery::new(handle_id.backend_id())
-                .execute(&mut conn)
-                .await?
-                .context("Backend not found")
-                .error(AppErrorKind::BackendNotFound)?;
 
             let rtc = db::rtc::FindQuery::new(handle_id.rtc_id())
                 .execute(&mut conn)
                 .await?
                 .context("RTC not found")
                 .error(AppErrorKind::RtcNotFound)?;
-
-            // Validate agent connection and handle id.
-            let agent_connection = db::agent_connection::FindQuery::new(&agent_id, rtc.id())
-                .execute(&mut conn)
-                .await?
-                .context("Agent not connected")
-                .error(AppErrorKind::AgentNotConnected)?;
-
-            if handle_id.janus_handle_id() != agent_connection.handle_id() {
-                return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
-                    .error(AppErrorKind::InvalidHandleId)?;
-            }
 
             let room = helpers::find_room_by_id(
                 rtc.room_id(),
@@ -211,8 +194,26 @@ impl RequestHandler for CreateHandler {
                 return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
             }
 
+            let janus_backend = db::janus_backend::FindQuery::new(handle_id.backend_id())
+                .execute(&mut conn)
+                .await?
+                .context("Backend not found")
+                .error(AppErrorKind::BackendNotFound)?;
+
             if handle_id.janus_session_id() != janus_backend.session_id() {
                 return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
+                    .error(AppErrorKind::InvalidHandleId)?;
+            }
+
+            // Validate agent connection and handle id.
+            let agent_connection = db::agent_connection::FindQuery::new(&agent_id, rtc.id())
+                .execute(&mut conn)
+                .await?
+                .context("Agent not connected")
+                .error(AppErrorKind::AgentNotConnected)?;
+
+            if handle_id.janus_handle_id() != agent_connection.handle_id() {
+                return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
                     .error(AppErrorKind::InvalidHandleId)?;
             }
 
@@ -1232,14 +1233,7 @@ a=rtcp-fb:120 ccm fir
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let mut conn = db.get_conn().await;
-            let _backend = shared_helpers::insert_janus_backend(
-                &mut conn,
-                "test",
-                SessionId::random(),
-                crate::backend::janus::client::HandleId::stub_id(),
-            )
-            .await;
-
+            // Insert room with backend, rtc and connected agent and another backend.
             let backend = shared_helpers::insert_janus_backend(
                 &mut conn,
                 "test",
@@ -1248,7 +1242,6 @@ a=rtcp-fb:120 ccm fir
             )
             .await;
 
-            // Insert room with backend, rtc and connected agent and another backend.
             let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
             let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
@@ -1257,6 +1250,14 @@ a=rtcp-fb:120 ccm fir
                 agent.agent_id(),
                 rtc.room_id(),
                 rtc.id(),
+            )
+            .await;
+
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
             )
             .await;
 
