@@ -465,7 +465,7 @@ impl<'a> InsertQuery<'a> {
                 time, audience, backend, reserve, tags,
                 backend_id, rtc_sharing_policy, classroom_id, infinite
             )
-            VALUES ($1, $2, $3, $4, COALESCE($5, '{}'::json), $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, COALESCE($5, '{}'::jsonb), $6, $7, $8, $9)
             RETURNING
                 id as "id: Id",
                 backend_id as "backend_id: AgentId",
@@ -568,7 +568,7 @@ impl<'a> UpdateQuery<'a> {
                 backend_id   = COALESCE($2, backend_id),
                 time         = COALESCE($3, time),
                 reserve      = COALESCE($4, reserve),
-                tags         = COALESCE($5, tags),
+                tags         = COALESCE($5, tags::jsonb),
                 classroom_id = COALESCE($6, classroom_id),
                 host         = COALESCE($7, host),
                 timed_out    = COALESCE($8, timed_out)
