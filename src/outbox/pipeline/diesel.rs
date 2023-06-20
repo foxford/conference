@@ -84,10 +84,8 @@ impl Pipeline {
     {
         let ctx = ctx.clone();
         let event_id = record.id();
-        let rt = tokio::runtime::Handle::current();
-        // The `block_on` function in this case doesn't block the main thread of tokio,
-        // because it's called inside the `spawn_blocking` function call.
-        let result = rt.block_on(<T as StageHandle>::handle(&stage, &ctx, &event_id));
+
+        let result = <T as StageHandle>::handle(&stage, &ctx, &event_id).await;
 
         match result {
             Ok(Some(next_stage)) => {
