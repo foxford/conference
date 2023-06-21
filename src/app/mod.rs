@@ -122,15 +122,20 @@ pub async fn run(
         mqtt_client,
     );
 
-    let context = match &config.nats {
+    let nats_client = match &config.nats {
         Some(cfg) => {
             let nats_client = svc_nats_client::Client::new(cfg.clone())
                 .await
                 .context("nats client")?;
             info!("Connected to nats");
 
-            context.add_nats_client(nats_client)
+            Some(nats_client)
         }
+        None => None,
+    };
+
+    let context = match nats_client.clone() {
+        Some(c) => context.add_nats_client(c),
         None => context,
     };
 
@@ -145,6 +150,7 @@ pub async fn run(
         Some(pool) => context.add_redis_pool(pool),
         None => context,
     };
+
     let (graceful_tx, graceful_rx) = tokio::sync::watch::channel(());
     let mut shutdown_server_rx = graceful_rx.clone();
     let _http_task = tokio::spawn(
@@ -163,6 +169,17 @@ pub async fn run(
     );
 
     let ctx: Arc<dyn GlobalContext + Send + Sync> = Arc::new(context.clone());
+
+    let nats_consumer = match (nats_client, &config.nats_consumer) {
+        (Some(nats_client), Some(cfg)) => {
+            svc_nats_client::consumer::run(nats_client, cfg.clone(), graceful_rx.clone(), {
+                let ctx_ = ctx.clone();
+                move |msg| crate::app::stage::route_message(ctx_.clone(), msg)
+            })
+        }
+        _ => tokio::spawn(std::future::ready(Ok(()))),
+    };
+
     let outbox_handler = outbox_handler::run(ctx, graceful_rx.clone())?;
 
     // Message handler
@@ -193,6 +210,7 @@ pub async fn run(
     let signals = signals_stream.next();
     let _ = signals.await;
     let _ = graceful_tx.send(());
+
     unsubscribe(&mut agent, &agent_id, &config)?;
     message_handler
         .global_context()
@@ -202,6 +220,10 @@ pub async fn run(
 
     if let Err(err) = outbox_handler.await {
         error!(%err, "failed to await outbox handler completion");
+    }
+
+    if let Err(err) = nats_consumer.await {
+        tracing::error!(%err, "nats consumer failed");
     }
 
     tokio::time::sleep(Duration::from_secs(3)).await;

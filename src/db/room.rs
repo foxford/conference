@@ -169,14 +169,27 @@ pub trait FindQueryable {
     async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>>;
 }
 
+// It's not Default since this query doesn't make sense if
+// both `id` and `classroom_id` are None.
 #[derive(Debug)]
 pub struct FindQuery {
-    id: Id,
+    id: Option<Id>,
+    classroom_id: Option<Uuid>,
 }
 
 impl FindQuery {
-    pub fn new(id: Id) -> Self {
-        Self { id }
+    pub fn by_id(id: Id) -> Self {
+        Self {
+            id: Some(id),
+            classroom_id: None,
+        }
+    }
+
+    pub fn by_classroom_id(classroom_id: Uuid) -> Self {
+        Self {
+            id: None,
+            classroom_id: Some(classroom_id),
+        }
     }
 }
 
@@ -203,15 +216,18 @@ impl FindQueryable for FindQuery {
                 closed_by as "closed_by: AgentId"
             FROM room
             WHERE
-                id = $1
+                ($1::uuid IS NULL OR id = $1)
+            AND ($2::uuid IS NULL OR classroom_id = $2)
             "#,
-            self.id as Id,
+            self.id as Option<Id>,
+            self.classroom_id,
         )
         .fetch_optional(conn)
         .await
     }
 }
 
+// It's separate query since it requires join on rtc table
 #[derive(Debug)]
 pub struct FindByRtcIdQuery {
     rtc_id: db::rtc::Id,

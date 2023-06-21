@@ -3610,7 +3610,7 @@ dependencies = [
 [[package]]
 name = "svc-events"
 version = "0.9.0"
-source = "git+https://github.com/foxford/svc-events?branch=ULMS-2365/sqlx#2c8c086d57b115c4d5cb74e43a5439bb31640764"
+source = "git+https://github.com/foxford/svc-events?branch=ULMS-2365/sqlx#d26561bccf0f55633153e9b29bb7a9a1a5011a46"
 dependencies = [
  "serde 1.0.152",
  "serde_json",
