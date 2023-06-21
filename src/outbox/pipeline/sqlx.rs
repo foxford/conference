@@ -3,7 +3,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use sqlx::Connection;
 
 use crate::outbox::{
-    db::diesel::Object,
+    db::sqlx::Object,
     error::{ErrorKind, PipelineError, PipelineErrorExt, PipelineErrors},
     pipeline::MultipleStagePipelineResult,
     EventId, StageHandle,
@@ -36,7 +36,7 @@ impl Pipeline {
     where
         T: Serialize + DeserializeOwned,
     {
-        let record = crate::outbox::db::diesel::FindQuery::new(id)
+        let record = crate::outbox::db::sqlx::FindQuery::new(id)
             .execute(conn)
             .await?;
         let stage = serde_json::from_value::<T>(record.stage().to_owned())
@@ -52,7 +52,7 @@ impl Pipeline {
     where
         T: Serialize + DeserializeOwned,
     {
-        let records = crate::outbox::db::diesel::ListQuery::new(records_per_try)
+        let records = crate::outbox::db::sqlx::ListQuery::new(records_per_try)
             .execute(conn)
             .await
             .error(ErrorKind::LoadStagesFailed)?;
@@ -68,8 +68,6 @@ impl Pipeline {
         Ok(result)
     }
 
-    // This function is not async, because we run this function inside
-    // the diesel transaction which is not async too.
     async fn handle_record<C, T>(
         &self,
         conn: &mut sqlx::PgConnection,
@@ -89,7 +87,7 @@ impl Pipeline {
 
         match result {
             Ok(Some(next_stage)) => {
-                let record = crate::outbox::db::diesel::DeleteQuery::new(&event_id)
+                let record = crate::outbox::db::sqlx::DeleteQuery::new(&event_id)
                     .execute(conn)
                     .await
                     .error(ErrorKind::DeleteStageFailed)?;
@@ -97,7 +95,7 @@ impl Pipeline {
                 let json =
                     serde_json::to_value(&next_stage).error(ErrorKind::SerializationFailed)?;
 
-                let event_id = crate::outbox::db::diesel::InsertQuery::new(
+                let event_id = crate::outbox::db::sqlx::InsertQuery::new(
                     record.entity_type(),
                     json,
                     record.delivery_deadline_at(),
@@ -109,7 +107,7 @@ impl Pipeline {
                 Ok(Some(event_id))
             }
             Ok(None) => {
-                crate::outbox::db::diesel::DeleteQuery::new(&event_id)
+                crate::outbox::db::sqlx::DeleteQuery::new(&event_id)
                     .execute(conn)
                     .await
                     .error(ErrorKind::DeleteStageFailed)?;
@@ -124,7 +122,7 @@ impl Pipeline {
                     self.max_delivery_interval,
                 );
 
-                crate::outbox::db::diesel::UpdateQuery::new(
+                crate::outbox::db::sqlx::UpdateQuery::new(
                     &event_id,
                     delivery_deadline_at,
                     error.kind(),
