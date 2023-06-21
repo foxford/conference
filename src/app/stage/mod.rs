@@ -7,12 +7,17 @@ use crate::{
             VideoGroupUpdateJanusConfig,
         },
     },
+    backend::janus::client::update_agent_reader_config::{
+        UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
+        UpdateReaderConfigRequestBodyConfigItem,
+    },
     db::{self, room::FindQueryable},
     outbox::{error::StageError, StageHandle},
 };
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
+use svc_authn::Authenticable;
 use svc_events::{
     ban::{BanAcceptedV1, BanVideoStreamingCompletedV1},
     Event, EventId, EventV1,
@@ -112,7 +117,94 @@ async fn handle_ban_accepted(
     subject: Subject,
     headers: &svc_nats_client::Headers,
 ) -> Result<(), HandleMessageFailure<Error>> {
+    let room_backend = room
+        .backend_id()
+        .ok_or_else(|| anyhow!("room has no backend"))
+        .error(ErrorKind::BackendNotFound)
+        .transient()?;
+
     let mut conn = ctx.get_conn().await.transient()?;
+
+    let rtcs = db::rtc::ListQuery::new()
+        .room_id(room.id)
+        .execute(&mut conn)
+        .await
+        .error(ErrorKind::DbQueryFailed)
+        .transient()?;
+
+    let target_rtc = rtcs
+        .iter()
+        .find(|r| *r.created_by().as_account_id() == e.target_account)
+        .ok_or_else(|| anyhow!("agent is not in the room"))
+        .error(ErrorKind::AgentNotConnected)
+        .transient()?;
+
+    let (mut rtc_ids, mut agent_ids, mut receive_video_values, mut receive_audio_values) =
+        (vec![], vec![], vec![], vec![]);
+
+    let mut configs = vec![];
+
+    for rtc in rtcs.iter() {
+        let receive_video = room
+            .host()
+            // always receive video for hosts
+            .map(|h| h == rtc.created_by() || !e.ban)
+            .unwrap_or(!e.ban);
+
+        let receive_audio = !e.ban;
+        let stream_id = target_rtc.id;
+        let reader_id = rtc.created_by();
+
+        let cfg = UpdateReaderConfigRequestBodyConfigItem {
+            reader_id: reader_id.clone(),
+            stream_id,
+            receive_video,
+            receive_audio,
+        };
+        configs.push(cfg);
+
+        rtc_ids.push(stream_id);
+        agent_ids.push(reader_id);
+        receive_video_values.push(receive_video);
+        receive_audio_values.push(receive_audio);
+    }
+
+    db::rtc_reader_config::batch_insert(
+        &mut conn,
+        &rtc_ids,
+        &agent_ids,
+        &receive_video_values,
+        &receive_audio_values,
+    )
+    .await
+    .error(ErrorKind::DbQueryFailed)
+    .transient()?;
+
+    let janus_backend = db::janus_backend::FindQuery::new(room_backend)
+        .execute(&mut conn)
+        .await
+        .error(ErrorKind::DbQueryFailed)
+        .transient()?
+        .ok_or_else(|| anyhow!("Janus backend not found"))
+        .error(ErrorKind::BackendNotFound)
+        // backend could get offline and will be available next time
+        .transient()?;
+
+    let request = UpdateReaderConfigRequest {
+        session_id: janus_backend.session_id(),
+        handle_id: janus_backend.handle_id(),
+        body: UpdateReaderConfigRequestBody::new(configs),
+    };
+
+    ctx.janus_clients()
+        .get_or_insert(&janus_backend)
+        .error(ErrorKind::BackendClientCreationFailed)
+        .transient()?
+        .reader_update(request)
+        .await
+        .context("Reader update")
+        .error(ErrorKind::BackendRequestFailed)
+        .transient()?;
 
     let event_id = headers.event_id();
     let event = BanVideoStreamingCompletedV1::new_from_accepted(e, event_id.clone());
