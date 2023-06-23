@@ -214,6 +214,12 @@ async fn handle_ban_accepted(
         .error(ErrorKind::InvalidPayload)
         .permanent()?;
 
+    let event_id = EventId::from((
+        event_id.entity_type().to_owned(),
+        "video_streaming_completed".to_owned(),
+        event_id.sequence_id(),
+    ));
+
     let event = svc_nats_client::event::Builder::new(
         subject,
         payload,
