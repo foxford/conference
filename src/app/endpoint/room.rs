@@ -785,6 +785,7 @@ impl EnterHandler {
                                     stage::video_group::ENTITY_TYPE,
                                     serialized_stage,
                                     delivery_deadline_at,
+                                    stage::video_group::UPDATED_OPERATION,
                                 )
                                 .execute(conn)
                                 .await?;

@@ -116,18 +116,27 @@ impl Handler {
                         .len();
 
                     let timestamp = Utc::now().timestamp_nanos();
-                    let event = if existed_groups == 1 {
-                        VideoGroupEvent::Created {
-                            created_at: timestamp,
-                        }
+                    let (event, operation) = if existed_groups == 1 {
+                        (
+                            VideoGroupEvent::Created {
+                                created_at: timestamp,
+                            },
+                            stage::video_group::CREATED_OPERATION,
+                        )
                     } else if existed_groups > 1 && groups.len() == 1 {
-                        VideoGroupEvent::Deleted {
-                            created_at: timestamp,
-                        }
+                        (
+                            VideoGroupEvent::Deleted {
+                                created_at: timestamp,
+                            },
+                            stage::video_group::DELETED_OPERATION,
+                        )
                     } else {
-                        VideoGroupEvent::Updated {
-                            created_at: timestamp,
-                        }
+                        (
+                            VideoGroupEvent::Updated {
+                                created_at: timestamp,
+                            },
+                            stage::video_group::UPDATED_OPERATION,
+                        )
                     };
                     let event = Event::from(event);
 
@@ -170,6 +179,7 @@ impl Handler {
                         stage::video_group::ENTITY_TYPE,
                         serialized_stage,
                         delivery_deadline_at,
+                        operation,
                     )
                     .execute(conn)
                     .await?;
