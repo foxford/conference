@@ -17,9 +17,7 @@ use self::{
     upload_stream::{UploadStreamRequest, UploadStreamTransaction},
 };
 use anyhow::Context;
-use diesel_derive_newtype::DieselNewType;
 
-use rand::Rng;
 use reqwest::{Client, StatusCode, Url};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
@@ -210,27 +208,34 @@ pub enum IceCandidateSdp {
 }
 
 #[derive(
-    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
+    Debug, Deserialize, Serialize, Display, Copy, Clone, Hash, PartialEq, Eq, FromStr, sqlx::Type,
 )]
+#[sqlx(transparent)]
 pub struct HandleId(i64);
 
 impl HandleId {
+    #[cfg(test)]
     pub fn stub_id() -> Self {
         Self(123)
     }
 
+    #[cfg(test)]
     pub fn random() -> Self {
+        use rand::Rng;
         Self(rand::thread_rng().gen())
     }
 }
 
 #[derive(
-    Debug, Deserialize, Serialize, Display, Copy, Clone, DieselNewType, Hash, PartialEq, Eq, FromStr,
+    Debug, Deserialize, Serialize, Display, Copy, Clone, Hash, PartialEq, Eq, FromStr, sqlx::Type,
 )]
+#[sqlx(transparent)]
 pub struct SessionId(i64);
 
 impl SessionId {
+    #[cfg(test)]
     pub fn random() -> Self {
+        use rand::Rng;
         Self(rand::thread_rng().gen())
     }
 }

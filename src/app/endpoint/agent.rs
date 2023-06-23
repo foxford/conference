@@ -65,18 +65,20 @@ impl RequestHandler for ListHandler {
     type Payload = ListRequest;
     const ERROR_TITLE: &'static str = "Failed to list agents";
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let room = crate::util::spawn_blocking({
-            let room_id = payload.room_id;
-
-            let conn = context.get_conn().await?;
-            move || helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn().await?;
+            helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -93,17 +95,13 @@ impl RequestHandler for ListHandler {
         context.metrics().observe_auth(authz_time);
 
         // Get agents list in the room.
-        let agents = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                db::agent::ListQuery::new()
-                    .room_id(payload.room_id)
-                    .offset(payload.offset.unwrap_or(0))
-                    .limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT))
-                    .execute(&conn)
-            }
-        })
-        .await?;
+        let mut conn = context.get_conn().await?;
+        let agents = db::agent::ListQuery::new()
+            .room_id(payload.room_id)
+            .offset(payload.offset.unwrap_or(0))
+            .limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT))
+            .execute(&mut conn)
+            .await?;
 
         context
             .metrics()
@@ -129,7 +127,7 @@ mod tests {
         use serde::Deserialize;
         use svc_agent::AgentId;
 
-        use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
+        use crate::test_helpers::{db::TestDb, prelude::*};
 
         use super::super::*;
 
@@ -141,24 +139,16 @@ mod tests {
             room_id: db::room::Id,
         }
 
-        #[tokio::test]
-        async fn list_agents() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn list_agents(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+            let mut conn = db.get_conn().await;
 
-                // Create room and put the agent online.
-                let room = shared_helpers::insert_room(&conn);
-                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                room
-            };
+            // Create room and put the agent online.
+            let room = shared_helpers::insert_room(&mut conn).await;
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Allow agent to list agents in the room.
             let mut authz = TestAuthz::new();
@@ -169,7 +159,7 @@ mod tests {
             );
 
             // Make agent.list request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -189,23 +179,17 @@ mod tests {
             assert_eq!(agents[0].room_id, room.id());
         }
 
-        #[tokio::test]
-        async fn list_agents_not_authorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn list_agents_not_authorized(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
-                shared_helpers::insert_room(&conn)
+                let mut conn = db.get_conn().await;
+                shared_helpers::insert_room(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -221,21 +205,15 @@ mod tests {
             assert_eq!(err.kind(), "access_denied");
         }
 
-        #[tokio::test]
-        async fn list_agents_closed_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn list_agents_closed_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
+                let mut conn = db.get_conn().await;
                 // Create closed room.
-                shared_helpers::insert_closed_room(&conn)
+                shared_helpers::insert_closed_room(&mut conn).await
             };
 
             // Allow agent to list agents in the room.
@@ -247,7 +225,7 @@ mod tests {
             );
 
             // Make agent.list request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
 
             let payload = ListRequest {
                 room_id: room.id(),
@@ -263,13 +241,11 @@ mod tests {
             assert_eq!(err.kind(), "room_closed");
         }
 
-        #[tokio::test]
-        async fn list_agents_missing_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn list_agents_missing_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ListRequest {
                 room_id: db::room::Id::random(),

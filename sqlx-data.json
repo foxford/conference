@@ -1,0 +1,5632 @@
+{
+  "db": "PostgreSQL",
+  "0a1d60744d2b1f707f529bd8a51f14a322199616d679c4a1f24e0f60a71a8bee": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "room_id: Id",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_by: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Composite": [
+                        [
+                          "account_id",
+                          {
+                            "Custom": {
+                              "kind": {
+                                "Composite": [
+                                  [
+                                    "label",
+                                    "Text"
+                                  ],
+                                  [
+                                    "audience",
+                                    "Text"
+                                  ]
+                                ]
+                              },
+                              "name": "account_id"
+                            }
+                          }
+                        ],
+                        [
+                          "label",
+                          "Text"
+                        ]
+                      ]
+                    },
+                    "name": "agent_id"
+                  }
+                }
+              },
+              "name": "_agent_id"
+            }
+          },
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id as \"id: Id\",\n                room_id as \"room_id: Id\",\n                created_at,\n                created_by as \"created_by: AgentId\"\n            FROM rtc\n            WHERE\n                ($1::uuid IS NULL OR room_id = $1) AND\n                (array_length($2::agent_id[], 1) IS NULL OR created_by = ANY($2))\n            ORDER BY created_at\n            OFFSET $3\n            LIMIT $4\n            "
+  },
+  "10a4ed4c159ff369298e2f86497b9e9db6a7cc368d64627eda74f85239bf2735": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "send_video",
+          "ordinal": 1,
+          "type_info": "Bool"
+        },
+        {
+          "name": "send_audio",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "video_remb",
+          "ordinal": 3,
+          "type_info": "Int8"
+        },
+        {
+          "name": "send_audio_updated_by: AgentId",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "updated_at",
+          "ordinal": 5,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Bool",
+          "Bool",
+          "Int8",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Bool",
+          "Bool"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO rtc_writer_config (rtc_id, send_video, send_audio, video_remb, send_audio_updated_by)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (rtc_id) DO UPDATE\n            SET\n                video_remb = $4,\n                send_audio_updated_by = $5,\n                send_video = COALESCE($6, rtc_writer_config.send_video),\n                send_audio = COALESCE($7, rtc_writer_config.send_audio)\n            RETURNING\n                rtc_id as \"rtc_id: db::rtc::Id\",\n                send_video,\n                send_audio,\n                video_remb,\n                send_audio_updated_by as \"send_audio_updated_by: AgentId\",\n                updated_at\n            "
+  },
+  "11f3579a85222cd0d11e2a148dcea656c9c7a4ca942b6d11008fd0cc6e7a69fb": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "entity_type",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "stage",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "delivery_deadline_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "error_kind",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "retry_count",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 6,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            FROM outbox\n            WHERE\n                id = $1 AND\n                entity_type = $2\n            FOR UPDATE SKIP LOCKED\n            "
+  },
+  "12176dce0364c36ba97b1e17ba7e18750a06a54814f5605b9c72580fa1528651": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "room_id: Id",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "groups: Groups",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id as \"id: Id\",\n                room_id as \"room_id: Id\",\n                groups as \"groups: Groups\"\n            FROM group_agent\n            WHERE\n                room_id = $1\n            FOR UPDATE\n            "
+  },
+  "14dcfdd8bfdb560cb6312c8c8277104d39038c772107f05237b49c6d732bb4f1": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 2,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "reserve",
+          "ordinal": 3,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tags",
+          "ordinal": 4,
+          "type_info": "Json"
+        },
+        {
+          "name": "classroom_id",
+          "ordinal": 5,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "timed_out",
+          "ordinal": 7,
+          "type_info": "Bool"
+        },
+        {
+          "name": "audience",
+          "ordinal": 8,
+          "type_info": "Text"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 9,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend: RoomBackend",
+          "ordinal": 10,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          }
+        },
+        {
+          "name": "rtc_sharing_policy: RtcSharingPolicy",
+          "ordinal": 11,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          }
+        },
+        {
+          "name": "infinite",
+          "ordinal": 12,
+          "type_info": "Bool"
+        },
+        {
+          "name": "closed_by: AgentId",
+          "ordinal": 13,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "TstzRange",
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          },
+          "Int4",
+          "Jsonb",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          },
+          "Uuid",
+          "Bool"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO room (\n                time, audience, backend, reserve, tags,\n                backend_id, rtc_sharing_policy, classroom_id, infinite\n            )\n            VALUES ($1, $2, $3, $4, COALESCE($5, '{}'::jsonb), $6, $7, $8, $9)\n            RETURNING\n                id as \"id: Id\",\n                backend_id as \"backend_id: AgentId\",\n                time as \"time: TimePg\",\n                reserve,\n                tags,\n                classroom_id,\n                host as \"host: AgentId\",\n                timed_out,\n                audience,\n                created_at,\n                backend as \"backend: RoomBackend\",\n                rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n                infinite,\n                closed_by as \"closed_by: AgentId\"\n            "
+  },
+  "150fc34d4b480e06e75d24b9b6fd92b4f2f946214b20d84ac5911f72f41897fa": {
+    "describe": {
+      "columns": [
+        {
+          "name": "room_id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 1,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "audience",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "room_created_at: _",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend: RoomBackend",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          }
+        },
+        {
+          "name": "reserve",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tags",
+          "ordinal": 6,
+          "type_info": "Json"
+        },
+        {
+          "name": "backend_id!: AgentId",
+          "ordinal": 7,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "rtc_sharing_policy: RtcSharingPolicy",
+          "ordinal": 8,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          }
+        },
+        {
+          "name": "classroom_id",
+          "ordinal": 9,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host: AgentId",
+          "ordinal": 10,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "timed_out",
+          "ordinal": 11,
+          "type_info": "Bool"
+        },
+        {
+          "name": "closed_by: AgentId",
+          "ordinal": 12,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "infinite",
+          "ordinal": 13,
+          "type_info": "Bool"
+        },
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 14,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "started_at",
+          "ordinal": 15,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "segments: Vec<SegmentPg>",
+          "ordinal": 16,
+          "type_info": "Int8RangeArray"
+        },
+        {
+          "name": "status: RecordingStatus",
+          "ordinal": 17,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready",
+                  "missing"
+                ]
+              },
+              "name": "recording_status"
+            }
+          }
+        },
+        {
+          "name": "mjr_dumps_uris",
+          "ordinal": 18,
+          "type_info": "TextArray"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 19,
+          "type_info": "Int8"
+        },
+        {
+          "name": "session_id: SessionId",
+          "ordinal": 20,
+          "type_info": "Int8"
+        },
+        {
+          "name": "janus_backend_created_at: _",
+          "ordinal": 21,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "capacity",
+          "ordinal": 22,
+          "type_info": "Int4"
+        },
+        {
+          "name": "balancer_capacity",
+          "ordinal": 23,
+          "type_info": "Int4"
+        },
+        {
+          "name": "api_version",
+          "ordinal": 24,
+          "type_info": "Text"
+        },
+        {
+          "name": "group",
+          "ordinal": 25,
+          "type_info": "Text"
+        },
+        {
+          "name": "janus_url",
+          "ordinal": 26,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n        SELECT\n            room.id as \"room_id: Id\",\n            room.time as \"time: TimePg\",\n            room.audience,\n            room.created_at \"room_created_at: _\",\n            room.backend as \"backend: RoomBackend\",\n            room.reserve,\n            room.tags,\n            room.backend_id as \"backend_id!: AgentId\",\n            room.rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n            room.classroom_id,\n            room.host as \"host: AgentId\",\n            room.timed_out,\n            room.closed_by as \"closed_by: AgentId\",\n            room.infinite,\n            recording.rtc_id as \"rtc_id: db::rtc::Id\",\n            recording.started_at,\n            recording.segments as \"segments: Vec<SegmentPg>\",\n            recording.status as \"status: RecordingStatus\",\n            recording.mjr_dumps_uris,\n            janus_backend.handle_id as \"handle_id: HandleId\",\n            janus_backend.session_id as \"session_id: SessionId\",\n            janus_backend.created_at as \"janus_backend_created_at: _\",\n            janus_backend.capacity,\n            janus_backend.balancer_capacity,\n            janus_backend.api_version,\n            janus_backend.group,\n            janus_backend.janus_url\n        FROM room\n        INNER JOIN rtc\n        ON room.id = rtc.room_id\n        INNER JOIN recording\n        ON recording.rtc_id = rtc.id\n        INNER JOIN janus_backend\n        ON janus_backend.id = room.backend_id\n        WHERE\n            room.rtc_sharing_policy = ANY(ARRAY ['shared'::rtc_sharing_policy, 'owned']) AND\n            janus_backend.api_version = $1 AND\n            upper(room.time) < now() AND\n            recording.status = 'in_progress' AND\n            ($2::text IS NULL OR (janus_backend.group = $2 OR janus_backend.group IS NULL))\n        "
+  },
+  "177804d5d891d345ab11479b583e5796e5003e7250d1edb8867f526c588053c0": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n        INSERT INTO orphaned_room\n        VALUES ($1, $2)\n        ON CONFLICT (id) DO UPDATE\n        SET\n            host_left_at = $2\n        "
+  },
+  "18d6a334debacd190f663f9db94cb0c32398bcf4a953298dfcda16c0ee2a73c3": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "entity_type",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "stage",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "delivery_deadline_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "error_kind",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "retry_count",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 6,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Text",
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n            UPDATE outbox\n            SET\n                delivery_deadline_at = $1,\n                retry_count = retry_count + 1,\n                error_kind = $2\n            WHERE\n                id = $3 AND\n                entity_type = $4\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            "
+  },
+  "1d3c074fcededd8ba566d9df8563a4c9497e5f864fbda9cd7087a396ade1a993": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: AgentId",
+          "ordinal": 0,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "session_id: SessionId",
+          "ordinal": 2,
+          "type_info": "Int8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "capacity",
+          "ordinal": 4,
+          "type_info": "Int4"
+        },
+        {
+          "name": "balancer_capacity",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "api_version",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "group",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "janus_url",
+          "ordinal": 8,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Int8",
+          "Int8",
+          "Int4",
+          "Int4",
+          "Text",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO janus_backend\n                (id, handle_id, session_id, capacity, balancer_capacity, api_version, \"group\", janus_url)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n            ON CONFLICT (id) DO UPDATE\n            SET\n                handle_id         = $2,\n                session_id        = $3,\n                capacity          = COALESCE($4, janus_backend.capacity),\n                balancer_capacity = COALESCE($5, janus_backend.balancer_capacity),\n                api_version       = $6,\n                \"group\"           = COALESCE($7, janus_backend.\"group\"),\n                janus_url         = $8\n            RETURNING\n                id as \"id: AgentId\",\n                handle_id as \"handle_id: HandleId\",\n                session_id as \"session_id: SessionId\",\n                created_at,\n                capacity,\n                balancer_capacity,\n                api_version,\n                \"group\",\n                janus_url\n            "
+  },
+  "25286cb2fc366af19abb5169258cf2fb2ca68b83d214725b76b96aff228b30d0": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "send_video",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "send_audio",
+          "ordinal": 3,
+          "type_info": "Bool"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Bool",
+          "Bool"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO rtc_writer_config_snapshot (rtc_id, send_video, send_audio)\n            VALUES ($1, $2, $3)\n            RETURNING\n                id as \"id: Id\",\n                rtc_id as \"rtc_id: Id\",\n                send_video,\n                send_audio,\n                created_at\n            "
+  },
+  "266b487d38f7eadea36cb02ff28148a6e314dca71bd7a3a88450163aaa0c4bce": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Record",
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM janus_backend\n            WHERE\n                id = $1 AND\n                session_id = $2 AND\n                handle_id = $3\n            "
+  },
+  "277ae41037463fc2ff0b092086dd85458724e77c056040cffbb8709635d79ace": {
+    "describe": {
+      "columns": [
+        {
+          "name": "agent_id: db::id::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "rtc_id: db::id::Id",
+          "ordinal": 3,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "status: Status",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "connected"
+                ]
+              },
+              "name": "agent_connection_status"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Record",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                ac.agent_id as \"agent_id: db::id::Id\",\n                ac.handle_id as \"handle_id: HandleId\",\n                ac.created_at,\n                ac.rtc_id as \"rtc_id: db::id::Id\",\n                ac.status as \"status: Status\"\n            FROM agent_connection as ac\n            INNER JOIN agent as a\n            ON a.id = ac.agent_id\n            WHERE\n                a.status = 'ready' AND\n                a.agent_id = $1 AND\n                ac.rtc_id = $2\n            "
+  },
+  "29abe7e00c32ca1975dc2f575fee5bca5a71ae2a754e374c1cd9bc9fc7241597": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM agent\n            WHERE\n                ($1::agent_id IS NULL OR agent_id = $1) AND\n                ($2::uuid IS NULL OR room_id  = $2)\n            "
+  },
+  "2f627cbc63f485775d35cda3e87265f34145b51f6946cf972bd232cb274fa8c4": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "send_video",
+          "ordinal": 1,
+          "type_info": "Bool"
+        },
+        {
+          "name": "send_audio",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "video_remb",
+          "ordinal": 3,
+          "type_info": "Int8"
+        },
+        {
+          "name": "send_audio_updated_by: AgentId",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "updated_at",
+          "ordinal": 5,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        SELECT\n            rtc_id as \"rtc_id: db::rtc::Id\",\n            send_video,\n            send_audio,\n            video_remb,\n            send_audio_updated_by as \"send_audio_updated_by: AgentId\",\n            updated_at\n        FROM rtc_writer_config\n        WHERE\n            rtc_id = $1\n        "
+  },
+  "2f77fe39538386fe2d91f68e4a0b00f909dbe69cf4de2c2bd23e29b2f96034a9": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 2,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "reserve",
+          "ordinal": 3,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tags",
+          "ordinal": 4,
+          "type_info": "Json"
+        },
+        {
+          "name": "classroom_id",
+          "ordinal": 5,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "timed_out",
+          "ordinal": 7,
+          "type_info": "Bool"
+        },
+        {
+          "name": "audience",
+          "ordinal": 8,
+          "type_info": "Text"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 9,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend: RoomBackend",
+          "ordinal": 10,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          }
+        },
+        {
+          "name": "rtc_sharing_policy: RtcSharingPolicy",
+          "ordinal": 11,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          }
+        },
+        {
+          "name": "infinite",
+          "ordinal": 12,
+          "type_info": "Bool"
+        },
+        {
+          "name": "closed_by: AgentId",
+          "ordinal": 13,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "TstzRange",
+          "Int4",
+          "Jsonb",
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Bool"
+        ]
+      }
+    },
+    "query": "\n            UPDATE room\n            SET\n                backend_id   = COALESCE($2, backend_id),\n                time         = COALESCE($3, time),\n                reserve      = COALESCE($4, reserve),\n                tags         = COALESCE($5, tags::jsonb),\n                classroom_id = COALESCE($6, classroom_id),\n                host         = COALESCE($7, host),\n                timed_out    = COALESCE($8, timed_out)\n            WHERE\n                id = $1\n            RETURNING\n                id as \"id: Id\",\n                backend_id as \"backend_id: AgentId\",\n                time as \"time: TimePg\",\n                reserve,\n                tags,\n                classroom_id,\n                host as \"host: AgentId\",\n                timed_out,\n                audience,\n                created_at,\n                backend as \"backend: RoomBackend\",\n                rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n                infinite,\n                closed_by as \"closed_by: AgentId\"\n            "
+  },
+  "340b4406bbe1066afaab3e0a3e2075dcd51900199c61e0b6807687f60b28d384": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Record"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM agent_connection AS ac\n            USING agent AS a,\n                room AS r\n            WHERE a.id = ac.agent_id\n            AND   r.id = a.room_id\n            AND   r.backend_id = $1\n            "
+  },
+  "342585c3b8a41f65607a5e6c567dc4d2c8c098fa460c7d9612880d00b42421bf": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 2,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "reserve",
+          "ordinal": 3,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tags",
+          "ordinal": 4,
+          "type_info": "Json"
+        },
+        {
+          "name": "classroom_id",
+          "ordinal": 5,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "timed_out",
+          "ordinal": 7,
+          "type_info": "Bool"
+        },
+        {
+          "name": "audience",
+          "ordinal": 8,
+          "type_info": "Text"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 9,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend: RoomBackend",
+          "ordinal": 10,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          }
+        },
+        {
+          "name": "rtc_sharing_policy: RtcSharingPolicy",
+          "ordinal": 11,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          }
+        },
+        {
+          "name": "infinite",
+          "ordinal": 12,
+          "type_info": "Bool"
+        },
+        {
+          "name": "closed_by: AgentId",
+          "ordinal": 13,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id as \"id: Id\",\n                backend_id as \"backend_id: AgentId\",\n                time as \"time: TimePg\",\n                reserve,\n                tags,\n                classroom_id,\n                host as \"host: AgentId\",\n                timed_out,\n                audience,\n                created_at,\n                backend as \"backend: RoomBackend\",\n                rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n                infinite,\n                closed_by as \"closed_by: AgentId\"\n            FROM room\n            WHERE\n                id = $1\n            "
+  },
+  "35409b6434deb01d12d413332fd2841f42766c32da76e508a6fd78c2f4ad59f2": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "room_id: Id",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_by: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO rtc (room_id, created_by)\n            VALUES ($1, $2)\n            RETURNING\n                id as \"id: Id\",\n                room_id as \"room_id: Id\",\n                created_at,\n                created_by as \"created_by: AgentId\"\n            "
+  },
+  "5778cf98aff0f0aebc2b6d7b0124af2724de2829b299ced59822eee9dc0a49b7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "room_id: Id",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_by: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id as \"id: Id\",\n                room_id as \"room_id: Id\",\n                created_at,\n                created_by as \"created_by: AgentId\"\n            FROM rtc\n            WHERE\n                id = $1\n            "
+  },
+  "5b9b68ef14def54c5458bb9fa29a4039753d7c5c506ce86f45904fe833792817": {
+    "describe": {
+      "columns": [
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 0,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "load!: i64",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "taken!: i64",
+          "ordinal": 2,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false,
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "\n        WITH\n        room_load AS (\n            SELECT\n                a.room_id,\n                SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken\n            FROM agent AS a\n            INNER JOIN agent_connection AS ac\n            ON ac.agent_id = a.id\n            LEFT JOIN rtc_writer_config AS rwc\n            ON rwc.rtc_id = ac.rtc_id\n            GROUP BY a.room_id\n        ),\n        active_room AS (\n            SELECT *\n            FROM room\n            WHERE backend_id IS NOT NULL\n            AND   time @> NOW()\n        ),\n        janus_backend_load AS (\n            SELECT\n                backend_id,\n                SUM(reserve) AS load,\n                SUM(taken) AS taken\n            FROM (\n                SELECT DISTINCT ON(backend_id, room_id)\n                    ar.backend_id,\n                    ar.id                   AS room_id,\n                    COALESCE(rl.taken, 0)   AS taken,\n                    COALESCE(ar.reserve, 0) AS reserve\n                FROM active_room AS ar\n                LEFT JOIN room_load AS rl\n                ON rl.room_id = ar.id\n            ) AS sub\n            GROUP BY backend_id\n        )\n    SELECT\n        jb.id AS \"backend_id: AgentId\",\n        COALESCE(jbl.load, 0)::BIGINT as \"load!: i64\",\n        COALESCE(jbl.taken, 0)::BIGINT as \"taken!: i64\"\n    FROM janus_backend jb\n    LEFT OUTER JOIN janus_backend_load jbl\n    ON jb.id = jbl.backend_id;\n        "
+  },
+  "5e4f1a0ad6671a957465da1cc7a5a10b158160b3e87ea613712b153dbf3d338f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: AgentId",
+          "ordinal": 0,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "session_id: SessionId",
+          "ordinal": 2,
+          "type_info": "Int8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "capacity",
+          "ordinal": 4,
+          "type_info": "Int4"
+        },
+        {
+          "name": "balancer_capacity",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "api_version",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "group",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "janus_url",
+          "ordinal": 8,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Record"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id as \"id: AgentId\",\n                handle_id as \"handle_id: HandleId\",\n                session_id as \"session_id: SessionId\",\n                created_at,\n                capacity,\n                balancer_capacity,\n                api_version,\n                \"group\",\n                janus_url\n            FROM janus_backend\n            WHERE\n                id = $1\n            LIMIT 1\n            "
+  },
+  "6e723d4966ac8eda05d95aee12842d28a175139c4b71e51aaa4373fb190896bc": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM agent\n            WHERE\n                created_at < $1\n            "
+  },
+  "74563df7263d1a393ac145b308a5c8e1a5d1d79ca6af3c9b8a82873ed4680bfe": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "entity_type",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "stage",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "delivery_deadline_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "error_kind",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "retry_count",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 6,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM outbox\n            WHERE\n                id = $1 AND\n                entity_type = $2\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            "
+  },
+  "766d36412c35b9ca0f538bc6a1d798b721fd7cc0a8690064679a776d471e324d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "entity_type",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "stage",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "delivery_deadline_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "error_kind",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "retry_count",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 6,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Jsonb",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO outbox (entity_type, stage, delivery_deadline_at)\n            VALUES ($1, $2, $3)\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            "
+  },
+  "7a1be1815f97d69529318ee73e3327473de9a057311ee43a129488a1b41e7eda": {
+    "describe": {
+      "columns": [
+        {
+          "name": "free_capacity!: i32",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        WITH\n            room_load AS (\n                SELECT\n                    a.room_id,\n                    SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken\n                FROM agent AS a\n                INNER JOIN agent_connection AS ac\n                ON ac.agent_id = a.id\n                LEFT JOIN rtc_writer_config AS rwc\n                ON rwc.rtc_id = ac.rtc_id\n                GROUP BY a.room_id\n            ),\n            active_room AS (\n                SELECT *\n                FROM room\n                WHERE backend_id IS NOT NULL\n                AND   time @> NOW()\n            ),\n            janus_backend_load AS (\n                SELECT\n                    backend_id,\n                    SUM(taken) AS total_taken,\n                    SUM(reserve) AS total_reserve,\n                    SUM(GREATEST(taken, reserve)) AS load\n                FROM (\n                    SELECT DISTINCT ON(backend_id, room_id)\n                        ar.backend_id,\n                        ar.id                   AS room_id,\n                        COALESCE(rl.taken, 0)   AS taken,\n                        COALESCE(ar.reserve, 0) AS reserve\n                    FROM active_room AS ar\n                    LEFT JOIN room_load AS rl\n                    ON rl.room_id = ar.id\n                ) AS sub\n                GROUP BY backend_id\n            )\n        SELECT\n            (\n                CASE\n                    WHEN COALESCE(jb.capacity, 2147483647) <= COALESCE(jbl.total_taken, 0) THEN 0\n                    ELSE (\n                        GREATEST(\n                            (\n                                CASE\n                                    WHEN COALESCE(ar.reserve, 0) > COALESCE(rl.taken, 0)\n                                        THEN LEAST(\n                                            COALESCE(ar.reserve, 0) - COALESCE(rl.taken, 0),\n                                            COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.total_taken, 0)\n                                        )\n                                    ELSE\n                                        GREATEST(COALESCE(jb.capacity, 2147483647) - COALESCE(jbl.load, 0), 0)\n                                END\n                            ),\n                        1)\n                    )\n                END\n            )::INT AS \"free_capacity!: i32\"\n        FROM rtc\n        LEFT JOIN active_room AS ar\n        ON ar.id = rtc.room_id\n        LEFT JOIN room_load as rl\n        ON rl.room_id = rtc.room_id\n        LEFT JOIN janus_backend AS jb\n        ON jb.id = ar.backend_id\n        LEFT JOIN janus_backend_load AS jbl\n        ON jbl.backend_id = jb.id\n        WHERE rtc.id = $1\n        "
+  },
+  "7bd77f2b6e9b51bff2cee7d1ef459fb5008fc56dcb14858827f4d08563aaed33": {
+    "describe": {
+      "columns": [
+        {
+          "name": "room_id: super::room::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host_left_at",
+          "ordinal": 1,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 2,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: super::room::TimePg",
+          "ordinal": 3,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "reserve",
+          "ordinal": 4,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tags",
+          "ordinal": 5,
+          "type_info": "Json"
+        },
+        {
+          "name": "classroom_id?: _",
+          "ordinal": 6,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host: AgentId",
+          "ordinal": 7,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "timed_out",
+          "ordinal": 8,
+          "type_info": "Bool"
+        },
+        {
+          "name": "audience",
+          "ordinal": 9,
+          "type_info": "Text"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 10,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend: super::room::RoomBackend",
+          "ordinal": 11,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          }
+        },
+        {
+          "name": "rtc_sharing_policy: super::rtc::SharingPolicy",
+          "ordinal": 12,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          }
+        },
+        {
+          "name": "infinite",
+          "ordinal": 13,
+          "type_info": "Bool"
+        },
+        {
+          "name": "closed_by: AgentId",
+          "ordinal": 14,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n        SELECT\n            orph.id as \"room_id: super::room::Id\",\n            orph.host_left_at,\n            r.backend_id as \"backend_id: AgentId\",\n            r.time as \"time: super::room::TimePg\",\n            r.reserve,\n            r.tags,\n            r.classroom_id as \"classroom_id?: _\",\n            r.host as \"host: AgentId\",\n            r.timed_out,\n            r.audience,\n            r.created_at,\n            r.backend as \"backend: super::room::RoomBackend\",\n            r.rtc_sharing_policy as \"rtc_sharing_policy: super::rtc::SharingPolicy\",\n            r.infinite,\n            r.closed_by as \"closed_by: AgentId\"\n        FROM orphaned_room as orph\n        LEFT JOIN room as r\n        ON r.id = orph.id\n        WHERE\n            orph.host_left_at < $1\n        "
+  },
+  "8866ae117f342be21bb15c0d4abec11dca1b05c46ca025658584ff32eae74423": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 2,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "reserve",
+          "ordinal": 3,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tags",
+          "ordinal": 4,
+          "type_info": "Json"
+        },
+        {
+          "name": "classroom_id",
+          "ordinal": 5,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "timed_out",
+          "ordinal": 7,
+          "type_info": "Bool"
+        },
+        {
+          "name": "audience",
+          "ordinal": 8,
+          "type_info": "Text"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 9,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend: RoomBackend",
+          "ordinal": 10,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          }
+        },
+        {
+          "name": "rtc_sharing_policy: RtcSharingPolicy",
+          "ordinal": 11,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          }
+        },
+        {
+          "name": "infinite",
+          "ordinal": 12,
+          "type_info": "Bool"
+        },
+        {
+          "name": "closed_by: AgentId",
+          "ordinal": 13,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                r.id as \"id: Id\",\n                r.backend_id as \"backend_id: AgentId\",\n                r.time as \"time: TimePg\",\n                r.reserve,\n                r.tags,\n                r.classroom_id,\n                r.host as \"host: AgentId\",\n                r.timed_out,\n                r.audience,\n                r.created_at,\n                r.backend as \"backend: RoomBackend\",\n                r.rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n                r.infinite,\n                r.closed_by as \"closed_by: AgentId\"\n            FROM room as r\n            INNER JOIN rtc\n            ON r.id = rtc.room_id\n            WHERE\n                rtc.id = $1\n            "
+  },
+  "8886765219c67ea552eba32f06d70800f6f271b026a5109ff0e4688bbaad25d5": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "started_at",
+          "ordinal": 1,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "segments: Vec<SegmentPg>",
+          "ordinal": 2,
+          "type_info": "Int8RangeArray"
+        },
+        {
+          "name": "status: Status",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready",
+                  "missing"
+                ]
+              },
+              "name": "recording_status"
+            }
+          }
+        },
+        {
+          "name": "mjr_dumps_uris",
+          "ordinal": 4,
+          "type_info": "TextArray"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        true,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                rtc_id as \"rtc_id: db::rtc::Id\",\n                started_at,\n                segments as \"segments: Vec<SegmentPg>\",\n                status as \"status: Status\",\n                mjr_dumps_uris\n            FROM recording\n            WHERE\n                rtc_id = $1\n            "
+  },
+  "8e0dd6b92699513b291bc88ac5cf6a99d07dd15912d4c4dbf1ab3f0387f67aeb": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "entity_type",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "stage",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "delivery_deadline_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "error_kind",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "retry_count",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 6,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            FROM outbox\n            WHERE\n                delivery_deadline_at <= now()\n            LIMIT $1\n            FOR UPDATE SKIP LOCKED\n            "
+  },
+  "9d820858806c1f013c97a34d8eed99315e15ebed9f6c23f859bff6152a6b7e41": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: db::id::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "label",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "sent_by: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 7,
+          "type_info": "TstzRange"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Int8",
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO janus_rtc_stream (id, handle_id, rtc_id, backend_id, label, sent_by)\n            VALUES ($1, $2, $3, $4, $5, $6)\n            RETURNING\n                id as \"id: db::id::Id\",\n                handle_id as \"handle_id: HandleId\",\n                rtc_id as \"rtc_id: Id\",\n                backend_id as \"backend_id: AgentId\",\n                created_at,\n                label,\n                sent_by as \"sent_by: AgentId\",\n                time as \"time: TimePg\"\n            "
+  },
+  "a39d4883f73f7ebe431446eeac53b69b481b213a4ad761952318be98dc1d1cb5": {
+    "describe": {
+      "columns": [
+        {
+          "name": "agent_id: db::id::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "rtc_id: db::id::Id",
+          "ordinal": 3,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "status: Status",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "connected"
+                ]
+              },
+              "name": "agent_connection_status"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "connected"
+                ]
+              },
+              "name": "agent_connection_status"
+            }
+          }
+        ]
+      }
+    },
+    "query": "\n            UPDATE agent_connection\n            SET\n                status = $2\n            WHERE\n                handle_id = $1\n            RETURNING\n                agent_id as \"agent_id: db::id::Id\",\n                handle_id as \"handle_id: HandleId\",\n                created_at,\n                rtc_id as \"rtc_id: db::id::Id\",\n                status as \"status: Status\"\n            "
+  },
+  "a670e364e20ce0b2d2203429936ead35281abe3e1e6d1eebeedf46913569b461": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count!: i64",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "\n            SELECT COUNT(1) as \"count!: i64\"\n            FROM agent_connection\n            "
+  },
+  "a7849939a4b2610e4545ec18d6d1eebde0d740bf172e19213fd2ffcc5ce2c560": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: db::id::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "label",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "sent_by: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 7,
+          "type_info": "TstzRange"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        SELECT\n            \"janus_rtc_stream\".\"id\" as \"id: db::id::Id\",\n            \"janus_rtc_stream\".\"handle_id\" as \"handle_id: HandleId\",\n            \"janus_rtc_stream\".\"rtc_id\" as \"rtc_id: Id\",\n            \"janus_rtc_stream\".\"backend_id\" as \"backend_id: AgentId\",\n            \"janus_rtc_stream\".\"created_at\",\n            \"janus_rtc_stream\".\"label\",\n            \"janus_rtc_stream\".\"sent_by\" as \"sent_by: AgentId\",\n            \"janus_rtc_stream\".\"time\" as \"time: TimePg\"\n        FROM janus_rtc_stream\n        WHERE\n            id = $1\n        "
+  },
+  "a7dc74377f99ca1c9dc1ab08e76a438df0a78059aaa18bd73e09c77a67248fed": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM agent_connection\n            WHERE\n                rtc_id = $1\n            "
+  },
+  "a923eaed597bc1f42dbe3a31131dc8c656b67d2d5d1342991ae5ceead196fff8": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count!: i64",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "\n        SELECT count(id) as \"count!: i64\"\n        FROM janus_backend\n        "
+  },
+  "a98a31979c9024d3b49ee9ef99f64b83a9d717135868eef937cc3f45e890979f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: AgentId",
+          "ordinal": 0,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "session_id: SessionId",
+          "ordinal": 2,
+          "type_info": "Int8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "capacity",
+          "ordinal": 4,
+          "type_info": "Int4"
+        },
+        {
+          "name": "balancer_capacity",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "api_version",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "group",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "janus_url",
+          "ordinal": 8,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n        WITH\n            room_load AS (\n                SELECT\n                    a.room_id,\n                    SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken\n                FROM agent AS a\n                INNER JOIN agent_connection AS ac\n                ON ac.agent_id = a.id\n                LEFT JOIN rtc_writer_config AS rwc\n                ON rwc.rtc_id = ac.rtc_id\n                GROUP BY a.room_id\n            ),\n            active_room AS (\n                SELECT *\n                FROM room\n                WHERE backend_id IS NOT NULL\n                AND   time @> NOW()\n            ),\n            janus_backend_load AS (\n                SELECT\n                    backend_id,\n                    SUM(GREATEST(taken, reserve)) AS load\n                FROM (\n                    SELECT DISTINCT ON(backend_id, room_id)\n                        ar.backend_id,\n                        ar.id                   AS room_id,\n                        COALESCE(rl.taken, 0)   AS taken,\n                        COALESCE(ar.reserve, 0) AS reserve\n                    FROM active_room AS ar\n                    LEFT JOIN room_load AS rl\n                    ON rl.room_id = ar.id\n                ) AS sub\n                GROUP BY backend_id\n            )\n        SELECT\n            jb.id as \"id: AgentId\",\n            jb.handle_id as \"handle_id: HandleId\",\n            jb.session_id as \"session_id: SessionId\",\n            jb.created_at,\n            jb.capacity,\n            jb.balancer_capacity,\n            jb.api_version,\n            jb.\"group\",\n            jb.janus_url\n        FROM janus_backend AS jb\n        LEFT JOIN janus_backend_load AS jbl\n        ON jbl.backend_id = jb.id\n        LEFT JOIN room AS r2\n        ON 1 = 1\n        WHERE r2.id = $1\n        AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) >= COALESCE(r2.reserve, 1)\n        AND   jb.api_version = $2\n        AND   ($3::text IS NULL OR jb.\"group\" = $3::text)\n        ORDER BY COALESCE(jbl.load, 0) DESC, RANDOM()\n        LIMIT 1\n        "
+  },
+  "b455c3678396a464959c16700a01d4b1ad9bf04962aae01edc51d7f8a5adfd52": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "agent_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "room_id: Id",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "status: Status",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready"
+                ]
+              },
+              "name": "agent_status"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready"
+                ]
+              },
+              "name": "agent_status"
+            }
+          },
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO agent (agent_id, room_id, status, created_at)\n            VALUES ($1, $2, $3, COALESCE($4, now()))\n            ON CONFLICT (agent_id, room_id) DO UPDATE\n            SET\n                status = 'in_progress'\n            RETURNING\n                id as \"id: Id\",\n                agent_id as \"agent_id: AgentId\",\n                room_id as \"room_id: Id\",\n                created_at,\n                status as \"status: Status\"\n            "
+  },
+  "b4e7fd62b65000d7a5c8c52c93131643a5d37a1b045b5ae576cc49f6d9edf864": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "reader_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "receive_video",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "receive_audio",
+          "ordinal": 3,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Bool",
+          "Bool",
+          "Bool",
+          "Bool"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO rtc_reader_config\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (rtc_id, reader_id) DO UPDATE\n            SET\n                receive_video = COALESCE($5, rtc_reader_config.receive_video),\n                receive_audio = COALESCE($6, rtc_reader_config.receive_audio)\n            RETURNING\n                rtc_id as \"rtc_id: db::rtc::Id\",\n                reader_id as \"reader_id: AgentId\",\n                receive_video,\n                receive_audio\n            "
+  },
+  "b802a03be3574931a3c3856121cdfdd8e5733c9d5fbe5e6c1bab7272905d6704": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "reader_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "receive_video",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "receive_audio",
+          "ordinal": 3,
+          "type_info": "Bool"
+        },
+        {
+          "name": "room_id: db::room::Id",
+          "ordinal": 4,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "created_by: AgentId",
+          "ordinal": 5,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "ordinal": 6,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "RecordArray"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                rrc.rtc_id as \"rtc_id: db::rtc::Id\",\n                rrc.reader_id as \"reader_id: AgentId\",\n                rrc.receive_video,\n                rrc.receive_audio,\n                rtc.room_id as \"room_id: db::room::Id\",\n                rtc.created_by as \"created_by: AgentId\",\n                rtc.created_at\n            FROM rtc_reader_config as rrc\n            INNER JOIN rtc\n            ON rrc.rtc_id = rtc.id\n            WHERE\n                rtc.room_id = $1 AND\n                rrc.reader_id = ANY($2)\n            "
+  },
+  "b9eeda0a2507b92942761cef70aaa92fe6434f31ceb6aacdf77c37c0f75a0ac1": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM agent_connection\n            WHERE\n                handle_id = $1\n            "
+  },
+  "bc6ae951b6c31009c959c745a242f90821ba2bbf33a83b26598c729d9e5b32a4": {
+    "describe": {
+      "columns": [
+        {
+          "name": "total_capacity: i64",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "\n        SELECT SUM(capacity) as \"total_capacity: i64\"\n        FROM janus_backend\n        "
+  },
+  "be10ef48d664453fd4f71c90399ab13b00eb32f348012108f1b1b9faa499393e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: db::id::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "label",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "sent_by: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 7,
+          "type_info": "TstzRange"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        UPDATE janus_rtc_stream\n        SET\n            -- Close the stream with current timestamp.\n            -- Fall back to start + 1 ms when closing instantly after starting because lower and upper\n            -- values of a range can't be equal in Postgres.\n            time = (\n                CASE WHEN \"time\" IS NOT NULL THEN\n                    TSTZRANGE(\n                        LOWER(\"time\"),\n                        GREATEST(NOW(), LOWER(\"time\") + '1 millisecond'::INTERVAL),\n                        '[)'\n                    )\n                END\n            )\n        WHERE\n            id = $1\n        RETURNING\n            id as \"id: db::id::Id\",\n            handle_id as \"handle_id: HandleId\",\n            rtc_id as \"rtc_id: Id\",\n            backend_id as \"backend_id: AgentId\",\n            created_at,\n            label,\n            sent_by as \"sent_by: AgentId\",\n            time as \"time: TimePg\"\n        "
+  },
+  "be4f1ea3c98a63efb48729eea6710986748ca51d3f3007aab9cd154ddd22c31c": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "send_video",
+          "ordinal": 1,
+          "type_info": "Bool"
+        },
+        {
+          "name": "send_audio",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "video_remb",
+          "ordinal": 3,
+          "type_info": "Int8"
+        },
+        {
+          "name": "send_audio_updated_by: AgentId",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "updated_at",
+          "ordinal": 5,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "room_id: db::room::Id",
+          "ordinal": 6,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 7,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_by: AgentId",
+          "ordinal": 8,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                r.id as \"rtc_id: db::rtc::Id\",\n                rwc.send_video,\n                rwc.send_audio,\n                rwc.video_remb,\n                rwc.send_audio_updated_by as \"send_audio_updated_by: AgentId\",\n                rwc.updated_at,\n                r.room_id as \"room_id: db::room::Id\",\n                r.created_at,\n                r.created_by as \"created_by: AgentId\"\n            FROM rtc_writer_config as rwc\n            INNER JOIN rtc as r\n            ON rwc.rtc_id = r.id\n            WHERE\n                r.room_id = $1\n            "
+  },
+  "c6e330e656742646fa54f472491b0ba9efef6950090c4838c501d6de5f6b8dda": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "send_video",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "send_audio",
+          "ordinal": 3,
+          "type_info": "Bool"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                rwcs.id as \"id: Id\",\n                rwcs.rtc_id as \"rtc_id: Id\",\n                rwcs.send_video,\n                rwcs.send_audio,\n                rwcs.created_at\n            FROM rtc_writer_config_snapshot AS rwcs\n            INNER JOIN rtc\n            ON rwcs.rtc_id = rtc.id\n            WHERE\n                rtc.room_id = $1\n            ORDER BY rwcs.created_at\n            "
+  },
+  "cab2a6258a1f063981c0bd825b8171e1f515b152bc6a637985c63601f0e6a43f": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM agent_connection\n            WHERE\n                created_at < $1 AND\n                status = 'in_progress'\n            "
+  },
+  "cc0a087e91af7f4c9c167dcb7b5ddaad8e191d367a36c5eff38872e71739800b": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "UuidArray"
+        ]
+      }
+    },
+    "query": "\n        DELETE FROM orphaned_room\n        WHERE\n            id = ANY($1)\n        "
+  },
+  "cd8d507757c2dddf408795f65fbfa4bbed2fc069d18b240f21157d24a5e6ac0f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "started_at",
+          "ordinal": 1,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "segments: Vec<SegmentPg>",
+          "ordinal": 2,
+          "type_info": "Int8RangeArray"
+        },
+        {
+          "name": "status: Status",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready",
+                  "missing"
+                ]
+              },
+              "name": "recording_status"
+            }
+          }
+        },
+        {
+          "name": "mjr_dumps_uris",
+          "ordinal": 4,
+          "type_info": "TextArray"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        true,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready",
+                  "missing"
+                ]
+              },
+              "name": "recording_status"
+            }
+          },
+          "TextArray",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE recording\n            SET\n                status = $1,\n                mjr_dumps_uris = $2\n            WHERE\n                rtc_id = $3 AND\n                -- do not overwrite existing `ready` status with `missing`\n                (\n                    $1 <> 'missing'::recording_status OR\n                    status = 'in_progress'\n                )\n            RETURNING\n                rtc_id as \"rtc_id: db::rtc::Id\",\n                started_at,\n                segments as \"segments: Vec<SegmentPg>\",\n                status as \"status: Status\",\n                mjr_dumps_uris\n            "
+  },
+  "d240be18ccfa80deb5d93bc82c258a8175b9536fdc53b3ba2fe47d887afa5d3e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "agent_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "room_id: Id",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "status: Status",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready"
+                ]
+              },
+              "name": "agent_status"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready"
+                ]
+              },
+              "name": "agent_status"
+            }
+          },
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id as \"id: Id\",\n                agent_id as \"agent_id: AgentId\",\n                room_id as \"room_id: Id\",\n                created_at,\n                status as \"status: Status\"\n            FROM agent\n            WHERE\n                status = 'ready' AND\n                ($1::agent_id IS NULL     OR agent_id = $1::agent_id) AND\n                ($2::uuid IS NULL         OR room_id  = $2::uuid) AND\n                ($3::agent_status IS NULL OR status = $3::agent_status)\n            ORDER BY created_at DESC\n            OFFSET $4\n            LIMIT $5\n            "
+  },
+  "d3abfdf564279ddb542771a5b26b7e2b70c200b43acabb900c00213a4a88e155": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "room_id: Id",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "groups: Groups",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Jsonb"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO group_agent (room_id, groups)\n            VALUES ($1, $2)\n            ON CONFLICT (room_id) DO UPDATE\n            SET\n                groups = EXCLUDED.groups\n            RETURNING\n                id as \"id: Id\",\n                room_id as \"room_id: Id\",\n                groups as \"groups: Groups\"\n            "
+  },
+  "d5f21d8c8027686fd717966606a1a0a3897c77d701fade2c15351be5a629e506": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: db::id::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "label",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "sent_by: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 7,
+          "type_info": "TstzRange"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "TstzRange",
+          "Bool",
+          "Uuid",
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                janus_rtc_stream.id as \"id: db::id::Id\",\n                janus_rtc_stream.handle_id as \"handle_id: HandleId\",\n                janus_rtc_stream.rtc_id as \"rtc_id: Id\",\n                janus_rtc_stream.backend_id as \"backend_id: AgentId\",\n                janus_rtc_stream.created_at,\n                janus_rtc_stream.label,\n                janus_rtc_stream.sent_by as \"sent_by: AgentId\",\n                janus_rtc_stream.time as \"time: TimePg\"\n            FROM janus_rtc_stream\n            INNER JOIN rtc\n            ON rtc.id = janus_rtc_stream.rtc_id\n            WHERE\n                ($1::uuid IS NULL OR rtc_id = $1::uuid) AND\n                ($2::tstzrange IS NULL OR time && $2) AND\n                (\n                    $3::boolean IS NULL OR\n                    -- if 'active' is set the right hand should be equal to TRUE\n                    -- so we pick only active janus rtc streams\n                    -- if 'active' is not set the right hand should be equal to FALSE\n                    -- so we pick only non-active janus rtc streams\n                    $3 = (\n                        lower(janus_rtc_stream.time) is not null\n                        and upper(janus_rtc_stream.time) is null\n                    )\n                ) AND\n                ($4::uuid IS NULL OR rtc.room_id = $4::uuid)\n            ORDER BY created_at DESC\n            OFFSET $5\n            LIMIT $6\n            "
+  },
+  "db4a37db306407a9cf87ef4c2b2195e65b3d63dfe66eccd7c9b3f6f54af81c7e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "agent_id: db::id::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "rtc_id: db::id::Id",
+          "ordinal": 3,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "status: Status",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "connected"
+                ]
+              },
+              "name": "agent_connection_status"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Int8",
+          "Timestamptz",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO agent_connection (agent_id, handle_id, created_at, rtc_id)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (agent_id, rtc_id) DO UPDATE\n            SET\n                agent_id = $1,\n                handle_id = $2,\n                created_at = $3,\n                rtc_id = $4\n            RETURNING\n                agent_id as \"agent_id: db::id::Id\",\n                handle_id as \"handle_id: HandleId\",\n                created_at,\n                rtc_id as \"rtc_id: db::id::Id\",\n                status as \"status: Status\"\n            "
+  },
+  "dc301e99b68eb60a8d0d416a0eabb1404f940be407e9720458c379f06094733f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "started_at",
+          "ordinal": 1,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "segments: Vec<SegmentPg>",
+          "ordinal": 2,
+          "type_info": "Int8RangeArray"
+        },
+        {
+          "name": "status: Status",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready",
+                  "missing"
+                ]
+              },
+              "name": "recording_status"
+            }
+          }
+        },
+        {
+          "name": "mjr_dumps_uris",
+          "ordinal": 4,
+          "type_info": "TextArray"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        true,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO recording (rtc_id)\n            VALUES ($1)\n            RETURNING\n                rtc_id as \"rtc_id: db::rtc::Id\",\n                started_at,\n                segments as \"segments: Vec<SegmentPg>\",\n                status as \"status: Status\",\n                mjr_dumps_uris\n            "
+  },
+  "dd2a680c0d8df6549e3cd546d605772dc73d346addf4dbd99e92b2f96382ed49": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "reader_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "receive_video",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "receive_audio",
+          "ordinal": 3,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "UuidArray",
+          {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Composite": [
+                        [
+                          "account_id",
+                          {
+                            "Custom": {
+                              "kind": {
+                                "Composite": [
+                                  [
+                                    "label",
+                                    "Text"
+                                  ],
+                                  [
+                                    "audience",
+                                    "Text"
+                                  ]
+                                ]
+                              },
+                              "name": "account_id"
+                            }
+                          }
+                        ],
+                        [
+                          "label",
+                          "Text"
+                        ]
+                      ]
+                    },
+                    "name": "agent_id"
+                  }
+                }
+              },
+              "name": "_agent_id"
+            }
+          },
+          "BoolArray",
+          "BoolArray"
+        ]
+      }
+    },
+    "query": "\n        INSERT INTO rtc_reader_config\n        -- array of agent_id unnests to 2 arrays account_id[] and label[]\n        -- so we merge them after unnest back to agent_id type\n        SELECT rtc_id, (reader_account_id, reader_label)::agent_id, receive_video, receive_audio\n        FROM UNNEST($1::uuid[], $2::agent_id[], $3::bool[], $4::bool[])\n            AS t(rtc_id, reader_account_id, reader_label, receive_video, receive_audio)\n        ON CONFLICT (rtc_id, reader_id) DO UPDATE\n        SET\n            receive_video = EXCLUDED.receive_video,\n            receive_audio = EXCLUDED.receive_audio\n        RETURNING\n            rtc_id as \"rtc_id: db::rtc::Id\",\n            reader_id as \"reader_id: AgentId\",\n            receive_video,\n            receive_audio\n        "
+  },
+  "dd40193d083593dfaa612731cc1dc0c7e347aac032aa0cd31bc7bd8fd3ec2076": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "reader_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "receive_video",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "receive_audio",
+          "ordinal": 3,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        SELECT\n            rtc_id as \"rtc_id: db::rtc::Id\",\n            reader_id as \"reader_id: AgentId\",\n            receive_video,\n            receive_audio\n        FROM rtc_reader_config\n        WHERE\n            rtc_id = $1\n        "
+  },
+  "dfa420196e359d7902de518821dc8de75560c095cbcd7be9322fb78ec26a65b7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: db::rtc::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "room_id: db::room::Id",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_by: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "started_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "segments: Vec<db::recording::SegmentPg>",
+          "ordinal": 5,
+          "type_info": "Int8RangeArray"
+        },
+        {
+          "name": "status?: db::recording::Status",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready",
+                  "missing"
+                ]
+              },
+              "name": "recording_status"
+            }
+          }
+        },
+        {
+          "name": "mjr_dumps_uris",
+          "ordinal": 7,
+          "type_info": "TextArray"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                rtc.id as \"id: db::rtc::Id\",\n                rtc.room_id as \"room_id: db::room::Id\",\n                rtc.created_at,\n                rtc.created_by as \"created_by: AgentId\",\n                recording.started_at,\n                recording.segments as \"segments: Vec<db::recording::SegmentPg>\",\n                recording.status as \"status?: db::recording::Status\",\n                recording.mjr_dumps_uris\n            FROM rtc\n            LEFT JOIN recording\n            ON rtc.id = recording.rtc_id\n            WHERE\n                rtc.room_id = $1\n            "
+  },
+  "e002dccbab6b4668ea59e841b3cdbaea0430585cfd08998c0af9a1fa12601c23": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: db::id::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "label",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "sent_by: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 7,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "room_id: Id",
+          "ordinal": 8,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Record"
+        ]
+      }
+    },
+    "query": "\n        UPDATE \"janus_rtc_stream\"\n        SET \"time\" = (\n            CASE WHEN \"time\" IS NOT NULL THEN\n                TSTZRANGE(\n                    LOWER(\"time\"),\n                    GREATEST(NOW(), LOWER(\"time\") + '1 millisecond'::INTERVAL),\n                    '[)'\n                )\n            END\n        )\n        FROM \"rtc\"\n        WHERE \"rtc\".\"id\" = \"janus_rtc_stream\".\"rtc_id\"\n        AND   (\n            lower(\"janus_rtc_stream\".\"time\") is not null\n            and upper(\"janus_rtc_stream\".\"time\") is null\n        )\n        AND \"janus_rtc_stream\".\"backend_id\" = $1\n        RETURNING\n            \"janus_rtc_stream\".\"id\" as \"id: db::id::Id\",\n            \"janus_rtc_stream\".\"handle_id\" as \"handle_id: HandleId\",\n            \"janus_rtc_stream\".\"rtc_id\" as \"rtc_id: Id\",\n            \"janus_rtc_stream\".\"backend_id\" as \"backend_id: AgentId\",\n            \"janus_rtc_stream\".\"created_at\",\n            \"janus_rtc_stream\".\"label\",\n            \"janus_rtc_stream\".\"sent_by\" as \"sent_by: AgentId\",\n            \"janus_rtc_stream\".\"time\" as \"time: TimePg\",\n            \"rtc\".\"room_id\" as \"room_id: Id\"\n        "
+  },
+  "e347ca8265f2d1e8972e6a7e67f829cc83da5e44919f816ee9d5b11a5219b171": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: db::id::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "label",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "sent_by: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 7,
+          "type_info": "TstzRange"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        UPDATE janus_rtc_stream\n        SET\n            time = (TSTZRANGE(NOW(), NULL, '[)'))\n        WHERE\n            id = $1\n        RETURNING\n            id as \"id: db::id::Id\",\n            handle_id as \"handle_id: HandleId\",\n            rtc_id as \"rtc_id: Id\",\n            backend_id as \"backend_id: AgentId\",\n            created_at,\n            label,\n            sent_by as \"sent_by: AgentId\",\n            time as \"time: TimePg\"\n        "
+  },
+  "e83c8e0761bfc6214738f80e70da547c91075026bbcac791871d1b1be48269de": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        DELETE FROM orphaned_room\n        WHERE\n            id = $1\n        "
+  },
+  "eba3bd781c96ab22690eb0bca50abed7a9dab56fb1d674456ea820ae0b40e8de": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 2,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "reserve",
+          "ordinal": 3,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tags",
+          "ordinal": 4,
+          "type_info": "Json"
+        },
+        {
+          "name": "classroom_id",
+          "ordinal": 5,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "timed_out",
+          "ordinal": 7,
+          "type_info": "Bool"
+        },
+        {
+          "name": "audience",
+          "ordinal": 8,
+          "type_info": "Text"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 9,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend: RoomBackend",
+          "ordinal": 10,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          }
+        },
+        {
+          "name": "rtc_sharing_policy: RtcSharingPolicy",
+          "ordinal": 11,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          }
+        },
+        {
+          "name": "infinite",
+          "ordinal": 12,
+          "type_info": "Bool"
+        },
+        {
+          "name": "closed_by: AgentId",
+          "ordinal": 13,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        ]
+      }
+    },
+    "query": "\n        UPDATE room\n        SET\n            closed_by = $2,\n            time = TSTZRANGE(LOWER(time), NOW())\n        WHERE\n            id = $1\n        RETURNING\n            id as \"id: Id\",\n            backend_id as \"backend_id: AgentId\",\n            time as \"time: TimePg\",\n            reserve,\n            tags,\n            classroom_id,\n            host as \"host: AgentId\",\n            timed_out,\n            audience,\n            created_at,\n            backend as \"backend: RoomBackend\",\n            rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n            infinite,\n            closed_by as \"closed_by: AgentId\"\n        "
+  },
+  "f8a30af947d51edc8af110a348fa6f23ac9c6f602bc42367bdfc70a5be704d5d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: AgentId",
+          "ordinal": 0,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "session_id: SessionId",
+          "ordinal": 2,
+          "type_info": "Int8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "capacity",
+          "ordinal": 4,
+          "type_info": "Int4"
+        },
+        {
+          "name": "balancer_capacity",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "api_version",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "group",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "janus_url",
+          "ordinal": 8,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n        WITH\n            room_load AS (\n                SELECT\n                    a.room_id,\n                    SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken\n                FROM agent AS a\n                INNER JOIN agent_connection AS ac\n                ON ac.agent_id = a.id\n                LEFT JOIN rtc_writer_config AS rwc\n                ON rwc.rtc_id = ac.rtc_id\n                GROUP BY a.room_id\n            ),\n            active_room AS (\n                SELECT *\n                FROM room\n                WHERE backend_id IS NOT NULL\n                AND   time @> NOW()\n            ),\n            janus_backend_load AS (\n                SELECT\n                    backend_id,\n                    SUM(taken) AS load\n                FROM (\n                    SELECT DISTINCT ON(backend_id, room_id)\n                        ar.backend_id,\n                        ar.id                 AS room_id,\n                        COALESCE(rl.taken, 0) AS taken\n                    FROM active_room AS ar\n                    LEFT JOIN room_load AS rl\n                    ON rl.room_id = ar.id\n                ) AS sub\n                GROUP BY backend_id\n            ),\n            least_loaded AS (\n                SELECT jb.*\n                FROM janus_backend AS jb\n                LEFT JOIN janus_backend_load AS jbl\n                ON jbl.backend_id = jb.id\n                LEFT JOIN room AS r2\n                ON 1 = 1\n                WHERE r2.id = $1\n                AND   jb.api_version = $2\n                AND   ($3::text IS NULL OR jb.\"group\" = $3::text)\n                ORDER BY\n                    COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) DESC\n                LIMIT 3\n            )\n        SELECT\n            id as \"id: AgentId\",\n            handle_id as \"handle_id: HandleId\",\n            session_id as \"session_id: SessionId\",\n            created_at,\n            capacity,\n            balancer_capacity,\n            api_version,\n            \"group\",\n            janus_url\n        FROM least_loaded\n        ORDER BY RANDOM()\n        LIMIT 1\n        "
+  },
+  "fe6e2bd9b1d9c6a6e58878205fa78c43be2b051bcfc8c94b412823a1b93db21c": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "agent_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "room_id: Id",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "status: Status",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready"
+                ]
+              },
+              "name": "agent_status"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Record",
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "in_progress",
+                  "ready"
+                ]
+              },
+              "name": "agent_status"
+            }
+          }
+        ]
+      }
+    },
+    "query": "\n            UPDATE agent\n            SET\n                status = $3\n            WHERE\n                agent_id = $1 AND\n                room_id  = $2\n            RETURNING\n                id as \"id: Id\",\n                agent_id as \"agent_id: AgentId\",\n                room_id as \"room_id: Id\",\n                created_at,\n                status as \"status: Status\"\n            "
+  }
+}

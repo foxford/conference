@@ -1,47 +1,49 @@
-// in order to support Rust 1.62
-// `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
-#![allow(clippy::extra_unused_lifetimes)]
-
 use std::{fmt, ops::Bound};
 
-use super::rtc::Object as Rtc;
-use crate::db;
-use crate::schema::recording;
 use chrono::{DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
-use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 
-////////////////////////////////////////////////////////////////////////////////
-
-pub type AllColumns = (
-    recording::rtc_id,
-    recording::started_at,
-    recording::segments,
-    recording::status,
-    recording::mjr_dumps_uris,
-);
-
-pub const ALL_COLUMNS: AllColumns = (
-    recording::rtc_id,
-    recording::started_at,
-    recording::segments,
-    recording::status,
-    recording::mjr_dumps_uris,
-);
+use crate::db;
 
 ////////////////////////////////////////////////////////////////////////////////
 
 pub type Segment = (Bound<i64>, Bound<i64>);
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(sqlx::Type, Debug, Clone)]
+#[sqlx(transparent)]
+pub struct SegmentPg(sqlx::postgres::types::PgRange<i64>);
+
+impl Serialize for SegmentPg {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Segment::from(self.clone()).serialize(serializer)
+    }
+}
+
+impl From<Segment> for SegmentPg {
+    fn from(value: Segment) -> Self {
+        SegmentPg(sqlx::postgres::types::PgRange::from(value))
+    }
+}
+
+impl From<SegmentPg> for Segment {
+    fn from(value: SegmentPg) -> Self {
+        (value.0.start, value.0.end)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
-#[PgType = "recording_status"]
-#[DieselType = "Recording_status"]
+#[sqlx(type_name = "recording_status")]
 pub enum Status {
     #[serde(rename = "in_progress")]
+    #[sqlx(rename = "in_progress")]
     InProgress,
+    #[sqlx(rename = "ready")]
     Ready,
+    #[sqlx(rename = "missing")]
     Missing,
 }
 
@@ -54,30 +56,19 @@ impl fmt::Display for Status {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Serialize, Identifiable, Associations, Queryable)]
-#[belongs_to(Rtc, foreign_key = "rtc_id")]
-#[primary_key(rtc_id)]
-#[table_name = "recording"]
+#[derive(Debug, Serialize)]
 pub struct Object {
-    rtc_id: db::rtc::Id,
+    pub rtc_id: db::rtc::Id,
     #[serde(with = "crate::serde::ts_seconds_option")]
-    started_at: Option<DateTime<Utc>>,
-    segments: Option<Vec<Segment>>,
-    status: Status,
-    mjr_dumps_uris: Option<Vec<String>>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub segments: Option<Vec<SegmentPg>>,
+    pub status: Status,
+    pub mjr_dumps_uris: Option<Vec<String>>,
 }
 
 impl Object {
     pub fn rtc_id(&self) -> db::rtc::Id {
         self.rtc_id
-    }
-
-    pub fn started_at(&self) -> &Option<DateTime<Utc>> {
-        &self.started_at
-    }
-
-    pub fn segments(&self) -> &Option<Vec<Segment>> {
-        &self.segments
     }
 
     pub fn status(&self) -> Status {
@@ -102,20 +93,30 @@ impl FindQuery {
         Self { rtc_id }
     }
 
-    pub fn execute(self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        recording::table
-            .filter(recording::rtc_id.eq(self.rtc_id))
-            .get_result(conn)
-            .optional()
+    pub async fn execute(self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                rtc_id as "rtc_id: db::rtc::Id",
+                started_at,
+                segments as "segments: Vec<SegmentPg>",
+                status as "status: Status",
+                mjr_dumps_uris
+            FROM recording
+            WHERE
+                rtc_id = $1
+            "#,
+            self.rtc_id as db::rtc::Id,
+        )
+        .fetch_optional(conn)
+        .await
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable)]
-#[table_name = "recording"]
+#[derive(Debug)]
 pub struct InsertQuery {
     rtc_id: db::rtc::Id,
 }
@@ -125,19 +126,29 @@ impl InsertQuery {
         Self { rtc_id }
     }
 
-    pub fn execute(self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::schema::recording::dsl::recording;
-        use diesel::RunQueryDsl;
-
-        diesel::insert_into(recording).values(self).get_result(conn)
+    pub async fn execute(self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO recording (rtc_id)
+            VALUES ($1)
+            RETURNING
+                rtc_id as "rtc_id: db::rtc::Id",
+                started_at,
+                segments as "segments: Vec<SegmentPg>",
+                status as "status: Status",
+                mjr_dumps_uris
+            "#,
+            self.rtc_id as db::rtc::Id,
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Identifiable, AsChangeset, Queryable)]
-#[table_name = "recording"]
-#[primary_key(rtc_id)]
+#[derive(Debug)]
 pub struct UpdateQuery {
     rtc_id: db::rtc::Id,
     status: Option<Status>,
@@ -167,20 +178,33 @@ impl UpdateQuery {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use diesel::prelude::*;
-
-        // do not overwrite existing `Ready` status with `Missing`
-        if let Some(Status::Missing) = self.status {
-            let source = recording::table.filter(
-                recording::status
-                    .eq(Status::InProgress)
-                    .and(recording::rtc_id.eq(self.rtc_id)),
-            );
-
-            diesel::update(source).set(self).get_result(conn)
-        } else {
-            diesel::update(self).set(self).get_result(conn)
-        }
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            UPDATE recording
+            SET
+                status = $1,
+                mjr_dumps_uris = $2
+            WHERE
+                rtc_id = $3 AND
+                -- do not overwrite existing `ready` status with `missing`
+                (
+                    $1 <> 'missing'::recording_status OR
+                    status = 'in_progress'
+                )
+            RETURNING
+                rtc_id as "rtc_id: db::rtc::Id",
+                started_at,
+                segments as "segments: Vec<SegmentPg>",
+                status as "status: Status",
+                mjr_dumps_uris
+            "#,
+            self.status as Option<Status>,
+            self.mjr_dumps_uris.as_ref().map(|m| m.as_slice()),
+            self.rtc_id as db::rtc::Id,
+        )
+        .fetch_one(conn)
+        .await
     }
 }

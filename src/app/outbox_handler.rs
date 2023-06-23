@@ -2,7 +2,7 @@ use crate::{
     app::{context::GlobalContext, error::Error as AppError, stage::AppStage},
     outbox::{
         error::ErrorKind,
-        pipeline::{diesel::Pipeline as DieselPipeline, MultipleStagePipelineResult, Pipeline},
+        pipeline::{sqlx::Pipeline as DieselPipeline, MultipleStagePipelineResult, Pipeline},
     },
 };
 use std::sync::Arc;
@@ -10,7 +10,7 @@ use tokio::{sync::watch, task::JoinHandle, time::MissedTickBehavior};
 use tracing::{error, info, warn};
 
 pub fn run(
-    ctx: Arc<dyn GlobalContext + Send>,
+    ctx: Arc<dyn GlobalContext + Send + Sync>,
     mut shutdown_rx: watch::Receiver<()>,
 ) -> anyhow::Result<JoinHandle<()>> {
     info!("Outbox handler started");

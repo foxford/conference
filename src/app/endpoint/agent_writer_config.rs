@@ -22,8 +22,8 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
-use diesel::Connection;
 use serde::{Deserialize, Serialize};
+use sqlx::Connection;
 use svc_agent::{mqtt::ResponseStatus, Addressable, AgentId};
 
 use svc_utils::extractors::AgentIdExtractor;
@@ -168,7 +168,7 @@ impl RequestHandler for UpdateHandler {
     type Payload = State;
     const ERROR_TITLE: &'static str = "Failed to update agent writer config";
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -178,27 +178,26 @@ impl RequestHandler for UpdateHandler {
                 .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let room = crate::util::spawn_blocking({
-            let agent_id = reqp.as_agent_id().clone();
-            let room_id = payload.room_id;
+        let room = {
+            let mut conn = context.get_conn().await?;
+            let room = helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?;
 
-            let conn = context.get_conn().await?;
-            move || {
-                let room =
-                    helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
-
-                if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-                    return Err(anyhow!(
+            if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+                return Err(anyhow!(
                     "Agent writer config is available only for rooms with owned RTC sharing policy"
                 ))
-                    .error(AppErrorKind::InvalidPayload)?;
-                }
-
-                helpers::check_room_presence(&room, &agent_id, &conn)?;
-                Ok::<_, AppError>(room)
+                .error(AppErrorKind::InvalidPayload)?;
             }
-        })
-        .await?;
+
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+
+            room
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -222,85 +221,83 @@ impl RequestHandler for UpdateHandler {
             Some(authz_time)
         };
 
-        let (rtc_writer_configs_with_rtcs, maybe_backend) = crate::util::spawn_blocking({
-            let room_id = room.id();
-            let backend_id = room.backend_id().cloned();
-            let agent_id = reqp.as_agent_id().clone();
-
-            let conn = context.get_conn().await?;
-            move || {
-                conn.transaction::<_, AppError, _>(|| {
-                    // Find RTCs owned by agents.
-                    let agent_ids = payload
-                        .configs
-                        .iter()
-                        .map(|c| &c.agent_id)
-                        .collect::<Vec<_>>();
-
-                    let rtcs = db::rtc::ListQuery::new()
-                        .room_id(room_id)
-                        .created_by(agent_ids.as_slice())
-                        .execute(&conn)?;
-
-                    let agents_to_rtcs = rtcs
-                        .iter()
-                        .map(|rtc| (rtc.created_by(), rtc.id()))
-                        .collect::<HashMap<_, _>>();
-
-                    // Create or update the config.
-                    for state_config_item in payload.configs {
-                        let rtc_id = agents_to_rtcs
-                            .get(&state_config_item.agent_id)
-                            .ok_or_else(|| {
-                                anyhow!("{} has no owned RTC", state_config_item.agent_id)
-                            })
-                            .error(AppErrorKind::InvalidPayload)?;
-
-                        let mut q = db::rtc_writer_config::UpsertQuery::new(*rtc_id);
-
-                        if let Some(send_video) = state_config_item.send_video {
-                            q = q.send_video(send_video);
-                        }
-
-                        if let Some(send_audio) = state_config_item.send_audio {
-                            q = q.send_audio(send_audio).send_audio_updated_by(&agent_id);
-                        }
-
-                        if let Some(video_remb) = state_config_item.video_remb {
-                            q = q.video_remb(video_remb.into());
-                        }
-
-                        q.execute(&conn)?;
-
-                        if state_config_item.send_video.is_some()
-                            || state_config_item.send_audio.is_some()
-                        {
-                            let snapshot_q = db::rtc_writer_config_snapshot::InsertQuery::new(
-                                *rtc_id,
-                                state_config_item.send_video,
-                                state_config_item.send_audio,
-                            );
-                            snapshot_q.execute(&conn)?;
-                        }
-                    }
-                    Ok(())
-                })?;
-
-                // Retrieve state data.
-                let rtc_writer_configs_with_rtcs =
-                    db::rtc_writer_config::ListWithRtcQuery::new(room_id).execute(&conn)?;
-                // Find backend and send updates to it if present.
-                let maybe_backend = match &backend_id {
-                    None => None,
-                    Some(backend_id) => db::janus_backend::FindQuery::new()
-                        .id(backend_id)
-                        .execute(&conn)?,
-                };
-
-                Ok::<_, AppError>((rtc_writer_configs_with_rtcs, maybe_backend))
+        let mut conn = context.get_conn().await?;
+        // Find backend and send updates to it if present.
+        let maybe_backend = match room.backend_id() {
+            None => None,
+            Some(backend_id) => {
+                db::janus_backend::FindQuery::new(backend_id)
+                    .execute(&mut conn)
+                    .await?
             }
+        };
+
+        let room_id = room.id();
+        let agent_id = reqp.as_agent_id().clone();
+
+        conn.transaction::<_, _, AppError>(|conn| {
+            Box::pin(async move {
+                // Find RTCs owned by agents.
+                let agent_ids = payload
+                    .configs
+                    .iter()
+                    .map(|c| &c.agent_id)
+                    .collect::<Vec<_>>();
+
+                let rtcs = db::rtc::ListQuery::new()
+                    .room_id(room_id)
+                    .created_by(agent_ids.as_slice())
+                    .execute(conn)
+                    .await?;
+
+                let agents_to_rtcs = rtcs
+                    .iter()
+                    .map(|rtc| (rtc.created_by(), rtc.id()))
+                    .collect::<HashMap<_, _>>();
+
+                // Create or update the config.
+                for state_config_item in payload.configs {
+                    let rtc_id = agents_to_rtcs
+                        .get(&state_config_item.agent_id)
+                        .ok_or_else(|| anyhow!("{} has no owned RTC", state_config_item.agent_id))
+                        .error(AppErrorKind::InvalidPayload)?;
+
+                    let mut q = db::rtc_writer_config::UpsertQuery::new(*rtc_id);
+
+                    if let Some(send_video) = state_config_item.send_video {
+                        q = q.send_video(send_video);
+                    }
+
+                    if let Some(send_audio) = state_config_item.send_audio {
+                        q = q.send_audio(send_audio).send_audio_updated_by(&agent_id);
+                    }
+
+                    if let Some(video_remb) = state_config_item.video_remb {
+                        q = q.video_remb(video_remb.into());
+                    }
+
+                    q.execute(conn).await?;
+
+                    if state_config_item.send_video.is_some()
+                        || state_config_item.send_audio.is_some()
+                    {
+                        let snapshot_q = db::rtc_writer_config_snapshot::InsertQuery::new(
+                            *rtc_id,
+                            state_config_item.send_video,
+                            state_config_item.send_audio,
+                        );
+                        snapshot_q.execute(conn).await?;
+                    }
+                }
+                Ok(())
+            })
         })
         .await?;
+
+        // Retrieve state data.
+        let rtc_writer_configs_with_rtcs = db::rtc_writer_config::ListWithRtcQuery::new(room_id)
+            .execute(&mut conn)
+            .await?;
 
         if let Some(backend) = maybe_backend {
             let items = rtc_writer_configs_with_rtcs
@@ -386,37 +383,36 @@ impl RequestHandler for ReadHandler {
     type Payload = ReadRequest;
     const ERROR_TITLE: &'static str = "Failed to read agent writer config";
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let (room, rtc_writer_configs_with_rtcs) = crate::util::spawn_blocking({
-            let agent_id = reqp.as_agent_id().clone();
+        let (room, rtc_writer_configs_with_rtcs) = {
+            let mut conn = context.get_conn().await?;
+            let room = helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?;
 
-            let conn = context.get_conn().await?;
-            move || {
-                let room = helpers::find_room_by_id(
-                    payload.room_id,
-                    helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
-
-                if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
-                    return Err(anyhow!(
+            if room.rtc_sharing_policy() != db::rtc::SharingPolicy::Owned {
+                return Err(anyhow!(
                     "Agent writer config is available only for rooms with owned RTC sharing policy"
                 ))
-                    .error(AppErrorKind::InvalidPayload)?;
-                }
-
-                helpers::check_room_presence(&room, &agent_id, &conn)?;
-
-                let rtc_writer_configs_with_rtcs =
-                    db::rtc_writer_config::ListWithRtcQuery::new(room.id()).execute(&conn)?;
-                Ok::<_, AppError>((room, rtc_writer_configs_with_rtcs))
+                .error(AppErrorKind::InvalidPayload)?;
             }
-        })
-        .await?;
+
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+
+            let rtc_writer_configs_with_rtcs =
+                db::rtc_writer_config::ListWithRtcQuery::new(room.id())
+                    .execute(&mut conn)
+                    .await?;
+
+            (room, rtc_writer_configs_with_rtcs)
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -447,56 +443,49 @@ mod tests {
 
         use crate::{
             db::rtc::SharingPolicy as RtcSharingPolicy,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
         use chrono::{Duration, Utc};
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn update_agent_writer_config() -> std::io::Result<()> {
+        #[sqlx::test]
+        async fn update_agent_writer_config(pool: sqlx::PgPool) -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
+            let db = TestDb::new(pool);
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
             let agent4 = TestAgent::new("web", "user4", USR_AUDIENCE);
+
+            let mut conn = db.get_conn().await;
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
+
             // Insert a room with agents and RTCs.
-            let (room, backend, _rtcs) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .backend_id(backend.id())
+                .insert(&mut conn)
+                .await;
 
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .backend_id(backend.id())
-                        .insert(&conn);
+            for agent in &[&agent1, &agent2, &agent3, &agent4] {
+                shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
+            }
 
-                    for agent in &[&agent1, &agent2, &agent3, &agent4] {
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    }
-
-                    let rtcs = vec![&agent2, &agent3, &agent4]
-                        .into_iter()
-                        .map(|agent| {
-                            factory::Rtc::new(room.id())
-                                .created_by(agent.agent_id().to_owned())
-                                .insert(&conn)
-                        })
-                        .collect::<Vec<_>>();
-
-                    (room, backend, rtcs)
-                })
-                .unwrap();
+            for agent in &[&agent2, &agent3, &agent4] {
+                factory::Rtc::new(room.id())
+                    .created_by(agent.agent_id().to_owned())
+                    .insert(&mut conn)
+                    .await;
+            }
 
             // Allow agent to update agent_writer_config.
             let classroom_id = room.classroom_id().to_string();
@@ -504,7 +493,7 @@ mod tests {
             authz.allow(agent1.account_id(), object, "update");
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -700,31 +689,25 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn not_authorized() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn not_authorized(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-            // Insert a room with agents.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
+            let mut conn = db.get_conn().await;
 
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    room
-                })
-                .unwrap();
+            // Insert a room with agents.
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .insert(&mut conn)
+                .await;
+
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -741,14 +724,12 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn too_many_config_items() -> std::io::Result<()> {
+        #[sqlx::test]
+        async fn too_many_config_items(pool: sqlx::PgPool) -> std::io::Result<()> {
             // Make agent_writer_config.update request.
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let configs = (0..(MAX_STATE_CONFIGS_LEN + 1))
                 .map(|i| {
@@ -780,22 +761,17 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn not_entered() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn not_entered(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| shared_helpers::insert_room_with_owned(&conn))
-                .unwrap();
+            let mut conn = db.get_conn().await;
+            let room = shared_helpers::insert_room_with_owned(&mut conn).await;
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -813,34 +789,28 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn closed_room() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn closed_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-            // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(Utc::now() - Duration::hours(2)),
-                            Bound::Excluded(Utc::now() - Duration::hours(1)),
-                        ))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
+            let mut conn = db.get_conn().await;
 
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    room
-                })
-                .unwrap();
+            // Insert a room with an agent.
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(Utc::now() - Duration::hours(2)),
+                    Bound::Excluded(Utc::now() - Duration::hours(1)),
+                ))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .insert(&mut conn)
+                .await;
+
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -858,31 +828,25 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn room_with_wrong_rtc_policy() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn room_with_wrong_rtc_policy(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-            // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .insert(&conn);
+            let mut conn = db.get_conn().await;
 
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    room
-                })
-                .unwrap();
+            // Insert a room with an agent.
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                .insert(&mut conn)
+                .await;
+
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make agent_writer_config.update request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -900,15 +864,13 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn missing_room() -> std::io::Result<()> {
+        #[sqlx::test]
+        async fn missing_room(pool: sqlx::PgPool) -> std::io::Result<()> {
             // Make agent_writer_config.update request.
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+            let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = State {
                 updated_at_ns: Some(Utc::now()),
@@ -934,60 +896,57 @@ mod tests {
 
         use crate::{
             db::rtc::SharingPolicy as RtcSharingPolicy,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn read_state() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn read_state(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let agent3 = TestAgent::new("web", "user3", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+
             // Insert a room with RTCs and agent writer configs.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .insert(&mut conn)
+                .await;
 
-                    shared_helpers::insert_agent(&conn, agent1.agent_id(), room.id());
+            shared_helpers::insert_agent(&mut conn, agent1.agent_id(), room.id()).await;
 
-                    let rtc2 = factory::Rtc::new(room.id())
-                        .created_by(agent2.agent_id().to_owned())
-                        .insert(&conn);
+            let rtc2 = factory::Rtc::new(room.id())
+                .created_by(agent2.agent_id().to_owned())
+                .insert(&mut conn)
+                .await;
 
-                    factory::RtcWriterConfig::new(&rtc2)
-                        .send_video(true)
-                        .send_audio(true)
-                        .video_remb(1_000_000)
-                        .insert(&conn);
+            factory::RtcWriterConfig::new(&rtc2)
+                .send_video(true)
+                .send_audio(true)
+                .video_remb(1_000_000)
+                .insert(&mut conn)
+                .await;
 
-                    let rtc3 = factory::Rtc::new(room.id())
-                        .created_by(agent3.agent_id().to_owned())
-                        .insert(&conn);
+            let rtc3 = factory::Rtc::new(room.id())
+                .created_by(agent3.agent_id().to_owned())
+                .insert(&mut conn)
+                .await;
 
-                    factory::RtcWriterConfig::new(&rtc3)
-                        .send_video(false)
-                        .send_audio(false)
-                        .video_remb(300_000)
-                        .send_audio_updated_by(agent2.agent_id())
-                        .insert(&conn);
-
-                    room
-                })
-                .unwrap();
+            factory::RtcWriterConfig::new(&rtc3)
+                .send_video(false)
+                .send_audio(false)
+                .video_remb(300_000)
+                .send_audio_updated_by(agent2.agent_id())
+                .insert(&mut conn)
+                .await;
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1030,22 +989,17 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn not_entered() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn not_entered(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
             // Insert a room.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| shared_helpers::insert_room_with_owned(&conn))
-                .unwrap();
+            let mut conn = db.get_conn().await;
+            let room = shared_helpers::insert_room_with_owned(&mut conn).await;
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1059,35 +1013,28 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn closed_room() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn closed_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+
             // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(Utc::now() - Duration::hours(2)),
-                            Bound::Excluded(Utc::now() - Duration::hours(1)),
-                        ))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(Utc::now() - Duration::hours(2)),
+                    Bound::Excluded(Utc::now() - Duration::hours(1)),
+                ))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .insert(&mut conn)
+                .await;
 
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-
-                    room
-                })
-                .unwrap();
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1101,32 +1048,25 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn wrong_rtc_sharing_policy() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn wrong_rtc_sharing_policy(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+
             // Insert a room with an agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(Utc::now()), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                .insert(&mut conn)
+                .await;
 
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-
-                    room
-                })
-                .unwrap();
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make agent_writer_config.read request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest { room_id: room.id() };
 
@@ -1140,14 +1080,12 @@ mod tests {
             Ok(())
         }
 
-        #[tokio::test]
-        async fn missing_room() -> std::io::Result<()> {
+        #[sqlx::test]
+        async fn missing_room(pool: sqlx::PgPool) -> std::io::Result<()> {
             // Make agent_writer_config.read request.
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = ReadRequest {
                 room_id: db::room::Id::random(),

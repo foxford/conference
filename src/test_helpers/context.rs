@@ -12,7 +12,8 @@ use serde_json::json;
 use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
 use svc_nats_client::{
-    Event, Message, MessageStream, NatsClient, PublishError, SubscribeError, TermMessageError,
+    AckPolicy, DeliverPolicy, Event, Message, MessageStream, Messages, NatsClient, PublishError,
+    Subject, SubscribeError, TermMessageError,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -26,10 +27,9 @@ use crate::{
         conference::ConferenceHttpClient, mqtt::MqttClient, mqtt_gateway::MqttGatewayHttpClient,
     },
     config::Config,
-    db::ConnectionPool as Db,
 };
 
-use super::{authz::TestAuthz, db::TestDb, SVC_AUDIENCE, USR_AUDIENCE};
+use super::{authz::TestAuthz, db, SVC_AUDIENCE, USR_AUDIENCE};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -111,11 +111,20 @@ impl NatsClient for TestNatsClient {
         Ok(())
     }
 
-    async fn subscribe(&self) -> Result<MessageStream, SubscribeError> {
+    async fn subscribe_durable(&self) -> Result<MessageStream, SubscribeError> {
         unimplemented!()
     }
 
-    async fn terminate(&self, _message: Message) -> Result<(), TermMessageError> {
+    async fn subscribe_ephemeral(
+        &self,
+        _subject: Subject,
+        _deliver_policy: DeliverPolicy,
+        _ack_policy: AckPolicy,
+    ) -> Result<Messages, SubscribeError> {
+        unimplemented!()
+    }
+
+    async fn terminate(&self, _message: &Message) -> Result<(), TermMessageError> {
         unimplemented!()
     }
 }
@@ -132,7 +141,7 @@ impl MqttClient for TestMqttClient {
 pub struct TestContext {
     config: Config,
     authz: Authz,
-    db: TestDb,
+    db: db::TestDb,
     agent_id: AgentId,
     start_timestamp: DateTime<Utc>,
     clients: Option<Clients>,
@@ -145,7 +154,7 @@ pub struct TestContext {
 const WAITLIST_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl TestContext {
-    pub fn new(db: TestDb, authz: TestAuthz) -> Self {
+    pub async fn new(db: super::db::TestDb, authz: TestAuthz) -> Self {
         // can be safely dropped
         let mock_server = MockServer::start();
         let _subscriptions_mock = mock_server.mock(|when, then| {
@@ -208,8 +217,8 @@ impl GlobalContext for TestContext {
         &self.config
     }
 
-    fn db(&self) -> &Db {
-        self.db.connection_pool()
+    fn db(&self) -> &sqlx::PgPool {
+        &self.db.pool
     }
 
     fn agent_id(&self) -> &AgentId {

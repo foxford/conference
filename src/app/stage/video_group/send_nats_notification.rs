@@ -11,8 +11,7 @@ use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use svc_conference_events::EventV1 as Event;
-use svc_nats_client::EventId;
+use svc_events::{EventId, EventV1 as Event};
 use uuid::Uuid;
 
 const SUBJECT_PREFIX: &str = "classroom";
@@ -26,7 +25,7 @@ pub struct VideoGroupSendNatsNotification {
 
 #[async_trait]
 impl StageHandle for VideoGroupSendNatsNotification {
-    type Context = Arc<dyn GlobalContext + Send>;
+    type Context = Arc<dyn GlobalContext + Send + Sync>;
     type Stage = AppStage;
 
     async fn handle(
@@ -34,7 +33,7 @@ impl StageHandle for VideoGroupSendNatsNotification {
         ctx: &Self::Context,
         id: &EventId,
     ) -> Result<Option<Self::Stage>, StageError> {
-        let event = svc_conference_events::Event::from(self.event);
+        let event = svc_events::Event::from(self.event.clone());
 
         let payload = serde_json::to_vec(&event)
             .context("invalid payload")

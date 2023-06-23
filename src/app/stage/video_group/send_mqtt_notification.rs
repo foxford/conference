@@ -10,7 +10,7 @@ use crate::{
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use svc_nats_client::EventId;
+use svc_events::EventId;
 
 pub const MQTT_NOTIFICATION_LABEL: &str = "video_group.update";
 
@@ -21,7 +21,7 @@ pub struct VideoGroupSendMqttNotification {
 
 #[async_trait]
 impl StageHandle for VideoGroupSendMqttNotification {
-    type Context = Arc<dyn GlobalContext + Send>;
+    type Context = Arc<dyn GlobalContext + Send + Sync>;
     type Stage = AppStage;
 
     async fn handle(

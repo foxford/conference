@@ -1,76 +1,58 @@
-// in order to support Rust 1.62
-// `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
-#![allow(clippy::extra_unused_lifetimes)]
-
 use std::{fmt, ops::Bound};
 
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
-use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
 use crate::{
-    backend::janus::JANUS_API_VERSION,
+    backend::janus::{
+        client::{HandleId, SessionId},
+        JANUS_API_VERSION,
+    },
     db::{
         self,
         janus_backend::Object as JanusBackend,
         recording::{Object as Recording, Status as RecordingStatus},
         rtc::SharingPolicy as RtcSharingPolicy,
     },
-    schema::{janus_backend, recording, room, rtc},
 };
+
+use super::recording::SegmentPg;
 
 ////////////////////////////////////////////////////////////////////////////////
 
 pub type Time = (Bound<DateTime<Utc>>, Bound<DateTime<Utc>>);
 
-type AllColumns = (
-    room::id,
-    room::time,
-    room::audience,
-    room::created_at,
-    room::backend,
-    room::reserve,
-    room::tags,
-    room::backend_id,
-    room::rtc_sharing_policy,
-    room::classroom_id,
-    room::host,
-    room::timed_out,
-    room::closed_by,
-    room::infinite,
-);
+#[derive(sqlx::Type, Debug, Clone)]
+#[sqlx(transparent)]
+pub struct TimePg(sqlx::postgres::types::PgRange<DateTime<Utc>>);
 
-const ALL_COLUMNS: AllColumns = (
-    room::id,
-    room::time,
-    room::audience,
-    room::created_at,
-    room::backend,
-    room::reserve,
-    room::tags,
-    room::backend_id,
-    room::rtc_sharing_policy,
-    room::classroom_id,
-    room::host,
-    room::timed_out,
-    room::closed_by,
-    room::infinite,
-);
+impl From<Time> for TimePg {
+    fn from(value: Time) -> Self {
+        Self(sqlx::postgres::types::PgRange::from(value))
+    }
+}
+
+impl From<TimePg> for Time {
+    fn from(value: TimePg) -> Self {
+        (value.0.start, value.0.end)
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 pub type Id = db::id::Id;
 
 // Deprecated in favor of `crate::db::rtc::SharingPolicy`.
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
-#[DieselType = "Room_backend"]
+#[sqlx(type_name = "room_backend")]
 // This is not just `Backend` because of clash with `diesel::backend::Backend`.
 pub enum RoomBackend {
+    #[sqlx(rename = "none")]
     None,
+    #[sqlx(rename = "janus")]
     Janus,
 }
 
@@ -101,31 +83,27 @@ impl From<RoomBackend> for RtcSharingPolicy {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(
-    Clone, Debug, Deserialize, Serialize, Identifiable, Queryable, QueryableByName, Associations,
-)]
-#[belongs_to(JanusBackend, foreign_key = "backend_id")]
-#[table_name = "room"]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Object {
-    id: Id,
-    #[serde(with = "crate::serde::ts_seconds_bound_tuple")]
-    time: Time,
-    audience: String,
+    pub id: Id,
+    #[serde(with = "crate::serde::ts_seconds_bound_tuple_pg")]
+    pub time: TimePg,
+    pub audience: String,
     #[serde(with = "ts_seconds")]
-    created_at: DateTime<Utc>,
-    backend: RoomBackend,
+    pub created_at: DateTime<Utc>,
+    pub backend: RoomBackend,
     #[serde(skip_serializing_if = "Option::is_none")]
-    reserve: Option<i32>,
-    tags: JsonValue,
+    pub reserve: Option<i32>,
+    pub tags: JsonValue,
     #[serde(skip_serializing_if = "Option::is_none")]
-    backend_id: Option<AgentId>,
-    rtc_sharing_policy: RtcSharingPolicy,
-    classroom_id: Uuid,
-    host: Option<AgentId>,
-    timed_out: bool,
-    closed_by: Option<AgentId>,
+    pub backend_id: Option<AgentId>,
+    pub rtc_sharing_policy: RtcSharingPolicy,
+    pub classroom_id: Uuid,
+    pub host: Option<AgentId>,
+    pub timed_out: bool,
+    pub closed_by: Option<AgentId>,
     #[serde(skip)]
-    infinite: bool,
+    pub infinite: bool,
 }
 
 impl Object {
@@ -137,8 +115,8 @@ impl Object {
         self.id
     }
 
-    pub fn time(&self) -> &Time {
-        &self.time
+    pub fn time(&self) -> Time {
+        Time::from(self.time.clone())
     }
 
     pub fn reserve(&self) -> Option<i32> {
@@ -146,13 +124,14 @@ impl Object {
     }
 
     pub fn is_closed(&self) -> bool {
-        match self.time.1 {
+        match self.time().1 {
             Bound::Included(t) => t < Utc::now(),
             Bound::Excluded(t) => t <= Utc::now(),
             Bound::Unbounded => false,
         }
     }
 
+    #[cfg(test)]
     pub fn tags(&self) -> &JsonValue {
         &self.tags
     }
@@ -173,6 +152,7 @@ impl Object {
         self.host.as_ref()
     }
 
+    #[cfg(test)]
     pub fn timed_out(&self) -> bool {
         self.timed_out
     }
@@ -184,8 +164,9 @@ impl Object {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[async_trait::async_trait]
 pub trait FindQueryable {
-    fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error>;
+    async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>>;
 }
 
 #[derive(Debug)]
@@ -199,14 +180,35 @@ impl FindQuery {
     }
 }
 
+#[async_trait::async_trait]
 impl FindQueryable for FindQuery {
-    fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        room::table
-            .filter(room::id.eq(self.id))
-            .get_result(conn)
-            .optional()
+    async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                id as "id: Id",
+                backend_id as "backend_id: AgentId",
+                time as "time: TimePg",
+                reserve,
+                tags,
+                classroom_id,
+                host as "host: AgentId",
+                timed_out,
+                audience,
+                created_at,
+                backend as "backend: RoomBackend",
+                rtc_sharing_policy as "rtc_sharing_policy: RtcSharingPolicy",
+                infinite,
+                closed_by as "closed_by: AgentId"
+            FROM room
+            WHERE
+                id = $1
+            "#,
+            self.id as Id,
+        )
+        .fetch_optional(conn)
+        .await
     }
 }
 
@@ -221,20 +223,112 @@ impl FindByRtcIdQuery {
     }
 }
 
+#[async_trait::async_trait]
 impl FindQueryable for FindByRtcIdQuery {
-    fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        room::table
-            .inner_join(rtc::table)
-            .filter(rtc::id.eq(self.rtc_id))
-            .select(ALL_COLUMNS)
-            .get_result(conn)
-            .optional()
+    async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                r.id as "id: Id",
+                r.backend_id as "backend_id: AgentId",
+                r.time as "time: TimePg",
+                r.reserve,
+                r.tags,
+                r.classroom_id,
+                r.host as "host: AgentId",
+                r.timed_out,
+                r.audience,
+                r.created_at,
+                r.backend as "backend: RoomBackend",
+                r.rtc_sharing_policy as "rtc_sharing_policy: RtcSharingPolicy",
+                r.infinite,
+                r.closed_by as "closed_by: AgentId"
+            FROM room as r
+            INNER JOIN rtc
+            ON r.id = rtc.room_id
+            WHERE
+                rtc.id = $1
+            "#,
+            self.rtc_id as db::rtc::Id,
+        )
+        .fetch_optional(conn)
+        .await
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+struct FinishedInProgressRecordingsRow {
+    room_id: Id,
+    time: TimePg,
+    audience: String,
+    room_created_at: DateTime<Utc>,
+    backend: RoomBackend,
+    reserve: Option<i32>,
+    tags: JsonValue,
+    backend_id: AgentId,
+    rtc_sharing_policy: RtcSharingPolicy,
+    classroom_id: sqlx::types::Uuid,
+    host: Option<AgentId>,
+    timed_out: bool,
+    closed_by: Option<AgentId>,
+    infinite: bool,
+    rtc_id: db::rtc::Id,
+    started_at: Option<DateTime<Utc>>,
+    segments: Option<Vec<SegmentPg>>,
+    status: RecordingStatus,
+    mjr_dumps_uris: Option<Vec<String>>,
+    handle_id: HandleId,
+    session_id: SessionId,
+    janus_backend_created_at: DateTime<Utc>,
+    capacity: Option<i32>,
+    balancer_capacity: Option<i32>,
+    api_version: String,
+    group: Option<String>,
+    janus_url: String,
+}
+
+impl FinishedInProgressRecordingsRow {
+    fn split(self) -> (Object, Recording, JanusBackend) {
+        (
+            Object {
+                id: self.room_id,
+                time: self.time,
+                audience: self.audience,
+                created_at: self.room_created_at,
+                backend: self.backend,
+                reserve: self.reserve,
+                tags: self.tags,
+                backend_id: Some(self.backend_id.clone()),
+                rtc_sharing_policy: self.rtc_sharing_policy,
+                classroom_id: self.classroom_id,
+                host: self.host,
+                timed_out: self.timed_out,
+                closed_by: self.closed_by,
+                infinite: self.infinite,
+            },
+            Recording {
+                rtc_id: self.rtc_id,
+                started_at: self.started_at,
+                segments: self.segments,
+                status: self.status,
+                mjr_dumps_uris: self.mjr_dumps_uris,
+            },
+            JanusBackend {
+                id: self.backend_id,
+                handle_id: self.handle_id,
+                session_id: self.session_id,
+                created_at: self.janus_backend_created_at,
+                capacity: self.capacity,
+                balancer_capacity: self.balancer_capacity,
+                api_version: self.api_version,
+                group: self.group,
+                janus_url: self.janus_url,
+            },
+        )
+    }
+}
 
 // Filtering out rooms with every recording ready using left and inner joins
 // and condition that recording.rtc_id is null. In diagram below room1
@@ -244,44 +338,66 @@ impl FindQueryable for FindByRtcIdQuery {
 // room1 | rtc2 | recording1  -> room1 | rtc2 | recording1
 // room2 | rtc3 | recording2     room2 | rtc3 | recording2
 // room3 | rtc4 | null           room3 | null | null
-pub fn finished_with_in_progress_recordings(
-    conn: &PgConnection,
+pub async fn finished_with_in_progress_recordings(
+    conn: &mut sqlx::PgConnection,
     maybe_group: Option<&str>,
-) -> Result<Vec<(Object, Recording, JanusBackend)>, Error> {
-    use diesel::{dsl::sql, prelude::*};
-
-    let query = room::table
-        .inner_join(rtc::table.inner_join(recording::table))
-        .inner_join(janus_backend::table.on(janus_backend::id.nullable().eq(room::backend_id)))
-        .filter(
-            room::rtc_sharing_policy.eq_any(&[RtcSharingPolicy::Shared, RtcSharingPolicy::Owned]),
-        )
-        .filter(janus_backend::api_version.eq(JANUS_API_VERSION))
-        .filter(sql("upper(\"room\".\"time\") < now()"))
-        .filter(recording::status.eq(RecordingStatus::InProgress))
-        .select((
-            self::ALL_COLUMNS,
-            super::recording::ALL_COLUMNS,
-            super::janus_backend::ALL_COLUMNS,
-        ));
-
-    if let Some(group) = maybe_group {
-        query
-            .filter(
-                janus_backend::group
-                    .eq(group)
-                    .or(janus_backend::group.is_null()),
-            )
-            .load(conn)
-    } else {
-        query.load(conn)
-    }
+) -> sqlx::Result<Vec<(Object, Recording, JanusBackend)>> {
+    sqlx::query_as!(
+        FinishedInProgressRecordingsRow,
+        r#"
+        SELECT
+            room.id as "room_id: Id",
+            room.time as "time: TimePg",
+            room.audience,
+            room.created_at "room_created_at: _",
+            room.backend as "backend: RoomBackend",
+            room.reserve,
+            room.tags,
+            room.backend_id as "backend_id!: AgentId",
+            room.rtc_sharing_policy as "rtc_sharing_policy: RtcSharingPolicy",
+            room.classroom_id,
+            room.host as "host: AgentId",
+            room.timed_out,
+            room.closed_by as "closed_by: AgentId",
+            room.infinite,
+            recording.rtc_id as "rtc_id: db::rtc::Id",
+            recording.started_at,
+            recording.segments as "segments: Vec<SegmentPg>",
+            recording.status as "status: RecordingStatus",
+            recording.mjr_dumps_uris,
+            janus_backend.handle_id as "handle_id: HandleId",
+            janus_backend.session_id as "session_id: SessionId",
+            janus_backend.created_at as "janus_backend_created_at: _",
+            janus_backend.capacity,
+            janus_backend.balancer_capacity,
+            janus_backend.api_version,
+            janus_backend.group,
+            janus_backend.janus_url
+        FROM room
+        INNER JOIN rtc
+        ON room.id = rtc.room_id
+        INNER JOIN recording
+        ON recording.rtc_id = rtc.id
+        INNER JOIN janus_backend
+        ON janus_backend.id = room.backend_id
+        WHERE
+            room.rtc_sharing_policy = ANY(ARRAY ['shared'::rtc_sharing_policy, 'owned']) AND
+            janus_backend.api_version = $1 AND
+            upper(room.time) < now() AND
+            recording.status = 'in_progress' AND
+            ($2::text IS NULL OR (janus_backend.group = $2 OR janus_backend.group IS NULL))
+        "#,
+        JANUS_API_VERSION,
+        maybe_group
+    )
+    .fetch_all(conn)
+    .await
+    .map(|v| v.into_iter().map(|r| r.split()).collect())
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable)]
-#[table_name = "room"]
+#[derive(Debug)]
 pub struct InsertQuery<'a> {
     time: Time,
     audience: &'a str,
@@ -341,25 +457,49 @@ impl<'a> InsertQuery<'a> {
         Self { infinite, ..self }
     }
 
-    pub fn classroom_id(self, classroom_id: Uuid) -> Self {
-        Self {
-            classroom_id,
-            ..self
-        }
-    }
-
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::schema::room::dsl::room;
-        use diesel::RunQueryDsl;
-
-        diesel::insert_into(room).values(self).get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO room (
+                time, audience, backend, reserve, tags,
+                backend_id, rtc_sharing_policy, classroom_id, infinite
+            )
+            VALUES ($1, $2, $3, $4, COALESCE($5, '{}'::jsonb), $6, $7, $8, $9)
+            RETURNING
+                id as "id: Id",
+                backend_id as "backend_id: AgentId",
+                time as "time: TimePg",
+                reserve,
+                tags,
+                classroom_id,
+                host as "host: AgentId",
+                timed_out,
+                audience,
+                created_at,
+                backend as "backend: RoomBackend",
+                rtc_sharing_policy as "rtc_sharing_policy: RtcSharingPolicy",
+                infinite,
+                closed_by as "closed_by: AgentId"
+            "#,
+            TimePg::from(self.time) as TimePg,
+            self.audience,
+            self.backend as RoomBackend,
+            self.reserve,
+            self.tags,
+            self.backend_id as Option<&AgentId>,
+            self.rtc_sharing_policy as RtcSharingPolicy,
+            self.classroom_id,
+            self.infinite,
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Identifiable, AsChangeset)]
-#[table_name = "room"]
+#[derive(Debug)]
 pub struct UpdateQuery<'a> {
     id: Id,
     time: Option<Time>,
@@ -419,25 +559,88 @@ impl<'a> UpdateQuery<'a> {
         Self { host, ..self }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use diesel::prelude::*;
-
-        diesel::update(self).set(self).get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            UPDATE room
+            SET
+                backend_id   = COALESCE($2, backend_id),
+                time         = COALESCE($3, time),
+                reserve      = COALESCE($4, reserve),
+                tags         = COALESCE($5, tags::jsonb),
+                classroom_id = COALESCE($6, classroom_id),
+                host         = COALESCE($7, host),
+                timed_out    = COALESCE($8, timed_out)
+            WHERE
+                id = $1
+            RETURNING
+                id as "id: Id",
+                backend_id as "backend_id: AgentId",
+                time as "time: TimePg",
+                reserve,
+                tags,
+                classroom_id,
+                host as "host: AgentId",
+                timed_out,
+                audience,
+                created_at,
+                backend as "backend: RoomBackend",
+                rtc_sharing_policy as "rtc_sharing_policy: RtcSharingPolicy",
+                infinite,
+                closed_by as "closed_by: AgentId"
+            "#,
+            self.id as db::room::Id,
+            self.backend_id as Option<&AgentId>,
+            self.time.map(TimePg::from) as Option<TimePg>,
+            self.reserve.flatten(),
+            self.tags,
+            self.classroom_id,
+            self.host as Option<&AgentId>,
+            self.timed_out
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn set_closed_by(room_id: Id, agent: &AgentId, conn: &PgConnection) -> Result<Object, Error> {
-    use diesel::dsl::sql;
-    use diesel::prelude::*;
-
-    diesel::update(room::table.filter(room::id.eq(room_id)))
-        .set((
-            room::closed_by.eq(agent),
-            room::time.eq(sql("TSTZRANGE(LOWER(time), NOW())")),
-        ))
-        .get_result(conn)
+pub async fn set_closed_by(
+    room_id: Id,
+    agent: &AgentId,
+    conn: &mut sqlx::PgConnection,
+) -> sqlx::Result<Object> {
+    sqlx::query_as!(
+        Object,
+        r#"
+        UPDATE room
+        SET
+            closed_by = $2,
+            time = TSTZRANGE(LOWER(time), NOW())
+        WHERE
+            id = $1
+        RETURNING
+            id as "id: Id",
+            backend_id as "backend_id: AgentId",
+            time as "time: TimePg",
+            reserve,
+            tags,
+            classroom_id,
+            host as "host: AgentId",
+            timed_out,
+            audience,
+            created_at,
+            backend as "backend: RoomBackend",
+            rtc_sharing_policy as "rtc_sharing_policy: RtcSharingPolicy",
+            infinite,
+            closed_by as "closed_by: AgentId"
+        "#,
+        room_id as Id,
+        agent as &AgentId,
+    )
+    .fetch_one(conn)
+    .await
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -448,33 +651,33 @@ mod tests {
         use super::super::*;
         use crate::{
             backend::janus::client::{HandleId, SessionId},
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db, prelude::*},
         };
 
-        #[test]
-        fn selects_appropriate_backend() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-
-            let pool = db.connection_pool();
-            let conn = pool.get().expect("Failed to get db connection");
+        #[sqlx::test]
+        async fn selects_appropriate_backend(pool: sqlx::PgPool) {
+            let db = db::TestDb::new(pool);
+            let mut conn = db.get_conn().await;
 
             let backend1 = shared_helpers::insert_janus_backend(
-                &conn,
+                &mut conn,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
-            );
+            )
+            .await;
             let backend2 = shared_helpers::insert_janus_backend(
-                &conn,
+                &mut conn,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
-            );
+            )
+            .await;
 
-            let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
-            let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());
+            let room1 =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn, backend1.id()).await;
+            let room2 =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn, backend2.id()).await;
 
             // this room will have rtc but no rtc_stream simulating the case when janus_backend was removed
             // (for example crashed) and via cascade removed all streams hosted on it
@@ -482,17 +685,21 @@ mod tests {
             // it should not appear in query result and it should not result in query Err
             let backend3_id = TestAgent::new("alpha", "janus3", SVC_AUDIENCE);
 
-            let room3 =
-                shared_helpers::insert_closed_room_with_backend_id(&conn, backend3_id.agent_id());
+            let room3 = shared_helpers::insert_closed_room_with_backend_id(
+                &mut conn,
+                backend3_id.agent_id(),
+            )
+            .await;
 
-            let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
-            let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
-            let _rtc3 = shared_helpers::insert_rtc_with_room(&conn, &room3);
+            let rtc1 = shared_helpers::insert_rtc_with_room(&mut conn, &room1).await;
+            let rtc2 = shared_helpers::insert_rtc_with_room(&mut conn, &room2).await;
+            let _rtc3 = shared_helpers::insert_rtc_with_room(&mut conn, &room3).await;
 
-            shared_helpers::insert_recording(&conn, &rtc1);
-            shared_helpers::insert_recording(&conn, &rtc2);
+            shared_helpers::insert_recording(&mut conn, &rtc1).await;
+            shared_helpers::insert_recording(&mut conn, &rtc2).await;
 
-            let rooms = finished_with_in_progress_recordings(&conn, None)
+            let rooms = finished_with_in_progress_recordings(&mut conn, None)
+                .await
                 .expect("finished_with_in_progress_recordings call failed");
 
             assert_eq!(rooms.len(), 2);
@@ -511,40 +718,41 @@ mod tests {
             }
         }
 
-        #[test]
-        fn selects_appropriate_backend_by_group() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-
-            let pool = db.connection_pool();
-            let conn = pool.get().expect("Failed to get db connection");
+        #[sqlx::test]
+        async fn selects_appropriate_backend_by_group(pool: sqlx::PgPool) {
+            let db = db::TestDb::new(pool);
+            let mut conn = db.get_conn().await;
 
             let backend1 = shared_helpers::insert_janus_backend_with_group(
-                &conn,
+                &mut conn,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
                 "webinar",
-            );
+            )
+            .await;
             let backend2 = shared_helpers::insert_janus_backend_with_group(
-                &conn,
+                &mut conn,
                 "test",
                 SessionId::random(),
                 HandleId::random(),
                 "minigroup",
-            );
+            )
+            .await;
 
-            let room1 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend1.id());
-            let room2 = shared_helpers::insert_closed_room_with_backend_id(&conn, backend2.id());
+            let room1 =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn, backend1.id()).await;
+            let room2 =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn, backend2.id()).await;
 
-            let rtc1 = shared_helpers::insert_rtc_with_room(&conn, &room1);
-            let rtc2 = shared_helpers::insert_rtc_with_room(&conn, &room2);
+            let rtc1 = shared_helpers::insert_rtc_with_room(&mut conn, &room1).await;
+            let rtc2 = shared_helpers::insert_rtc_with_room(&mut conn, &room2).await;
 
-            shared_helpers::insert_recording(&conn, &rtc1);
-            shared_helpers::insert_recording(&conn, &rtc2);
+            shared_helpers::insert_recording(&mut conn, &rtc1).await;
+            shared_helpers::insert_recording(&mut conn, &rtc2).await;
 
-            let rooms = finished_with_in_progress_recordings(&conn, Some("minigroup"))
+            let rooms = finished_with_in_progress_recordings(&mut conn, Some("minigroup"))
+                .await
                 .expect("finished_with_in_progress_recordings call failed");
 
             assert_eq!(rooms.len(), 1);

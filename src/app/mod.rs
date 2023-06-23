@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, thread, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use crate::{
     app::{
@@ -8,7 +8,6 @@ use crate::{
     backend::janus::{client_pool::Clients, online_handler::start_internal_api, JANUS_API_VERSION},
     client::{conference::ConferenceHttpClient, mqtt_gateway::MqttGatewayHttpClient},
     config::{self, Config},
-    db::ConnectionPool,
 };
 use anyhow::{Context as AnyhowContext, Result};
 use context::{AppContext, GlobalContext};
@@ -34,7 +33,7 @@ pub const API_VERSION: &str = "v1";
 ////////////////////////////////////////////////////////////////////////////////
 
 pub async fn run(
-    db: &ConnectionPool,
+    db: sqlx::PgPool,
     redis_pool: Option<RedisConnectionPool>,
     authz_cache: Option<Box<RedisCache>>,
 ) -> Result<()> {
@@ -90,11 +89,11 @@ pub async fn run(
         Some(agent.clone()),
     );
 
-    thread::spawn({
+    task::spawn({
         let db = db.clone();
         let collect_interval = config.metrics.janus_metrics_collect_interval;
         let clients = clients.clone();
-        move || janus_metrics.start_collector(db, clients, collect_interval)
+        janus_metrics.start_collector(db, clients, collect_interval)
     });
     task::spawn(start_metrics_collector(
         metrics_registry,
@@ -115,7 +114,7 @@ pub async fn run(
     let context = AppContext::new(
         config.clone(),
         authz,
-        db.clone(),
+        db,
         clients.clone(),
         metrics.clone(),
         mqtt_gateway_client,
@@ -163,7 +162,7 @@ pub async fn run(
             }),
     );
 
-    let ctx: Arc<dyn GlobalContext + Send> = Arc::new(context.clone());
+    let ctx: Arc<dyn GlobalContext + Send + Sync> = Arc::new(context.clone());
     let outbox_handler = outbox_handler::run(ctx, graceful_rx.clone())?;
 
     // Message handler

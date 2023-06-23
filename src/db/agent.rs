@@ -1,33 +1,24 @@
-// in order to support Rust 1.62
-// `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
-#![allow(clippy::extra_unused_lifetimes)]
-
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
-use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
-use super::room::Object as Room;
 use crate::db;
-use crate::schema::agent;
 
 ////////////////////////////////////////////////////////////////////////////////
 pub type Id = db::id::Id;
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
-#[PgType = "agent_status"]
-#[DieselType = "Agent_status"]
+#[sqlx(type_name = "agent_status")]
 pub enum Status {
     #[serde(rename = "in_progress")]
+    #[sqlx(rename = "in_progress")]
     InProgress,
+    #[sqlx(rename = "ready")]
     Ready,
 }
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
-#[belongs_to(Room, foreign_key = "room_id")]
-#[table_name = "agent"]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Object {
     id: Id,
     agent_id: AgentId,
@@ -38,13 +29,8 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn agent_id(&self) -> &AgentId {
-        &self.agent_id
-    }
-
-    #[cfg(test)]
-    pub fn status(&self) -> Status {
-        self.status
+    pub fn id(&self) -> Id {
+        self.id
     }
 }
 
@@ -104,58 +90,53 @@ impl<'a> ListQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use diesel::prelude::*;
-
-        let mut q = agent::table
-            .into_boxed()
-            .filter(agent::status.eq(Status::Ready));
-
-        if let Some(agent_id) = self.agent_id {
-            q = q.filter(agent::agent_id.eq(agent_id));
-        }
-
-        if let Some(room_id) = self.room_id {
-            q = q.filter(agent::room_id.eq(room_id));
-        }
-
-        if let Some(status) = self.status {
-            q = q.filter(agent::status.eq(status));
-        }
-
-        if let Some(offset) = self.offset {
-            q = q.offset(offset);
-        }
-
-        if let Some(limit) = self.limit {
-            q = q.limit(limit);
-        }
-
-        q.order_by(agent::created_at.desc()).get_results(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Vec<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                id as "id: Id",
+                agent_id as "agent_id: AgentId",
+                room_id as "room_id: Id",
+                created_at,
+                status as "status: Status"
+            FROM agent
+            WHERE
+                status = 'ready' AND
+                ($1::agent_id IS NULL     OR agent_id = $1::agent_id) AND
+                ($2::uuid IS NULL         OR room_id  = $2::uuid) AND
+                ($3::agent_status IS NULL OR status = $3::agent_status)
+            ORDER BY created_at DESC
+            OFFSET $4
+            LIMIT $5
+            "#,
+            self.agent_id as Option<&AgentId>,
+            self.room_id as Option<Id>,
+            self.status as Option<Status>,
+            self.offset,
+            self.limit,
+        )
+        .fetch_all(conn)
+        .await
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable)]
-#[table_name = "agent"]
+#[derive(Debug)]
 pub struct InsertQuery<'a> {
-    id: Option<Id>,
     agent_id: &'a AgentId,
     room_id: db::room::Id,
     status: Status,
-    #[cfg(test)]
     created_at: Option<DateTime<Utc>>,
 }
 
 impl<'a> InsertQuery<'a> {
     pub fn new(agent_id: &'a AgentId, room_id: db::room::Id) -> Self {
         Self {
-            id: None,
             agent_id,
             room_id,
             status: Status::InProgress,
-            #[cfg(test)]
             created_at: None,
         }
     }
@@ -173,23 +154,35 @@ impl<'a> InsertQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::schema::agent::dsl::*;
-        use diesel::{ExpressionMethods, RunQueryDsl};
-
-        diesel::insert_into(agent)
-            .values(self)
-            .on_conflict((agent_id, room_id))
-            .do_update()
-            .set(status.eq(Status::InProgress))
-            .get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO agent (agent_id, room_id, status, created_at)
+            VALUES ($1, $2, $3, COALESCE($4, now()))
+            ON CONFLICT (agent_id, room_id) DO UPDATE
+            SET
+                status = 'in_progress'
+            RETURNING
+                id as "id: Id",
+                agent_id as "agent_id: AgentId",
+                room_id as "room_id: Id",
+                created_at,
+                status as "status: Status"
+            "#,
+            self.agent_id as &AgentId,
+            self.room_id as Id,
+            self.status as Status,
+            self.created_at
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, AsChangeset)]
-#[table_name = "agent"]
+#[derive(Debug)]
 pub struct UpdateQuery<'a> {
     agent_id: &'a AgentId,
     room_id: db::room::Id,
@@ -212,14 +205,29 @@ impl<'a> UpdateQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        let query = agent::table
-            .filter(agent::agent_id.eq(self.agent_id))
-            .filter(agent::room_id.eq(self.room_id));
-
-        diesel::update(query).set(self).get_result(conn).optional()
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            UPDATE agent
+            SET
+                status = $3
+            WHERE
+                agent_id = $1 AND
+                room_id  = $2
+            RETURNING
+                id as "id: Id",
+                agent_id as "agent_id: AgentId",
+                room_id as "room_id: Id",
+                created_at,
+                status as "status: Status"
+            "#,
+            self.agent_id as &AgentId,
+            self.room_id as Id,
+            self.status as Option<Status>,
+        )
+        .fetch_optional(conn)
+        .await
     }
 }
 
@@ -253,20 +261,20 @@ impl<'a> DeleteQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-
-        let mut query = diesel::delete(agent::table).into_boxed();
-
-        if let Some(agent_id) = self.agent_id {
-            query = query.filter(agent::agent_id.eq(agent_id));
-        }
-
-        if let Some(room_id) = self.room_id {
-            query = query.filter(agent::room_id.eq(room_id));
-        }
-
-        query.execute(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM agent
+            WHERE
+                ($1::agent_id IS NULL OR agent_id = $1) AND
+                ($2::uuid IS NULL OR room_id  = $2)
+            "#,
+            self.agent_id as Option<&AgentId>,
+            self.room_id as Option<Id>,
+        )
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 
@@ -281,57 +289,69 @@ impl CleanupQuery {
         Self { created_at }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-
-        diesel::delete(agent::table.filter(agent::created_at.lt(self.created_at))).execute(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM agent
+            WHERE
+                created_at < $1
+            "#,
+            self.created_at,
+        )
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{CleanupQuery, ListQuery, Status};
-    use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
+    use crate::test_helpers::{db::TestDb, prelude::*};
     use chrono::{Duration, Utc};
 
-    #[test]
-    fn test_cleanup_query() {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
+    #[sqlx::test]
+    async fn test_cleanup_query(pool: sqlx::PgPool) {
+        let db = TestDb::new(pool);
+
         let old = TestAgent::new("web", "old_agent", USR_AUDIENCE);
         let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);
 
-        let room = db
-            .connection_pool()
-            .get()
-            .map(|conn| {
-                let room = shared_helpers::insert_room(&conn);
-                factory::Agent::new()
-                    .agent_id(old.agent_id())
-                    .room_id(room.id())
-                    .status(Status::Ready)
-                    .created_at(Utc::now() - Duration::weeks(7))
-                    .insert(&conn);
-                factory::Agent::new()
-                    .agent_id(new.agent_id())
-                    .room_id(room.id())
-                    .status(Status::Ready)
-                    .insert(&conn);
+        let mut conn = db.get_conn().await;
 
-                let r = ListQuery::new().room_id(room.id()).execute(&conn).unwrap();
-                assert_eq!(r.len(), 2);
-                room
-            })
-            .expect("Failed to insert room");
+        let room = shared_helpers::insert_room(&mut conn).await;
+        factory::Agent::new()
+            .agent_id(old.agent_id())
+            .room_id(room.id())
+            .status(Status::Ready)
+            .created_at(Utc::now() - Duration::weeks(7))
+            .insert(&mut conn)
+            .await;
+        factory::Agent::new()
+            .agent_id(new.agent_id())
+            .room_id(room.id())
+            .status(Status::Ready)
+            .insert(&mut conn)
+            .await;
 
-        let conn = db.connection_pool().get().unwrap();
+        let r = ListQuery::new()
+            .room_id(room.id())
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(r.len(), 2);
+
         let r = CleanupQuery::new(Utc::now() - Duration::days(1))
-            .execute(&conn)
+            .execute(&mut conn)
+            .await
             .expect("Failed to run query");
 
         assert_eq!(r, 1);
-        let r = ListQuery::new().room_id(room.id()).execute(&conn).unwrap();
+        let r = ListQuery::new()
+            .room_id(room.id())
+            .execute(&mut conn)
+            .await
+            .unwrap();
         assert_eq!(r.len(), 1);
     }
 }

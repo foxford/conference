@@ -8,7 +8,7 @@ use crate::{
         JanusClient,
     },
     config::JanusRegistry,
-    db::{self, ConnectionPool},
+    db,
 };
 use anyhow::{Context, Result};
 use http::Response;
@@ -71,7 +71,7 @@ impl StreamCallback {
 pub async fn start_internal_api(
     janus_registry: JanusRegistry,
     clients: Clients,
-    db: ConnectionPool,
+    db: sqlx::PgPool,
     authn: ConfigMap,
 ) -> anyhow::Result<()> {
     let token = janus_registry.token.clone();
@@ -180,19 +180,13 @@ pub async fn start_internal_api(
     Ok(())
 }
 
-async fn handle_online(event: Online, clients: Clients, db: ConnectionPool) -> Result<()> {
-    let existing_backend = crate::util::spawn_blocking({
-        let backend_id = event.agent_id.clone();
-        let db = db.clone();
-        move || {
-            let conn = db.get()?;
-            let janus = db::janus_backend::FindQuery::new()
-                .id(&backend_id)
-                .execute(&conn)?;
-            Ok::<_, anyhow::Error>(janus)
-        }
-    })
-    .await?;
+async fn handle_online(event: Online, clients: Clients, db: sqlx::PgPool) -> Result<()> {
+    let backend_id = event.agent_id.clone();
+    let mut conn = db.acquire().await?;
+    let existing_backend = db::janus_backend::FindQuery::new(&backend_id)
+        .execute(&mut conn)
+        .await?;
+
     let janus_client = JanusClient::new(&event.janus_url)?;
     if let Some(backend) = existing_backend {
         let ping_response = janus_client
@@ -227,31 +221,28 @@ async fn handle_online(event: Online, clients: Clients, db: ConnectionPool) -> R
         })
         .await?;
 
-    let backend = crate::util::spawn_blocking(move || {
-        let conn = db.get()?;
-        let mut q = db::janus_backend::UpsertQuery::new(
-            &event.agent_id,
-            handle.id,
-            session.id,
-            &event.janus_url,
-        );
+    let mut conn = db.acquire().await?;
+    let mut q = db::janus_backend::UpsertQuery::new(
+        &event.agent_id,
+        handle.id,
+        session.id,
+        &event.janus_url,
+    );
 
-        if let Some(capacity) = event.capacity {
-            q = q.capacity(capacity);
-        }
+    if let Some(capacity) = event.capacity {
+        q = q.capacity(capacity);
+    }
 
-        if let Some(balancer_capacity) = event.balancer_capacity {
-            q = q.balancer_capacity(balancer_capacity);
-        }
+    if let Some(balancer_capacity) = event.balancer_capacity {
+        q = q.balancer_capacity(balancer_capacity);
+    }
 
-        if let Some(group) = event.group.as_deref() {
-            q = q.group(group);
-        }
+    if let Some(group) = event.group.as_deref() {
+        q = q.group(group);
+    }
 
-        let janus = q.execute(&conn)?;
-        Ok::<_, anyhow::Error>(janus)
-    })
-    .await?;
+    let backend = q.execute(&mut conn).await?;
+
     clients.get_or_insert(&backend)?;
     Ok(())
 }
@@ -279,13 +270,14 @@ mod test {
         },
     };
 
-    #[tokio::test]
-    async fn test_online_when_backends_absent() -> anyhow::Result<()> {
+    #[sqlx::test]
+    async fn test_online_when_backends_absent(pool: sqlx::PgPool) -> anyhow::Result<()> {
         let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
         let janus = local_deps.run_janus();
-        let db = TestDb::with_local_postgres(&postgres);
-        let mut context = TestContext::new(db, TestAuthz::new());
+
+        let db = TestDb::new(pool);
+        let mut context = TestContext::new(db, TestAuthz::new()).await;
+
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
         let rng = rand::thread_rng();
@@ -306,10 +298,10 @@ mod test {
 
         handle_online(event, context.janus_clients(), context.db().clone()).await?;
 
-        let conn = context.get_conn().await?;
-        let backend = db::janus_backend::FindQuery::new()
-            .id(backend_id.agent_id())
-            .execute(&conn)?
+        let mut conn = context.get_conn().await?;
+        let backend = db::janus_backend::FindQuery::new(backend_id.agent_id())
+            .execute(&mut conn)
+            .await?
             .unwrap();
         // check if handle expired by timeout;
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -326,19 +318,23 @@ mod test {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_online_when_backends_present() -> anyhow::Result<()> {
+    #[sqlx::test]
+    async fn test_online_when_backends_present(pool: sqlx::PgPool) -> anyhow::Result<()> {
         let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
         let janus = local_deps.run_janus();
-        let db = TestDb::with_local_postgres(&postgres);
-        let mut context = TestContext::new(db, TestAuthz::new());
-        let conn = context.get_conn().await?;
+
+        let db = TestDb::new(pool);
+        let mut context = TestContext::new(db, TestAuthz::new()).await;
+
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
         let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
+        let mut conn = context.get_conn().await?;
         let backend =
-            shared_helpers::insert_janus_backend(&conn, &janus.url, session_id, handle_id);
+            shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                .await;
+
         let event = Online {
             agent_id: backend.id().clone(),
             capacity: Some(1),
@@ -349,9 +345,9 @@ mod test {
 
         handle_online(event, context.janus_clients(), context.db().clone()).await?;
 
-        let new_backend = db::janus_backend::FindQuery::new()
-            .id(backend.id())
-            .execute(&conn)?
+        let new_backend = db::janus_backend::FindQuery::new(backend.id())
+            .execute(&mut conn)
+            .await?
             .unwrap();
         assert_eq!(backend, new_backend);
         context.janus_clients().remove_client(&backend);

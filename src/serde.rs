@@ -114,7 +114,7 @@ pub mod ts_seconds_bound_tuple {
         d.deserialize_tuple(2, TupleSecondsTimestampVisitor)
     }
 
-    struct TupleSecondsTimestampVisitor;
+    pub struct TupleSecondsTimestampVisitor;
 
     impl<'de> de::Visitor<'de> for TupleSecondsTimestampVisitor {
         type Value = Time;
@@ -157,16 +157,41 @@ pub mod ts_seconds_bound_tuple {
     }
 }
 
+pub mod ts_seconds_bound_tuple_pg {
+    use serde::{de, ser};
+
+    use crate::db::room::{Time, TimePg};
+
+    use super::ts_seconds_bound_tuple::TupleSecondsTimestampVisitor;
+
+    pub fn serialize<S>(value: &TimePg, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        super::ts_seconds_bound_tuple::serialize(&Time::from(value.clone()), serializer)
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<TimePg, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let time: Time = d.deserialize_tuple(2, TupleSecondsTimestampVisitor)?;
+
+        Ok(TimePg::from(time))
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 pub mod ts_seconds_option_bound_tuple {
     use super::Time;
-    use serde::{de, ser};
+    use serde::de;
     use std::fmt;
 
+    #[cfg(test)]
     pub fn serialize<S>(option: &Option<Time>, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: ser::Serializer,
+        S: serde::ser::Serializer,
     {
         match option {
             Some(value) => super::ts_seconds_bound_tuple::serialize(value, serializer),
@@ -208,6 +233,34 @@ pub mod ts_seconds_option_bound_tuple {
     }
 }
 
+pub mod ts_seconds_option_bound_tuple_pg {
+    use serde::{de, ser};
+
+    use crate::db::room::TimePg;
+
+    use super::{ts_seconds_option_bound_tuple::TupleSecondsTimestampVisitor, Time};
+
+    pub fn serialize<S>(option: &Option<TimePg>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        match option {
+            Some(value) => {
+                super::ts_seconds_bound_tuple::serialize(&Time::from(value.clone()), serializer)
+            }
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Option<TimePg>, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let time: Option<Time> = d.deserialize_option(TupleSecondsTimestampVisitor)?;
+        Ok(time.map(TimePg::from))
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
@@ -226,7 +279,7 @@ mod test {
         time: Time,
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Deserialize, Serialize)]
     struct TestOptionData {
         #[serde(default)]
         #[serde(with = "crate::serde::ts_seconds_option_bound_tuple")]
@@ -284,6 +337,10 @@ mod test {
 
         assert_eq!(start, Bound::Included(now));
         assert_eq!(end, Bound::Excluded(now));
+
+        let data = serde_json::to_value(data).unwrap();
+        let time = data.get("time").unwrap();
+        assert!(time.is_array());
 
         let val = json!({});
 

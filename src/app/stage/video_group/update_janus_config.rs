@@ -16,8 +16,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use svc_agent::AgentId;
-use svc_conference_events::EventV1 as Event;
-use svc_nats_client::EventId;
+use svc_events::{EventId, EventV1 as Event};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -51,7 +50,7 @@ impl VideoGroupUpdateJanusConfig {
 
 #[async_trait]
 impl StageHandle for VideoGroupUpdateJanusConfig {
-    type Context = Arc<dyn GlobalContext + Send>;
+    type Context = Arc<dyn GlobalContext + Send + Sync>;
     type Stage = AppStage;
 
     async fn handle(
@@ -59,11 +58,11 @@ impl StageHandle for VideoGroupUpdateJanusConfig {
         ctx: &Self::Context,
         _id: &EventId,
     ) -> Result<Option<Self::Stage>, StageError> {
-        let conn = ctx.get_conn().await?;
+        let mut conn = ctx.get_conn().await?;
 
-        let janus_backend = db::janus_backend::FindQuery::new()
-            .id(&self.backend_id)
-            .execute(&conn)
+        let janus_backend = db::janus_backend::FindQuery::new(&self.backend_id)
+            .execute(&mut conn)
+            .await
             .error(ErrorKind::DbQueryFailed)?
             .ok_or_else(|| anyhow!("Janus backend not found"))
             .error(ErrorKind::BackendNotFound)?;

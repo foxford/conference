@@ -1,58 +1,151 @@
-use super::room::Object as Room;
-use crate::diesel::RunQueryDsl;
-use crate::schema::orphaned_room;
-use crate::{diesel::ExpressionMethods, schema};
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use diesel::{dsl::any, pg::PgConnection, result::Error, QueryDsl};
 use serde::{Deserialize, Serialize};
+use svc_agent::AgentId;
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations)]
-#[belongs_to(Room, foreign_key = "id")]
-#[table_name = "orphaned_room"]
+use super::room::Object as Room;
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Object {
     pub id: super::room::Id,
     #[serde(with = "ts_seconds")]
     pub host_left_at: DateTime<Utc>,
 }
 
-pub fn upsert_room(
+pub async fn upsert_room(
     id: super::room::Id,
     host_left_at: DateTime<Utc>,
-    connection: &PgConnection,
-) -> Result<(), Error> {
-    let record = (
-        orphaned_room::id.eq(id),
-        orphaned_room::host_left_at.eq(host_left_at),
-    );
-    diesel::insert_into(orphaned_room::table)
-        .values(&record)
-        .on_conflict(orphaned_room::id)
-        .do_update()
-        .set(record)
-        .execute(connection)?;
+    connection: &mut sqlx::PgConnection,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        INSERT INTO orphaned_room
+        VALUES ($1, $2)
+        ON CONFLICT (id) DO UPDATE
+        SET
+            host_left_at = $2
+        "#,
+        id as super::room::Id,
+        host_left_at,
+    )
+    .execute(connection)
+    .await?;
+
     Ok(())
 }
 
-pub fn get_timed_out(
+struct TimedOutRow {
+    room_id: super::room::Id,
+    host_left_at: DateTime<Utc>,
+    backend_id: Option<AgentId>,
+    time: super::room::TimePg,
+    reserve: Option<i32>,
+    tags: serde_json::Value,
+    classroom_id: Option<sqlx::types::Uuid>,
+    host: Option<AgentId>,
+    timed_out: bool,
+    audience: String,
+    created_at: DateTime<Utc>,
+    backend: super::room::RoomBackend,
+    rtc_sharing_policy: super::rtc::SharingPolicy,
+    infinite: bool,
+    closed_by: Option<AgentId>,
+}
+
+impl TimedOutRow {
+    fn split(self) -> (Object, Option<Room>) {
+        (
+            Object {
+                id: self.room_id,
+                host_left_at: self.host_left_at,
+            },
+            self.classroom_id.map(|classroom_id| Room {
+                id: self.room_id,
+                time: self.time,
+                audience: self.audience,
+                created_at: self.created_at,
+                backend: self.backend,
+                reserve: self.reserve,
+                tags: self.tags,
+                backend_id: self.backend_id,
+                rtc_sharing_policy: self.rtc_sharing_policy,
+                classroom_id,
+                host: self.host,
+                timed_out: self.timed_out,
+                closed_by: self.closed_by,
+                infinite: self.infinite,
+            }),
+        )
+    }
+}
+
+pub async fn get_timed_out(
     load_till: DateTime<Utc>,
-    connection: &PgConnection,
-) -> Result<Vec<(Object, Option<super::room::Object>)>, Error> {
-    orphaned_room::table
-        .filter(orphaned_room::host_left_at.lt(load_till))
-        .left_join(schema::room::table)
-        .get_results(connection)
+    connection: &mut sqlx::PgConnection,
+) -> sqlx::Result<Vec<(Object, Option<super::room::Object>)>> {
+    sqlx::query_as!(
+        TimedOutRow,
+        r#"
+        SELECT
+            orph.id as "room_id: super::room::Id",
+            orph.host_left_at,
+            r.backend_id as "backend_id: AgentId",
+            r.time as "time: super::room::TimePg",
+            r.reserve,
+            r.tags,
+            r.classroom_id as "classroom_id?: _",
+            r.host as "host: AgentId",
+            r.timed_out,
+            r.audience,
+            r.created_at,
+            r.backend as "backend: super::room::RoomBackend",
+            r.rtc_sharing_policy as "rtc_sharing_policy: super::rtc::SharingPolicy",
+            r.infinite,
+            r.closed_by as "closed_by: AgentId"
+        FROM orphaned_room as orph
+        LEFT JOIN room as r
+        ON r.id = orph.id
+        WHERE
+            orph.host_left_at < $1
+        "#,
+        load_till
+    )
+    .fetch_all(connection)
+    .await
+    .map(|r| r.into_iter().map(|o| o.split()).collect())
 }
 
-pub fn remove_rooms(ids: &[super::room::Id], connection: &PgConnection) -> Result<(), Error> {
-    diesel::delete(orphaned_room::table)
-        .filter(orphaned_room::id.eq(any(ids)))
-        .execute(connection)?;
+pub async fn remove_rooms(
+    ids: &[super::room::Id],
+    connection: &mut sqlx::PgConnection,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        DELETE FROM orphaned_room
+        WHERE
+            id = ANY($1)
+        "#,
+        ids as &[super::room::Id],
+    )
+    .execute(connection)
+    .await?;
+
     Ok(())
 }
 
-pub fn remove_room(id: super::room::Id, connection: &PgConnection) -> Result<(), Error> {
-    diesel::delete(orphaned_room::table)
-        .filter(orphaned_room::id.eq(id))
-        .execute(connection)?;
+pub async fn remove_room(
+    id: super::room::Id,
+    connection: &mut sqlx::PgConnection,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        DELETE FROM orphaned_room
+        WHERE
+            id = $1
+        "#,
+        id as super::room::Id,
+    )
+    .execute(connection)
+    .await?;
+
     Ok(())
 }

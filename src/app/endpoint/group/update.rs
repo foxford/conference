@@ -18,18 +18,18 @@ use crate::{
     outbox::{
         self,
         error::ErrorKind,
-        pipeline::{diesel::Pipeline as DieselPipeline, Pipeline},
+        pipeline::{sqlx::Pipeline as DieselPipeline, Pipeline},
     },
 };
 use anyhow::{anyhow, Context};
 use axum::{extract::Path, Extension, Json};
 use chrono::{DateTime, Utc};
-use diesel::Connection;
 use serde::Deserialize;
 use serde_json::json;
+use sqlx::Connection;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
-use svc_conference_events::{EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
+use svc_events::{EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
 use svc_utils::extractors::AgentIdExtractor;
 use tracing::error;
 
@@ -62,7 +62,7 @@ pub struct Handler;
 
 impl Handler {
     async fn handle(
-        context: Arc<dyn GlobalContext + Send>,
+        context: Arc<dyn GlobalContext + Send + Sync>,
         payload: Payload,
         reqp: RequestParams<'_>,
         start_timestamp: DateTime<Utc>,
@@ -71,13 +71,11 @@ impl Handler {
 
         let Payload { room_id, groups } = payload;
 
-        let room = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &conn)
-            }
-        })
-        .await?;
+        let room = {
+            let mut conn = context.get_conn().await?;
+            helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::NotClosed, &mut conn)
+                .await?
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -107,13 +105,13 @@ impl Handler {
             .context("backend not found")
             .error(AppErrorKind::BackendNotFound)?;
 
-        let event_id = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-
-            move || {
-                conn.transaction(|| {
+        let mut conn = context.get_conn().await?;
+        let event_id = conn
+            .transaction::<_, _, AppError>(|conn| {
+                Box::pin(async move {
                     let existed_groups = db::group_agent::FindQuery::new(room.id())
-                        .execute(&conn)?
+                        .execute(conn)
+                        .await?
                         .groups()
                         .len();
 
@@ -133,10 +131,12 @@ impl Handler {
                     };
                     let event = Event::from(event);
 
-                    db::group_agent::UpsertQuery::new(room.id(), &groups).execute(&conn)?;
+                    db::group_agent::UpsertQuery::new(room.id(), &groups)
+                        .execute(conn)
+                        .await?;
 
                     // Update rtc_reader_configs
-                    let configs = group_reader_config::update(&conn, room.id(), groups)?;
+                    let configs = group_reader_config::update(conn, room.id(), groups).await?;
 
                     // Generate config items for janus
                     let items = configs
@@ -166,18 +166,18 @@ impl Handler {
                     let delivery_deadline_at =
                         outbox::util::delivery_deadline_from_now(outbox_config.try_wake_interval);
 
-                    let event_id = outbox::db::diesel::InsertQuery::new(
+                    let event_id = outbox::db::sqlx::InsertQuery::new(
                         stage::video_group::ENTITY_TYPE,
                         serialized_stage,
                         delivery_deadline_at,
                     )
-                    .execute(&conn)?;
+                    .execute(conn)
+                    .await?;
 
-                    Ok::<_, AppError>(event_id)
+                    Ok(event_id)
                 })
-            }
-        })
-        .await?;
+            })
+            .await?;
 
         let pipeline = DieselPipeline::new(
             context.db().clone(),
@@ -217,8 +217,9 @@ mod tests {
     use super::*;
     use crate::db::{group_agent::GroupItem, rtc::SharingPolicy as RtcSharingPolicy};
     use crate::test_helpers::{
+        db::TestDb,
         factory,
-        prelude::{GlobalContext, TestAgent, TestAuthz, TestContext, TestDb},
+        prelude::{GlobalContext, TestAgent, TestAuthz, TestContext},
         shared_helpers,
         test_deps::LocalDeps,
         USR_AUDIENCE,
@@ -227,13 +228,11 @@ mod tests {
     use std::collections::HashMap;
     use std::ops::Bound;
 
-    #[tokio::test]
-    async fn missing_room() -> std::io::Result<()> {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
+    #[sqlx::test]
+    async fn missing_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+        let db = TestDb::new(pool);
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
-        let context = TestContext::new(db, TestAuthz::new());
+        let context = TestContext::new(db, TestAuthz::new()).await;
 
         let payload = Payload {
             room_id: db::room::Id::random(),
@@ -254,33 +253,26 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn closed_room() -> std::io::Result<()> {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
+    #[sqlx::test]
+    async fn closed_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+        let db = TestDb::new(pool);
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-        let room = db
-            .connection_pool()
-            .get()
-            .map(|conn| {
-                let room = factory::Room::new()
-                    .audience(USR_AUDIENCE)
-                    .time((
-                        Bound::Included(Utc::now() - Duration::hours(2)),
-                        Bound::Excluded(Utc::now() - Duration::hours(1)),
-                    ))
-                    .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                    .insert(&conn);
+        let mut conn = db.get_conn().await;
 
-                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
+        let room = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((
+                Bound::Included(Utc::now() - Duration::hours(2)),
+                Bound::Excluded(Utc::now() - Duration::hours(1)),
+            ))
+            .rtc_sharing_policy(RtcSharingPolicy::Owned)
+            .insert(&mut conn)
+            .await;
 
-                room
-            })
-            .unwrap();
+        shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
-        let context = TestContext::new(db, TestAuthz::new());
+        let context = TestContext::new(db, TestAuthz::new()).await;
 
         let payload = Payload {
             room_id: room.id(),
@@ -301,24 +293,18 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn wrong_rtc_sharing_policy() {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
+    #[sqlx::test]
+    async fn wrong_rtc_sharing_policy(pool: sqlx::PgPool) {
+        let db = TestDb::new(pool);
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-        let room = db
-            .connection_pool()
-            .get()
-            .map(|conn| {
-                factory::Room::new()
-                    .audience(USR_AUDIENCE)
-                    .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                    .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                    .insert(&conn)
-            })
-            .unwrap();
+        let mut conn = db.get_conn().await;
+        let room = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((Bound::Included(Utc::now()), Bound::Unbounded))
+            .rtc_sharing_policy(RtcSharingPolicy::Shared)
+            .insert(&mut conn)
+            .await;
 
         // Allow agent to update the room.
         let mut authz = TestAuthz::new();
@@ -329,7 +315,7 @@ mod tests {
             "update",
         );
 
-        let context = TestContext::new(db, authz);
+        let context = TestContext::new(db, authz).await;
         let payload = Payload {
             room_id: room.id(),
             groups: Groups::new(vec![]),
@@ -348,45 +334,44 @@ mod tests {
         assert_eq!(err.kind(), "invalid_payload");
     }
 
-    #[tokio::test]
-    async fn update_group_agents() {
+    #[sqlx::test]
+    async fn update_group_agents(pool: sqlx::PgPool) {
         let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
         let janus = local_deps.run_janus();
         let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
-        let db = TestDb::with_local_postgres(&postgres);
+
+        let db = TestDb::new(pool);
+
         let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-        let (room, backend) = db
-            .connection_pool()
-            .get()
-            .map(|conn| {
-                let backend =
-                    shared_helpers::insert_janus_backend(&conn, &janus.url, session_id, handle_id);
+        let mut conn = db.get_conn().await;
 
-                let room = factory::Room::new()
-                    .audience(USR_AUDIENCE)
-                    .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                    .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                    .backend_id(backend.id())
-                    .insert(&conn);
+        let backend =
+            shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                .await;
 
-                factory::GroupAgent::new(
-                    room.id(),
-                    Groups::new(vec![GroupItem::new(0, vec![]), GroupItem::new(1, vec![])]),
-                )
-                .upsert(&conn);
+        let room = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((Bound::Included(Utc::now()), Bound::Unbounded))
+            .rtc_sharing_policy(RtcSharingPolicy::Owned)
+            .backend_id(backend.id())
+            .insert(&mut conn)
+            .await;
 
-                vec![&agent1, &agent2].iter().for_each(|agent| {
-                    factory::Rtc::new(room.id())
-                        .created_by(agent.agent_id().to_owned())
-                        .insert(&conn);
-                });
+        factory::GroupAgent::new(
+            room.id(),
+            Groups::new(vec![GroupItem::new(0, vec![]), GroupItem::new(1, vec![])]),
+        )
+        .upsert(&mut conn)
+        .await;
 
-                (room, backend)
-            })
-            .unwrap();
+        for agent in &[&agent1, &agent2] {
+            factory::Rtc::new(room.id())
+                .created_by(agent.agent_id().to_owned())
+                .insert(&mut conn)
+                .await;
+        }
 
         // Allow agent to update the room.
         let mut authz = TestAuthz::new();
@@ -397,7 +382,7 @@ mod tests {
             "update",
         );
 
-        let mut context = TestContext::new(db.clone(), authz);
+        let mut context = TestContext::new(db, authz).await;
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         context.with_janus(tx);
 
@@ -416,13 +401,9 @@ mod tests {
             .await
             .expect("Group update failed");
 
-        let conn = db
-            .connection_pool()
-            .get()
-            .expect("Failed to get DB connection");
-
         let group_agent = db::group_agent::FindQuery::new(room.id())
-            .execute(&conn)
+            .execute(&mut conn)
+            .await
             .expect("failed to get groups with participants");
 
         let groups = group_agent.groups();
@@ -443,7 +424,8 @@ mod tests {
             room.id(),
             &[agent1.agent_id(), agent2.agent_id()],
         )
-        .execute(&conn)
+        .execute(&mut conn)
+        .await
         .expect("failed to get rtc reader configs");
 
         assert_eq!(reader_configs.len(), 2);
@@ -470,7 +452,8 @@ mod tests {
             .expect("Group update failed");
 
         let group_agent = db::group_agent::FindQuery::new(room.id())
-            .execute(&conn)
+            .execute(&mut conn)
+            .await
             .expect("failed to get groups with participants");
 
         let groups = group_agent.groups();
@@ -491,7 +474,8 @@ mod tests {
             room.id(),
             &[agent1.agent_id(), agent2.agent_id()],
         )
-        .execute(&conn)
+        .execute(&mut conn)
+        .await
         .expect("failed to get rtc reader configs");
 
         assert_eq!(reader_configs.len(), 2);

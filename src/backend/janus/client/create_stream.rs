@@ -56,14 +56,18 @@ impl CreateStreamRequestBody {
         id: db::rtc::Id,
         agent_id: AgentId,
         writer_config: Option<WriterConfig>,
-        reader_configs: Option<Vec<ReaderConfig>>,
+        reader_configs: Vec<ReaderConfig>,
     ) -> Self {
         Self {
             method: "stream.create",
             id,
             agent_id,
             writer_config,
-            reader_configs,
+            reader_configs: if reader_configs.is_empty() {
+                None
+            } else {
+                Some(reader_configs)
+            },
         }
     }
 }

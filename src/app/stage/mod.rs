@@ -11,7 +11,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use svc_nats_client::EventId;
+use svc_events::EventId;
 
 pub mod video_group;
 
@@ -26,7 +26,7 @@ pub enum AppStage {
 
 #[async_trait::async_trait]
 impl StageHandle for AppStage {
-    type Context = Arc<dyn GlobalContext + Send>;
+    type Context = Arc<dyn GlobalContext + Send + Sync>;
     type Stage = AppStage;
 
     async fn handle(&self, ctx: &Self::Context, id: &EventId) -> Result<Option<Self>, StageError> {

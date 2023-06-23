@@ -1,7 +1,6 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
 use chrono::Utc;
-use diesel::PgConnection;
 use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -68,7 +67,7 @@ impl ResponseHandler for DeleteResponseHandler {
     type CorrelationData = CorrelationDataPayload;
 
     #[instrument(skip(context, _payload, respp, corr_data))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         _payload: Self::Payload,
         respp: &IncomingResponseProperties,
@@ -118,7 +117,7 @@ pub struct DeleteEventHandler;
 impl EventHandler for DeleteEventHandler {
     type Payload = DeleteEventPayload;
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         evp: &IncomingEventProperties,
@@ -186,49 +185,48 @@ async fn leave_room<C: Context>(
     agent_id: &AgentId,
     room_id: db::room::Id,
 ) -> StdResult<bool, AppError> {
-    let left = crate::util::spawn_blocking({
-        let agent_id = agent_id.clone();
+    let mut conn = context.get_conn().await?;
+    let row_count = db::agent::DeleteQuery::new()
+        .agent_id(agent_id)
+        // in theory we should delete agent row only for this room id
+        //
+        // but right now broker doesnt send a subscription.delete event when
+        // someone connects kicking out previous connection
+        // (for example when you enter one p2p room and then another,
+        //      you will get session_taken_over in old tab, but `agent` row for the first room remains intact)
+        // this leads to non existent subscriptions still present in agent table
+        //
+        // this fix isnt correct since we have multiple brokers
+        // and connecting to one broker doesnt interrupt connection to another
+        // so we need to delete only those `agent` rows that have rooms subscriptions on the same broker
+        // but we cant differentiate between room types here
+        //
+        // .room_id(room_id)
+        .execute(&mut conn)
+        .await?;
 
-        let conn = context.get_conn().await?;
-        move || {
-            let row_count = db::agent::DeleteQuery::new()
-                .agent_id(&agent_id)
-                // in theory we should delete agent row only for this room id
-                //
-                // but right now broker doesnt send a subscription.delete event when
-                // someone connects kicking out previous connection
-                // (for example when you enter one p2p room and then another,
-                //      you will get session_taken_over in old tab, but `agent` row for the first room remains intact)
-                // this leads to non existent subscriptions still present in agent table
-                //
-                // this fix isnt correct since we have multiple brokers
-                // and connecting to one broker doesnt interrupt connection to another
-                // so we need to delete only those `agent` rows that have rooms subscriptions on the same broker
-                // but we cant differentiate between room types here
-                //
-                // .room_id(room_id)
-                .execute(&conn)?;
+    let left = if row_count < 1 {
+        false
+    } else {
+        make_orphaned_if_host_left(room_id, agent_id, &mut conn).await?;
 
-            if row_count < 1 {
-                return Ok::<_, AppError>(false);
-            }
+        true
+    };
 
-            make_orphaned_if_host_left(room_id, &agent_id, &conn)?;
-            Ok::<_, AppError>(true)
-        }
-    })
-    .await?;
     Ok(left)
 }
 
-fn make_orphaned_if_host_left(
+async fn make_orphaned_if_host_left(
     room_id: db::room::Id,
     agent_left: &AgentId,
-    connection: &PgConnection,
-) -> StdResult<(), diesel::result::Error> {
-    let room = db::room::FindQuery::new(room_id).execute(connection)?;
+    connection: &mut sqlx::PgConnection,
+) -> sqlx::Result<()> {
+    let room = db::room::FindQuery::new(room_id)
+        .execute(connection)
+        .await?;
+
     if room.as_ref().and_then(|x| x.host()) == Some(agent_left) {
-        db::orphaned_room::upsert_room(room_id, Utc::now(), connection)?;
+        db::orphaned_room::upsert_room(room_id, Utc::now(), connection).await?;
     }
     Ok(())
 }
@@ -243,33 +241,26 @@ mod tests {
         use crate::{
             app::API_VERSION,
             db::agent::ListQuery as AgentListQuery,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn delete_subscription() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn delete_subscription(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
+            let mut conn = db.get_conn().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let room = {
-                // Create room and put the agent online.
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+            // Create room and put the agent online.
+            let room = shared_helpers::insert_room(&mut conn).await;
 
-                let room = shared_helpers::insert_room(&conn);
-                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                room
-            };
+            let mut conn = db.get_conn().await;
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Send subscription.delete response.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let reqp = build_reqp(agent.agent_id(), "room.leave");
             let room_id = room.id().to_string();
 
@@ -314,7 +305,7 @@ mod tests {
             assert_eq!(&payload.agent_id, agent.agent_id());
 
             // Assert agent deleted from the DB.
-            let conn = context
+            let mut conn = context
                 .get_conn()
                 .await
                 .expect("Failed to get DB connection");
@@ -322,29 +313,24 @@ mod tests {
             let db_agents = AgentListQuery::new()
                 .agent_id(agent.agent_id())
                 .room_id(room.id())
-                .execute(&conn)
+                .execute(&mut conn)
+                .await
                 .expect("Failed to execute agent list query");
 
             assert_eq!(db_agents.len(), 0);
         }
 
-        #[tokio::test]
-        async fn delete_subscription_missing_agent() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn delete_subscription_missing_agent(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
-                shared_helpers::insert_room(&conn)
+                let mut conn = db.get_conn().await;
+                shared_helpers::insert_room(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let room_id = room.id().to_string();
 
             let corr_data = CorrelationDataPayload {
@@ -369,14 +355,12 @@ mod tests {
             assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-        #[tokio::test]
-        async fn delete_subscription_missing_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn delete_subscription_missing_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let room_id = db::room::Id::random().to_string();
 
             let corr_data = CorrelationDataPayload {
@@ -405,46 +389,29 @@ mod tests {
     mod delete_event {
         use crate::{
             db::agent::ListQuery as AgentListQuery,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn delete_subscription() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn delete_subscription(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
+            let mut conn = db.get_conn().await;
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            let old_room = {
-                // First room, we were online in it but then session was taken over and we disconnected (not in the db tho).
-                // By the end of this test subscription for this room should be absent.
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
+            // First room, we were online in it but then session was taken over and we disconnected (not in the db tho).
+            // By the end of this test subscription for this room should be absent.
+            let old_room = shared_helpers::insert_room(&mut conn).await;
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), old_room.id()).await;
 
-                let old_room = shared_helpers::insert_room(&conn);
-                shared_helpers::insert_agent(&conn, agent.agent_id(), old_room.id());
-                old_room
-            };
-
-            let room = {
-                // Create room and put the agent online.
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
-                let room = shared_helpers::insert_room(&conn);
-                shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                room
-            };
+            // Create room and put the agent online.
+            let room = shared_helpers::insert_room(&mut conn).await;
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Send subscription.delete event.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let room_id = room.id().to_string();
 
             let payload = DeleteEventPayload {
@@ -467,7 +434,7 @@ mod tests {
             assert_eq!(&payload.agent_id, agent.agent_id());
 
             // Assert agent deleted from the DB.
-            let conn = context
+            let mut conn = context
                 .get_conn()
                 .await
                 .expect("Failed to get DB connection");
@@ -475,7 +442,8 @@ mod tests {
             let db_agents = AgentListQuery::new()
                 .agent_id(agent.agent_id())
                 .room_id(room.id())
-                .execute(&conn)
+                .execute(&mut conn)
+                .await
                 .expect("Failed to execute agent list query");
 
             assert_eq!(db_agents.len(), 0);
@@ -483,29 +451,24 @@ mod tests {
             let db_agents = AgentListQuery::new()
                 .agent_id(agent.agent_id())
                 .room_id(old_room.id())
-                .execute(&conn)
+                .execute(&mut conn)
+                .await
                 .expect("Failed to execute agent list query");
 
             assert_eq!(db_agents.len(), 0);
         }
 
-        #[tokio::test]
-        async fn delete_subscription_missing_agent() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn delete_subscription_missing_agent(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
             let room = {
-                let conn = db
-                    .connection_pool()
-                    .get()
-                    .expect("Failed to get DB connection");
-
-                shared_helpers::insert_room(&conn)
+                let mut conn = db.get_conn().await;
+                shared_helpers::insert_room(&mut conn).await
             };
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let room_id = room.id().to_string();
 
             let payload = DeleteEventPayload {

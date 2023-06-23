@@ -27,7 +27,7 @@ impl RequestHandler for Handler {
     const ERROR_TITLE: &'static str = "Failed to cleanup agents";
 
     #[instrument(skip(context, _payload, reqp))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         _payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -52,14 +52,11 @@ impl RequestHandler for Handler {
             None,
         );
 
-        crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                // TODO: move to constant but chrono doesnt support const fns
-                db::agent::CleanupQuery::new(Utc::now() - chrono::Duration::days(1)).execute(&conn)
-            }
-        })
-        .await?;
+        let mut conn = context.get_conn().await?;
+        // TODO: move to constant but chrono doesnt support const fns
+        db::agent::CleanupQuery::new(Utc::now() - chrono::Duration::days(1))
+            .execute(&mut conn)
+            .await?;
 
         Ok(response)
     }

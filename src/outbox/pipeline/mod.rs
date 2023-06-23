@@ -4,9 +4,9 @@ use crate::outbox::{
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use svc_nats_client::EventId;
+use svc_events::EventId;
 
-pub mod diesel;
+pub mod sqlx;
 
 pub enum MultipleStagePipelineResult {
     Continue,

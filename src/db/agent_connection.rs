@@ -1,55 +1,25 @@
-// in order to support Rust 1.62
-// `diesel::AsChangeset` or `diesel::Insertable` causes this clippy warning
-#![allow(clippy::extra_unused_lifetimes)]
-
 use chrono::{DateTime, Utc};
-use diesel::{dsl::count_star, pg::PgConnection, result::Error};
-use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
-use crate::{
-    backend::janus::client::HandleId,
-    db::{
-        self,
-        agent::{Object as Agent, Status as AgentStatus},
-    },
-    schema::{agent, agent_connection},
-};
-
-type AllColumns = (
-    agent_connection::agent_id,
-    agent_connection::handle_id,
-    agent_connection::created_at,
-    agent_connection::rtc_id,
-    agent_connection::status,
-);
-
-const ALL_COLUMNS: AllColumns = (
-    agent_connection::agent_id,
-    agent_connection::handle_id,
-    agent_connection::created_at,
-    agent_connection::rtc_id,
-    agent_connection::status,
-);
+use crate::{backend::janus::client::HandleId, db};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
-#[PgType = "agent_connection_status"]
-#[DieselType = "Agent_connection_status"]
+#[sqlx(type_name = "agent_connection_status")]
 pub enum Status {
     #[serde(rename = "in_progress")]
+    #[sqlx(rename = "in_progress")]
     InProgress,
+    #[sqlx(rename = "connected")]
     Connected,
 }
 
-#[derive(Debug, Identifiable, Queryable, QueryableByName, Associations)]
-#[belongs_to(Agent, foreign_key = "agent_id")]
-#[table_name = "agent_connection"]
-#[primary_key(agent_id)]
+#[derive(Debug)]
 pub struct Object {
+    #[allow(unused)]
     agent_id: super::agent::Id,
     handle_id: HandleId,
     #[allow(dead_code)]
@@ -78,21 +48,37 @@ impl<'a> FindQuery<'a> {
         Self { agent_id, rtc_id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        agent_connection::table
-            .inner_join(agent::table)
-            .filter(agent::status.eq(AgentStatus::Ready))
-            .filter(agent::agent_id.eq(self.agent_id))
-            .filter(agent_connection::rtc_id.eq(self.rtc_id))
-            .select(ALL_COLUMNS)
-            .get_result(conn)
-            .optional()
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                ac.agent_id as "agent_id: db::id::Id",
+                ac.handle_id as "handle_id: HandleId",
+                ac.created_at,
+                ac.rtc_id as "rtc_id: db::id::Id",
+                ac.status as "status: Status"
+            FROM agent_connection as ac
+            INNER JOIN agent as a
+            ON a.id = ac.agent_id
+            WHERE
+                a.status = 'ready' AND
+                a.agent_id = $1 AND
+                ac.rtc_id = $2
+            "#,
+            self.agent_id as &AgentId,
+            self.rtc_id as db::id::Id
+        )
+        .fetch_optional(conn)
+        .await
     }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+
+pub struct CountResult {
+    pub count: i64,
+}
 
 pub struct CountQuery {}
 
@@ -101,19 +87,22 @@ impl CountQuery {
         Self {}
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<i64, Error> {
-        use diesel::prelude::*;
-
-        agent_connection::table
-            .select(count_star())
-            .get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<CountResult> {
+        sqlx::query_as!(
+            CountResult,
+            r#"
+            SELECT COUNT(1) as "count!: i64"
+            FROM agent_connection
+            "#
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable, AsChangeset)]
-#[table_name = "agent_connection"]
+#[derive(Debug)]
 pub struct UpsertQuery {
     agent_id: db::agent::Id,
     rtc_id: db::rtc::Id,
@@ -136,23 +125,38 @@ impl UpsertQuery {
         Self { created_at, ..self }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::schema::agent_connection::dsl::*;
-        use diesel::prelude::*;
-
-        diesel::insert_into(agent_connection)
-            .values(self)
-            .on_conflict((agent_id, rtc_id))
-            .do_update()
-            .set(self)
-            .get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO agent_connection (agent_id, handle_id, created_at, rtc_id)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (agent_id, rtc_id) DO UPDATE
+            SET
+                agent_id = $1,
+                handle_id = $2,
+                created_at = $3,
+                rtc_id = $4
+            RETURNING
+                agent_id as "agent_id: db::id::Id",
+                handle_id as "handle_id: HandleId",
+                created_at,
+                rtc_id as "rtc_id: db::id::Id",
+                status as "status: Status"
+            "#,
+            self.agent_id as db::id::Id,
+            self.handle_id as HandleId,
+            self.created_at,
+            self.rtc_id as db::id::Id
+        )
+        .fetch_one(conn)
+        .await
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, AsChangeset)]
-#[table_name = "agent_connection"]
+#[derive(Debug)]
 pub struct UpdateQuery {
     handle_id: HandleId,
     status: Status,
@@ -163,13 +167,27 @@ impl UpdateQuery {
         Self { handle_id, status }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use crate::schema::agent_connection::dsl::*;
-        use diesel::prelude::*;
-
-        let query = agent_connection.filter(handle_id.eq_all(self.handle_id));
-
-        diesel::update(query).set(self).get_result(conn).optional()
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            UPDATE agent_connection
+            SET
+                status = $2
+            WHERE
+                handle_id = $1
+            RETURNING
+                agent_id as "agent_id: db::id::Id",
+                handle_id as "handle_id: HandleId",
+                created_at,
+                rtc_id as "rtc_id: db::id::Id",
+                status as "status: Status"
+            "#,
+            self.handle_id as HandleId,
+            self.status as Status
+        )
+        .fetch_optional(conn)
+        .await
     }
 }
 
@@ -184,15 +202,19 @@ impl CleanupNotConnectedQuery {
         Self { created_at }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use crate::schema::agent_connection::dsl::*;
-        use diesel::prelude::*;
-
-        let q = agent_connection
-            .filter(created_at.lt(self.created_at))
-            .filter(status.eq(Status::InProgress));
-
-        diesel::delete(q).execute(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM agent_connection
+            WHERE
+                created_at < $1 AND
+                status = 'in_progress'
+            "#,
+            self.created_at
+        )
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 
@@ -208,12 +230,18 @@ impl DisconnectSingleAgentQuery {
         Self { handle_id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-
-        diesel::delete(agent_connection::table)
-            .filter(agent_connection::handle_id.eq(self.handle_id))
-            .execute(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM agent_connection
+            WHERE
+                handle_id = $1
+            "#,
+            self.handle_id as HandleId
+        )
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 
@@ -229,26 +257,22 @@ impl BulkDisconnectByRtcQuery {
         Self { rtc_id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use diesel::prelude::*;
-
-        diesel::delete(agent_connection::table)
-            .filter(agent_connection::rtc_id.eq(self.rtc_id))
-            .execute(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM agent_connection
+            WHERE
+                rtc_id = $1
+            "#,
+            self.rtc_id as db::rtc::Id,
+        )
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-// Diesel doesn't support joins in UPDATE/DELETE queries so it's raw SQL.
-const BULK_DISCONNECT_BY_BACKEND_SQL: &str = r#"
-    DELETE FROM agent_connection AS ac
-    USING agent AS a,
-          room AS r
-    WHERE a.id = ac.agent_id
-    AND   r.id = a.room_id
-    AND   r.backend_id = $1
-"#;
 
 #[derive(Debug)]
 pub struct BulkDisconnectByBackendQuery<'a> {
@@ -260,73 +284,82 @@ impl<'a> BulkDisconnectByBackendQuery<'a> {
         Self { backend_id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<usize, Error> {
-        use crate::db::sql::Agent_id;
-        use diesel::prelude::*;
-
-        diesel::sql_query(BULK_DISCONNECT_BY_BACKEND_SQL)
-            .bind::<Agent_id, _>(self.backend_id)
-            .execute(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<u64> {
+        sqlx::query!(
+            r#"
+            DELETE FROM agent_connection AS ac
+            USING agent AS a,
+                room AS r
+            WHERE a.id = ac.agent_id
+            AND   r.id = a.room_id
+            AND   r.backend_id = $1
+            "#,
+            self.backend_id as &AgentId
+        )
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{prelude::*, test_deps::LocalDeps};
+    use crate::test_helpers::{db::TestDb, prelude::*};
     use chrono::{Duration, Utc};
-    use diesel::Identifiable;
 
-    #[test]
-    fn test_cleanup_not_connected_query() {
-        let local_deps = LocalDeps::new();
-        let postgres = local_deps.run_postgres();
-        let db = TestDb::with_local_postgres(&postgres);
+    #[sqlx::test]
+    async fn test_cleanup_not_connected_query(pool: sqlx::PgPool) {
+        let db = TestDb::new(pool);
+
         let old = TestAgent::new("web", "old_agent", USR_AUDIENCE);
         let new = TestAgent::new("web", "new_agent", USR_AUDIENCE);
 
-        db.connection_pool()
-            .get()
-            .map(|conn| {
-                let room = shared_helpers::insert_room(&conn);
-                let rtc = factory::Rtc::new(room.id())
-                    .created_by(new.agent_id().to_owned())
-                    .insert(&conn);
-                let old = factory::Agent::new()
-                    .agent_id(old.agent_id())
-                    .room_id(room.id())
-                    .status(db::agent::Status::Ready)
-                    .insert(&conn);
-                factory::AgentConnection::new(
-                    *old.id(),
-                    rtc.id(),
-                    crate::backend::janus::client::HandleId::random(),
-                )
-                .created_at(Utc::now() - Duration::minutes(20))
-                .insert(&conn);
+        let mut conn = db.get_conn().await;
 
-                let new = factory::Agent::new()
-                    .agent_id(new.agent_id())
-                    .room_id(room.id())
-                    .status(db::agent::Status::Ready)
-                    .insert(&conn);
-                let new_agent_conn = factory::AgentConnection::new(
-                    *new.id(),
-                    rtc.id(),
-                    crate::backend::janus::client::HandleId::random(),
-                )
-                .insert(&conn);
-                UpdateQuery::new(new_agent_conn.handle_id(), Status::Connected)
-                    .execute(&conn)
-                    .unwrap();
+        let room = shared_helpers::insert_room(&mut conn).await;
+        let rtc = factory::Rtc::new(room.id())
+            .created_by(new.agent_id().to_owned())
+            .insert(&mut conn)
+            .await;
+        let old = factory::Agent::new()
+            .agent_id(old.agent_id())
+            .room_id(room.id())
+            .status(db::agent::Status::Ready)
+            .insert(&mut conn)
+            .await;
 
-                room
-            })
-            .expect("Failed to insert room");
+        factory::AgentConnection::new(
+            old.id(),
+            rtc.id(),
+            crate::backend::janus::client::HandleId::random(),
+        )
+        .created_at(Utc::now() - Duration::minutes(20))
+        .insert(&mut conn)
+        .await;
 
-        let conn = db.connection_pool().get().unwrap();
+        let new = factory::Agent::new()
+            .agent_id(new.agent_id())
+            .room_id(room.id())
+            .status(db::agent::Status::Ready)
+            .insert(&mut conn)
+            .await;
+        let new_agent_conn = factory::AgentConnection::new(
+            new.id(),
+            rtc.id(),
+            crate::backend::janus::client::HandleId::random(),
+        )
+        .insert(&mut conn)
+        .await;
+
+        UpdateQuery::new(new_agent_conn.handle_id(), Status::Connected)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+
         let r = CleanupNotConnectedQuery::new(Utc::now() - Duration::minutes(1))
-            .execute(&conn)
+            .execute(&mut conn)
+            .await
             .expect("Failed to run query");
 
         assert_eq!(r, 1);

@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use diesel::pg::PgConnection;
 use rand::Rng;
 use svc_agent::{AccountId, AgentId};
 
@@ -78,7 +77,7 @@ impl<'a> Room<'a> {
         }
     }
 
-    pub fn insert(self, conn: &PgConnection) -> db::room::Object {
+    pub async fn insert(self, conn: &mut sqlx::PgConnection) -> db::room::Object {
         let audience = self.audience.expect("Audience not set");
         let time = self.time.expect("Time not set");
 
@@ -101,7 +100,7 @@ impl<'a> Room<'a> {
             q = q.infinite(true);
         }
 
-        q.execute(conn).expect("Failed to insert room")
+        q.execute(conn).await.expect("Failed to insert room")
     }
 }
 
@@ -151,7 +150,7 @@ impl<'a> Agent<'a> {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::agent::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::agent::Object {
         let agent_id = match (self.agent_id, self.audience) {
             (Some(agent_id), _) => agent_id.to_owned(),
             (None, Some(audience)) => {
@@ -163,13 +162,16 @@ impl<'a> Agent<'a> {
             _ => panic!("Expected agent_id either audience"),
         };
 
-        let room_id = self.room_id.unwrap_or_else(|| insert_room(conn).id());
+        let room_id = match self.room_id {
+            Some(id) => id,
+            None => insert_room(conn).await.id(),
+        };
 
         let mut q = db::agent::InsertQuery::new(&agent_id, room_id).status(self.status);
         if let Some(created_at) = self.created_at {
             q = q.created_at(created_at);
         }
-        q.execute(conn).expect("Failed to insert agent")
+        q.execute(conn).await.expect("Failed to insert agent")
     }
 }
 
@@ -199,7 +201,7 @@ impl AgentConnection {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::agent_connection::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::agent_connection::Object {
         let mut q =
             db::agent_connection::UpsertQuery::new(self.agent_id, self.rtc_id, self.handle_id);
 
@@ -207,7 +209,9 @@ impl AgentConnection {
             q = q.created_at(created_at);
         }
 
-        q.execute(conn).expect("Failed to insert agent_connection")
+        q.execute(conn)
+            .await
+            .expect("Failed to insert agent_connection")
     }
 }
 
@@ -230,9 +234,10 @@ impl Rtc {
         Self { created_by, ..self }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::rtc::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::rtc::Object {
         db::rtc::InsertQuery::new(self.room_id, &self.created_by)
             .execute(conn)
+            .await
             .expect("Failed to insert janus_backend")
     }
 }
@@ -283,7 +288,7 @@ impl JanusBackend {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::janus_backend::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::janus_backend::Object {
         let mut q = db::janus_backend::UpsertQuery::new(
             &self.id,
             self.handle_id,
@@ -303,7 +308,9 @@ impl JanusBackend {
             q = q.group(group);
         }
 
-        q.execute(conn).expect("Failed to insert janus_backend")
+        q.execute(conn)
+            .await
+            .expect("Failed to insert janus_backend")
     }
 }
 
@@ -326,14 +333,15 @@ impl<'a> JanusRtcStream<'a> {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::janus_rtc_stream::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::janus_rtc_stream::Object {
         let default_backend;
 
         let backend = match self.backend {
             Some(value) => value,
             None => {
                 default_backend =
-                    insert_janus_backend(conn, "test", SessionId::random(), HandleId::random());
+                    insert_janus_backend(conn, "test", SessionId::random(), HandleId::random())
+                        .await;
                 &default_backend
             }
         };
@@ -343,7 +351,7 @@ impl<'a> JanusRtcStream<'a> {
         let rtc = match self.rtc {
             Some(value) => value,
             None => {
-                default_rtc = insert_rtc(conn);
+                default_rtc = insert_rtc(conn).await;
                 &default_rtc
             }
         };
@@ -367,6 +375,7 @@ impl<'a> JanusRtcStream<'a> {
             sent_by,
         )
         .execute(conn)
+        .await
         .expect("Failed to insert janus_rtc_stream")
     }
 }
@@ -387,19 +396,20 @@ impl<'a> Recording<'a> {
         Self { rtc: Some(rtc) }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::recording::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::recording::Object {
         let default_rtc;
 
         let rtc = match self.rtc {
             Some(value) => value,
             None => {
-                default_rtc = insert_rtc(conn);
+                default_rtc = insert_rtc(conn).await;
                 &default_rtc
             }
         };
 
         db::recording::InsertQuery::new(rtc.id())
             .execute(conn)
+            .await
             .expect("Failed to insert recording")
     }
 }
@@ -437,7 +447,7 @@ impl<'a> RtcReaderConfig<'a> {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::rtc_reader_config::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::rtc_reader_config::Object {
         let mut q = db::rtc_reader_config::UpsertQuery::new(self.rtc.id(), self.reader_id);
 
         if let Some(receive_video) = self.receive_video {
@@ -448,7 +458,9 @@ impl<'a> RtcReaderConfig<'a> {
             q = q.receive_audio(receive_audio);
         }
 
-        q.execute(conn).expect("Failed to insert RTC reader config")
+        q.execute(conn)
+            .await
+            .expect("Failed to insert RTC reader config")
     }
 }
 
@@ -501,7 +513,7 @@ impl<'a> RtcWriterConfig<'a> {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::rtc_writer_config::Object {
+    pub async fn insert(&self, conn: &mut sqlx::PgConnection) -> db::rtc_writer_config::Object {
         let mut q = db::rtc_writer_config::UpsertQuery::new(self.rtc.id());
 
         if let Some(send_video) = self.send_video {
@@ -520,7 +532,9 @@ impl<'a> RtcWriterConfig<'a> {
             q = q.send_audio_updated_by(send_audio_updated_by);
         }
 
-        q.execute(conn).expect("Failed to insert RTC writer config")
+        q.execute(conn)
+            .await
+            .expect("Failed to insert RTC writer config")
     }
 }
 
@@ -543,7 +557,10 @@ impl<'a> RtcWriterConfigSnaphost<'a> {
         }
     }
 
-    pub fn insert(&self, conn: &PgConnection) -> db::rtc_writer_config_snapshot::Object {
+    pub async fn insert(
+        &self,
+        conn: &mut sqlx::PgConnection,
+    ) -> db::rtc_writer_config_snapshot::Object {
         let q = db::rtc_writer_config_snapshot::InsertQuery::new(
             self.rtc.id(),
             self.send_video,
@@ -551,6 +568,7 @@ impl<'a> RtcWriterConfigSnaphost<'a> {
         );
 
         q.execute(conn)
+            .await
             .expect("Failed to insert RTC writer config snapshot")
     }
 }
@@ -565,9 +583,10 @@ impl GroupAgent {
         Self { room_id, groups }
     }
 
-    pub fn upsert(self, conn: &PgConnection) -> db::group_agent::Object {
+    pub async fn upsert(self, conn: &mut sqlx::PgConnection) -> db::group_agent::Object {
         db::group_agent::UpsertQuery::new(self.room_id, &self.groups)
             .execute(conn)
+            .await
             .expect("failed to upsert group agent")
     }
 }

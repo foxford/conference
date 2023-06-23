@@ -434,11 +434,11 @@ impl From<svc_authz::Error> for Error {
     }
 }
 
-impl From<diesel::result::Error> for Error {
-    fn from(source: diesel::result::Error) -> Self {
+impl From<sqlx::Error> for Error {
+    fn from(value: sqlx::Error) -> Self {
         Self {
             kind: ErrorKind::DbQueryFailed,
-            source: Some(Arc::new(anyhow::Error::from(source))),
+            source: Some(Arc::new(anyhow::anyhow!(value))),
         }
     }
 }

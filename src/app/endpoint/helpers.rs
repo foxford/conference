@@ -10,7 +10,6 @@ use crate::{
 };
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, Duration, Utc};
-use diesel::pg::PgConnection;
 use serde::Serialize;
 use svc_agent::{
     mqtt::{
@@ -61,34 +60,35 @@ pub enum RoomTimeRequirement {
     Open,
 }
 
-pub fn find_room_by_id(
+pub async fn find_room_by_id(
     id: db::room::Id,
     opening_requirement: RoomTimeRequirement,
-    conn: &PgConnection,
+    conn: &mut sqlx::PgConnection,
 ) -> Result<db::room::Object, AppError> {
     let query = db::room::FindQuery::new(id);
-    find_room(query, opening_requirement, conn)
+    find_room(query, opening_requirement, conn).await
 }
 
-pub fn find_room_by_rtc_id(
+pub async fn find_room_by_rtc_id(
     rtc_id: db::rtc::Id,
     opening_requirement: RoomTimeRequirement,
-    conn: &PgConnection,
+    conn: &mut sqlx::PgConnection,
 ) -> Result<db::room::Object, AppError> {
     let query = db::room::FindByRtcIdQuery::new(rtc_id);
-    find_room(query, opening_requirement, conn)
+    find_room(query, opening_requirement, conn).await
 }
 
-fn find_room<Q>(
+async fn find_room<Q>(
     query: Q,
     opening_requirement: RoomTimeRequirement,
-    conn: &PgConnection,
+    conn: &mut sqlx::PgConnection,
 ) -> Result<Room, AppError>
 where
     Q: db::room::FindQueryable,
 {
     let room = query
-        .execute(conn)?
+        .execute(conn)
+        .await?
         .context("Room not found")
         .error(AppErrorKind::RoomNotFound)?;
 
@@ -105,7 +105,7 @@ where
                 (Bound::Unbounded, _) => {
                     Err(anyhow!("Room has no opening time")).error(AppErrorKind::RoomClosed)
                 }
-                (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if *dt < now => {
+                (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if dt < now => {
                     Err(anyhow!("Room closed")).error(AppErrorKind::RoomClosed)
                 }
                 _ => Ok(room),
@@ -118,7 +118,7 @@ where
             let now = Utc::now();
 
             match room.time() {
-                (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if *dt < now => {
+                (_, Bound::Included(dt)) | (_, Bound::Excluded(dt)) if dt < now => {
                     Err(anyhow!("Room closed")).error(AppErrorKind::RoomClosed)
                 }
                 _ => Ok(room),
@@ -133,14 +133,14 @@ where
                 Bound::Unbounded => {
                     Err(anyhow!("Room has no opening time")).error(AppErrorKind::RoomClosed)
                 }
-                Bound::Included(dt) | Bound::Excluded(dt) if *dt >= now => {
+                Bound::Included(dt) | Bound::Excluded(dt) if dt >= now => {
                     Err(anyhow!("Room not opened")).error(AppErrorKind::RoomClosed)
                 }
                 _ => Ok(()),
             }?;
 
             match closed_at {
-                Bound::Included(dt) | Bound::Excluded(dt) if *dt < now => {
+                Bound::Included(dt) | Bound::Excluded(dt) if dt < now => {
                     Err(anyhow!("Room closed")).error(AppErrorKind::RoomClosed)
                 }
                 _ => Ok(()),
@@ -151,15 +151,16 @@ where
     }
 }
 
-pub fn check_room_presence(
+pub async fn check_room_presence(
     room: &db::room::Object,
     agent_id: &AgentId,
-    conn: &PgConnection,
+    conn: &mut sqlx::PgConnection,
 ) -> Result<(), AppError> {
     let results = db::agent::ListQuery::new()
         .room_id(room.id())
         .agent_id(agent_id)
-        .execute(conn)?;
+        .execute(conn)
+        .await?;
 
     if results.is_empty() {
         Err(anyhow!("Agent is not online in the room")).error(AppErrorKind::AgentNotEnteredTheRoom)

@@ -54,28 +54,23 @@ impl RequestHandler for UnicastHandler {
     const ERROR_TITLE: &'static str = "Failed to send unicast message";
 
     #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         let mqtt_params = reqp.as_mqtt_params()?;
-        crate::util::spawn_blocking({
-            let room_id = payload.room_id;
-            let reqp_agent_id = reqp.as_agent_id().clone();
-            let payload_agent_id = payload.agent_id.clone();
 
-            let conn = context.get_conn().await?;
-            move || {
-                let room =
-                    helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
-
-                helpers::check_room_presence(&room, &reqp_agent_id, &conn)?;
-                helpers::check_room_presence(&room, &payload_agent_id, &conn)?;
-                Ok::<_, AppError>(room)
-            }
-        })
+        let mut conn = context.get_conn().await?;
+        let room = helpers::find_room_by_id(
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            &mut conn,
+        )
         .await?;
+
+        helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+        helpers::check_room_presence(&room, &payload.agent_id, &mut conn).await?;
 
         let response_topic =
             Subscription::multicast_requests_from(&payload.agent_id, Some(API_VERSION))
@@ -136,25 +131,20 @@ impl RequestHandler for BroadcastHandler {
     const ERROR_TITLE: &'static str = "Failed to send broadcast message";
 
     #[instrument(skip(context, payload, reqp), fields(room_id = %payload.room_id))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let room = crate::util::spawn_blocking({
-            let agent_id = reqp.as_agent_id().clone();
-            let room_id = payload.room_id;
-
-            let conn = context.get_conn().await?;
-            move || {
-                let room =
-                    helpers::find_room_by_id(room_id, helpers::RoomTimeRequirement::Open, &conn)?;
-
-                helpers::check_room_presence(&room, &agent_id, &conn)?;
-                Ok::<_, AppError>(room)
-            }
-        })
+        let mut conn = context.get_conn().await?;
+        let room = helpers::find_room_by_id(
+            payload.room_id,
+            helpers::RoomTimeRequirement::Open,
+            &mut conn,
+        )
         .await?;
+
+        helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
 
         // Respond and broadcast to the room topic.
         let mut response = Response::new(
@@ -190,7 +180,7 @@ impl ResponseHandler for UnicastResponseHandler {
     type CorrelationData = CorrelationDataPayload;
 
     #[instrument(skip(context, payload, respp, corr_data))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         respp: &IncomingResponseProperties,
@@ -231,33 +221,27 @@ mod test {
 
         use crate::{
             app::API_VERSION,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn unicast_message() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn unicast_message(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+
             // Insert room with online both sender and receiver.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = shared_helpers::insert_room(&conn);
-                    shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
-                    shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
-                    room
-                })
-                .expect("Failed to insert room");
+            let room = shared_helpers::insert_room(&mut conn).await;
+
+            shared_helpers::insert_agent(&mut conn, sender.agent_id(), room.id()).await;
+            shared_helpers::insert_agent(&mut conn, receiver.agent_id(), room.id()).await;
 
             // Make message.unicast request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = UnicastRequest {
                 agent_id: receiver.agent_id().to_owned(),
@@ -283,13 +267,11 @@ mod test {
             assert_eq!(payload, json!({"key": "value"}));
         }
 
-        #[tokio::test]
-        async fn unicast_message_to_missing_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn unicast_message_to_missing_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
 
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
@@ -307,27 +289,20 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[tokio::test]
-        async fn unicast_message_when_sender_is_not_in_the_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn unicast_message_when_sender_is_not_in_the_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+
             // Insert room with online receiver only.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = shared_helpers::insert_room(&conn);
-                    shared_helpers::insert_agent(&conn, receiver.agent_id(), room.id());
-                    room
-                })
-                .expect("Failed to insert room");
+            let room = shared_helpers::insert_room(&mut conn).await;
+            shared_helpers::insert_agent(&mut conn, receiver.agent_id(), room.id()).await;
 
             // Make message.unicast request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = UnicastRequest {
                 agent_id: receiver.agent_id().to_owned(),
@@ -343,27 +318,20 @@ mod test {
             assert_eq!(err.kind(), "agent_not_entered_the_room");
         }
 
-        #[tokio::test]
-        async fn unicast_message_when_receiver_is_not_in_the_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn unicast_message_when_receiver_is_not_in_the_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
             let receiver = TestAgent::new("web", "receiver", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+
             // Insert room with online sender only.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = shared_helpers::insert_room(&conn);
-                    shared_helpers::insert_agent(&conn, sender.agent_id(), room.id());
-                    room
-                })
-                .expect("Failed to insert room");
+            let room = shared_helpers::insert_room(&mut conn).await;
+            shared_helpers::insert_agent(&mut conn, sender.agent_id(), room.id()).await;
 
             // Make message.unicast request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = UnicastRequest {
                 agent_id: receiver.agent_id().to_owned(),
@@ -383,32 +351,28 @@ mod test {
     mod broadcast {
         use crate::{
             app::API_VERSION,
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*},
         };
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn broadcast_message() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn broadcast_message(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+
             // Insert room with online agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room = shared_helpers::insert_room(&conn);
-                    let agent_factory = factory::Agent::new().room_id(room.id());
-                    agent_factory.agent_id(sender.agent_id()).insert(&conn);
-                    room
-                })
-                .expect("Failed to insert room");
+            let room = shared_helpers::insert_room(&mut conn).await;
+            let agent_factory = factory::Agent::new().room_id(room.id());
+            agent_factory
+                .agent_id(sender.agent_id())
+                .insert(&mut conn)
+                .await;
 
             // Make message.broadcast request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = BroadcastRequest {
                 room_id: room.id(),
@@ -438,12 +402,10 @@ mod test {
             assert_eq!(payload, json!({"key": "value"}));
         }
 
-        #[tokio::test]
-        async fn broadcast_message_to_missing_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
-            let mut context = TestContext::new(db, TestAuthz::new());
+        #[sqlx::test]
+        async fn broadcast_message_to_missing_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
             let payload = BroadcastRequest {
@@ -460,22 +422,17 @@ mod test {
             assert_eq!(err.kind(), "room_not_found");
         }
 
-        #[tokio::test]
-        async fn broadcast_message_when_not_in_the_room() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn broadcast_message_when_not_in_the_room(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
             let sender = TestAgent::new("web", "sender", USR_AUDIENCE);
 
             // Insert room with online agent.
-            let room = db
-                .connection_pool()
-                .get()
-                .map(|conn| shared_helpers::insert_room(&conn))
-                .expect("Failed to insert room");
+            let mut conn = db.get_conn().await;
+            let room = shared_helpers::insert_room(&mut conn).await;
 
             // Make message.broadcast request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let payload = BroadcastRequest {
                 room_id: room.id(),

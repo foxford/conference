@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use chrono::Utc;
-use diesel::Connection;
+use sqlx::Connection;
 use std::{
     collections::{hash_map::Entry, HashMap},
     net::IpAddr,
@@ -19,8 +19,7 @@ use crate::{
         endpoint::{rtc_signal::CreateResponseData, rtc_stream},
         error::Error,
     },
-    db::{agent_connection, janus_backend, janus_rtc_stream, ConnectionPool},
-    util::spawn_blocking,
+    db::{agent_connection, janus_backend, janus_rtc_stream},
 };
 
 use super::{
@@ -33,7 +32,7 @@ pub struct Clients {
     clients: Arc<RwLock<HashMap<janus_backend::Object, ClientHandle>>>,
     events_sink: UnboundedSender<IncomingEvent>,
     group: Option<String>,
-    db: ConnectionPool,
+    db: sqlx::PgPool,
     stream_waitlist: WaitList<Result<CreateResponseData, Error>>,
     ip_addr: IpAddr,
     mqtt_agent: Option<Agent>,
@@ -43,7 +42,7 @@ impl Clients {
     pub fn new(
         events_sink: UnboundedSender<IncomingEvent>,
         group: Option<String>,
-        db: ConnectionPool,
+        db: sqlx::PgPool,
         waitlist_epoch_duration: std::time::Duration,
         ip_addr: IpAddr,
         mqtt_agent: Option<Agent>,
@@ -172,7 +171,7 @@ async fn start_polling(
     janus_client: JanusClient,
     session_id: SessionId,
     sink: UnboundedSender<IncomingEvent>,
-    db: ConnectionPool,
+    db: sqlx::PgPool,
     is_cancelled: &AtomicBool,
     janus_backend: &janus_backend::Object,
     mqtt_agent: Option<Agent>,
@@ -180,7 +179,9 @@ async fn start_polling(
     let mut fail_retries_count = 5;
     loop {
         if fail_retries_count == 0 {
-            remove_backend(janus_backend, db, mqtt_agent).await;
+            if let Err(err) = remove_backend(janus_backend, db, mqtt_agent).await {
+                error!(backend = ?janus_backend, ?err, "Error removing backend");
+            }
             break;
         }
         if is_cancelled.load(Ordering::SeqCst) {
@@ -190,7 +191,9 @@ async fn start_polling(
         match poll_result {
             Ok(PollResult::SessionNotFound) => {
                 warn!(?janus_backend, "Session not found");
-                remove_backend(janus_backend, db, mqtt_agent).await;
+                if let Err(err) = remove_backend(janus_backend, db, mqtt_agent).await {
+                    error!(backend = ?janus_backend, ?err, "Error removing backend");
+                }
                 break;
             }
             Ok(PollResult::Events(events)) => {
@@ -221,37 +224,44 @@ async fn start_polling(
     }
 }
 
-async fn remove_backend(backend: &janus_backend::Object, db: ConnectionPool, agent: Option<Agent>) {
-    let result = spawn_blocking({
-        let backend = backend.clone();
-        move || {
-            let conn = db.get()?;
-            let stopped_rtcs_streams = conn.transaction::<_, diesel::result::Error, _>(|| {
-                janus_backend::DeleteQuery::new(
-                    backend.id(),
-                    backend.session_id(),
-                    backend.handle_id(),
-                )
-                .execute(&conn)?;
+async fn remove_backend(
+    backend: &janus_backend::Object,
+    db: sqlx::PgPool,
+    agent: Option<Agent>,
+) -> anyhow::Result<()> {
+    let mut conn = db.acquire().await?;
+    let result = conn
+        .transaction(|conn| {
+            let id = backend.id().clone();
+            let session_id = backend.session_id();
+            let handle_id = backend.handle_id();
+            Box::pin(async move {
+                janus_backend::DeleteQuery::new(&id, session_id, handle_id)
+                    .execute(conn)
+                    .await?;
 
                 // since backend can be up again we should disconnect everyone and stop
                 // all running streams regardless of whether backend was deleted or not
-                agent_connection::BulkDisconnectByBackendQuery::new(backend.id()).execute(&conn)?;
+                agent_connection::BulkDisconnectByBackendQuery::new(&id)
+                    .execute(conn)
+                    .await?;
                 let stopped_streams =
-                    janus_rtc_stream::stop_running_streams_by_backend(backend.id(), &conn)?;
+                    janus_rtc_stream::stop_running_streams_by_backend(&id, conn).await?;
 
-                Ok(stopped_streams)
-            })?;
-            Ok::<_, anyhow::Error>(stopped_rtcs_streams)
-        }
-    })
-    .await;
+                Ok::<_, sqlx::Error>(stopped_streams)
+            })
+        })
+        .await?;
 
     match (result, agent) {
-        (Ok(stopped_rtcs_streams), Some(mut agent)) => {
+        (stopped_rtcs_streams, Some(mut agent)) => {
             let now = Utc::now();
             for stream in stopped_rtcs_streams {
-                let end_time = match stream.janus_rtc_stream.time() {
+                let end_time = match stream
+                    .time
+                    .as_ref()
+                    .map(|t| crate::db::room::Time::from(t.clone()))
+                {
                     Some((_start, end)) => match end {
                         std::ops::Bound::Included(t) | std::ops::Bound::Excluded(t) => t,
                         std::ops::Bound::Unbounded => continue,
@@ -259,17 +269,16 @@ async fn remove_backend(backend: &janus_backend::Object, db: ConnectionPool, age
                     None => now,
                 };
                 let update_evt =
-                    rtc_stream::update_event(stream.room_id, stream.janus_rtc_stream, end_time);
+                    rtc_stream::update_event(stream.room_id, stream.janus_rtc_stream(), end_time);
                 if let Err(err) = agent.publish(update_evt) {
                     error!(backend = ?backend, ?err, "Failed to publish rtc_stream.update evt");
                 }
             }
         }
-        (Ok(_streams), None) => {
+        (_streams, None) => {
             // not sending events since no agent provided
         }
-        (Err(err), _) => {
-            error!(backend = ?backend, ?err, "Error removing backend");
-        }
     }
+
+    Ok(())
 }

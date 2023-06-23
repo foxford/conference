@@ -24,7 +24,7 @@ pub trait RequestHandler {
     type Payload: Send + DeserializeOwned;
     const ERROR_TITLE: &'static str;
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -33,7 +33,7 @@ pub trait RequestHandler {
 
 macro_rules! request_routes {
     ($($m: pat => $h: ty),*) => {
-        pub async fn route_request<C: Context>(
+        pub async fn route_request<C: Context + Send + Sync>(
             context: &mut C,
             request: &IncomingRequest<String>,
             _topic: &str,
@@ -96,7 +96,7 @@ pub trait ResponseHandler {
     type Payload: Send + DeserializeOwned;
     type CorrelationData: Sync;
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         respp: &IncomingResponseProperties,
@@ -107,7 +107,7 @@ pub trait ResponseHandler {
 macro_rules! response_routes {
     ($($c: tt => $h: ty),*) => {
         #[allow(unused_variables)]
-        pub async fn route_response<C: Context>(
+        pub async fn route_response<C: Context + Send + Sync>(
             context: &mut C,
             response: &IncomingResponse<String>,
             corr_data: &str,
@@ -144,7 +144,7 @@ response_routes!(
 pub trait EventHandler {
     type Payload: Send + DeserializeOwned;
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         evp: &IncomingEventProperties,
@@ -154,7 +154,7 @@ pub trait EventHandler {
 macro_rules! event_routes {
     ($($l: pat => $h: ty),*) => {
         #[allow(unused_variables)]
-        pub async fn route_event<C: Context>(
+        pub async fn route_event<C: Context + Send + Sync>(
             context: &mut C,
             event: &IncomingEvent<String>,
             topic: &str,

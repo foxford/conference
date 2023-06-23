@@ -24,9 +24,9 @@ use async_trait::async_trait;
 use axum::{Extension, Json};
 use chrono::{Duration, Utc};
 
-use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
+use sqlx::Connection;
 use std::{ops::Bound, result::Result as StdResult, sync::Arc};
 use svc_agent::{
     mqtt::{OutgoingResponse, ResponseStatus},
@@ -104,42 +104,42 @@ pub async fn start_rtc_stream<C: Context>(
         .error(AppErrorKind::MessageParsingFailed)?
         .clone();
 
-    crate::util::spawn_blocking({
-        let handle_id = handle_id.clone();
-        let agent_id = agent_id.clone();
-        let room = room.clone();
+    let handle_id = handle_id.clone();
+    let agent_id = agent_id.clone();
+    let room = room.clone();
 
-        let max_room_duration = ctx.config().max_room_duration;
-        let conn = ctx.get_conn().await?;
+    let max_room_duration = ctx.config().max_room_duration;
+    let mut conn = ctx.get_conn().await?;
 
-        move || {
-            conn.transaction(|| {
-                if let Some(max_room_duration) = max_room_duration {
-                    if !room.infinite() {
-                        if let (start, Bound::Unbounded) = room.time() {
-                            let new_time = (
-                                *start,
-                                Bound::Excluded(Utc::now() + Duration::hours(max_room_duration)),
-                            );
+    conn.transaction(|conn| {
+        Box::pin(async move {
+            if let Some(max_room_duration) = max_room_duration {
+                if !room.infinite() {
+                    if let (start, Bound::Unbounded) = room.time() {
+                        let new_time = (
+                            start,
+                            Bound::Excluded(Utc::now() + Duration::hours(max_room_duration)),
+                        );
 
-                            db::room::UpdateQuery::new(room.id())
-                                .time(Some(new_time))
-                                .execute(&conn)?;
-                        }
+                        db::room::UpdateQuery::new(room.id())
+                            .time(Some(new_time))
+                            .execute(conn)
+                            .await?;
                     }
                 }
+            }
 
-                db::janus_rtc_stream::InsertQuery::new(
-                    handle_id.rtc_stream_id(),
-                    handle_id.janus_handle_id(),
-                    handle_id.rtc_id(),
-                    handle_id.backend_id(),
-                    &label,
-                    &agent_id,
-                )
-                .execute(&conn)
-            })
-        }
+            db::janus_rtc_stream::InsertQuery::new(
+                handle_id.rtc_stream_id(),
+                handle_id.janus_handle_id(),
+                handle_id.rtc_id(),
+                handle_id.backend_id(),
+                &label,
+                &agent_id,
+            )
+            .execute(conn)
+            .await
+        })
     })
     .await?;
 
@@ -151,77 +151,74 @@ impl RequestHandler for CreateHandler {
     type Payload = CreateRequest;
     const ERROR_TITLE: &'static str = "Failed to create rtc";
 
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
         // Validate RTC and room presence.
-        let (room, rtc, backend) = crate::util::spawn_blocking({
+        let (room, rtc, backend) = {
             let agent_id = reqp.as_agent_id().clone();
             let handle_id = payload.handle_id.clone();
 
-            let conn = context.get_conn().await?;
-            move || {
-                let rtc = db::rtc::FindQuery::new()
-                    .id(handle_id.rtc_id())
-                    .execute(&conn)?
-                    .context("RTC not found")
-                    .error(AppErrorKind::RtcNotFound)?;
+            let mut conn = context.get_conn().await?;
 
-                let room = helpers::find_room_by_id(
-                    rtc.room_id(),
-                    helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
+            let rtc = db::rtc::FindQuery::new(handle_id.rtc_id())
+                .execute(&mut conn)
+                .await?
+                .context("RTC not found")
+                .error(AppErrorKind::RtcNotFound)?;
 
-                tracing::Span::current().record(
-                    "room_id",
-                    &tracing::field::display(room.id()),
-                );
-                tracing::Span::current().record(
-                    "classroom_id",
-                    &tracing::field::display(room.classroom_id()),
-                );
+            let room = helpers::find_room_by_id(
+                rtc.room_id(),
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?;
 
-                helpers::check_room_presence(&room, &agent_id, &conn)?;
+            tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
 
-                // Validate backend and janus session id.
-                if let Some(backend_id) = room.backend_id() {
-                    if handle_id.backend_id() != backend_id {
-                        return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
-                            .error(AppErrorKind::InvalidHandleId);
-                    }
-                } else {
-                    return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+
+            // Validate backend and janus session id.
+            if let Some(backend_id) = room.backend_id() {
+                if handle_id.backend_id() != backend_id {
+                    return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
+                        .error(AppErrorKind::InvalidHandleId);
                 }
-
-                let janus_backend = db::janus_backend::FindQuery::new()
-                    .id(handle_id.backend_id())
-                    .execute(&conn)?
-                    .context("Backend not found")
-                    .error(AppErrorKind::BackendNotFound)?;
-
-                if handle_id.janus_session_id() != janus_backend.session_id() {
-                    return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
-                        .error(AppErrorKind::InvalidHandleId)?;
-                }
-
-                // Validate agent connection and handle id.
-                let agent_connection =
-                    db::agent_connection::FindQuery::new(&agent_id, rtc.id())
-                        .execute(&conn)?
-                        .context("Agent not connected")
-                        .error(AppErrorKind::AgentNotConnected)?;
-
-                if handle_id.janus_handle_id() != agent_connection.handle_id() {
-                    return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
-                        .error(AppErrorKind::InvalidHandleId)?;
-                }
-
-                Ok::<_, AppError>((room, rtc, janus_backend))
+            } else {
+                return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
             }
-        }).await?;
+
+            let janus_backend = db::janus_backend::FindQuery::new(handle_id.backend_id())
+                .execute(&mut conn)
+                .await?
+                .context("Backend not found")
+                .error(AppErrorKind::BackendNotFound)?;
+
+            if handle_id.janus_session_id() != janus_backend.session_id() {
+                return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
+                    .error(AppErrorKind::InvalidHandleId)?;
+            }
+
+            // Validate agent connection and handle id.
+            let agent_connection = db::agent_connection::FindQuery::new(&agent_id, rtc.id())
+                .execute(&mut conn)
+                .await?
+                .context("Agent not connected")
+                .error(AppErrorKind::AgentNotConnected)?;
+
+            if handle_id.janus_handle_id() != agent_connection.handle_id() {
+                return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
+                    .error(AppErrorKind::InvalidHandleId)?;
+            }
+
+            (room, rtc, janus_backend)
+        };
 
         match payload.jsep {
             Jsep::OfferOrAnswer(JsonSdp { kind, ref sdp }) => {
@@ -236,11 +233,11 @@ impl RequestHandler for CreateHandler {
                         if is_recvonly {
                             current_span.record("intent", "read");
 
-                            let reader_config = crate::util::spawn_blocking({
-                                let rtc_id = payload.handle_id.rtc_id();
-                                let conn = context.get_conn().await?;
-                                move || db::rtc_reader_config::read_config(rtc_id, &conn)
-                            })
+                            let mut conn = context.get_conn().await?;
+                            let reader_config = db::rtc_reader_config::read_config(
+                                payload.handle_id.rtc_id(),
+                                &mut conn,
+                            )
                             .await?;
 
                             // Authorization
@@ -251,15 +248,14 @@ impl RequestHandler for CreateHandler {
                                 body: ReadStreamRequestBody::new(
                                     payload.handle_id.rtc_id(),
                                     reqp.as_agent_id().clone(),
-                                    reader_config.map(|r| {
-                                        r.into_iter()
-                                            .map(|r| ReaderConfig {
-                                                reader_id: r.reader_id().to_owned(),
-                                                receive_audio: r.receive_audio(),
-                                                receive_video: r.receive_video(),
-                                            })
-                                            .collect()
-                                    }),
+                                    reader_config
+                                        .into_iter()
+                                        .map(|r| ReaderConfig {
+                                            reader_id: r.reader_id().to_owned(),
+                                            receive_audio: r.receive_audio(),
+                                            receive_video: r.receive_video(),
+                                        })
+                                        .collect(),
                                 ),
                                 handle_id: payload.handle_id.janus_handle_id(),
                                 session_id: payload.handle_id.janus_session_id(),
@@ -343,17 +339,17 @@ impl RequestHandler for CreateHandler {
                             )
                             .await?;
 
-                            let (writer_config, reader_config) = crate::util::spawn_blocking({
-                                let rtc_id = payload.handle_id.rtc_id();
+                            let mut conn = context.get_conn().await?;
+                            let reader_config = db::rtc_reader_config::read_config(
+                                payload.handle_id.rtc_id(),
+                                &mut conn,
+                            )
+                            .await?;
 
-                                let conn = context.get_conn().await?;
-                                move || {
-                                    Ok::<_, diesel::result::Error>((
-                                        db::rtc_writer_config::read_config(rtc_id, &conn)?,
-                                        db::rtc_reader_config::read_config(rtc_id, &conn)?,
-                                    ))
-                                }
-                            })
+                            let writer_config = db::rtc_writer_config::read_config(
+                                payload.handle_id.rtc_id(),
+                                &mut conn,
+                            )
                             .await?;
 
                             let agent_id = reqp.as_agent_id().to_owned();
@@ -366,15 +362,14 @@ impl RequestHandler for CreateHandler {
                                         send_audio: w.send_audio(),
                                         video_remb: w.video_remb(),
                                     }),
-                                    reader_config.map(|r| {
-                                        r.into_iter()
-                                            .map(|r| ReaderConfig {
-                                                reader_id: r.reader_id().to_owned(),
-                                                receive_audio: r.receive_audio(),
-                                                receive_video: r.receive_video(),
-                                            })
-                                            .collect()
-                                    }),
+                                    reader_config
+                                        .into_iter()
+                                        .map(|r| ReaderConfig {
+                                            reader_id: r.reader_id().to_owned(),
+                                            receive_audio: r.receive_audio(),
+                                            receive_video: r.receive_video(),
+                                        })
+                                        .collect(),
                                 ),
                                 handle_id: payload.handle_id.janus_handle_id(),
                                 session_id: payload.handle_id.janus_session_id(),
@@ -524,71 +519,67 @@ struct Trickle<'a, C> {
 impl<C: Context> Trickle<'_, C> {
     async fn run(self) -> Result<(), AppError> {
         // Validate RTC and room presence.
-        let (room, backend) = crate::util::spawn_blocking({
+        let (room, backend) = {
             let agent_id = self.agent_id.clone();
             let handle_id = self.handle_id.clone();
 
-            let conn = self.ctx.get_conn().await?;
-            move || {
-                let rtc = db::rtc::FindQuery::new()
-                    .id(handle_id.rtc_id())
-                    .execute(&conn)?
-                    .context("RTC not found")
-                    .error(AppErrorKind::RtcNotFound)?;
+            let mut conn = self.ctx.get_conn().await?;
+            let janus_backend = db::janus_backend::FindQuery::new(handle_id.backend_id())
+                .execute(&mut conn)
+                .await?
+                .context("Backend not found")
+                .error(AppErrorKind::BackendNotFound)?;
 
-                let room = helpers::find_room_by_id(
-                    rtc.room_id(),
-                    helpers::RoomTimeRequirement::Open,
-                    &conn,
-                )?;
+            let rtc = db::rtc::FindQuery::new(handle_id.rtc_id())
+                .execute(&mut conn)
+                .await?
+                .context("RTC not found")
+                .error(AppErrorKind::RtcNotFound)?;
 
-                tracing::Span::current().record(
-                    "room_id",
-                    &tracing::field::display(room.id()),
-                );
-                tracing::Span::current().record(
-                    "classroom_id",
-                    &tracing::field::display(room.classroom_id()),
-                );
+            // Validate agent connection and handle id.
+            let agent_connection = db::agent_connection::FindQuery::new(&agent_id, rtc.id())
+                .execute(&mut conn)
+                .await?
+                .context("Agent not connected")
+                .error(AppErrorKind::AgentNotConnected)?;
 
-                helpers::check_room_presence(&room, &agent_id, &conn)?;
-
-                // Validate backend and janus session id.
-                if let Some(backend_id) = room.backend_id() {
-                    if handle_id.backend_id() != backend_id {
-                        return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
-                            .error(AppErrorKind::InvalidHandleId);
-                    }
-                } else {
-                    return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
-                }
-
-                let janus_backend = db::janus_backend::FindQuery::new()
-                    .id(handle_id.backend_id())
-                    .execute(&conn)?
-                    .context("Backend not found")
-                    .error(AppErrorKind::BackendNotFound)?;
-
-                if handle_id.janus_session_id() != janus_backend.session_id() {
-                    return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
-                        .error(AppErrorKind::InvalidHandleId)?;
-                }
-
-                // Validate agent connection and handle id.
-                let agent_connection =
-                    db::agent_connection::FindQuery::new(&agent_id, rtc.id())
-                        .execute(&conn)?
-                        .context("Agent not connected")
-                        .error(AppErrorKind::AgentNotConnected)?;
-
-                if handle_id.janus_handle_id() != agent_connection.handle_id() {
-                    return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
-                        .error(AppErrorKind::InvalidHandleId)?;
-                }
-
-                Ok::<_, AppError>((room, janus_backend))
+            if handle_id.janus_handle_id() != agent_connection.handle_id() {
+                return Err(anyhow!("Janus handle ID specified in the handle ID doesn't match the one from the agent connection"))
+                    .error(AppErrorKind::InvalidHandleId)?;
             }
-        }).await?;
+
+            let room = helpers::find_room_by_id(
+                rtc.room_id(),
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?;
+
+            tracing::Span::current().record("room_id", &tracing::field::display(room.id()));
+            tracing::Span::current().record(
+                "classroom_id",
+                &tracing::field::display(room.classroom_id()),
+            );
+
+            helpers::check_room_presence(&room, &self.agent_id, &mut conn).await?;
+
+            // Validate backend and janus session id.
+            if let Some(backend_id) = room.backend_id() {
+                if handle_id.backend_id() != backend_id {
+                    return Err(anyhow!("Backend id specified in the handle ID doesn't match the one from the room object"))
+                        .error(AppErrorKind::InvalidHandleId);
+                }
+            } else {
+                return Err(anyhow!("Room backend not set")).error(AppErrorKind::BackendNotFound);
+            }
+
+            if handle_id.janus_session_id() != janus_backend.session_id() {
+                return Err(anyhow!("Backend session specified in the handle ID doesn't match the one from the backend object"))
+                    .error(AppErrorKind::InvalidHandleId)?;
+            }
+
+            (room, janus_backend)
+        };
 
         let current_span = Span::current();
         current_span.record("sdp_type", "ice_candidate");
@@ -673,7 +664,6 @@ mod test {
         use std::ops::Bound;
 
         use chrono::{SubsecRound, Utc};
-        use diesel::prelude::*;
         use serde::Deserialize;
         use serde_json::json;
         use svc_agent::mqtt::ResponseStatus;
@@ -686,7 +676,7 @@ mod test {
                 IncomingEvent, SessionId,
             },
             db::{room::FindQueryable, rtc::SharingPolicy as RtcSharingPolicy},
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
@@ -737,50 +727,44 @@ a=rtcp-fb:120 ccm fir
 a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
 "#;
 
-        #[tokio::test]
-        async fn offer() -> std::io::Result<()> {
+        #[sqlx::test]
+        async fn offer(pool: sqlx::PgPool) -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
+            let db = TestDb::new(pool);
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            // Insert room with backend and rtc and an agent connection.
-            let (backend, rtc, agent_connection, classroom_id) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+            let mut conn = db.get_conn().await;
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
 
-                    let (_, agent_connection) = shared_helpers::insert_connected_to_handle_agent(
-                        &conn,
-                        agent.agent_id(),
-                        rtc.room_id(),
-                        rtc.id(),
-                        user_handle,
-                    );
-                    (
-                        backend,
-                        rtc,
-                        agent_connection,
-                        room.classroom_id().to_string(),
-                    )
-                })
-                .unwrap();
+            // Insert room with backend and rtc and an agent connection.
+            let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
+
+            let (_, agent_connection) = shared_helpers::insert_connected_to_handle_agent(
+                &mut conn,
+                agent.agent_id(),
+                rtc.room_id(),
+                rtc.id(),
+                user_handle,
+            )
+            .await;
+
+            let classroom_id = room.classroom_id().to_string();
+
             // Allow user to update the rtc.
             let rtc_id = rtc.id().to_string();
             let object = vec!["classrooms", &classroom_id, "rtcs", &rtc_id];
             authz.allow(agent.account_id(), object.clone(), "update");
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             let rtc_stream_id = db::janus_rtc_stream::Id::random();
@@ -824,11 +808,14 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
                     panic!("Got wrong event")
                 }
             }
-            // Assert rtc stream presence in the DB.
-            let conn = context.get_conn().await.unwrap();
-            let query = crate::schema::janus_rtc_stream::table.find(rtc_stream_id);
 
-            let rtc_stream: crate::db::janus_rtc_stream::Object = query.get_result(&conn).unwrap();
+            // Assert rtc stream presence in the DB.
+            let mut conn = context.get_conn().await.unwrap();
+            let rtc_stream: crate::db::janus_rtc_stream::Object =
+                crate::db::janus_rtc_stream::get_rtc_stream(&mut conn, rtc_stream_id)
+                    .await
+                    .expect("failed to get janus rtc stream")
+                    .expect("janus rtc stream not found");
 
             assert_eq!(rtc_stream.handle_id(), handle_id.janus_handle_id());
             assert_eq!(rtc_stream.rtc_id(), rtc.id());
@@ -838,41 +825,35 @@ a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid
             Ok(())
         }
 
-        #[tokio::test]
-        async fn offer_unauthorized() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn offer_unauthorized(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
 
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend and rtc and an agent connection.
-            let (backend, rtc, agent_connection) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+            let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
-                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        rtc.room_id(),
-                        rtc.id(),
-                    );
-
-                    (backend, rtc, agent_connection)
-                })
-                .unwrap();
+            let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                &mut conn,
+                agent.agent_id(),
+                rtc.room_id(),
+                rtc.id(),
+            )
+            .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -930,40 +911,34 @@ a=rtcp-fb:120 nack pli
 a=rtcp-fb:120 ccm fir
 "#;
 
-        #[tokio::test]
-        async fn answer() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn answer(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend and rtc and an agent connection.
-            let (backend, rtc, agent_connection) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+            let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
-                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        rtc.room_id(),
-                        rtc.id(),
-                    );
-
-                    (backend, rtc, agent_connection)
-                })
-                .unwrap();
+            let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                &mut conn,
+                agent.agent_id(),
+                rtc.room_id(),
+                rtc.id(),
+            )
+            .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1013,44 +988,36 @@ a=rtcp-fb:120 ccm fir
 
         const ICE_CANDIDATE: &str = "candidate:0 1 UDP 2113667327 198.51.100.7 49203 typ host";
 
-        #[tokio::test]
-        async fn candidate() -> std::io::Result<()> {
+        #[sqlx::test]
+        async fn candidate(pool: sqlx::PgPool) -> std::io::Result<()> {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
+            let db = TestDb::new(pool);
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
+
             // Insert room with backend and rtc and an agent connection.
-            let (backend, rtc, agent_connection, classroom_id) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+            let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
-                    let (_, agent_connection) = shared_helpers::insert_connected_to_handle_agent(
-                        &conn,
-                        agent.agent_id(),
-                        rtc.room_id(),
-                        rtc.id(),
-                        user_handle,
-                    );
+            let (_, agent_connection) = shared_helpers::insert_connected_to_handle_agent(
+                &mut conn,
+                agent.agent_id(),
+                rtc.room_id(),
+                rtc.id(),
+                user_handle,
+            )
+            .await;
 
-                    (
-                        backend,
-                        rtc,
-                        agent_connection,
-                        room.classroom_id().to_string(),
-                    )
-                })
-                .unwrap();
+            let classroom_id = room.classroom_id().to_string();
 
             // Allow user to read the rtc.
             let rtc_id = rtc.id().to_string();
@@ -1058,7 +1025,7 @@ a=rtcp-fb:120 ccm fir
             authz.allow(agent.account_id(), object, "read");
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
 
@@ -1095,40 +1062,34 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn candidate_unauthorized() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn candidate_unauthorized(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend and rtc and an agent connection.
-            let (backend, rtc, agent_connection) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+            let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
-                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        rtc.room_id(),
-                        rtc.id(),
-                    );
-
-                    (backend, rtc, agent_connection)
-                })
-                .unwrap();
+            let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                &mut conn,
+                agent.agent_id(),
+                rtc.room_id(),
+                rtc.id(),
+            )
+            .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1161,32 +1122,27 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn wrong_rtc_id() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn wrong_rtc_id(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend and entered agent.
-            let backend = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    backend
-                })
-                .unwrap();
+            let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1215,41 +1171,36 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn rtc_id_from_another_room() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn rtc_id_from_another_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend and RTC and an RTC in another room.
-            let (backend, rtc, agent_connection) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+            let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
-                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        rtc.room_id(),
-                        rtc.id(),
-                    );
+            let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                &mut conn,
+                agent.agent_id(),
+                rtc.room_id(),
+                rtc.id(),
+            )
+            .await;
 
-                    let other_rtc = shared_helpers::insert_rtc(&conn);
-                    (backend, other_rtc, agent_connection)
-                })
-                .unwrap();
+            let rtc = shared_helpers::insert_rtc(&mut conn).await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1278,46 +1229,42 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn wrong_backend_id() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn wrong_backend_id(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
             // Insert room with backend, rtc and connected agent and another backend.
-            let (backend, rtc, agent_connection) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
 
-                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        rtc.room_id(),
-                        rtc.id(),
-                    );
+            let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
-                    let other_backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
-                    (other_backend, rtc, agent_connection)
-                })
-                .unwrap();
+            let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                &mut conn,
+                agent.agent_id(),
+                rtc.room_id(),
+                rtc.id(),
+            )
+            .await;
+
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1346,37 +1293,30 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn offline_backend() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn offline_backend(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
+
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
             let backend = TestAgent::new("offline-instance", "janus-gateway", SVC_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+
             // Insert room with backend, rtc and connected agent.
-            let (rtc, agent_connection) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let room =
-                        shared_helpers::insert_room_with_backend_id(&conn, backend.agent_id());
+            let room =
+                shared_helpers::insert_room_with_backend_id(&mut conn, backend.agent_id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
-
-                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        rtc.room_id(),
-                        rtc.id(),
-                    );
-
-                    (rtc, agent_connection)
-                })
-                .unwrap();
+            let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                &mut conn,
+                agent.agent_id(),
+                rtc.room_id(),
+                rtc.id(),
+            )
+            .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1405,32 +1345,26 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn not_entered() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn not_entered(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend, rtc and connected agent and another backend.
-            let (backend, rtc) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
-                    (backend, rtc)
-                })
-                .unwrap();
+            let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1459,33 +1393,28 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn not_connected() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn not_connected(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend, rtc and entered agent.
-            let (backend, rtc) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
-                    shared_helpers::insert_agent(&conn, agent.agent_id(), room.id());
-                    (backend, rtc)
-                })
-                .unwrap();
+            let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
+
+            shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1514,40 +1443,34 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn wrong_handle_id() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn wrong_handle_id(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend, rtc and a connect agent.
-            let (backend, rtc) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+            let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        room.id(),
-                        rtc.id(),
-                    );
-
-                    (backend, rtc)
-                })
-                .unwrap();
+            shared_helpers::insert_connected_agent(
+                &mut conn,
+                agent.agent_id(),
+                room.id(),
+                rtc.id(),
+            )
+            .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1576,50 +1499,46 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn spoof_handle_id() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn spoof_handle_id(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
+
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::random(),
+            )
+            .await;
+
             // Insert room with backend, rtc and 2 connect agents.
-            let (backend, rtc, agent2_connection) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::random(),
-                    );
-                    let room = shared_helpers::insert_room_with_backend_id(&conn, backend.id());
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+            let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
-                    shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent1.agent_id(),
-                        room.id(),
-                        rtc.id(),
-                    );
+            shared_helpers::insert_connected_agent(
+                &mut conn,
+                agent1.agent_id(),
+                room.id(),
+                rtc.id(),
+            )
+            .await;
 
-                    let agent = shared_helpers::insert_agent(&conn, agent2.agent_id(), room.id());
+            let agent = shared_helpers::insert_agent(&mut conn, agent2.agent_id(), room.id()).await;
 
-                    let agent2_connection = factory::AgentConnection::new(
-                        *agent.id(),
-                        rtc.id(),
-                        crate::backend::janus::client::HandleId::random(),
-                    )
-                    .insert(&conn);
-
-                    (backend, rtc, agent2_connection)
-                })
-                .unwrap();
+            let agent2_connection = factory::AgentConnection::new(
+                agent.id(),
+                rtc.id(),
+                crate::backend::janus::client::HandleId::random(),
+            )
+            .insert(&mut conn)
+            .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1648,42 +1567,35 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn closed_room() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn closed_room(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
+            let mut conn = db.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert closed room with backend, rtc and connected agent.
-            let (backend, rtc, agent_connection) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
-                    let room =
-                        shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
+            let room =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn, backend.id()).await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
 
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
-
-                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent.agent_id(),
-                        room.id(),
-                        rtc.id(),
-                    );
-
-                    (backend, rtc, agent_connection)
-                })
-                .unwrap();
+            let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                &mut conn,
+                agent.agent_id(),
+                room.id(),
+                rtc.id(),
+            )
+            .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1712,50 +1624,47 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn spoof_owned_rtc() -> std::io::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn spoof_owned_rtc(pool: sqlx::PgPool) -> std::io::Result<()> {
+            let db = TestDb::new(pool);
+
             let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
             let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
             let now = Utc::now();
 
+            let mut conn = db.get_conn().await;
+            let backend = shared_helpers::insert_janus_backend(
+                &mut conn,
+                "test",
+                SessionId::random(),
+                crate::backend::janus::client::HandleId::stub_id(),
+            )
+            .await;
+
             // Insert room with backend, rtc owned by agent2 and connect agent1.
-            let (backend, rtc, agent_connection) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn,
-                        "test",
-                        SessionId::random(),
-                        crate::backend::janus::client::HandleId::stub_id(),
-                    );
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((Bound::Included(now), Bound::Unbounded))
-                        .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                        .backend_id(backend.id())
-                        .insert(&conn);
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((Bound::Included(now), Bound::Unbounded))
+                .rtc_sharing_policy(RtcSharingPolicy::Owned)
+                .backend_id(backend.id())
+                .insert(&mut conn)
+                .await;
 
-                    let rtc = factory::Rtc::new(room.id())
-                        .created_by(agent2.agent_id().to_owned())
-                        .insert(&conn);
+            let rtc = factory::Rtc::new(room.id())
+                .created_by(agent2.agent_id().to_owned())
+                .insert(&mut conn)
+                .await;
 
-                    let (_, agent_connection) = shared_helpers::insert_connected_agent(
-                        &conn,
-                        agent1.agent_id(),
-                        room.id(),
-                        rtc.id(),
-                    );
-
-                    (backend, rtc, agent_connection)
-                })
-                .unwrap();
+            let (_, agent_connection) = shared_helpers::insert_connected_agent(
+                &mut conn,
+                agent1.agent_id(),
+                room.id(),
+                rtc.id(),
+            )
+            .await;
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, TestAuthz::new());
+            let mut context = TestContext::new(db, TestAuthz::new()).await;
 
             let handle_id = HandleId::new(
                 db::janus_rtc_stream::Id::random(),
@@ -1784,46 +1693,44 @@ a=rtcp-fb:120 ccm fir
             Ok(())
         }
 
-        #[tokio::test]
-        async fn create_in_unbounded_room() {
+        #[sqlx::test]
+        async fn create_in_unbounded_room(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
+            let db = TestDb::new(pool);
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
             let mut authz = TestAuthz::new();
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-            // Insert room with backend and rtc and an agent connection.
-            let (backend, rtc, agent_connection, room) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
-                    let room = factory::Room::new()
-                        .audience(USR_AUDIENCE)
-                        .time((
-                            Bound::Included(Utc::now().trunc_subsecs(0)),
-                            Bound::Unbounded,
-                        ))
-                        .rtc_sharing_policy(RtcSharingPolicy::Shared)
-                        .backend_id(backend.id())
-                        .insert(&conn);
-                    let rtc = shared_helpers::insert_rtc_with_room(&conn, &room);
+            let mut conn = db.get_conn().await;
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
 
-                    let (_, agent_connection) = shared_helpers::insert_connected_to_handle_agent(
-                        &conn,
-                        agent.agent_id(),
-                        rtc.room_id(),
-                        rtc.id(),
-                        user_handle,
-                    );
-                    (backend, rtc, agent_connection, room)
-                })
-                .unwrap();
+            // Insert room with backend and rtc and an agent connection.
+            let room = factory::Room::new()
+                .audience(USR_AUDIENCE)
+                .time((
+                    Bound::Included(Utc::now().trunc_subsecs(0)),
+                    Bound::Unbounded,
+                ))
+                .rtc_sharing_policy(RtcSharingPolicy::Shared)
+                .backend_id(backend.id())
+                .insert(&mut conn)
+                .await;
+            let rtc = shared_helpers::insert_rtc_with_room(&mut conn, &room).await;
+
+            let (_, agent_connection) = shared_helpers::insert_connected_to_handle_agent(
+                &mut conn,
+                agent.agent_id(),
+                rtc.room_id(),
+                rtc.id(),
+                user_handle,
+            )
+            .await;
+
             // Allow user to update the rtc.
             let rtc_id = rtc.id().to_string();
             let classroom_id = room.classroom_id().to_string();
@@ -1831,7 +1738,7 @@ a=rtcp-fb:120 ccm fir
             authz.allow(agent.account_id(), object.clone(), "update");
 
             // Make rtc_signal.create request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx);
             let rtc_stream_id = db::janus_rtc_stream::Id::random();
@@ -1856,9 +1763,9 @@ a=rtcp-fb:120 ccm fir
                 .await
                 .expect("Rtc signal creation failed");
 
-            let conn = context.get_conn().await.unwrap();
             let room = db::room::FindQuery::new(room.id())
-                .execute(&conn)
+                .execute(&mut conn)
+                .await
                 .unwrap()
                 .unwrap();
             assert_ne!(room.time().1, Bound::Unbounded);

@@ -76,7 +76,7 @@ impl RequestHandler for VacuumHandler {
     const ERROR_TITLE: &'static str = "Failed to vacuum system";
 
     #[instrument(skip(context, _payload, reqp))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         _payload: Self::Payload,
         reqp: RequestParams<'_>,
@@ -101,26 +101,18 @@ impl RequestHandler for VacuumHandler {
             None,
         );
 
-        let rooms = crate::util::spawn_blocking({
-            let group = context.config().janus_group.clone();
-
-            let conn = context.get_conn().await?;
-            move || db::room::finished_with_in_progress_recordings(&conn, group.as_deref())
-        })
+        let mut conn = context.get_conn().await?;
+        let rooms = db::room::finished_with_in_progress_recordings(
+            &mut conn,
+            context.config().janus_group.as_deref(),
+        )
         .await?;
 
         for (room, recording, backend) in rooms.into_iter() {
-            crate::util::spawn_blocking({
-                let room_id = room.id();
-
-                let conn = context.get_conn().await?;
-                move || {
-                    db::agent::DeleteQuery::new()
-                        .room_id(room_id)
-                        .execute(&conn)
-                }
-            })
-            .await?;
+            db::agent::DeleteQuery::new()
+                .room_id(room.id())
+                .execute(&mut conn)
+                .await?;
 
             let config = upload_config(context, &room)?;
             let request = UploadStreamRequest {
@@ -168,7 +160,7 @@ impl EventHandler for OrphanedRoomCloseHandler {
     type Payload = OrphanedRoomCloseEvent;
 
     #[instrument(skip(context, _payload))]
-    async fn handle<C: Context>(
+    async fn handle<C: Context + Send + Sync>(
         context: &mut C,
         _payload: Self::Payload,
         evp: &IncomingEventProperties,
@@ -189,71 +181,58 @@ impl EventHandler for OrphanedRoomCloseHandler {
             - chrono::Duration::from_std(context.config().orphaned_room_timeout)
                 .expect("Orphaned room timeout misconfigured");
 
-        let timed_out = crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || db::orphaned_room::get_timed_out(load_till, &conn)
-        })
-        .await?;
-
-        let mut close_tasks = vec![];
         let mut closed_rooms = vec![];
-        for (orphan, room) in timed_out {
-            match room {
-                Some(room) if !room.is_closed() => {
-                    let close_task = crate::util::spawn_blocking({
-                        let conn = context.get_conn().await?;
-                        move || {
-                            let room = db::room::UpdateQuery::new(room.id())
-                                .time(Some((room.time().0, Bound::Excluded(Utc::now()))))
-                                .timed_out()
-                                .execute(&conn)?;
-                            Ok::<_, diesel::result::Error>(room)
-                        }
-                    });
-
-                    close_tasks.push(close_task)
-                }
-
-                _ => {
-                    closed_rooms.push(orphan.id);
-                }
-            }
-        }
         let mut notifications = vec![];
-        for close_task in close_tasks {
-            match close_task.await {
-                Ok(room) => {
-                    closed_rooms.push(room.id());
-                    notifications.push(helpers::build_notification(
-                        "room.close",
-                        &format!("rooms/{}/events", room.id()),
-                        room.clone(),
-                        evp.tracking(),
-                        context.start_timestamp(),
-                    ));
-                    notifications.push(helpers::build_notification(
-                        "room.close",
-                        &format!("audiences/{}/events", room.audience()),
-                        room,
-                        evp.tracking(),
-                        context.start_timestamp(),
-                    ));
+
+        {
+            // to close this connection right after the loop
+            let mut conn = context.get_conn().await?;
+
+            let timed_out = db::orphaned_room::get_timed_out(load_till, &mut conn).await?;
+
+            for (orphan, room) in timed_out {
+                match room {
+                    Some(room) if !room.is_closed() => {
+                        let r = db::room::UpdateQuery::new(room.id())
+                            .time(Some((room.time().0, Bound::Excluded(Utc::now()))))
+                            .timed_out()
+                            .execute(&mut conn)
+                            .await;
+
+                        match r {
+                            Ok(room) => {
+                                closed_rooms.push(room.id());
+                                notifications.push(helpers::build_notification(
+                                    "room.close",
+                                    &format!("rooms/{}/events", room.id()),
+                                    room.clone(),
+                                    evp.tracking(),
+                                    context.start_timestamp(),
+                                ));
+                                notifications.push(helpers::build_notification(
+                                    "room.close",
+                                    &format!("audiences/{}/events", room.audience()),
+                                    room,
+                                    evp.tracking(),
+                                    context.start_timestamp(),
+                                ));
+                            }
+                            Err(err) => {
+                                error!(?err, "Closing room failed");
+                            }
+                        }
+                    }
+
+                    _ => {
+                        closed_rooms.push(orphan.id);
+                    }
                 }
-                Err(err) => {
-                    error!(?err, "Closing room failed");
-                }
+            }
+
+            if let Err(err) = db::orphaned_room::remove_rooms(&closed_rooms, &mut conn).await {
+                error!(?err, "Error removing rooms fron orphan table");
             }
         }
-
-        crate::util::spawn_blocking({
-            let conn = context.get_conn().await?;
-            move || {
-                if let Err(err) = db::orphaned_room::remove_rooms(&closed_rooms, &conn) {
-                    error!(?err, "Error removing rooms fron orphan table");
-                }
-            }
-        })
-        .await;
 
         Ok(Box::new(stream::iter(notifications)))
     }
@@ -368,41 +347,44 @@ mod test {
                 db::TestDb,
                 handle_event,
                 prelude::{GlobalContext, TestAgent},
-                shared_helpers,
-                test_deps::LocalDeps,
-                SVC_AUDIENCE,
+                shared_helpers, SVC_AUDIENCE,
             },
         };
 
-        #[tokio::test]
-        async fn close_orphaned_rooms() -> anyhow::Result<()> {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn close_orphaned_rooms(pool: sqlx::PgPool) -> anyhow::Result<()> {
+            let db = TestDb::new(pool);
+
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
+
             let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
             authz.allow(agent.account_id(), vec!["system"], "update");
-            let mut context = TestContext::new(db, authz);
-            let connection = context.get_conn().await?;
-            let opened_room = shared_helpers::insert_room(&connection);
-            let opened_room2 = shared_helpers::insert_room(&connection);
-            let closed_room = shared_helpers::insert_closed_room(&connection);
+
+            let mut context = TestContext::new(db, authz).await;
+            let mut conn = context.get_conn().await?;
+
+            let opened_room = shared_helpers::insert_room(&mut conn).await;
+            let opened_room2 = shared_helpers::insert_room(&mut conn).await;
+            let closed_room = shared_helpers::insert_closed_room(&mut conn).await;
             db::orphaned_room::upsert_room(
                 opened_room.id(),
                 Utc::now() - chrono::Duration::seconds(10),
-                &connection,
-            )?;
+                &mut conn,
+            )
+            .await?;
             db::orphaned_room::upsert_room(
                 closed_room.id(),
                 Utc::now() - chrono::Duration::seconds(10),
-                &connection,
-            )?;
+                &mut conn,
+            )
+            .await?;
             db::orphaned_room::upsert_room(
                 opened_room2.id(),
                 Utc::now() + chrono::Duration::seconds(10),
-                &connection,
-            )?;
+                &mut conn,
+            )
+            .await?;
 
             let messages = handle_event::<OrphanedRoomCloseHandler>(
                 &mut context,
@@ -419,8 +401,9 @@ mod test {
             assert_eq!(rooms[0].id(), opened_room.id());
             let orphaned = db::orphaned_room::get_timed_out(
                 Utc::now() + chrono::Duration::seconds(20),
-                &connection,
-            )?;
+                &mut conn,
+            )
+            .await?;
             assert_eq!(orphaned.len(), 1);
             assert_eq!(orphaned[0].0.id, opened_room2.id());
             Ok(())
@@ -436,65 +419,56 @@ mod test {
                 transactions::{Transaction, TransactionKind},
                 IncomingEvent,
             },
-            test_helpers::{prelude::*, test_deps::LocalDeps},
+            test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps},
         };
 
         use super::super::*;
 
-        #[tokio::test]
-        async fn vacuum_system() {
+        #[sqlx::test]
+        async fn vacuum_system(pool: sqlx::PgPool) {
             let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
             let janus = local_deps.run_janus();
-            let db = TestDb::with_local_postgres(&postgres);
+            let db = TestDb::new(pool);
+
             let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
 
-            let (rtcs, backend) = db
-                .connection_pool()
-                .get()
-                .map(|conn| {
-                    // Insert janus backend and rooms.
-                    let backend = shared_helpers::insert_janus_backend(
-                        &conn, &janus.url, session_id, handle_id,
-                    );
+            let mut conn = db.get_conn().await;
+            // Insert janus backend and rooms.
+            let backend =
+                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                    .await;
 
-                    let room1 =
-                        shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
+            let room1 =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn, backend.id()).await;
+            let room2 =
+                shared_helpers::insert_closed_room_with_backend_id(&mut conn, backend.id()).await;
 
-                    let room2 =
-                        shared_helpers::insert_closed_room_with_backend_id(&conn, backend.id());
+            // Insert rtcs.
+            let rtcs = vec![
+                shared_helpers::insert_rtc_with_room(&mut conn, &room1).await,
+                shared_helpers::insert_rtc_with_room(&mut conn, &room2).await,
+            ];
 
-                    // Insert rtcs.
-                    let rtcs = vec![
-                        shared_helpers::insert_rtc_with_room(&conn, &room1),
-                        shared_helpers::insert_rtc_with_room(&conn, &room2),
-                    ];
+            let _other_rtc = shared_helpers::insert_rtc(&mut conn).await;
 
-                    let _other_rtc = shared_helpers::insert_rtc(&conn);
+            // Insert active agents.
+            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
 
-                    // Insert active agents.
-                    let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
+            for rtc in rtcs.iter() {
+                shared_helpers::insert_agent(&mut conn, agent.agent_id(), rtc.room_id()).await;
+                shared_helpers::insert_recording(&mut conn, rtc).await;
+            }
 
-                    for rtc in rtcs.iter() {
-                        shared_helpers::insert_agent(&conn, agent.agent_id(), rtc.room_id());
-                        shared_helpers::insert_recording(&conn, rtc);
-                    }
-
-                    (
-                        rtcs.into_iter().map(|x| x.id()).collect::<Vec<_>>(),
-                        backend,
-                    )
-                })
-                .unwrap();
+            let rtcs = rtcs.into_iter().map(|x| x.id()).collect::<Vec<_>>();
 
             // Allow cron to perform vacuum.
             let agent = TestAgent::new("alpha", "cron", SVC_AUDIENCE);
             authz.allow(agent.account_id(), vec!["system"], "update");
 
             // Make system.vacuum request.
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             context.with_janus(tx.clone());
             let payload = VacuumRequest {};
@@ -526,17 +500,16 @@ mod test {
             assert_eq!(recv_rtcs, rtcs);
         }
 
-        #[tokio::test]
-        async fn vacuum_system_unauthorized() {
-            let local_deps = LocalDeps::new();
-            let postgres = local_deps.run_postgres();
-            let db = TestDb::with_local_postgres(&postgres);
+        #[sqlx::test]
+        async fn vacuum_system_unauthorized(pool: sqlx::PgPool) {
+            let db = TestDb::new(pool);
+
             let mut authz = TestAuthz::new();
             authz.set_audience(SVC_AUDIENCE);
 
             // Make system.vacuum request.
             let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut context = TestContext::new(db, authz);
+            let mut context = TestContext::new(db, authz).await;
             let payload = VacuumRequest {};
 
             let err = handle_request::<VacuumHandler>(&mut context, &agent, payload)

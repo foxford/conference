@@ -1,7 +1,7 @@
 ## -----------------------------------------------------------------------------
 ## Build
 ## -----------------------------------------------------------------------------
-FROM rust:1.66.0-slim-buster as build-stage
+FROM rust:1.70.0-slim-buster as build-stage
 
 RUN apt update && apt install -y --no-install-recommends \
   pkg-config \
@@ -17,6 +17,7 @@ RUN mkdir /build/src && echo "fn main() {}" > /build/src/main.rs
 RUN cargo build --release
 
 # Build app
+COPY sqlx-data.json /build/sqlx-data.json
 COPY src/ /build/src/
 RUN touch src/main.rs && cargo build --release
 

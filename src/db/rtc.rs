@@ -4,31 +4,28 @@
 
 use std::fmt;
 
-use crate::db;
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use diesel::{pg::PgConnection, result::Error};
-use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use svc_agent::AgentId;
 
-use super::{recording::Object as Recording, room::Object as Room};
-use crate::schema::{recording, rtc};
+use crate::db;
+
+use super::recording::Object as Recording;
 
 ////////////////////////////////////////////////////////////////////////////////
-
-pub type AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
-
-pub const ALL_COLUMNS: AllColumns = (rtc::id, rtc::room_id, rtc::created_at, rtc::created_by);
 
 ////////////////////////////////////////////////////////////////////////////////
 pub type Id = db::id::Id;
 
-#[derive(Clone, Copy, Debug, DbEnum, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
-#[DieselType = "Rtc_sharing_policy"]
+#[sqlx(type_name = "rtc_sharing_policy")]
 pub enum SharingPolicy {
+    #[sqlx(rename = "none")]
     None,
+    #[sqlx(rename = "shared")]
     Shared,
+    #[sqlx(rename = "owned")]
     Owned,
 }
 
@@ -41,17 +38,13 @@ impl fmt::Display for SharingPolicy {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(
-    Clone, Debug, Serialize, Deserialize, Identifiable, Queryable, QueryableByName, Associations,
-)]
-#[belongs_to(Room, foreign_key = "room_id")]
-#[table_name = "rtc"]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Object {
-    id: Id,
-    room_id: db::room::Id,
+    pub id: Id,
+    pub room_id: db::room::Id,
     #[serde(with = "ts_seconds")]
-    created_at: DateTime<Utc>,
-    created_by: AgentId,
+    pub created_at: DateTime<Utc>,
+    pub created_by: AgentId,
 }
 
 impl Object {
@@ -71,28 +64,31 @@ impl Object {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct FindQuery {
-    id: Option<Id>,
+    id: Id,
 }
 
 impl FindQuery {
-    pub fn new() -> Self {
-        Self { id: None }
+    pub fn new(id: Id) -> Self {
+        Self { id }
     }
 
-    pub fn id(mut self, id: Id) -> Self {
-        self.id = Some(id);
-        self
-    }
-
-    pub fn execute(&self, conn: &PgConnection) -> Result<Option<Object>, Error> {
-        use diesel::prelude::*;
-
-        match self.id {
-            Some(id) => rtc::table.find(id).get_result(conn).optional(),
-            _ => Err(Error::QueryBuilderError(
-                "id is required parameters of the query".into(),
-            )),
-        }
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Option<Object>> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                id as "id: Id",
+                room_id as "room_id: Id",
+                created_at,
+                created_by as "created_by: AgentId"
+            FROM rtc
+            WHERE
+                id = $1
+            "#,
+            self.id as Id
+        )
+        .fetch_optional(conn)
+        .await
     }
 }
 
@@ -139,28 +135,32 @@ impl<'a> ListQuery<'a> {
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<Object>, Error> {
-        use diesel::prelude::*;
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Vec<Object>> {
+        let created_by = self.created_by.unwrap_or(&[]);
 
-        let mut q = rtc::table.into_boxed();
-
-        if let Some(room_id) = self.room_id {
-            q = q.filter(rtc::room_id.eq(room_id));
-        }
-
-        if let Some(created_by) = self.created_by {
-            q = q.filter(rtc::created_by.eq_any(created_by))
-        }
-
-        if let Some(offset) = self.offset {
-            q = q.offset(offset);
-        }
-
-        if let Some(limit) = self.limit {
-            q = q.limit(limit);
-        }
-
-        q.order_by(rtc::created_at.asc()).get_results(conn)
+        sqlx::query_as!(
+            Object,
+            r#"
+            SELECT
+                id as "id: Id",
+                room_id as "room_id: Id",
+                created_at,
+                created_by as "created_by: AgentId"
+            FROM rtc
+            WHERE
+                ($1::uuid IS NULL OR room_id = $1) AND
+                (array_length($2::agent_id[], 1) IS NULL OR created_by = ANY($2))
+            ORDER BY created_at
+            OFFSET $3
+            LIMIT $4
+            "#,
+            self.room_id as Option<Id>,
+            created_by as &[&AgentId],
+            self.offset,
+            self.limit
+        )
+        .fetch_all(conn)
+        .await
     }
 }
 
@@ -170,27 +170,79 @@ pub struct ListWithRecordingQuery {
     room_id: db::room::Id,
 }
 
+struct ListWithRecordingRow {
+    id: db::rtc::Id,
+    room_id: db::room::Id,
+    created_at: DateTime<Utc>,
+    created_by: AgentId,
+    started_at: Option<DateTime<Utc>>,
+    segments: Option<Vec<db::recording::SegmentPg>>,
+    status: Option<db::recording::Status>,
+    mjr_dumps_uris: Option<Vec<String>>,
+}
+
+impl ListWithRecordingRow {
+    fn split(self) -> (Object, Option<Recording>) {
+        (
+            Object {
+                id: self.id,
+                room_id: self.room_id,
+                created_at: self.created_at,
+                created_by: self.created_by,
+            },
+            match self.status {
+                Some(status) => Some(Recording {
+                    rtc_id: self.id,
+                    started_at: self.started_at,
+                    segments: self.segments,
+                    status,
+                    mjr_dumps_uris: self.mjr_dumps_uris,
+                }),
+                None => None,
+            },
+        )
+    }
+}
+
 impl ListWithRecordingQuery {
     pub fn new(room_id: db::room::Id) -> Self {
         Self { room_id }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Vec<(Object, Option<Recording>)>, Error> {
-        use diesel::prelude::*;
-
-        rtc::table
-            .left_join(recording::table)
-            .filter(rtc::room_id.eq(self.room_id))
-            .get_results(conn)
+    pub async fn execute(
+        &self,
+        conn: &mut sqlx::PgConnection,
+    ) -> sqlx::Result<Vec<(Object, Option<Recording>)>> {
+        sqlx::query_as!(
+            ListWithRecordingRow,
+            r#"
+            SELECT
+                rtc.id as "id: db::rtc::Id",
+                rtc.room_id as "room_id: db::room::Id",
+                rtc.created_at,
+                rtc.created_by as "created_by: AgentId",
+                recording.started_at,
+                recording.segments as "segments: Vec<db::recording::SegmentPg>",
+                recording.status as "status?: db::recording::Status",
+                recording.mjr_dumps_uris
+            FROM rtc
+            LEFT JOIN recording
+            ON rtc.id = recording.rtc_id
+            WHERE
+                rtc.room_id = $1
+            "#,
+            self.room_id as db::room::Id,
+        )
+        .fetch_all(conn)
+        .await
+        .map(|r| r.into_iter().map(|r| r.split()).collect())
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Insertable)]
-#[table_name = "rtc"]
+#[derive(Debug)]
 pub struct InsertQuery<'a> {
-    id: Option<Id>,
     room_id: db::room::Id,
     created_by: &'a AgentId,
 }
@@ -198,16 +250,27 @@ pub struct InsertQuery<'a> {
 impl<'a> InsertQuery<'a> {
     pub fn new(room_id: db::room::Id, created_by: &'a AgentId) -> Self {
         Self {
-            id: None,
             room_id,
             created_by,
         }
     }
 
-    pub fn execute(&self, conn: &PgConnection) -> Result<Object, Error> {
-        use crate::schema::rtc::dsl::rtc;
-        use diesel::RunQueryDsl;
-
-        diesel::insert_into(rtc).values(self).get_result(conn)
+    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Object> {
+        sqlx::query_as!(
+            Object,
+            r#"
+            INSERT INTO rtc (room_id, created_by)
+            VALUES ($1, $2)
+            RETURNING
+                id as "id: Id",
+                room_id as "room_id: Id",
+                created_at,
+                created_by as "created_by: AgentId"
+            "#,
+            self.room_id as Id,
+            self.created_by as &AgentId
+        )
+        .fetch_one(conn)
+        .await
     }
 }
