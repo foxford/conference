@@ -34,14 +34,12 @@ app:
   janusGroup: webinar
 internalService:
   annotations:
-    # 21600000 milliseconds == 6 hours
-    loadbalancer.openstack.org/timeout-client-data: "21600000"
-    loadbalancer.openstack.org/timeout-member-connect: "21600000"
-    loadbalancer.openstack.org/timeout-member-data: "21600000"
     loadbalancer.openstack.org/subnet-id: test-test-test-test-test
     service.beta.kubernetes.io/openstack-internal-load-balancer: "true"
   ip: 10.10.10.10
 ingress:
-  host: test.net
+  hosts:
+    - foo.bar
+    - bar.foo
 sentry:
   dsn: https://test@foo.bar/123
