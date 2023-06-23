@@ -208,6 +208,7 @@ async fn handle_ban_accepted(
 
     let event_id = headers.event_id();
     let event = BanVideoStreamingCompletedV1::new_from_accepted(e, event_id.clone());
+    let event = Event::from(event);
 
     let payload = serde_json::to_vec(&event)
         .error(ErrorKind::InvalidPayload)
