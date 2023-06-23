@@ -2,7 +2,7 @@
 authors = ["Andrei Nesterov <ae.nesterov@gmail.com>"]
 edition = "2018"
 name = "conference"
-version = "0.6.58"
+version = "0.6.59"
 
 [dependencies]
 anyhow = "1"
@@ -37,19 +37,19 @@ serde_json = "1"
 signal-hook = "0.3.6"
 signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 sqlx = { version = "0.6", features = ["offline", "postgres", "chrono", "uuid", "json", "runtime-tokio-native-tls"] }
-svc-agent = { git = "https://github.com/foxford/svc-agent-rs", branch = "ULMS-2365/sqlx", features = ["sqlx"] }
+svc-agent = { version = "0.21", features = ["sqlx"] }
 svc-authn = { version = "0.8", features = ["jose"] }
 svc-authz = "0.12"
-svc-events = { git = "https://github.com/foxford/svc-events", branch = "ULMS-2365/sqlx" }
-svc-error = { git = "https://github.com/foxford/svc-error-rs", branch = "ULMS-2365/sqlx", features = [
+svc-events = { version = "0.10" }
+svc-error = { version = "0.6", features = [
   "r2d2",
   "svc-agent",
   "svc-authn",
   "svc-authz",
   "sentry-extension",
 ] }
-svc-nats-client = { git = "https://github.com/foxford/svc-nats-client", branch = "ULMS-2365/sqlx" }
-svc-utils = { git = "https://github.com/foxford/svc-utils-rs", branch = "ULMS-2365/sqlx", features = ["cors-middleware", "authn-extractor"] }
+svc-nats-client = { version = "0.7" }
+svc-utils = { version = "0.8", features = ["cors-middleware", "authn-extractor"] }
 thiserror = "1.0"
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"

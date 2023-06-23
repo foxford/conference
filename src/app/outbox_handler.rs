@@ -2,7 +2,7 @@ use crate::{
     app::{context::GlobalContext, error::Error as AppError, stage::AppStage},
     outbox::{
         error::ErrorKind,
-        pipeline::{diesel::Pipeline as DieselPipeline, MultipleStagePipelineResult, Pipeline},
+        pipeline::{sqlx::Pipeline as DieselPipeline, MultipleStagePipelineResult, Pipeline},
     },
 };
 use std::sync::Arc;

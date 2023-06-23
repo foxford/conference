@@ -18,7 +18,7 @@ use crate::{
     outbox::{
         self,
         error::ErrorKind,
-        pipeline::{diesel::Pipeline as DieselPipeline, Pipeline},
+        pipeline::{sqlx::Pipeline as DieselPipeline, Pipeline},
     },
 };
 use anyhow::{anyhow, Context};
@@ -166,7 +166,7 @@ impl Handler {
                     let delivery_deadline_at =
                         outbox::util::delivery_deadline_from_now(outbox_config.try_wake_interval);
 
-                    let event_id = outbox::db::diesel::InsertQuery::new(
+                    let event_id = outbox::db::sqlx::InsertQuery::new(
                         stage::video_group::ENTITY_TYPE,
                         serialized_stage,
                         delivery_deadline_at,
