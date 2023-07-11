@@ -92,6 +92,8 @@ pub async fn route_message(
             .permanent()?
     };
 
+    tracing::info!(?event, class_id = %classroom_id);
+
     let headers = svc_nats_client::Headers::try_from(msg.headers.clone().unwrap_or_default())
         .context("parse nats headers")
         .permanent()?;
