@@ -1756,6 +1756,54 @@
     },
     "query": "\n            INSERT INTO rtc (room_id, created_by)\n            VALUES ($1, $2)\n            RETURNING\n                id as \"id: Id\",\n                room_id as \"room_id: Id\",\n                created_at,\n                created_by as \"created_by: AgentId\"\n            "
   },
+  "529c53f97015275a32ad9650d57613df9c0e2692b632217c9bcfd2b034c4f6e1": {
+    "describe": {
+      "columns": [
+        {
+          "name": "classroom_id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "target: AccountId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "label",
+                    "Text"
+                  ],
+                  [
+                    "audience",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "account_id"
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Record"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                ba.classroom_id,\n                ba.target AS \"target: AccountId\",\n                ba.created_at\n            FROM ban_account AS ba\n            INNER JOIN room AS r\n            ON r.classroom_id = ba.classroom_id\n            WHERE\n                ba.target = $1\n            "
+  },
   "5778cf98aff0f0aebc2b6d7b0124af2724de2829b299ced59822eee9dc0a49b7": {
     "describe": {
       "columns": [
@@ -3433,6 +3481,55 @@
       }
     },
     "query": "\n        WITH\n            room_load AS (\n                SELECT\n                    a.room_id,\n                    SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken\n                FROM agent AS a\n                INNER JOIN agent_connection AS ac\n                ON ac.agent_id = a.id\n                LEFT JOIN rtc_writer_config AS rwc\n                ON rwc.rtc_id = ac.rtc_id\n                GROUP BY a.room_id\n            ),\n            active_room AS (\n                SELECT *\n                FROM room\n                WHERE backend_id IS NOT NULL\n                AND   time @> NOW()\n            ),\n            janus_backend_load AS (\n                SELECT\n                    backend_id,\n                    SUM(GREATEST(taken, reserve)) AS load\n                FROM (\n                    SELECT DISTINCT ON(backend_id, room_id)\n                        ar.backend_id,\n                        ar.id                   AS room_id,\n                        COALESCE(rl.taken, 0)   AS taken,\n                        COALESCE(ar.reserve, 0) AS reserve\n                    FROM active_room AS ar\n                    LEFT JOIN room_load AS rl\n                    ON rl.room_id = ar.id\n                ) AS sub\n                GROUP BY backend_id\n            )\n        SELECT\n            jb.id as \"id: AgentId\",\n            jb.handle_id as \"handle_id: HandleId\",\n            jb.session_id as \"session_id: SessionId\",\n            jb.created_at,\n            jb.capacity,\n            jb.balancer_capacity,\n            jb.api_version,\n            jb.\"group\",\n            jb.janus_url\n        FROM janus_backend AS jb\n        LEFT JOIN janus_backend_load AS jbl\n        ON jbl.backend_id = jb.id\n        LEFT JOIN room AS r2\n        ON 1 = 1\n        WHERE r2.id = $1\n        AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) >= COALESCE(r2.reserve, 1)\n        AND   jb.api_version = $2\n        AND   ($3::text IS NULL OR jb.\"group\" = $3::text)\n        ORDER BY COALESCE(jbl.load, 0) DESC, RANDOM()\n        LIMIT 1\n        "
+  },
+  "ae2ed1e8b53bf94a61aebe5074c6f22d2aad8d1e7c4ccf5db23119dbf0799414": {
+    "describe": {
+      "columns": [
+        {
+          "name": "classroom_id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "target: AccountId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "label",
+                    "Text"
+                  ],
+                  [
+                    "audience",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "account_id"
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Record",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            DELETE FROM ban_account\n            WHERE\n                target = $1\n            AND classroom_id = $2\n            RETURNING\n                classroom_id,\n                target as \"target: AccountId\",\n                created_at\n            "
   },
   "b455c3678396a464959c16700a01d4b1ad9bf04962aae01edc51d7f8a5adfd52": {
     "describe": {
@@ -5169,6 +5266,71 @@
       }
     },
     "query": "\n        UPDATE janus_rtc_stream\n        SET\n            time = (TSTZRANGE(NOW(), NULL, '[)'))\n        WHERE\n            id = $1\n        RETURNING\n            id as \"id: db::id::Id\",\n            handle_id as \"handle_id: HandleId\",\n            rtc_id as \"rtc_id: Id\",\n            backend_id as \"backend_id: AgentId\",\n            created_at,\n            label,\n            sent_by as \"sent_by: AgentId\",\n            time as \"time: TimePg\"\n        "
+  },
+  "e57712919a2bae15bc97a1345c1d05731d7b5f9a558248aee1e755d53b8377b6": {
+    "describe": {
+      "columns": [
+        {
+          "name": "classroom_id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "target: AccountId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "label",
+                    "Text"
+                  ],
+                  [
+                    "audience",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "account_id"
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "label",
+                    "Text"
+                  ],
+                  [
+                    "audience",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "account_id"
+            }
+          }
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO ban_account (classroom_id, target)\n            VALUES ($1, $2)\n            ON CONFLICT (classroom_id, target) DO NOTHING\n            RETURNING\n                classroom_id,\n                target as \"target: AccountId\",\n                created_at\n            "
   },
   "e83c8e0761bfc6214738f80e70da547c91075026bbcac791871d1b1be48269de": {
     "describe": {

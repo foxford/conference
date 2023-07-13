@@ -16,6 +16,7 @@ use crate::{
 };
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
+use sqlx::Connection;
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use svc_authn::Authenticable;
 use svc_events::{
@@ -171,8 +172,24 @@ async fn handle_ban_accepted(
         receive_audio_values.push(receive_audio);
     }
 
+    let mut tx = conn.begin().await.map_err(Error::from).transient()?;
+
+    if e.ban {
+        db::ban_account::InsertQuery::new(e.classroom_id, &e.target_account)
+            .execute(&mut tx)
+            .await
+            .error(ErrorKind::DbQueryFailed)
+            .transient()?;
+    } else {
+        db::ban_account::DeleteQuery::new(e.classroom_id, &e.target_account)
+            .execute(&mut tx)
+            .await
+            .error(ErrorKind::DbQueryFailed)
+            .transient()?;
+    }
+
     db::rtc_reader_config::batch_insert(
-        &mut conn,
+        &mut tx,
         &rtc_ids,
         &agent_ids,
         &receive_video_values,
@@ -181,6 +198,8 @@ async fn handle_ban_accepted(
     .await
     .error(ErrorKind::DbQueryFailed)
     .transient()?;
+
+    tx.commit().await.map_err(Error::from).transient()?;
 
     let janus_backend = db::janus_backend::FindQuery::new(room_backend)
         .execute(&mut conn)
