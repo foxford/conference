@@ -49,7 +49,7 @@ svc-error = { version = "0.6", features = [
   "sentry-extension",
 ] }
 svc-nats-client = { version = "0.7" }
-svc-utils = { version = "0.8", features = ["cors-middleware", "authn-extractor"] }
+svc-utils = { version = "0.8", features = ["cors-middleware", "authn-extractor", "metrics-middleware"] }
 thiserror = "1.0"
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
