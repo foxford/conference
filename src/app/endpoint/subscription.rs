@@ -221,7 +221,7 @@ async fn make_orphaned_if_host_left(
     agent_left: &AgentId,
     connection: &mut sqlx::PgConnection,
 ) -> sqlx::Result<()> {
-    let room = db::room::FindQuery::new(room_id)
+    let room = db::room::FindQuery::by_id(room_id)
         .execute(connection)
         .await?;
 

@@ -42,6 +42,7 @@ env:
   DATABASE_POOL_MAX_LIFETIME: 43200
 
 nats: {}
+nats_consumer: {}
 
 clusterService:
   ports:
