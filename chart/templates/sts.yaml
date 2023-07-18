@@ -25,9 +25,6 @@ spec:
       imagePullSecrets:
         - name: regcred
       initContainers:
-        - image: "{{ .Values.networkTester.image.repository }}:{{ .Values.networkTester.image.tag }}"
-          imagePullPolicy: IfNotPresent
-          name: network-tester
         - name: init-{{ .Chart.Name }}-migration
           image: "{{ .Values.migrations.image.repository }}:{{ .Values.migrations.image.tag | default .Values.app.image.tag }}"
           imagePullPolicy: IfNotPresent
