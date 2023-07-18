@@ -127,14 +127,14 @@ impl Clients {
     pub fn remove_client(&self, backend: &janus_backend::Object) {
         let mut guard = self.clients.write().expect("Must not panic");
         if let Some(handle) = guard.remove(backend) {
-            handle.is_cancelled.store(true, Ordering::SeqCst)
+            handle.is_cancelled.store(true, Ordering::Relaxed)
         }
     }
 
     pub fn stop_polling(&self) {
         let guard = self.clients.read().expect("Must not panic");
         for (_, handle) in guard.iter() {
-            handle.is_cancelled.store(true, Ordering::SeqCst)
+            handle.is_cancelled.store(true, Ordering::Relaxed)
         }
     }
 
@@ -184,7 +184,7 @@ async fn start_polling(
             }
             break;
         }
-        if is_cancelled.load(Ordering::SeqCst) {
+        if is_cancelled.load(Ordering::Relaxed) {
             break;
         }
         let poll_result = janus_client.poll(session_id).await;

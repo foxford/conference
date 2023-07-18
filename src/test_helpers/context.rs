@@ -3,7 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use httpmock::MockServer;
 use parking_lot::Mutex;
@@ -11,10 +10,7 @@ use prometheus::Registry;
 use serde_json::json;
 use svc_agent::AgentId;
 use svc_authz::{cache::ConnectionPool as RedisConnectionPool, ClientMap as Authz};
-use svc_nats_client::{
-    AckPolicy, DeliverPolicy, Event, Message, MessageStream, Messages, NatsClient, PublishError,
-    Subject, SubscribeError, TermMessageError,
-};
+use svc_nats_client::{test_helpers::TestNatsClient, NatsClient};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -102,33 +98,6 @@ fn build_config(mock: &MockServer) -> Config {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-
-struct TestNatsClient;
-
-#[async_trait]
-impl NatsClient for TestNatsClient {
-    async fn publish(&self, _event: &Event) -> Result<(), PublishError> {
-        Ok(())
-    }
-
-    async fn subscribe_durable(&self) -> Result<MessageStream, SubscribeError> {
-        unimplemented!()
-    }
-
-    async fn subscribe_ephemeral(
-        &self,
-        _subject: Subject,
-        _deliver_policy: DeliverPolicy,
-        _ack_policy: AckPolicy,
-    ) -> Result<Messages, SubscribeError> {
-        unimplemented!()
-    }
-
-    async fn terminate(&self, _message: &Message) -> Result<(), TermMessageError> {
-        unimplemented!()
-    }
-}
-
 struct TestMqttClient;
 
 impl MqttClient for TestMqttClient {
@@ -148,7 +117,7 @@ pub struct TestContext {
     mqtt_gateway_client: MqttGatewayHttpClient,
     conference_client: ConferenceHttpClient,
     mqtt_client: Arc<Mutex<dyn MqttClient>>,
-    nats_client: Option<Arc<dyn NatsClient>>,
+    nats_client: Arc<TestNatsClient>,
 }
 
 const WAITLIST_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
@@ -177,7 +146,7 @@ impl TestContext {
             mqtt_gateway_client: MqttGatewayHttpClient::new("test".to_owned(), mqtt_api_host_uri),
             conference_client: ConferenceHttpClient::new("test".to_owned()),
             mqtt_client: Arc::new(Mutex::new(TestMqttClient)),
-            nats_client: Some(Arc::new(TestNatsClient {}) as Arc<dyn NatsClient>),
+            nats_client: Arc::new(TestNatsClient::new()),
         }
     }
 
@@ -205,6 +174,10 @@ impl TestContext {
 
     pub fn config_mut(&mut self) -> &mut Config {
         &mut self.config
+    }
+
+    pub fn inspect_nats_client(&self) -> &TestNatsClient {
+        &self.nats_client
     }
 }
 
@@ -253,8 +226,8 @@ impl GlobalContext for TestContext {
         self.mqtt_client.as_ref()
     }
 
-    fn nats_client(&self) -> Option<&dyn NatsClient> {
-        self.nats_client.as_deref()
+    fn nats_client(&self) -> Option<Arc<dyn NatsClient>> {
+        Some(self.nats_client.clone() as Arc<dyn NatsClient>)
     }
 }
 

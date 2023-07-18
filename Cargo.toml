@@ -40,7 +40,7 @@ sqlx = { version = "0.6", features = ["offline", "postgres", "chrono", "uuid", "
 svc-agent = { version = "0.21", features = ["sqlx"] }
 svc-authn = { version = "0.8", features = ["jose"] }
 svc-authz = "0.12"
-svc-events = { version = "0.10" }
+svc-events = { version = "0.11" }
 svc-error = { version = "0.6", features = [
   "r2d2",
   "svc-agent",
@@ -48,7 +48,8 @@ svc-error = { version = "0.6", features = [
   "svc-authz",
   "sentry-extension",
 ] }
-svc-nats-client = { version = "0.7" }
+# svc-nats-client = { version = "0.7" }
+svc-nats-client = { git = "https://github.com/foxford/svc-nats-client", branch = "main" }
 svc-utils = { version = "0.8", features = ["cors-middleware", "authn-extractor"] }
 thiserror = "1.0"
 tokio = { version = "1", features = ["full"] }

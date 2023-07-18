@@ -774,5 +774,26 @@ mod tests {
             assert_eq!(rooms.len(), 1);
             assert_eq!(rooms[0].0.id(), room2.id());
         }
+
+        #[sqlx::test]
+        async fn selects_by_classroom_id_and_by_id(pool: sqlx::PgPool) {
+            let db = db::TestDb::new(pool);
+            let mut conn = db.get_conn().await;
+
+            let room = shared_helpers::insert_room(&mut conn).await;
+
+            let room_by_classroom_id = FindQuery::by_classroom_id(room.classroom_id)
+                .execute(&mut conn)
+                .await
+                .expect("failed to fetch room by classroom id")
+                .expect("room is not found by classroom id");
+            assert_eq!(room.id, room_by_classroom_id.id);
+
+            let room_by_id = FindQuery::by_id(room.id)
+                .execute(&mut conn)
+                .await
+                .expect("failed to fetch room by id");
+            assert!(room_by_id.is_some());
+        }
     }
 }

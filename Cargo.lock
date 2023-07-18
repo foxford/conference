@@ -162,12 +162,9 @@ dependencies = [
 [[package]]
 name = "async-nats"
 version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1174495e436c928905018f10a36160f7a8a6786450f50f4ce7fba05d1539704c"
+source = "git+https://github.com/foxford/nats.rs?branch=main#f5fa297c236dcca2e406761e5cc0fe78338a0ae0"
 dependencies = [
- "async-nats-tokio-rustls-deps",
- "base64 0.13.1",
- "base64-url",
+ "base64 0.21.0",
  "bytes",
  "futures",
  "http",
@@ -181,6 +178,7 @@ dependencies = [
  "ring",
  "rustls-native-certs",
  "rustls-pemfile",
+ "rustls-webpki",
  "serde 1.0.152",
  "serde_json",
  "serde_nanos",
@@ -189,19 +187,9 @@ dependencies = [
  "time 0.3.20",
  "tokio",
  "tokio-retry",
+ "tokio-rustls 0.24.1",
  "tracing",
  "url",
-]
-
-[[package]]
-name = "async-nats-tokio-rustls-deps"
-version = "0.24.0-ALPHA.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cdefe54cd7867d937c0a507d2a3a830af410044282cd3e4002b5b7860e1892e"
-dependencies = [
- "rustls 0.21.0",
- "tokio",
- "webpki 0.22.0",
 ]
 
 [[package]]
@@ -390,15 +378,6 @@ name = "base64"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
-
-[[package]]
-name = "base64-url"
-version = "1.4.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67a99c239d0c7e77c85dddfa9cebce48704b3c49550fcd3b84dd637e4484899f"
-dependencies = [
- "base64 0.13.1",
-]
 
 [[package]]
 name = "base64ct"
@@ -2731,8 +2710,8 @@ dependencies = [
  "pollster",
  "thiserror",
  "tokio",
- "tokio-rustls",
- "webpki 0.21.4",
+ "tokio-rustls 0.22.0",
+ "webpki",
 ]
 
 [[package]]
@@ -2766,7 +2745,7 @@ dependencies = [
  "log",
  "ring",
  "sct 0.6.1",
- "webpki 0.21.4",
+ "webpki",
 ]
 
 [[package]]
@@ -3613,9 +3592,6 @@ dependencies = [
  "anyhow",
  "crossbeam-channel",
  "http",
- "once_cell",
- "sentry 0.31.5",
- "sentry-anyhow",
  "serde 1.0.152",
  "serde_derive",
 ]
@@ -3642,9 +3618,9 @@ dependencies = [
 
 [[package]]
 name = "svc-events"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd95ffc58bcf9f5e3ea162f04a6f944b322efcfac3acc9676b28127fb462e636"
+checksum = "3ad84bd15a598b693df7dd08ca832c3414d59d6847f134f479ff547264669735"
 dependencies = [
  "serde 1.0.152",
  "serde_json",
@@ -3656,9 +3632,8 @@ dependencies = [
 
 [[package]]
 name = "svc-nats-client"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a2723813bad608338be9bbf24cee5d89128f2c9f59bb8bbd560c7fda6c8f4e1"
+version = "0.8.0"
+source = "git+https://github.com/foxford/svc-nats-client?branch=main#1163b5cb45c18258bc3b8b75ce1e8f77ecf418a9"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -3670,7 +3645,7 @@ dependencies = [
  "reqwest",
  "serde 1.0.152",
  "svc-agent",
- "svc-error 0.5.0",
+ "svc-error 0.6.0",
  "svc-events",
  "thiserror",
  "tokio",
@@ -3950,7 +3925,17 @@ checksum = "bc6844de72e57df1980054b38be3a9f4702aba4858be64dd700181a8a6d0e1b6"
 dependencies = [
  "rustls 0.19.1",
  "tokio",
- "webpki 0.21.4",
+ "webpki",
+]
+
+[[package]]
+name = "tokio-rustls"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c28327cf380ac148141087fbfb9de9d7bd4e84ab5d2c28fbc911d753de8a7081"
+dependencies = [
+ "rustls 0.21.0",
+ "tokio",
 ]
 
 [[package]]
@@ -4431,16 +4416,6 @@ name = "webpki"
 version = "0.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8e38c0608262c46d4a56202ebabdeb094cef7e560ca7a226c6bf055188aa4ea"
-dependencies = [
- "ring",
- "untrusted",
-]
-
-[[package]]
-name = "webpki"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f095d78192e208183081cc07bc5515ef55216397af48b873e5edcd72637fa1bd"
 dependencies = [
  "ring",
  "untrusted",

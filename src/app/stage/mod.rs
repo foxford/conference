@@ -260,3 +260,68 @@ async fn handle_ban_accepted(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
+
+    use super::*;
+
+    #[sqlx::test]
+    fn test_ban_accepted_handler_works(pool: sqlx::PgPool) {
+        let local_deps = LocalDeps::new();
+        let janus = local_deps.run_janus();
+
+        let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+        let _user_handle = shared_helpers::create_handle(&janus.url, session_id).await;
+
+        let db = TestDb::new(pool);
+        let mut ctx = TestContext::new(db, TestAuthz::new()).await;
+        let (tx, mut janus_events) = tokio::sync::mpsc::unbounded_channel();
+        ctx.with_janus(tx);
+
+        let agent = TestAgent::new("web", "agent", USR_AUDIENCE);
+
+        let mut conn = ctx.get_conn().await.unwrap();
+
+        let backend =
+            shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                .await;
+        let room = shared_helpers::insert_room_with_backend_id(&mut conn, backend.id()).await;
+        shared_helpers::insert_agent(&mut conn, agent.agent_id(), room.id()).await;
+        factory::Rtc::new(room.id())
+            .created_by(agent.agent_id().to_owned())
+            .insert(&mut conn)
+            .await;
+
+        let subject = Subject::new("test".to_string(), room.classroom_id(), "ban".to_string());
+        let event_id: EventId = ("ban".to_string(), "accepted".to_string(), 0).into();
+        let headers =
+            svc_nats_client::test_helpers::HeadersBuilder::new(event_id, agent.agent_id().clone())
+                .build();
+        let e = BanAcceptedV1 {
+            ban: true,
+            classroom_id: room.classroom_id(),
+            target_account: agent.account_id().clone(),
+            operation_id: 0,
+        };
+
+        handle_ban_accepted(&ctx, e, &room, subject, &headers)
+            .await
+            .expect("handler failed");
+        ctx.janus_clients().remove_client(&backend);
+
+        let _ping = janus_events.recv().await.unwrap();
+        let _update_reader_cfg_resp = janus_events.recv().await.unwrap();
+
+        let pub_reqs = ctx.inspect_nats_client().get_publish_requests();
+        assert_eq!(pub_reqs.len(), 1);
+
+        let payload =
+            serde_json::from_slice::<Event>(&pub_reqs[0].payload).expect("failed to parse event");
+        assert!(matches!(
+            payload,
+            Event::V1(EventV1::BanVideoStreamingCompleted(..))
+        ));
+    }
+}

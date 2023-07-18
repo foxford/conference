@@ -110,3 +110,31 @@ impl<'a> FindQuery<'a> {
         .await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_helpers::{db, prelude::*};
+
+    use super::*;
+
+    #[sqlx::test]
+    fn finds_ban_account_entry(pool: sqlx::PgPool) {
+        let db = db::TestDb::new(pool);
+        let mut conn = db.get_conn().await;
+
+        let room = shared_helpers::insert_room(&mut conn).await;
+        let agent = TestAgent::new("web", "agent", USR_AUDIENCE);
+
+        InsertQuery::new(room.classroom_id(), agent.account_id())
+            .execute(&mut conn)
+            .await
+            .expect("failed to insert ban account entry");
+
+        let ban_account_entry = FindQuery::new(agent.agent_id())
+            .execute(&mut conn)
+            .await
+            .expect("failed to execute find query");
+
+        assert!(ban_account_entry.is_some());
+    }
+}
