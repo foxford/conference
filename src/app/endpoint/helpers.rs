@@ -65,7 +65,7 @@ pub async fn find_room_by_id(
     opening_requirement: RoomTimeRequirement,
     conn: &mut sqlx::PgConnection,
 ) -> Result<db::room::Object, AppError> {
-    let query = db::room::FindQuery::new(id);
+    let query = db::room::FindQuery::by_id(id);
     find_room(query, opening_requirement, conn).await
 }
 

@@ -38,6 +38,19 @@ data:
     [nats]
     url = {{ .url | quote }}
     creds = {{ .creds | quote }}
+    subscribe_durable.stream = {{ .subscribe_durable.stream | quote }}
+    subscribe_durable.consumer = {{ .subscribe_durable.consumer | quote }}
+    subscribe_durable.batch = {{ .subscribe_durable.batch }}
+    subscribe_durable.idle_heartbeat = {{ .subscribe_durable.idle_heartbeat | quote }}
+    {{- end }}
+
+    {{- with .Values.nats_consumer }}
+    {{- println "" }}
+    [nats_consumer]
+    suspend_interval = {{ .suspend_interval | quote }}
+    max_suspend_interval = {{ .max_suspend_interval | quote }}
+    suspend_sentry_interval = {{ .suspend_sentry_interval | quote }}
+    resubscribe_interval = {{ .resubscribe_interval | quote }}
     {{- end }}
 
     [backend]

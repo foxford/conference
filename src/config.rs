@@ -33,6 +33,7 @@ pub struct Config {
     pub waitlist_timeout: Duration,
     pub outbox: crate::outbox::config::Config,
     pub nats: Option<svc_nats_client::Config>,
+    pub nats_consumer: Option<svc_nats_client::ConsumerConfig>,
 }
 
 fn default_waitlist_epoch_duration() -> Duration {

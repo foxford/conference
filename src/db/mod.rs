@@ -19,6 +19,7 @@ pub async fn create_pool(
 
 pub mod agent;
 pub mod agent_connection;
+pub mod ban_account;
 pub mod group_agent;
 pub mod id;
 pub mod janus_backend;

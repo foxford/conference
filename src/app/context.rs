@@ -35,7 +35,7 @@ pub trait GlobalContext {
     fn mqtt_gateway_client(&self) -> &MqttGatewayHttpClient;
     fn conference_client(&self) -> &ConferenceHttpClient;
     fn mqtt_client(&self) -> &Mutex<dyn MqttClient>;
-    fn nats_client(&self) -> Option<&dyn NatsClient>;
+    fn nats_client(&self) -> Option<Arc<dyn NatsClient>>;
     fn get_conn(&self) -> BoxFuture<Result<sqlx::pool::PoolConnection<sqlx::Postgres>, AppError>> {
         let db = self.db().clone();
         async move {
@@ -89,7 +89,7 @@ impl GlobalContext for Arc<dyn GlobalContext> {
         self.as_ref().mqtt_client()
     }
 
-    fn nats_client(&self) -> Option<&dyn NatsClient> {
+    fn nats_client(&self) -> Option<Arc<dyn NatsClient>> {
         self.as_ref().nats_client()
     }
 }
@@ -207,8 +207,8 @@ impl GlobalContext for AppContext {
         self.mqtt_client.as_ref()
     }
 
-    fn nats_client(&self) -> Option<&dyn NatsClient> {
-        self.nats_client.as_deref()
+    fn nats_client(&self) -> Option<Arc<dyn NatsClient>> {
+        self.nats_client.clone()
     }
 }
 
@@ -269,7 +269,7 @@ impl<'a, C: GlobalContext> GlobalContext for AppMessageContext<'a, C> {
         self.global_context.mqtt_client()
     }
 
-    fn nats_client(&self) -> Option<&dyn NatsClient> {
+    fn nats_client(&self) -> Option<Arc<dyn NatsClient>> {
         self.global_context.nats_client()
     }
 }

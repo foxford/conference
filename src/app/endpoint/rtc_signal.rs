@@ -1763,7 +1763,7 @@ a=rtcp-fb:120 ccm fir
                 .await
                 .expect("Rtc signal creation failed");
 
-            let room = db::room::FindQuery::new(room.id())
+            let room = db::room::FindQuery::by_id(room.id())
                 .execute(&mut conn)
                 .await
                 .unwrap()

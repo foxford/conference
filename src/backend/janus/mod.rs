@@ -410,18 +410,34 @@ async fn handle_event_impl<C: Context>(
                         .error(AppErrorKind::MessageParsingFailed)?;
                     let notification: SpeakingNotification =
                         serde_json::from_value(data).error(AppErrorKind::MessageParsingFailed)?;
-                    let opaque_id = resp
-                        .opaque_id
-                        .context("Missing opaque id")
-                        .error(AppErrorKind::MessageParsingFailed)?;
-                    let uri = format!("rooms/{}/events", opaque_id.room_id);
-                    let timing = ShortTermTimingProperties::until_now(context.start_timestamp());
-                    let props = OutgoingEventProperties::new("rtc_stream.agent_speaking", timing);
-                    let event = OutgoingEvent::broadcast(notification, props, &uri);
 
-                    Ok(Box::new(stream::once(std::future::ready(
-                        Box::new(event) as Box<dyn IntoPublishableMessage + Send + Sync + 'static>
-                    ))) as MessageStream)
+                    let mut conn = context.get_conn().await?;
+                    let active_ban = db::ban_account::FindQuery::new(&notification.agent_id)
+                        .execute(&mut conn)
+                        .await?;
+
+                    match active_ban {
+                        Some(_) => {
+                            // ignore notification
+                            Ok(Box::new(stream::empty()) as MessageStream)
+                        }
+                        None => {
+                            let opaque_id = resp
+                                .opaque_id
+                                .context("Missing opaque id")
+                                .error(AppErrorKind::MessageParsingFailed)?;
+                            let uri = format!("rooms/{}/events", opaque_id.room_id);
+                            let timing =
+                                ShortTermTimingProperties::until_now(context.start_timestamp());
+                            let props =
+                                OutgoingEventProperties::new("rtc_stream.agent_speaking", timing);
+                            let event = OutgoingEvent::broadcast(notification, props, &uri);
+
+                            Ok(Box::new(stream::once(std::future::ready(Box::new(event)
+                                as Box<dyn IntoPublishableMessage + Send + Sync + 'static>)))
+                                as MessageStream)
+                        }
+                    }
                 }
                 None => Ok(Box::new(stream::empty()) as MessageStream),
             }
