@@ -48,8 +48,7 @@ svc-error = { version = "0.6", features = [
   "svc-authz",
   "sentry-extension",
 ] }
-# svc-nats-client = { version = "0.7" }
-svc-nats-client = { git = "https://github.com/foxford/svc-nats-client", branch = "main" }
+svc-nats-client = { version = "0.8" }
 svc-utils = { version = "0.8", features = ["cors-middleware", "authn-extractor"] }
 thiserror = "1.0"
 tokio = { version = "1", features = ["full"] }
