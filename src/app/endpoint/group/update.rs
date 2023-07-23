@@ -28,8 +28,9 @@ use serde::Deserialize;
 use serde_json::json;
 use sqlx::Connection;
 use std::sync::Arc;
-use svc_agent::mqtt::ResponseStatus;
-use svc_events::{EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
+use svc_agent::{mqtt::ResponseStatus, Addressable};
+use svc_authz::Authenticable;
+use svc_events::{stage::UpdateJanusConfigStageV1, EventV1 as Event, EventId, VideoGroupEventV1 as VideoGroupEvent};
 use svc_utils::extractors::AgentIdExtractor;
 use tracing::error;
 
@@ -106,6 +107,9 @@ impl Handler {
             .error(AppErrorKind::BackendNotFound)?;
 
         let mut conn = context.get_conn().await?;
+        let clone_of_context = context.clone();
+        let agent_id = reqp.as_agent_id().clone();
+        let clone_of_backend_id = backend_id.clone();
         let event_id = conn
             .transaction::<_, _, AppError>(|conn| {
                 Box::pin(async move {
@@ -138,41 +142,41 @@ impl Handler {
                     // Update rtc_reader_configs
                     let configs = group_reader_config::update(conn, room.id(), groups).await?;
 
-                    // Generate config items for janus
-                    let items = configs
-                        .into_iter()
-                        .map(|((rtc_id, agent_id), value)| {
-                            UpdateReaderConfigRequestBodyConfigItem {
-                                reader_id: agent_id,
-                                stream_id: rtc_id,
-                                receive_video: value,
-                                receive_audio: value,
-                            }
-                        })
-                        .collect();
+                    let event = svc_events::Event::from(UpdateJanusConfigStageV1 { backend_id: clone_of_backend_id, target_account: agent_id.as_account_id().clone() });
 
-                    let init_stage = VideoGroupUpdateJanusConfig::init(
-                        event,
+                    let payload = serde_json::to_vec(&event)
+                        .context("serialization failed")
+                        .error(AppErrorKind::StageSerializationFailed)?;
+
+                    let sequence_id = Utc::now().timestamp_nanos();
+
+                    let event_id = EventId::from((
+                        "conference_internal_event".to_string(),
+                        "update_janus_config_stage".to_string(),
+                        sequence_id,
+                    ));
+
+                    let subject = svc_nats_client::Subject::new(
+                        "classroom_id".to_string(),
                         room.classroom_id(),
-                        room.id(),
-                        backend_id,
-                        items,
+                        event_id.entity_type().to_string(),
                     );
 
-                    let serialized_stage = serde_json::to_value(init_stage)
-                        .context("serialization failed")
-                        .error(AppErrorKind::OutboxStageSerializationFailed)?;
-
-                    let delivery_deadline_at =
-                        outbox::util::delivery_deadline_from_now(outbox_config.try_wake_interval);
-
-                    let event_id = outbox::db::sqlx::InsertQuery::new(
-                        stage::video_group::ENTITY_TYPE,
-                        serialized_stage,
-                        delivery_deadline_at,
+                    let event = svc_nats_client::event::Builder::new(
+                        subject,
+                        payload,
+                        event_id.to_owned(),
+                        clone_of_context.agent_id().to_owned(),
                     )
-                    .execute(conn)
-                    .await?;
+                    .build();
+
+                    clone_of_context.nats_client()
+                        .ok_or_else(|| anyhow!("nats client not found"))
+                        .error(AppErrorKind::NatsClientNotFound)?
+                        .publish(&event)
+                        .await
+                        .error(AppErrorKind::NatsPublishFailed)?;
+
 
                     Ok(event_id)
                 })
