@@ -7,17 +7,27 @@ use crate::{
             VideoGroupUpdateJanusConfig,
         },
     },
+    backend::janus::client::update_agent_reader_config::{
+        UpdateReaderConfigRequestBody,
+        UpdateReaderConfigRequestBodyConfigItem,
+        UpdateReaderConfigRequest,
+    },
     db::{self, room::FindQueryable},
     outbox::{error::StageError, StageHandle},
 };
 use anyhow::{anyhow, Context};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
-use svc_events::{Event, EventId};
+use svc_authz::Authenticable;
+use svc_events::{stage::{SendMQTTNotificationStageV1, SendNatsNotificationStageV1, UpdateJanusConfigStageV1}, Event, EventId, EventV1};
 use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
     Subject,
 };
+use uuid::Uuid;
+
+use crate::app::error::{ErrorExt, ErrorKind};
 
 pub mod video_group;
 
@@ -63,7 +73,7 @@ pub async fn route_message(
         .permanent()?;
 
     let classroom_id = subject.classroom_id();
-    let _room = {
+    let room = {
         let mut conn = ctx
             .get_conn()
             .await
@@ -92,6 +102,15 @@ pub async fn route_message(
     // TODO: remove after adding more match bindings
     #[allow(clippy::match_single_binding)]
     let r: Result<(), HandleMessageFailure<Error>> = match event {
+        Event::V1(EventV1::UpdateJanusConfigStage(e)) => {
+            handle_update_janus_config_stage(ctx.as_ref(), e, &room, subject, &headers).await
+        },
+        Event::V1(EventV1::SendNatsNotificationStage(e)) => {
+            handle_send_nats_notification_stage(ctx.as_ref(), classroom_id, subject).await
+        },
+        Event::V1(EventV1::SendMQTTNotificationStage(_e)) => {
+            handle_send_mqtt_notification_stage(ctx.as_ref(), &room).await
+        },
         _ => {
             // ignore
             Ok(())
@@ -99,4 +118,205 @@ pub async fn route_message(
     };
 
     FailureKindExt::map_err(r, |e| anyhow!(e))
+}
+
+async fn handle_update_janus_config_stage(
+    ctx: &(dyn GlobalContext + Sync),
+    e: UpdateJanusConfigStageV1,
+    room: &db::room::Object,
+    subject: Subject,
+    headers: &svc_nats_client::Headers,
+) -> Result<(), HandleMessageFailure<Error>> {
+    let mut conn = ctx.get_conn().await.transient()?;
+
+    let janus_backend = db::janus_backend::FindQuery::new(&e.backend_id)
+        .execute(&mut conn)
+        .await
+        .error(ErrorKind::DbQueryFailed)
+        .transient()?
+        .ok_or_else(|| anyhow!("Janus backend not found"))
+        .error(ErrorKind::BackendNotFound)
+        .transient()?;
+
+    let rtcs = db::rtc::ListQuery::new()
+        .room_id(room.id)
+        .execute(&mut conn)
+        .await
+        .error(ErrorKind::DbQueryFailed)
+        .transient()?;
+
+    let target_rtc = rtcs
+        .iter()
+        .find(|r| *r.created_by().as_account_id() == e.target_account)
+        .ok_or_else(|| anyhow!("agent is not in the room"))
+        .error(ErrorKind::AgentNotConnected)
+        .transient()?;
+
+    let mut configs = vec![];
+
+    for rtc in rtcs.iter() {
+        let receive_video = room
+            .host()
+            // always receive video for hosts
+            .map(|h| h == rtc.created_by())
+            .unwrap_or(true);
+
+        let receive_audio = true;
+        let stream_id = target_rtc.id;
+        let reader_id = rtc.created_by();
+
+        let cfg = UpdateReaderConfigRequestBodyConfigItem {
+            reader_id: reader_id.clone(),
+            stream_id,
+            receive_video,
+            receive_audio,
+        };
+        configs.push(cfg);
+    }    
+
+    let request = UpdateReaderConfigRequest {
+        session_id: janus_backend.session_id(),
+        handle_id: janus_backend.handle_id(),
+        body: UpdateReaderConfigRequestBody::new(configs.clone()),
+    };
+
+    ctx.janus_clients()
+        .get_or_insert(&janus_backend)
+        .error(ErrorKind::BackendClientCreationFailed)
+        .transient()?
+        .reader_update(request)
+        .await
+        .context("Reader update")
+        .error(ErrorKind::BackendRequestFailed)
+        .transient()?;
+
+
+    let event_id = headers.event_id();
+    let event = Event::from(SendNatsNotificationStageV1 { });
+
+    let payload = serde_json::to_vec(&event)
+        .error(ErrorKind::InvalidPayload)
+        .permanent()?;
+
+    let event_id = EventId::from((
+        event_id.entity_type().to_owned(),
+        "update_janus_config_stage".to_owned(),
+        event_id.sequence_id(),
+    ));
+
+    let event = svc_nats_client::event::Builder::new(
+        subject,
+        payload,
+        event_id.to_owned(),
+        ctx.agent_id().to_owned(),
+    )
+    .build();
+
+    ctx.nats_client()
+        .ok_or_else(|| anyhow!("nats client not found"))
+        .error(ErrorKind::NatsClientNotFound)
+        .transient()?
+        .publish(&event)
+        .await
+        .error(ErrorKind::NatsPublishFailed)
+        .transient()?;
+
+    Ok(())
+}
+
+async fn handle_send_nats_notification_stage(
+    ctx: &(dyn GlobalContext + Sync),
+    classroom_id: Uuid,
+    subject: Subject,
+) -> Result<(), HandleMessageFailure<Error>> {
+    const SUBJECT_PREFIX: &str = "classroom";
+
+    let event = svc_events::Event::from(SendNatsNotificationStageV1 { });
+
+    let sequence_id = Utc::now().timestamp_nanos();
+
+    let event_id = EventId::from((
+        "conference_internal_event".to_string(),
+        "send_mqtt_notification_stage".to_string(),
+        sequence_id,
+    ));
+
+    let payload = serde_json::to_vec(&event)
+        .context("invalid payload")
+        .error(ErrorKind::InvalidPayload)
+        .permanent()?;
+
+    let subject_with_prefix = svc_nats_client::Subject::new(
+        SUBJECT_PREFIX.to_string(),
+        classroom_id,
+        event_id.entity_type().to_string(),
+    );
+
+    let event = svc_nats_client::event::Builder::new(
+        subject_with_prefix,
+        payload,
+        event_id,
+        ctx.agent_id().to_owned(),
+    )
+    .build();
+
+    ctx.nats_client()
+        .ok_or_else(|| anyhow!("nats client not found"))
+        .error(ErrorKind::NatsClientNotFound)
+        .transient()?
+        .publish(&event)
+        .await
+        .error(ErrorKind::NatsPublishFailed)
+        .transient()?;
+
+    let event = svc_events::Event::from(SendMQTTNotificationStageV1 { });
+
+    let sequence_id = Utc::now().timestamp_nanos();
+
+    let event_id = EventId::from((
+        "conference_internal_event".to_string(),
+        "send_mqtt_notification_stage".to_string(),
+        sequence_id,
+    ));
+
+    let payload = serde_json::to_vec(&event)
+        .context("invalid payload")
+        .error(ErrorKind::InvalidPayload)
+        .permanent()?;
+
+    let event = svc_nats_client::event::Builder::new(
+        subject,
+        payload,
+        event_id,
+        ctx.agent_id().to_owned(),
+    )
+    .build();
+
+    ctx.nats_client()
+        .ok_or_else(|| anyhow!("nats client not found"))
+        .error(ErrorKind::NatsClientNotFound)
+        .transient()?
+        .publish(&event)
+        .await
+        .error(ErrorKind::NatsPublishFailed)
+        .transient()?;
+    
+    Ok(())
+}
+
+async fn handle_send_mqtt_notification_stage(
+    ctx: &(dyn GlobalContext + Sync),
+    room: &db::room::Object,
+) -> Result<(), HandleMessageFailure<Error>> {
+    pub const MQTT_NOTIFICATION_LABEL: &str = "video_group.update";
+
+    let topic = format!("rooms/{}/events", room.id);
+
+    ctx.mqtt_client()
+        .lock()
+        .publish(MQTT_NOTIFICATION_LABEL, &topic)
+        .error(ErrorKind::MqttPublishFailed)
+        .transient()?;
+    
+    Ok(())
 }
