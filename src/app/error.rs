@@ -54,6 +54,7 @@ pub enum ErrorKind {
     MethodNotSupported,
     JanusResponseTimeout,
     OutboxStageSerializationFailed,
+    StageSerializationFailed,
     MqttPublishFailed,
     NatsPublishFailed,
     NatsClientNotFound,
@@ -306,6 +307,12 @@ impl From<ErrorKind> for ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "outbox_stage_serialization_failed",
                 title: "Outbox stage serialization failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::StageSerializationFailed => ErrorKindProperties {
+                status: ResponseStatus::UNPROCESSABLE_ENTITY,
+                kind: "stage_serialization_failed",
+                title: "Stage serialization failed",
                 is_notify_sentry: true,
             },
             ErrorKind::MqttPublishFailed => ErrorKindProperties {
