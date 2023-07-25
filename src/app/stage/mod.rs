@@ -20,14 +20,17 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use svc_authz::Authenticable;
-use svc_events::{stage::{SendMQTTNotificationStageV1, SendNatsNotificationStageV1, UpdateJanusConfigStageV1}, Event, EventId, EventV1};
+use svc_events::{stage::{SendNotificationStageV1, UpdateJanusConfigStageV1}, Event, EventId, EventV1};
 use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
     Subject,
 };
 use uuid::Uuid;
 
-use crate::app::error::{ErrorExt, ErrorKind};
+use crate::app::{
+    error::{ErrorExt, ErrorKind},
+    stage::video_group::MQTT_NOTIFICATION_LABEL,
+};
 
 pub mod video_group;
 
@@ -105,12 +108,12 @@ pub async fn route_message(
         Event::V1(EventV1::UpdateJanusConfigStage(e)) => {
             handle_update_janus_config_stage(ctx.as_ref(), e, &room, subject, &headers).await
         },
-        Event::V1(EventV1::SendNatsNotificationStage(e)) => {
-            handle_send_nats_notification_stage(ctx.as_ref(), classroom_id, subject).await
+        Event::V1(EventV1::SendNotificationStage(e)) => {
+            handle_send_notification_stage(ctx.as_ref(), classroom_id, &room, subject).await
         },
-        Event::V1(EventV1::SendMQTTNotificationStage(_e)) => {
-            handle_send_mqtt_notification_stage(ctx.as_ref(), &room).await
-        },
+        // Event::V1(EventV1::SendMQTTNotificationStage(_e)) => {
+        //     handle_send_mqtt_notification_stage(ctx.as_ref(), &room).await
+        // },
         _ => {
             // ignore
             Ok(())
@@ -192,7 +195,7 @@ async fn handle_update_janus_config_stage(
 
 
     let event_id = headers.event_id();
-    let event = Event::from(SendNatsNotificationStageV1 { });
+    let event = Event::from(SendNotificationStageV1 { });
 
     let payload = serde_json::to_vec(&event)
         .error(ErrorKind::InvalidPayload)
@@ -224,14 +227,15 @@ async fn handle_update_janus_config_stage(
     Ok(())
 }
 
-async fn handle_send_nats_notification_stage(
+async fn handle_send_notification_stage(
     ctx: &(dyn GlobalContext + Sync),
     classroom_id: Uuid,
+    room: &db::room::Object,
     subject: Subject,
 ) -> Result<(), HandleMessageFailure<Error>> {
     const SUBJECT_PREFIX: &str = "classroom";
 
-    let event = svc_events::Event::from(SendNatsNotificationStageV1 { });
+    let event = svc_events::Event::from(SendNotificationStageV1 { });
 
     let sequence_id = Utc::now().timestamp_nanos();
 
@@ -269,36 +273,12 @@ async fn handle_send_nats_notification_stage(
         .error(ErrorKind::NatsPublishFailed)
         .transient()?;
 
-    let event = svc_events::Event::from(SendMQTTNotificationStageV1 { });
+    let topic = format!("rooms/{}/events", room.id);
 
-    let sequence_id = Utc::now().timestamp_nanos();
-
-    let event_id = EventId::from((
-        "conference_internal_event".to_string(),
-        "send_mqtt_notification_stage".to_string(),
-        sequence_id,
-    ));
-
-    let payload = serde_json::to_vec(&event)
-        .context("invalid payload")
-        .error(ErrorKind::InvalidPayload)
-        .permanent()?;
-
-    let event = svc_nats_client::event::Builder::new(
-        subject,
-        payload,
-        event_id,
-        ctx.agent_id().to_owned(),
-    )
-    .build();
-
-    ctx.nats_client()
-        .ok_or_else(|| anyhow!("nats client not found"))
-        .error(ErrorKind::NatsClientNotFound)
-        .transient()?
-        .publish(&event)
-        .await
-        .error(ErrorKind::NatsPublishFailed)
+    ctx.mqtt_client()
+        .lock()
+        .publish(MQTT_NOTIFICATION_LABEL, &topic)
+        .error(ErrorKind::MqttPublishFailed)
         .transient()?;
     
     Ok(())

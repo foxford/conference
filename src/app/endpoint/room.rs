@@ -14,7 +14,7 @@ use svc_agent::{
     Addressable, AgentId, Authenticable, Subscription,
 };
 use svc_events::{
-    stage::{SendMQTTNotificationStageV1, SendNatsNotificationStageV1, UpdateJanusConfigStageV1},
+    stage::{SendNotificationStageV1, UpdateJanusConfigStageV1},
     EventV1 as Event, EventId, VideoGroupEventV1 as VideoGroupEvent,
 };
 
@@ -49,11 +49,6 @@ use crate::{
         group_agent::{GroupItem, Groups},
         room::{RoomBackend, Time},
         rtc::SharingPolicy as RtcSharingPolicy,
-    },
-    outbox::{
-        self,
-        error::ErrorKind,
-        pipeline::{sqlx::Pipeline as DieselPipeline, Pipeline},
     },
 };
 
@@ -684,7 +679,6 @@ impl EnterHandler {
 
         let ctx = context.clone();
         let room_id = room.id();
-        let outbox_config = ctx.config().clone().outbox;
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
             let mut conn = context.get_conn().await?;
             let rtcs = db::rtc::ListQuery::new()
@@ -794,24 +788,7 @@ impl EnterHandler {
                 .await?;
 
             match maybe_event_id {
-                Some(event_id) => {
-                    let pipeline = DieselPipeline::new(
-                        ctx.db().clone(),
-                        outbox_config.try_wake_interval,
-                        outbox_config.max_delivery_interval,
-                    );
-                    if let Err(err) = pipeline
-                        .run_single_stage::<AppStage, _>(ctx, event_id)
-                        .await
-                    {
-                        if let ErrorKind::StageError(kind) = &err.kind {
-                            context.metrics().observe_outbox_error(kind);
-                        }
-
-                        error!(%err, "failed to complete stage");
-                        AppError::from(err).notify_sentry();
-                    }
-                }
+                Some(event_id) => (),
                 None => {
                     response.add_notification(
                         MQTT_NOTIFICATION_LABEL,

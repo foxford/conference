@@ -15,11 +15,6 @@ use crate::{
     authz::AuthzObject,
     backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
     db::{self, group_agent::Groups},
-    outbox::{
-        self,
-        error::ErrorKind,
-        pipeline::{sqlx::Pipeline as DieselPipeline, Pipeline},
-    },
 };
 use anyhow::{anyhow, Context};
 use axum::{extract::Path, Extension, Json};
@@ -68,8 +63,6 @@ impl Handler {
         reqp: RequestParams<'_>,
         start_timestamp: DateTime<Utc>,
     ) -> RequestResult {
-        let outbox_config = context.config().clone().outbox;
-
         let Payload { room_id, groups } = payload;
 
         let room = {
@@ -182,24 +175,6 @@ impl Handler {
                 })
             })
             .await?;
-
-        let pipeline = DieselPipeline::new(
-            context.db().clone(),
-            outbox_config.try_wake_interval,
-            outbox_config.max_delivery_interval,
-        );
-
-        if let Err(err) = pipeline
-            .run_single_stage::<AppStage, _>(context.clone(), event_id)
-            .await
-        {
-            if let ErrorKind::StageError(kind) = &err.kind {
-                context.metrics().observe_outbox_error(kind);
-            }
-
-            error!(%err, "failed to complete stage");
-            AppError::from(err).notify_sentry();
-        }
 
         context
             .metrics()
