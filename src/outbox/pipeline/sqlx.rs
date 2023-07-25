@@ -99,6 +99,7 @@ impl Pipeline {
                     record.entity_type(),
                     json,
                     record.delivery_deadline_at(),
+                    record.operation(),
                 )
                 .execute(conn)
                 .await
