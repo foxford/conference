@@ -283,20 +283,3 @@ async fn handle_send_notification_stage(
     
     Ok(())
 }
-
-async fn handle_send_mqtt_notification_stage(
-    ctx: &(dyn GlobalContext + Sync),
-    room: &db::room::Object,
-) -> Result<(), HandleMessageFailure<Error>> {
-    pub const MQTT_NOTIFICATION_LABEL: &str = "video_group.update";
-
-    let topic = format!("rooms/{}/events", room.id);
-
-    ctx.mqtt_client()
-        .lock()
-        .publish(MQTT_NOTIFICATION_LABEL, &topic)
-        .error(ErrorKind::MqttPublishFailed)
-        .transient()?;
-    
-    Ok(())
-}
