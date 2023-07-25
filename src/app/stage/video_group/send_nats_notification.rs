@@ -14,7 +14,7 @@ use std::sync::Arc;
 use svc_events::{EventId, EventV1 as Event};
 use uuid::Uuid;
 
-const SUBJECT_PREFIX: &str = "classroom";
+pub const SUBJECT_PREFIX: &str = "classroom";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct VideoGroupSendNatsNotification {

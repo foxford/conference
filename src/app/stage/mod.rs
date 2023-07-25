@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::app::{
     error::{ErrorExt, ErrorKind},
-    stage::video_group::MQTT_NOTIFICATION_LABEL,
+    stage::video_group::{MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
 };
 
 pub mod video_group;
@@ -111,9 +111,6 @@ pub async fn route_message(
         Event::V1(EventV1::SendNotificationStage(e)) => {
             handle_send_notification_stage(ctx.as_ref(), classroom_id, &room, subject).await
         },
-        // Event::V1(EventV1::SendMQTTNotificationStage(_e)) => {
-        //     handle_send_mqtt_notification_stage(ctx.as_ref(), &room).await
-        // },
         _ => {
             // ignore
             Ok(())
@@ -233,8 +230,6 @@ async fn handle_send_notification_stage(
     room: &db::room::Object,
     subject: Subject,
 ) -> Result<(), HandleMessageFailure<Error>> {
-    const SUBJECT_PREFIX: &str = "classroom";
-
     let event = svc_events::Event::from(SendNotificationStageV1 { });
 
     let sequence_id = Utc::now().timestamp_nanos();
