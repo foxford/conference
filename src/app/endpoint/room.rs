@@ -14,12 +14,10 @@ use svc_agent::{
     Addressable, AgentId, Authenticable, Subscription,
 };
 use svc_events::{
-    stage::{SendNotificationStageV1, UpdateJanusConfigStageV1},
-    EventV1 as Event, EventId, VideoGroupEventV1 as VideoGroupEvent,
+    stage::UpdateJanusConfigStageV1,
 };
 
 use svc_utils::extractors::AgentIdExtractor;
-use tracing::error;
 use tracing_attributes::instrument;
 use uuid::Uuid;
 
@@ -31,17 +29,12 @@ use crate::{
             rtc::{RtcCreate, RtcCreateResult},
             subscription::CorrelationDataPayload,
         },
-        group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::{
-            self,
-            video_group::{MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
-        },
+        stage::video_group::{MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
         API_VERSION,
     },
     authz::AuthzObject,
-    backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
     client::mqtt_gateway::MqttGatewayClient,
     db::{
         self,
@@ -786,7 +779,7 @@ impl EnterHandler {
                 .await?;
 
             match maybe_event_id {
-                Some(event_id) => (),
+                Some(_event_id) => (),
                 None => {
                     response.add_notification(
                         MQTT_NOTIFICATION_LABEL,

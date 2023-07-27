@@ -10,10 +10,9 @@ use crate::{
         group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::{self, video_group::SUBJECT_PREFIX},
+        stage::video_group::SUBJECT_PREFIX,
     },
     authz::AuthzObject,
-    backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
     db::{self, group_agent::Groups},
 };
 use anyhow::{anyhow, Context};
@@ -25,9 +24,8 @@ use sqlx::Connection;
 use std::sync::Arc;
 use svc_agent::{mqtt::ResponseStatus, Addressable};
 use svc_authz::Authenticable;
-use svc_events::{stage::UpdateJanusConfigStageV1, EventV1 as Event, EventId, VideoGroupEventV1 as VideoGroupEvent};
+use svc_events::stage::UpdateJanusConfigStageV1;
 use svc_utils::extractors::AgentIdExtractor;
-use tracing::error;
 
 #[derive(Deserialize)]
 pub struct Payload {
@@ -103,37 +101,15 @@ impl Handler {
         let clone_of_context = context.clone();
         let agent_id = reqp.as_agent_id().clone();
         let clone_of_backend_id = backend_id.clone();
-        let event_id = conn
+        let _event_id = conn
             .transaction::<_, _, AppError>(|conn| {
                 Box::pin(async move {
-                    let existed_groups = db::group_agent::FindQuery::new(room.id())
-                        .execute(conn)
-                        .await?
-                        .groups()
-                        .len();
-
-                    let timestamp = Utc::now().timestamp_nanos();
-                    let event = if existed_groups == 1 {
-                        VideoGroupEvent::Created {
-                            created_at: timestamp,
-                        }
-                    } else if existed_groups > 1 && groups.len() == 1 {
-                        VideoGroupEvent::Deleted {
-                            created_at: timestamp,
-                        }
-                    } else {
-                        VideoGroupEvent::Updated {
-                            created_at: timestamp,
-                        }
-                    };
-                    let event = Event::from(event);
-
                     db::group_agent::UpsertQuery::new(room.id(), &groups)
                         .execute(conn)
                         .await?;
 
                     // Update rtc_reader_configs
-                    let configs = group_reader_config::update(conn, room.id(), groups).await?;
+                    let _configs = group_reader_config::update(conn, room.id(), groups).await?;
 
                     let event = svc_events::Event::from(UpdateJanusConfigStageV1 { backend_id: clone_of_backend_id, target_account: agent_id.as_account_id().clone() });
 

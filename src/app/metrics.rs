@@ -152,12 +152,6 @@ impl Metrics {
         }
     }
 
-    pub fn observe_outbox_error(&self, kind: &str) {
-        if let Some(m) = self.outbox_errors.get(kind) {
-            m.inc()
-        }
-    }
-
     /// This is helpful in MQTT handlers.
     pub fn observe_app_result(&self, result: &endpoint::RequestResult) {
         match result {

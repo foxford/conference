@@ -11,11 +11,9 @@ use crate::{
     db::{self, room::FindQueryable},
 };
 use anyhow::{anyhow, Context};
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use svc_authz::Authenticable;
-use svc_events::{stage::{SendNotificationStageV1, UpdateJanusConfigStageV1}, Event, EventId, EventV1};
+use svc_events::{stage::{SendNotificationStageV1, UpdateJanusConfigStageV1}, Event, EventV1};
 use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
     Subject,
@@ -73,9 +71,9 @@ pub async fn route_message(
     #[allow(clippy::match_single_binding)]
     let r: Result<(), HandleMessageFailure<Error>> = match event {
         Event::V1(EventV1::UpdateJanusConfigStage(e)) => {
-            handle_update_janus_config_stage(ctx.as_ref(), e, classroom_id, &room, &headers).await
+            handle_update_janus_config_stage(ctx.as_ref(), e, classroom_id, &room).await
         },
-        Event::V1(EventV1::SendNotificationStage(e)) => {
+        Event::V1(EventV1::SendNotificationStage(_e)) => {
             handle_send_notification_stage(ctx.as_ref(), classroom_id, &room).await
         },
         _ => {
@@ -92,7 +90,6 @@ async fn handle_update_janus_config_stage(
     e: UpdateJanusConfigStageV1,
     classroom_id: Uuid,
     room: &db::room::Object,
-    headers: &svc_nats_client::Headers,
 ) -> Result<(), HandleMessageFailure<Error>> {
     let mut conn = ctx.get_conn().await.transient()?;
 
