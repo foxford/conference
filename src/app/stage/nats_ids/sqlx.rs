@@ -24,12 +24,8 @@ pub struct InsertQuery<'a> {
 }
 
 impl<'a> InsertQuery<'a> {
-    pub fn new(
-        entity_type: &'a str,
-    ) -> Self {
-        Self {
-            entity_type,
-        }
+    pub fn new(entity_type: &'a str) -> Self {
+        Self { entity_type }
     }
 
     pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<EventId> {
@@ -50,4 +46,3 @@ impl<'a> InsertQuery<'a> {
         .map(|r| r.id())
     }
 }
-

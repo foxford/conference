@@ -1,19 +1,18 @@
 use crate::{
-    app::{
-        context::GlobalContext,
-        error::Error,
-    },
+    app::{context::GlobalContext, error::Error},
     backend::janus::client::update_agent_reader_config::{
-        UpdateReaderConfigRequestBody,
+        UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
         UpdateReaderConfigRequestBodyConfigItem,
-        UpdateReaderConfigRequest,
     },
     db::{self, room::FindQueryable},
 };
 use anyhow::{anyhow, Context};
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use svc_authz::Authenticable;
-use svc_events::{stage::{SendNotificationStageV1, UpdateJanusConfigStageV1}, Event, EventV1};
+use svc_events::{
+    stage::{SendNotificationStageV1, UpdateJanusConfigStageV1},
+    Event, EventV1,
+};
 use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
     Subject,
@@ -72,10 +71,10 @@ pub async fn route_message(
     let r: Result<(), HandleMessageFailure<Error>> = match event {
         Event::V1(EventV1::UpdateJanusConfigStage(e)) => {
             handle_update_janus_config_stage(ctx.as_ref(), e, classroom_id, &room).await
-        },
+        }
         Event::V1(EventV1::SendNotificationStage(_e)) => {
             handle_send_notification_stage(ctx.as_ref(), classroom_id, &room).await
-        },
+        }
         _ => {
             // ignore
             Ok(())
@@ -136,7 +135,7 @@ async fn handle_update_janus_config_stage(
             receive_audio,
         };
         configs.push(cfg);
-    }    
+    }
 
     let request = UpdateReaderConfigRequest {
         session_id: janus_backend.session_id(),
@@ -154,19 +153,17 @@ async fn handle_update_janus_config_stage(
         .error(ErrorKind::BackendRequestFailed)
         .transient()?;
 
-    let event = Event::from(SendNotificationStageV1 { });
+    let event = Event::from(SendNotificationStageV1 {});
 
     let payload = serde_json::to_vec(&event)
         .error(ErrorKind::InvalidPayload)
         .permanent()?;
 
-    let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new(
-        "conference_internal_event",
-    )
-    .execute(&mut conn)
-    .await
-    .error(ErrorKind::InsertEventIdFailed)
-    .transient()?;
+    let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new("conference_internal_event")
+        .execute(&mut conn)
+        .await
+        .error(ErrorKind::InsertEventIdFailed)
+        .transient()?;
 
     let subject = svc_nats_client::Subject::new(
         SUBJECT_PREFIX.to_string(),
@@ -201,15 +198,13 @@ async fn handle_send_notification_stage(
 ) -> Result<(), HandleMessageFailure<Error>> {
     let mut conn = ctx.get_conn().await.transient()?;
 
-    let event = svc_events::Event::from(SendNotificationStageV1 { });
+    let event = svc_events::Event::from(SendNotificationStageV1 {});
 
-    let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new(
-        "conference_internal_event",
-    )
-    .execute(&mut conn)
-    .await
-    .error(ErrorKind::InsertEventIdFailed)
-    .transient()?;
+    let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new("conference_internal_event")
+        .execute(&mut conn)
+        .await
+        .error(ErrorKind::InsertEventIdFailed)
+        .transient()?;
 
     let payload = serde_json::to_vec(&event)
         .context("invalid payload")
@@ -222,13 +217,9 @@ async fn handle_send_notification_stage(
         event_id.entity_type().to_string(),
     );
 
-    let event = svc_nats_client::event::Builder::new(
-        subject,
-        payload,
-        event_id,
-        ctx.agent_id().to_owned(),
-    )
-    .build();
+    let event =
+        svc_nats_client::event::Builder::new(subject, payload, event_id, ctx.agent_id().to_owned())
+            .build();
 
     ctx.nats_client()
         .ok_or_else(|| anyhow!("nats client not found"))
@@ -246,6 +237,6 @@ async fn handle_send_notification_stage(
         .publish(MQTT_NOTIFICATION_LABEL, &topic)
         .error(ErrorKind::MqttPublishFailed)
         .transient()?;
-    
+
     Ok(())
 }

@@ -111,7 +111,10 @@ impl Handler {
                     // Update rtc_reader_configs
                     let _configs = group_reader_config::update(conn, room.id(), groups).await?;
 
-                    let event = svc_events::Event::from(UpdateJanusConfigStageV1 { backend_id: clone_of_backend_id, target_account: agent_id.as_account_id().clone() });
+                    let event = svc_events::Event::from(UpdateJanusConfigStageV1 {
+                        backend_id: clone_of_backend_id,
+                        target_account: agent_id.as_account_id().clone(),
+                    });
 
                     let payload = serde_json::to_vec(&event)
                         .context("serialization failed")
@@ -138,13 +141,13 @@ impl Handler {
                     )
                     .build();
 
-                    clone_of_context.nats_client()
+                    clone_of_context
+                        .nats_client()
                         .ok_or_else(|| anyhow!("nats client not found"))
                         .error(AppErrorKind::NatsClientNotFound)?
                         .publish(&event)
                         .await
                         .error(AppErrorKind::NatsPublishFailed)?;
-
 
                     Ok(event_id)
                 })

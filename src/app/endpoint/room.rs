@@ -13,9 +13,7 @@ use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Authenticable, Subscription,
 };
-use svc_events::{
-    stage::UpdateJanusConfigStageV1,
-};
+use svc_events::stage::UpdateJanusConfigStageV1;
 
 use svc_utils::extractors::AgentIdExtractor;
 use tracing_attributes::instrument;
@@ -735,7 +733,10 @@ impl EnterHandler {
                                     .context("backend not found")
                                     .error(AppErrorKind::BackendNotFound)?;
 
-                                let event = svc_events::Event::from(UpdateJanusConfigStageV1 { backend_id, target_account: agent_id.as_account_id().clone() });
+                                let event = svc_events::Event::from(UpdateJanusConfigStageV1 {
+                                    backend_id,
+                                    target_account: agent_id.as_account_id().clone(),
+                                });
 
                                 let payload = serde_json::to_vec(&event)
                                     .context("serialization failed")
@@ -762,7 +763,8 @@ impl EnterHandler {
                                 )
                                 .build();
 
-                                clone_of_ctx.nats_client()
+                                clone_of_ctx
+                                    .nats_client()
                                     .ok_or_else(|| anyhow!("nats client not found"))
                                     .error(AppErrorKind::NatsClientNotFound)?
                                     .publish(&event)
