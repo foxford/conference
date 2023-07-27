@@ -73,7 +73,7 @@ pub async fn route_message(
             handle_update_janus_config_stage(ctx.as_ref(), e, classroom_id, &room).await
         }
         Event::V1(EventV1::SendNotificationStage(_e)) => {
-            handle_send_notification_stage(ctx.as_ref(), classroom_id, &room).await
+            handle_send_notification_stage(ctx.as_ref(), &room).await
         }
         _ => {
             // ignore
@@ -193,43 +193,8 @@ async fn handle_update_janus_config_stage(
 
 async fn handle_send_notification_stage(
     ctx: &(dyn GlobalContext + Sync),
-    classroom_id: Uuid,
     room: &db::room::Object,
 ) -> Result<(), HandleMessageFailure<Error>> {
-    let mut conn = ctx.get_conn().await.transient()?;
-
-    let event = svc_events::Event::from(SendNotificationStageV1 {});
-
-    let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new("conference_internal_event")
-        .execute(&mut conn)
-        .await
-        .error(ErrorKind::InsertEventIdFailed)
-        .transient()?;
-
-    let payload = serde_json::to_vec(&event)
-        .context("invalid payload")
-        .error(ErrorKind::InvalidPayload)
-        .permanent()?;
-
-    let subject = svc_nats_client::Subject::new(
-        SUBJECT_PREFIX.to_string(),
-        classroom_id,
-        event_id.entity_type().to_string(),
-    );
-
-    let event =
-        svc_nats_client::event::Builder::new(subject, payload, event_id, ctx.agent_id().to_owned())
-            .build();
-
-    ctx.nats_client()
-        .ok_or_else(|| anyhow!("nats client not found"))
-        .error(ErrorKind::NatsClientNotFound)
-        .transient()?
-        .publish(&event)
-        .await
-        .error(ErrorKind::NatsPublishFailed)
-        .transient()?;
-
     let topic = format!("rooms/{}/events", room.id);
 
     ctx.mqtt_client()
