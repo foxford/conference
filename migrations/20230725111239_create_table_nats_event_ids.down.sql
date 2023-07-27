@@ -1,1 +1,1 @@
--- do not revert anything since we didn't change db schema
+DROP TABLE IF EXISTS nats_event_ids;
