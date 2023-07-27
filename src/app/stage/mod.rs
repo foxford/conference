@@ -73,10 +73,10 @@ pub async fn route_message(
     #[allow(clippy::match_single_binding)]
     let r: Result<(), HandleMessageFailure<Error>> = match event {
         Event::V1(EventV1::UpdateJanusConfigStage(e)) => {
-            handle_update_janus_config_stage(ctx.as_ref(), e, &room, subject, &headers).await
+            handle_update_janus_config_stage(ctx.as_ref(), e, classroom_id, &room, &headers).await
         },
         Event::V1(EventV1::SendNotificationStage(e)) => {
-            handle_send_notification_stage(ctx.as_ref(), classroom_id, &room, subject).await
+            handle_send_notification_stage(ctx.as_ref(), classroom_id, &room).await
         },
         _ => {
             // ignore
@@ -90,8 +90,8 @@ pub async fn route_message(
 async fn handle_update_janus_config_stage(
     ctx: &(dyn GlobalContext + Sync),
     e: UpdateJanusConfigStageV1,
+    classroom_id: Uuid,
     room: &db::room::Object,
-    subject: Subject,
     headers: &svc_nats_client::Headers,
 ) -> Result<(), HandleMessageFailure<Error>> {
     let mut conn = ctx.get_conn().await.transient()?;
@@ -171,6 +171,12 @@ async fn handle_update_janus_config_stage(
     .error(ErrorKind::InsertEventIdFailed)
     .transient()?;
 
+    let subject = svc_nats_client::Subject::new(
+        SUBJECT_PREFIX.to_string(),
+        classroom_id,
+        event_id.entity_type().to_string(),
+    );
+
     let event = svc_nats_client::event::Builder::new(
         subject,
         payload,
@@ -195,7 +201,6 @@ async fn handle_send_notification_stage(
     ctx: &(dyn GlobalContext + Sync),
     classroom_id: Uuid,
     room: &db::room::Object,
-    subject: Subject,
 ) -> Result<(), HandleMessageFailure<Error>> {
     let mut conn = ctx.get_conn().await.transient()?;
 
@@ -214,14 +219,14 @@ async fn handle_send_notification_stage(
         .error(ErrorKind::InvalidPayload)
         .permanent()?;
 
-    let subject_with_prefix = svc_nats_client::Subject::new(
+    let subject = svc_nats_client::Subject::new(
         SUBJECT_PREFIX.to_string(),
         classroom_id,
         event_id.entity_type().to_string(),
     );
 
     let event = svc_nats_client::event::Builder::new(
-        subject_with_prefix,
+        subject,
         payload,
         event_id,
         ctx.agent_id().to_owned(),
