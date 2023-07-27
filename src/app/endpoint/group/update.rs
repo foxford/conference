@@ -10,7 +10,7 @@ use crate::{
         group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::{self, video_group::VideoGroupUpdateJanusConfig, AppStage},
+        stage::{self, video_group::VideoGroupUpdateJanusConfig, AppStage, video_group::SUBJECT_PREFIX},
     },
     authz::AuthzObject,
     backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
@@ -141,16 +141,15 @@ impl Handler {
                         .context("serialization failed")
                         .error(AppErrorKind::StageSerializationFailed)?;
 
-                    let sequence_id = Utc::now().timestamp_nanos();
-
-                    let event_id = EventId::from((
-                        "conference_internal_event".to_string(),
-                        "update_janus_config_stage".to_string(),
-                        sequence_id,
-                    ));
+                    let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new(
+                        "conference_internal_event",
+                    )
+                    .execute(conn)
+                    .await
+                    .error(AppErrorKind::InsertEventIdFailed)?;
 
                     let subject = svc_nats_client::Subject::new(
-                        "classroom_id".to_string(),
+                        SUBJECT_PREFIX.to_string(),
                         room.classroom_id(),
                         event_id.entity_type().to_string(),
                     );

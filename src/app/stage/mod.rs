@@ -32,6 +32,7 @@ use crate::app::{
     stage::video_group::{MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
 };
 
+pub mod nats_ids;
 pub mod video_group;
 
 #[allow(clippy::enum_variant_names)]
@@ -190,19 +191,19 @@ async fn handle_update_janus_config_stage(
         .error(ErrorKind::BackendRequestFailed)
         .transient()?;
 
-
-    let event_id = headers.event_id();
     let event = Event::from(SendNotificationStageV1 { });
 
     let payload = serde_json::to_vec(&event)
         .error(ErrorKind::InvalidPayload)
         .permanent()?;
 
-    let event_id = EventId::from((
-        event_id.entity_type().to_owned(),
-        "update_janus_config_stage".to_owned(),
-        event_id.sequence_id(),
-    ));
+    let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new(
+        "conference_internal_event",
+    )
+    .execute(&mut conn)
+    .await
+    .error(ErrorKind::InsertEventIdFailed)
+    .transient()?;
 
     let event = svc_nats_client::event::Builder::new(
         subject,
@@ -230,15 +231,17 @@ async fn handle_send_notification_stage(
     room: &db::room::Object,
     subject: Subject,
 ) -> Result<(), HandleMessageFailure<Error>> {
+    let mut conn = ctx.get_conn().await.transient()?;
+
     let event = svc_events::Event::from(SendNotificationStageV1 { });
 
-    let sequence_id = Utc::now().timestamp_nanos();
-
-    let event_id = EventId::from((
-        "conference_internal_event".to_string(),
-        "send_mqtt_notification_stage".to_string(),
-        sequence_id,
-    ));
+    let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new(
+        "conference_internal_event",
+    )
+    .execute(&mut conn)
+    .await
+    .error(ErrorKind::InsertEventIdFailed)
+    .transient()?;
 
     let payload = serde_json::to_vec(&event)
         .context("invalid payload")
