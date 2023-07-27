@@ -2,10 +2,6 @@ use crate::{
     app::{
         context::GlobalContext,
         error::Error,
-        stage::video_group::{
-            VideoGroupSendMqttNotification, VideoGroupSendNatsNotification,
-            VideoGroupUpdateJanusConfig,
-        },
     },
     backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequestBody,
@@ -13,7 +9,6 @@ use crate::{
         UpdateReaderConfigRequest,
     },
     db::{self, room::FindQueryable},
-    outbox::{error::StageError, StageHandle},
 };
 use anyhow::{anyhow, Context};
 use chrono::Utc;
@@ -34,35 +29,6 @@ use crate::app::{
 
 pub mod nats_ids;
 pub mod video_group;
-
-#[allow(clippy::enum_variant_names)]
-#[derive(Deserialize, Serialize, Clone)]
-#[serde(tag = "name")]
-pub enum AppStage {
-    VideoGroupUpdateJanusConfig(VideoGroupUpdateJanusConfig),
-    VideoGroupSendNatsNotification(VideoGroupSendNatsNotification),
-    VideoGroupSendMqttNotification(VideoGroupSendMqttNotification),
-}
-
-#[async_trait::async_trait]
-impl StageHandle for AppStage {
-    type Context = Arc<dyn GlobalContext + Send + Sync>;
-    type Stage = AppStage;
-
-    async fn handle(&self, ctx: &Self::Context, id: &EventId) -> Result<Option<Self>, StageError> {
-        match self {
-            AppStage::VideoGroupUpdateJanusConfig(s) => s.handle(ctx, id).await,
-            AppStage::VideoGroupSendNatsNotification(s) => s.handle(ctx, id).await,
-            AppStage::VideoGroupSendMqttNotification(s) => s.handle(ctx, id).await,
-        }
-    }
-}
-
-impl From<Error> for StageError {
-    fn from(error: Error) -> Self {
-        StageError::new(error.error_kind().kind().into(), Box::new(error))
-    }
-}
 
 pub async fn route_message(
     ctx: Arc<dyn GlobalContext + Sync + Send>,

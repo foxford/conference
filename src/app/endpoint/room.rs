@@ -36,8 +36,7 @@ use crate::{
         service_utils::{RequestParams, Response},
         stage::{
             self,
-            video_group::{VideoGroupUpdateJanusConfig, MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
-            AppStage,
+            video_group::{MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
         },
         API_VERSION,
     },

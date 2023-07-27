@@ -1,6 +1,5 @@
 use std::{error::Error as StdError, fmt, sync::Arc};
 
-use crate::outbox::error::PipelineError;
 use enum_iterator::IntoEnumIterator;
 use svc_agent::mqtt::ResponseStatus;
 use svc_error::{extension::sentry, Error as SvcError};
@@ -469,8 +468,3 @@ impl<T, E: Into<anyhow::Error>> ErrorExt<T> for Result<T, E> {
     }
 }
 
-impl From<PipelineError> for Error {
-    fn from(error: PipelineError) -> Self {
-        Error::new(ErrorKind::OutboxPipelineError, error)
-    }
-}

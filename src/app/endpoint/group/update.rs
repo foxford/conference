@@ -10,7 +10,7 @@ use crate::{
         group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::{self, video_group::VideoGroupUpdateJanusConfig, AppStage, video_group::SUBJECT_PREFIX},
+        stage::{self, video_group::SUBJECT_PREFIX},
     },
     authz::AuthzObject,
     backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
