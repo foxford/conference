@@ -180,8 +180,6 @@ pub async fn run(
         _ => tokio::spawn(std::future::ready(Ok(()))),
     };
 
-    let outbox_handler = outbox_handler::run(ctx, graceful_rx.clone())?;
-
     // Message handler
     let message_handler = Arc::new(MessageHandler::new(agent.clone(), context));
     {
@@ -217,10 +215,6 @@ pub async fn run(
         .janus_clients()
         .stop_polling();
     reg_handler.abort();
-
-    if let Err(err) = outbox_handler.await {
-        error!(%err, "failed to await outbox handler completion");
-    }
 
     if let Err(err) = nats_consumer.await {
         tracing::error!(%err, "nats consumer failed");
@@ -403,5 +397,4 @@ pub mod metrics;
 pub mod service_utils;
 
 mod group_reader_config;
-mod outbox_handler;
 mod stage;

@@ -1,7 +1,6 @@
 use crate::outbox::error::StageError;
 use svc_events::EventId;
 
-pub mod config;
 pub mod db;
 pub mod error;
 pub mod pipeline;
