@@ -12,6 +12,11 @@ jobs:
   ci:
     runs-on: ubuntu-latest
 
+    env:
+      RUST_BACKTRACE: 1
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      SQLX_OFFLINE: true
+
     services:
       postgres:
         image: postgres
@@ -34,25 +39,17 @@ jobs:
           override: true
           components: rustfmt, clippy
     - uses: Swatinem/rust-cache@v1
-    - name: clippy
-      run: cargo clippy -- -D warnings
     - name: fmt
       run: cargo fmt -- --check
-    - name: Login into private registry
-      run: |
-        printf "%s" "${DOCKER_PASSWORD}" | docker login -u ${DOCKER_USERNAME} --password-stdin cr.yandex
-      env:
-        DOCKER_PASSWORD: ${{ secrets.YANDEX_DOCKER_PASSWORD }}
-        DOCKER_USERNAME: ${{ secrets.YANDEX_DOCKER_USERNAME }}
     - name: Install sqlx-cli
       run: cargo install sqlx-cli --version 0.6.3 --no-default-features -F native-tls,postgres
-    - name: Run tests
+    - name: Run migrations
       run: >
         cargo sqlx database create &&
         cargo sqlx migrate run &&
-        cargo sqlx prepare --check -- --tests &&
+        cargo sqlx prepare --check -- --tests
+    - name: clippy
+      run: cargo clippy -- -D warnings
+    - name: Run tests
+      run: >
         cargo test
-      env:
-        RUST_BACKTRACE: 1
-        DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-        SQLX_OFFLINE: true
