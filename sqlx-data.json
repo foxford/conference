@@ -1537,221 +1537,6 @@
     },
     "query": "\n            DELETE FROM agent_connection AS ac\n            USING agent AS a,\n                room AS r\n            WHERE a.id = ac.agent_id\n            AND   r.id = a.room_id\n            AND   r.backend_id = $1\n            "
   },
-  "342585c3b8a41f65607a5e6c567dc4d2c8c098fa460c7d9612880d00b42421bf": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id: Id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "backend_id: AgentId",
-          "ordinal": 1,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Composite": [
-                  [
-                    "account_id",
-                    {
-                      "Custom": {
-                        "kind": {
-                          "Composite": [
-                            [
-                              "label",
-                              "Text"
-                            ],
-                            [
-                              "audience",
-                              "Text"
-                            ]
-                          ]
-                        },
-                        "name": "account_id"
-                      }
-                    }
-                  ],
-                  [
-                    "label",
-                    "Text"
-                  ]
-                ]
-              },
-              "name": "agent_id"
-            }
-          }
-        },
-        {
-          "name": "time: TimePg",
-          "ordinal": 2,
-          "type_info": "TstzRange"
-        },
-        {
-          "name": "reserve",
-          "ordinal": 3,
-          "type_info": "Int4"
-        },
-        {
-          "name": "tags",
-          "ordinal": 4,
-          "type_info": "Json"
-        },
-        {
-          "name": "classroom_id",
-          "ordinal": 5,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "host: AgentId",
-          "ordinal": 6,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Composite": [
-                  [
-                    "account_id",
-                    {
-                      "Custom": {
-                        "kind": {
-                          "Composite": [
-                            [
-                              "label",
-                              "Text"
-                            ],
-                            [
-                              "audience",
-                              "Text"
-                            ]
-                          ]
-                        },
-                        "name": "account_id"
-                      }
-                    }
-                  ],
-                  [
-                    "label",
-                    "Text"
-                  ]
-                ]
-              },
-              "name": "agent_id"
-            }
-          }
-        },
-        {
-          "name": "timed_out",
-          "ordinal": 7,
-          "type_info": "Bool"
-        },
-        {
-          "name": "audience",
-          "ordinal": 8,
-          "type_info": "Text"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 9,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "backend: RoomBackend",
-          "ordinal": 10,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "none",
-                  "janus"
-                ]
-              },
-              "name": "room_backend"
-            }
-          }
-        },
-        {
-          "name": "rtc_sharing_policy: RtcSharingPolicy",
-          "ordinal": 11,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "none",
-                  "shared",
-                  "owned"
-                ]
-              },
-              "name": "rtc_sharing_policy"
-            }
-          }
-        },
-        {
-          "name": "infinite",
-          "ordinal": 12,
-          "type_info": "Bool"
-        },
-        {
-          "name": "closed_by: AgentId",
-          "ordinal": 13,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Composite": [
-                  [
-                    "account_id",
-                    {
-                      "Custom": {
-                        "kind": {
-                          "Composite": [
-                            [
-                              "label",
-                              "Text"
-                            ],
-                            [
-                              "audience",
-                              "Text"
-                            ]
-                          ]
-                        },
-                        "name": "account_id"
-                      }
-                    }
-                  ],
-                  [
-                    "label",
-                    "Text"
-                  ]
-                ]
-              },
-              "name": "agent_id"
-            }
-          }
-        }
-      ],
-      "nullable": [
-        false,
-        true,
-        false,
-        true,
-        false,
-        false,
-        true,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            SELECT\n                id as \"id: Id\",\n                backend_id as \"backend_id: AgentId\",\n                time as \"time: TimePg\",\n                reserve,\n                tags,\n                classroom_id,\n                host as \"host: AgentId\",\n                timed_out,\n                audience,\n                created_at,\n                backend as \"backend: RoomBackend\",\n                rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n                infinite,\n                closed_by as \"closed_by: AgentId\"\n            FROM room\n            WHERE\n                id = $1\n            "
-  },
   "35409b6434deb01d12d413332fd2841f42766c32da76e508a6fd78c2f4ad59f2": {
     "describe": {
       "columns": [
@@ -1855,7 +1640,7 @@
     },
     "query": "\n            INSERT INTO rtc (room_id, created_by)\n            VALUES ($1, $2)\n            RETURNING\n                id as \"id: Id\",\n                room_id as \"room_id: Id\",\n                created_at,\n                created_by as \"created_by: AgentId\"\n            "
   },
-  "5537b9e1b2e15acd1f28f6c58a561b5774d1e124d04e1ee9c90cb0ec88d79bdc": {
+  "42d6513794f521c855792fc97e30a370576419cf40325439b457b61475e0879c": {
     "describe": {
       "columns": [
         {
@@ -1869,121 +1654,23 @@
           "type_info": "Text"
         },
         {
-          "name": "stage",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "delivery_deadline_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "error_kind",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "retry_count",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
           "name": "created_at",
-          "ordinal": 6,
+          "ordinal": 2,
           "type_info": "Timestamptz"
-        },
-        {
-          "name": "operation",
-          "ordinal": 7,
-          "type_info": "Text"
         }
       ],
       "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
         false,
         false,
         false
       ],
       "parameters": {
         "Left": [
-          "Int8",
-          "Text",
           "Text"
         ]
       }
     },
-    "query": "\n            SELECT\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at,\n                operation\n            FROM outbox\n            WHERE\n                id = $1 AND\n                entity_type = $2 AND\n                operation = $3\n            FOR UPDATE SKIP LOCKED\n            "
-  },
-  "575deae95c042d453677a354b8f1f5de0d15e8415e9c1ac6c6e425928cafbdee": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "entity_type",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "stage",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "delivery_deadline_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "error_kind",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "retry_count",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 6,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "operation",
-          "ordinal": 7,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Timestamptz",
-          "Text",
-          "Int8",
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "\n            UPDATE outbox\n            SET\n                delivery_deadline_at = $1,\n                retry_count = retry_count + 1,\n                error_kind = $2\n            WHERE\n                id = $3 AND\n                entity_type = $4 AND\n                operation = $5\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at,\n                operation\n            "
+    "query": "\n            INSERT INTO nats_event_ids (entity_type)\n            VALUES ($1)\n            RETURNING\n                id,\n                entity_type,\n                created_at\n            "
   },
   "5778cf98aff0f0aebc2b6d7b0124af2724de2829b299ced59822eee9dc0a49b7": {
     "describe": {
@@ -2217,68 +1904,6 @@
     },
     "query": "\n            SELECT\n                id as \"id: AgentId\",\n                handle_id as \"handle_id: HandleId\",\n                session_id as \"session_id: SessionId\",\n                created_at,\n                capacity,\n                balancer_capacity,\n                api_version,\n                \"group\",\n                janus_url\n            FROM janus_backend\n            WHERE\n                id = $1\n            LIMIT 1\n            "
   },
-  "67b644ead721f6244f1867669aefd53defc6e4e800f5f201b066e4a1e34d01bc": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "entity_type",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "stage",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "delivery_deadline_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "error_kind",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "retry_count",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 6,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "operation",
-          "ordinal": 7,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int8"
-        ]
-      }
-    },
-    "query": "\n            SELECT\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at,\n                operation\n            FROM outbox\n            WHERE\n                delivery_deadline_at <= now()\n            LIMIT $1\n            FOR UPDATE SKIP LOCKED\n            "
-  },
   "6e723d4966ac8eda05d95aee12842d28a175139c4b71e51aaa4373fb190896bc": {
     "describe": {
       "columns": [],
@@ -2290,6 +1915,222 @@
       }
     },
     "query": "\n            DELETE FROM agent\n            WHERE\n                created_at < $1\n            "
+  },
+  "78acec91d5e5e90db0f511ef0a2c4e9302752a686430b909d25bb91d1865a2bb": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 2,
+          "type_info": "TstzRange"
+        },
+        {
+          "name": "reserve",
+          "ordinal": 3,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tags",
+          "ordinal": 4,
+          "type_info": "Json"
+        },
+        {
+          "name": "classroom_id",
+          "ordinal": 5,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "host: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "timed_out",
+          "ordinal": 7,
+          "type_info": "Bool"
+        },
+        {
+          "name": "audience",
+          "ordinal": 8,
+          "type_info": "Text"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 9,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "backend: RoomBackend",
+          "ordinal": 10,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "janus"
+                ]
+              },
+              "name": "room_backend"
+            }
+          }
+        },
+        {
+          "name": "rtc_sharing_policy: RtcSharingPolicy",
+          "ordinal": 11,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "none",
+                  "shared",
+                  "owned"
+                ]
+              },
+              "name": "rtc_sharing_policy"
+            }
+          }
+        },
+        {
+          "name": "infinite",
+          "ordinal": 12,
+          "type_info": "Bool"
+        },
+        {
+          "name": "closed_by: AgentId",
+          "ordinal": 13,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id as \"id: Id\",\n                backend_id as \"backend_id: AgentId\",\n                time as \"time: TimePg\",\n                reserve,\n                tags,\n                classroom_id,\n                host as \"host: AgentId\",\n                timed_out,\n                audience,\n                created_at,\n                backend as \"backend: RoomBackend\",\n                rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n                infinite,\n                closed_by as \"closed_by: AgentId\"\n            FROM room\n            WHERE\n                ($1::uuid IS NULL OR id = $1)\n            AND ($2::uuid IS NULL OR classroom_id = $2)\n            "
   },
   "7a1be1815f97d69529318ee73e3327473de9a057311ee43a129488a1b41e7eda": {
     "describe": {
@@ -3079,132 +2920,6 @@
       }
     },
     "query": "\n            SELECT COUNT(1) as \"count!: i64\"\n            FROM agent_connection\n            "
-  },
-  "a7849939a4b2610e4545ec18d6d1eebde0d740bf172e19213fd2ffcc5ce2c560": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id: db::id::Id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "handle_id: HandleId",
-          "ordinal": 1,
-          "type_info": "Int8"
-        },
-        {
-          "name": "rtc_id: Id",
-          "ordinal": 2,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "backend_id: AgentId",
-          "ordinal": 3,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Composite": [
-                  [
-                    "account_id",
-                    {
-                      "Custom": {
-                        "kind": {
-                          "Composite": [
-                            [
-                              "label",
-                              "Text"
-                            ],
-                            [
-                              "audience",
-                              "Text"
-                            ]
-                          ]
-                        },
-                        "name": "account_id"
-                      }
-                    }
-                  ],
-                  [
-                    "label",
-                    "Text"
-                  ]
-                ]
-              },
-              "name": "agent_id"
-            }
-          }
-        },
-        {
-          "name": "created_at",
-          "ordinal": 4,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "label",
-          "ordinal": 5,
-          "type_info": "Text"
-        },
-        {
-          "name": "sent_by: AgentId",
-          "ordinal": 6,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Composite": [
-                  [
-                    "account_id",
-                    {
-                      "Custom": {
-                        "kind": {
-                          "Composite": [
-                            [
-                              "label",
-                              "Text"
-                            ],
-                            [
-                              "audience",
-                              "Text"
-                            ]
-                          ]
-                        },
-                        "name": "account_id"
-                      }
-                    }
-                  ],
-                  [
-                    "label",
-                    "Text"
-                  ]
-                ]
-              },
-              "name": "agent_id"
-            }
-          }
-        },
-        {
-          "name": "time: TimePg",
-          "ordinal": 7,
-          "type_info": "TstzRange"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n        SELECT\n            \"janus_rtc_stream\".\"id\" as \"id: db::id::Id\",\n            \"janus_rtc_stream\".\"handle_id\" as \"handle_id: HandleId\",\n            \"janus_rtc_stream\".\"rtc_id\" as \"rtc_id: Id\",\n            \"janus_rtc_stream\".\"backend_id\" as \"backend_id: AgentId\",\n            \"janus_rtc_stream\".\"created_at\",\n            \"janus_rtc_stream\".\"label\",\n            \"janus_rtc_stream\".\"sent_by\" as \"sent_by: AgentId\",\n            \"janus_rtc_stream\".\"time\" as \"time: TimePg\"\n        FROM janus_rtc_stream\n        WHERE\n            id = $1\n        "
   },
   "a7dc74377f99ca1c9dc1ab08e76a438df0a78059aaa18bd73e09c77a67248fed": {
     "describe": {
@@ -5333,135 +5048,6 @@
       }
     },
     "query": "\n        UPDATE room\n        SET\n            closed_by = $2,\n            time = TSTZRANGE(LOWER(time), NOW())\n        WHERE\n            id = $1\n        RETURNING\n            id as \"id: Id\",\n            backend_id as \"backend_id: AgentId\",\n            time as \"time: TimePg\",\n            reserve,\n            tags,\n            classroom_id,\n            host as \"host: AgentId\",\n            timed_out,\n            audience,\n            created_at,\n            backend as \"backend: RoomBackend\",\n            rtc_sharing_policy as \"rtc_sharing_policy: RtcSharingPolicy\",\n            infinite,\n            closed_by as \"closed_by: AgentId\"\n        "
-  },
-  "f74e7d8730dbf0fba320b4dfdd4d7bee445482fa30aca8ddb8be40c8fc9d2ff1": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "entity_type",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "stage",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "delivery_deadline_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "error_kind",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "retry_count",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 6,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "operation",
-          "ordinal": 7,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "\n            DELETE FROM outbox\n            WHERE\n                id = $1 AND\n                entity_type = $2 AND\n                operation = $3\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at,\n                operation\n            "
-  },
-  "f884af99efaf47a6fac984d14c1e5bd5362c8e24fc15c89ab04d95390bb23629": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "entity_type",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "stage",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "delivery_deadline_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "error_kind",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "retry_count",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 6,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "operation",
-          "ordinal": 7,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Jsonb",
-          "Timestamptz",
-          "Text"
-        ]
-      }
-    },
-    "query": "\n            INSERT INTO outbox (entity_type, stage, delivery_deadline_at, operation)\n            VALUES ($1, $2, $3, $4)\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at,\n                operation\n            "
   },
   "f8a30af947d51edc8af110a348fa6f23ac9c6f602bc42367bdfc70a5be704d5d": {
     "describe": {
