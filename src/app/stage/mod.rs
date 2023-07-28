@@ -66,8 +66,6 @@ pub async fn route_message(
         .permanent()?;
     let _agent_id = headers.sender_id();
 
-    // TODO: remove after adding more match bindings
-    #[allow(clippy::match_single_binding)]
     let r: Result<(), HandleMessageFailure<Error>> = match event {
         Event::V1(EventV1::UpdateJanusConfigStage(e)) => {
             handle_update_janus_config_stage(ctx.as_ref(), e, classroom_id, &room).await
