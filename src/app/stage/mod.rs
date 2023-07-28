@@ -2,13 +2,11 @@ use crate::{
     app::{context::GlobalContext, error::Error},
     backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
-        UpdateReaderConfigRequestBodyConfigItem,
     },
     db::{self, room::FindQueryable},
 };
 use anyhow::{anyhow, Context};
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
-use svc_authz::Authenticable;
 use svc_events::{
     stage::{SendNotificationStageV1, UpdateJanusConfigStageV1},
     Event, EventV1,
@@ -68,7 +66,7 @@ pub async fn route_message(
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
         Event::V1(EventV1::UpdateJanusConfigStage(e)) => {
-            handle_update_janus_config_stage(ctx.as_ref(), e, classroom_id, &room).await
+            handle_update_janus_config_stage(ctx.as_ref(), e, classroom_id).await
         }
         Event::V1(EventV1::SendNotificationStage(_e)) => {
             handle_send_notification_stage(ctx.as_ref(), &room).await
@@ -86,7 +84,6 @@ async fn handle_update_janus_config_stage(
     ctx: &(dyn GlobalContext + Sync),
     e: UpdateJanusConfigStageV1,
     classroom_id: Uuid,
-    room: &db::room::Object,
 ) -> Result<(), HandleMessageFailure<Error>> {
     let mut conn = ctx.get_conn().await.transient()?;
 
