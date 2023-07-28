@@ -30,24 +30,29 @@ jobs:
     - name: Install latest stable
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: stable
-        override: true
-        components: rustfmt, clippy
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
     - uses: Swatinem/rust-cache@v1
-    - name: fmt
-      run: cargo fmt -- --check
     - name: clippy
       run: cargo clippy -- -D warnings
-    - name: Run tests
-      run: cargo test
+    - name: fmt
+      run: cargo fmt -- --check
+    - name: Login into private registry
+      run: |
+        printf "%s" "${DOCKER_PASSWORD}" | docker login -u ${DOCKER_USERNAME} --password-stdin cr.yandex
+      env:
+        DOCKER_PASSWORD: ${{ secrets.YANDEX_DOCKER_PASSWORD }}
+        DOCKER_USERNAME: ${{ secrets.YANDEX_DOCKER_USERNAME }}
     - name: Install sqlx-cli
       run: cargo install sqlx-cli --version 0.6.3 --no-default-features -F native-tls,postgres
-    - name: Run migrations and check sqlx-data.json
+    - name: Run tests
+      run: >
+        cargo sqlx database create &&
+        cargo sqlx migrate run &&
+        cargo sqlx prepare --check -- --tests &&
+        cargo test
       env:
         RUST_BACKTRACE: 1
         DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
         SQLX_OFFLINE: true
-      run: |
-        cargo sqlx database create
-        cargo sqlx migrate run
-        cargo sqlx prepare --check -- --tests
