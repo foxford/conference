@@ -44,7 +44,7 @@ jobs:
     - name: Install sqlx-cli
       run: cargo install sqlx-cli --version 0.6.3 --no-default-features -F native-tls,postgres
     - name: Run migrations
-      run: >
+      run: |
         cargo sqlx database create
         cargo sqlx migrate run
     - name: clippy
