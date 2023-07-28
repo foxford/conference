@@ -99,46 +99,15 @@ async fn handle_update_janus_config_stage(
         .error(ErrorKind::BackendNotFound)
         .transient()?;
 
-    let rtcs = db::rtc::ListQuery::new()
-        .room_id(room.id)
-        .execute(&mut conn)
-        .await
-        .error(ErrorKind::DbQueryFailed)
-        .transient()?;
-
-    let target_rtc = rtcs
-        .iter()
-        .find(|r| *r.created_by().as_account_id() == e.target_account)
-        .ok_or_else(|| anyhow!("agent is not in the room"))
-        .error(ErrorKind::AgentNotConnected)
-        .transient()?;
-
-    let mut configs = vec![];
-
-    for rtc in rtcs.iter() {
-        let receive_video = room
-            .host()
-            // always receive video for hosts
-            .map(|h| h == rtc.created_by())
-            .unwrap_or(true);
-
-        let receive_audio = true;
-        let stream_id = target_rtc.id;
-        let reader_id = rtc.created_by();
-
-        let cfg = UpdateReaderConfigRequestBodyConfigItem {
-            reader_id: reader_id.clone(),
-            stream_id,
-            receive_video,
-            receive_audio,
-        };
-        configs.push(cfg);
-    }
+    let configs = serde_json::from_str(&e.configs)
+        .context("parse configs")
+        .error(ErrorKind::StageSerializationFailed)
+        .permanent()?;
 
     let request = UpdateReaderConfigRequest {
         session_id: janus_backend.session_id(),
         handle_id: janus_backend.handle_id(),
-        body: UpdateReaderConfigRequestBody::new(configs.clone()),
+        body: UpdateReaderConfigRequestBody::new(configs),
     };
 
     ctx.janus_clients()

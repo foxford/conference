@@ -13,6 +13,7 @@ use crate::{
         stage::video_group::SUBJECT_PREFIX,
     },
     authz::AuthzObject,
+    backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
     db::{self, group_agent::Groups},
 };
 use anyhow::{anyhow, Context};
@@ -110,11 +111,27 @@ impl Handler {
                             .await?;
 
                         // Update rtc_reader_configs
-                        let _configs = group_reader_config::update(conn, room.id(), groups).await?;
+                        let configs = group_reader_config::update(conn, room.id(), groups).await?;
+
+                        // Generate configs for janus
+                        let items = configs
+                            .into_iter()
+                            .map(|((rtc_id, agent_id), value)| {
+                                UpdateReaderConfigRequestBodyConfigItem {
+                                    reader_id: agent_id,
+                                    stream_id: rtc_id,
+                                    receive_video: value,
+                                    receive_audio: value,
+                                }
+                            })
+                            .collect::<Vec<_>>();
 
                         let event = svc_events::Event::from(UpdateJanusConfigStageV1 {
                             backend_id,
                             target_account: agent_id.as_account_id().clone(),
+                            configs: serde_json::to_string(&items)
+                                .context("serialization failed")
+                                .error(AppErrorKind::StageSerializationFailed)?,
                         });
 
                         let payload = serde_json::to_vec(&event)

@@ -27,12 +27,14 @@ use crate::{
             rtc::{RtcCreate, RtcCreateResult},
             subscription::CorrelationDataPayload,
         },
+        group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
         stage::video_group::{MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
         API_VERSION,
     },
     authz::AuthzObject,
+    backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
     client::mqtt_gateway::MqttGatewayClient,
     db::{
         self,
@@ -709,77 +711,95 @@ impl EnterHandler {
 
             let maybe_event_id = {
                 let ctx = ctx.clone();
-                conn
-                    .transaction::<_, _, AppError>(|conn| {
-                        Box::pin(async move {
-                            let group_agent = db::group_agent::FindQuery::new(room_id)
+                conn.transaction::<_, _, AppError>(|conn| {
+                    Box::pin(async move {
+                        let group_agent = db::group_agent::FindQuery::new(room_id)
+                            .execute(conn)
+                            .await?;
+
+                        let groups = group_agent.groups();
+                        let agent_exists = groups.is_agent_exist(&agent_id);
+
+                        if !agent_exists {
+                            let changed_groups = groups.add_to_default_group(&agent_id);
+                            db::group_agent::UpsertQuery::new(room_id, &changed_groups)
                                 .execute(conn)
                                 .await?;
 
-                            let groups = group_agent.groups();
-                            let agent_exists = groups.is_agent_exist(&agent_id);
+                            // Check the number of groups, and if there are more than 1,
+                            // then create RTC reader configs for participants from other groups
+                            if groups.len() > 1 {
+                                let backend_id = room
+                                    .backend_id()
+                                    .cloned()
+                                    .context("backend not found")
+                                    .error(AppErrorKind::BackendNotFound)?;
 
-                            if !agent_exists {
-                                let changed_groups = groups.add_to_default_group(&agent_id);
-                                db::group_agent::UpsertQuery::new(room_id, &changed_groups)
-                                    .execute(conn)
-                                    .await?;
+                                let configs =
+                                    group_reader_config::update(conn, room_id, changed_groups)
+                                        .await?;
 
-                                // Check the number of groups, and if there are more than 1,
-                                // then create RTC reader configs for participants from other groups
-                                if groups.len() > 1 {
-                                    let backend_id = room
-                                        .backend_id()
-                                        .cloned()
-                                        .context("backend not found")
-                                        .error(AppErrorKind::BackendNotFound)?;
+                                // Generate configs for janus
+                                let items = configs
+                                    .into_iter()
+                                    .map(|((rtc_id, agent_id), value)| {
+                                        UpdateReaderConfigRequestBodyConfigItem {
+                                            reader_id: agent_id,
+                                            stream_id: rtc_id,
+                                            receive_video: value,
+                                            receive_audio: value,
+                                        }
+                                    })
+                                    .collect::<Vec<_>>();
 
-                                    let event = svc_events::Event::from(UpdateJanusConfigStageV1 {
-                                        backend_id,
-                                        target_account: agent_id.as_account_id().clone(),
-                                    });
-
-                                    let payload = serde_json::to_vec(&event)
+                                let event = svc_events::Event::from(UpdateJanusConfigStageV1 {
+                                    backend_id,
+                                    target_account: agent_id.as_account_id().clone(),
+                                    configs: serde_json::to_string(&items)
                                         .context("serialization failed")
-                                        .error(AppErrorKind::StageSerializationFailed)?;
+                                        .error(AppErrorKind::StageSerializationFailed)?,
+                                });
 
-                                    let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new(
-                                        "conference_internal_event",
-                                    )
-                                    .execute(conn)
+                                let payload = serde_json::to_vec(&event)
+                                    .context("serialization failed")
+                                    .error(AppErrorKind::StageSerializationFailed)?;
+
+                                let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new(
+                                    "conference_internal_event",
+                                )
+                                .execute(conn)
+                                .await
+                                .error(AppErrorKind::InsertEventIdFailed)?;
+
+                                let subject = svc_nats_client::Subject::new(
+                                    SUBJECT_PREFIX.to_string(),
+                                    room.classroom_id(),
+                                    event_id.entity_type().to_string(),
+                                );
+
+                                let event = svc_nats_client::event::Builder::new(
+                                    subject,
+                                    payload,
+                                    event_id.to_owned(),
+                                    ctx.agent_id().to_owned(),
+                                )
+                                .build();
+
+                                ctx.nats_client()
+                                    .ok_or_else(|| anyhow!("nats client not found"))
+                                    .error(AppErrorKind::NatsClientNotFound)?
+                                    .publish(&event)
                                     .await
-                                    .error(AppErrorKind::InsertEventIdFailed)?;
+                                    .error(AppErrorKind::NatsPublishFailed)?;
 
-                                    let subject = svc_nats_client::Subject::new(
-                                        SUBJECT_PREFIX.to_string(),
-                                        room.classroom_id(),
-                                        event_id.entity_type().to_string(),
-                                    );
-
-                                    let event = svc_nats_client::event::Builder::new(
-                                        subject,
-                                        payload,
-                                        event_id.to_owned(),
-                                        ctx.agent_id().to_owned(),
-                                    )
-                                    .build();
-
-                                    ctx
-                                        .nats_client()
-                                        .ok_or_else(|| anyhow!("nats client not found"))
-                                        .error(AppErrorKind::NatsClientNotFound)?
-                                        .publish(&event)
-                                        .await
-                                        .error(AppErrorKind::NatsPublishFailed)?;
-
-                                    return Ok(Some(event_id));
-                                }
+                                return Ok(Some(event_id));
                             }
+                        }
 
-                            Ok(None)
-                        })
+                        Ok(None)
                     })
-                    .await?
+                })
+                .await?
             };
 
             match maybe_event_id {
