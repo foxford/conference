@@ -2921,6 +2921,132 @@
     },
     "query": "\n            SELECT COUNT(1) as \"count!: i64\"\n            FROM agent_connection\n            "
   },
+  "a7849939a4b2610e4545ec18d6d1eebde0d740bf172e19213fd2ffcc5ce2c560": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: db::id::Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "handle_id: HandleId",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "backend_id: AgentId",
+          "ordinal": 3,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "label",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "sent_by: AgentId",
+          "ordinal": 6,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "time: TimePg",
+          "ordinal": 7,
+          "type_info": "TstzRange"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        SELECT\n            \"janus_rtc_stream\".\"id\" as \"id: db::id::Id\",\n            \"janus_rtc_stream\".\"handle_id\" as \"handle_id: HandleId\",\n            \"janus_rtc_stream\".\"rtc_id\" as \"rtc_id: Id\",\n            \"janus_rtc_stream\".\"backend_id\" as \"backend_id: AgentId\",\n            \"janus_rtc_stream\".\"created_at\",\n            \"janus_rtc_stream\".\"label\",\n            \"janus_rtc_stream\".\"sent_by\" as \"sent_by: AgentId\",\n            \"janus_rtc_stream\".\"time\" as \"time: TimePg\"\n        FROM janus_rtc_stream\n        WHERE\n            id = $1\n        "
+  },
   "a7dc74377f99ca1c9dc1ab08e76a438df0a78059aaa18bd73e09c77a67248fed": {
     "describe": {
       "columns": [],
