@@ -98,61 +98,63 @@ impl Handler {
             .error(AppErrorKind::BackendNotFound)?;
 
         let mut conn = context.get_conn().await?;
-        let clone_of_context = context.clone();
-        let agent_id = reqp.as_agent_id().clone();
-        let clone_of_backend_id = backend_id.clone();
-        let _event_id = conn
-            .transaction::<_, _, AppError>(|conn| {
-                Box::pin(async move {
-                    db::group_agent::UpsertQuery::new(room.id(), &groups)
+        {
+            let context = context.clone();
+            let agent_id = reqp.as_agent_id().clone();
+            let backend_id = backend_id.clone();
+            let _event_id = conn
+                .transaction::<_, _, AppError>(|conn| {
+                    Box::pin(async move {
+                        db::group_agent::UpsertQuery::new(room.id(), &groups)
+                            .execute(conn)
+                            .await?;
+
+                        // Update rtc_reader_configs
+                        let _configs = group_reader_config::update(conn, room.id(), groups).await?;
+
+                        let event = svc_events::Event::from(UpdateJanusConfigStageV1 {
+                            backend_id,
+                            target_account: agent_id.as_account_id().clone(),
+                        });
+
+                        let payload = serde_json::to_vec(&event)
+                            .context("serialization failed")
+                            .error(AppErrorKind::StageSerializationFailed)?;
+
+                        let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new(
+                            "conference_internal_event",
+                        )
                         .execute(conn)
-                        .await?;
-
-                    // Update rtc_reader_configs
-                    let _configs = group_reader_config::update(conn, room.id(), groups).await?;
-
-                    let event = svc_events::Event::from(UpdateJanusConfigStageV1 {
-                        backend_id: clone_of_backend_id,
-                        target_account: agent_id.as_account_id().clone(),
-                    });
-
-                    let payload = serde_json::to_vec(&event)
-                        .context("serialization failed")
-                        .error(AppErrorKind::StageSerializationFailed)?;
-
-                    let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new(
-                        "conference_internal_event",
-                    )
-                    .execute(conn)
-                    .await
-                    .error(AppErrorKind::InsertEventIdFailed)?;
-
-                    let subject = svc_nats_client::Subject::new(
-                        SUBJECT_PREFIX.to_string(),
-                        room.classroom_id(),
-                        event_id.entity_type().to_string(),
-                    );
-
-                    let event = svc_nats_client::event::Builder::new(
-                        subject,
-                        payload,
-                        event_id.to_owned(),
-                        clone_of_context.agent_id().to_owned(),
-                    )
-                    .build();
-
-                    clone_of_context
-                        .nats_client()
-                        .ok_or_else(|| anyhow!("nats client not found"))
-                        .error(AppErrorKind::NatsClientNotFound)?
-                        .publish(&event)
                         .await
-                        .error(AppErrorKind::NatsPublishFailed)?;
+                        .error(AppErrorKind::InsertEventIdFailed)?;
 
-                    Ok(event_id)
+                        let subject = svc_nats_client::Subject::new(
+                            SUBJECT_PREFIX.to_string(),
+                            room.classroom_id(),
+                            event_id.entity_type().to_string(),
+                        );
+
+                        let event = svc_nats_client::event::Builder::new(
+                            subject,
+                            payload,
+                            event_id.to_owned(),
+                            context.agent_id().to_owned(),
+                        )
+                        .build();
+
+                        context
+                            .nats_client()
+                            .ok_or_else(|| anyhow!("nats client not found"))
+                            .error(AppErrorKind::NatsClientNotFound)?
+                            .publish(&event)
+                            .await
+                            .error(AppErrorKind::NatsPublishFailed)?;
+
+                        Ok(event_id)
+                    })
                 })
-            })
-            .await?;
+                .await?;
+        }
 
         context
             .metrics()
