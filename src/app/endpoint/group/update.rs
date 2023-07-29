@@ -10,11 +10,7 @@ use crate::{
         group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::{
-            self,
-            video_group::{VideoGroupUpdateJanusConfig, MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
-            AppStage,
-        },
+        stage::video_group::{VideoGroupUpdateJanusConfig, SUBJECT_PREFIX},
     },
     authz::AuthzObject,
     backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
@@ -27,8 +23,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sqlx::Connection;
 use std::sync::Arc;
-use svc_agent::{mqtt::ResponseStatus, Addressable};
-use svc_authz::Authenticable;
+use svc_agent::mqtt::ResponseStatus;
 use svc_events::{
     stage::UpdateJanusConfigStageV1, EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent,
 };
@@ -107,7 +102,6 @@ impl Handler {
         let mut conn = context.get_conn().await?;
         {
             let context = context.clone();
-            let agent_id = reqp.as_agent_id().clone();
             let backend_id = backend_id.clone();
             let _event_id = conn
                 .transaction::<_, _, AppError>(|conn| {

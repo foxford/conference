@@ -7,9 +7,6 @@ use crate::{
             VideoGroupUpdateJanusConfig,
         },
     },
-    backend::janus::client::update_agent_reader_config::{
-        UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
-    },
     db::{self, room::FindQueryable},
 };
 use anyhow::{anyhow, Context};
@@ -27,7 +24,7 @@ use uuid::Uuid;
 
 use crate::app::{
     error::{ErrorExt, ErrorKind},
-    stage::video_group::{MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
+    stage::video_group::SUBJECT_PREFIX,
 };
 
 pub mod nats_ids;
@@ -50,10 +47,6 @@ impl std::fmt::Display for StageError {
 impl StageError {
     pub fn new(kind: String, error: BoxError) -> Self {
         Self { kind, error }
-    }
-
-    pub fn kind(&self) -> &str {
-        &self.kind
     }
 }
 
@@ -114,7 +107,7 @@ pub async fn route_message(
         .permanent()?;
 
     let classroom_id = subject.classroom_id();
-    let room = {
+    let _room = {
         let mut conn = ctx
             .get_conn()
             .await
@@ -148,7 +141,7 @@ pub async fn route_message(
             handle_send_nats_notification_stage(ctx.clone(), e, classroom_id).await
         }
         Event::V1(EventV1::SendMqttNotificationStage(e)) => {
-            handle_send_mqtt_notification_stage(ctx.clone(), e, classroom_id).await
+            handle_send_mqtt_notification_stage(ctx.clone(), e).await
         }
         _ => {
             // ignore
@@ -217,7 +210,7 @@ async fn handle_update_janus_config_stage(
                 .error(ErrorKind::NatsPublishFailed)
                 .transient()?;
         }
-        _ => (),
+        _ => (), // TODO: add error handling,
     }
 
     Ok(())
@@ -281,7 +274,7 @@ async fn handle_send_nats_notification_stage(
                 .error(ErrorKind::NatsPublishFailed)
                 .transient()?;
         }
-        _ => (),
+        _ => (), // TODO: add error handling,
     }
 
     Ok(())
@@ -290,7 +283,6 @@ async fn handle_send_nats_notification_stage(
 async fn handle_send_mqtt_notification_stage(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
     e: SendMqttNotificationStageV1,
-    classroom_id: Uuid,
 ) -> Result<(), HandleMessageFailure<Error>> {
     let stage: AppStage = serde_json::from_value(e.stage_state)
         .error(ErrorKind::StageStateDeserializationFailed)
@@ -298,8 +290,8 @@ async fn handle_send_mqtt_notification_stage(
 
     let result = StageHandle::handle(&stage, &ctx, &e.event_id).await;
     match result {
-        Ok(Some(next_stage)) => (),
-        _ => (),
+        Ok(Some(_next_stage)) => (),
+        _ => (), // TODO: add error handling,
     }
 
     Ok(())

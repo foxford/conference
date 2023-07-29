@@ -32,10 +32,8 @@ use crate::{
         group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::{
-            self,
-            video_group::{VideoGroupUpdateJanusConfig, MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
-            AppStage,
+        stage::video_group::{
+            VideoGroupUpdateJanusConfig, MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX,
         },
         API_VERSION,
     },
