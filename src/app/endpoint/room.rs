@@ -13,7 +13,9 @@ use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Authenticable, Subscription,
 };
-use svc_events::{stage::UpdateJanusConfigStageV1, EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
+use svc_events::{
+    stage::UpdateJanusConfigStageV1, EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent,
+};
 
 use svc_utils::extractors::AgentIdExtractor;
 use tracing_attributes::instrument;
@@ -30,7 +32,11 @@ use crate::{
         group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::{self, video_group::{SUBJECT_PREFIX, MQTT_NOTIFICATION_LABEL, VideoGroupUpdateJanusConfig}, AppStage},
+        stage::{
+            self,
+            video_group::{VideoGroupUpdateJanusConfig, MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
+            AppStage,
+        },
         API_VERSION,
     },
     authz::AuthzObject,
@@ -783,7 +789,7 @@ impl EnterHandler {
                                 let payload = serde_json::to_vec(&event)
                                     .context("serialization failed")
                                     .error(AppErrorKind::StageStateSerializationFailed)?;
-                            
+
                                 let subject = svc_nats_client::Subject::new(
                                     SUBJECT_PREFIX.to_string(),
                                     room.classroom_id(),

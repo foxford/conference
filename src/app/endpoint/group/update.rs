@@ -10,7 +10,11 @@ use crate::{
         group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::{self, video_group::{MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX, VideoGroupUpdateJanusConfig}, AppStage},
+        stage::{
+            self,
+            video_group::{VideoGroupUpdateJanusConfig, MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
+            AppStage,
+        },
     },
     authz::AuthzObject,
     backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
@@ -25,7 +29,9 @@ use sqlx::Connection;
 use std::sync::Arc;
 use svc_agent::{mqtt::ResponseStatus, Addressable};
 use svc_authz::Authenticable;
-use svc_events::{stage::UpdateJanusConfigStageV1, EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
+use svc_events::{
+    stage::UpdateJanusConfigStageV1, EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent,
+};
 use svc_utils::extractors::AgentIdExtractor;
 
 #[derive(Deserialize)]
