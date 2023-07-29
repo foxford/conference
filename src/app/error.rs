@@ -52,8 +52,8 @@ pub enum ErrorKind {
     RtcNotFound,
     MethodNotSupported,
     JanusResponseTimeout,
-    OutboxStageSerializationFailed,
-    StageSerializationFailed,
+    StageStateSerializationFailed,
+    StageStateDeserializationFailed,
     MqttPublishFailed,
     NatsPublishFailed,
     NatsClientNotFound,
@@ -303,16 +303,16 @@ impl From<ErrorKind> for ErrorKindProperties {
                 title: "Janus response timeout",
                 is_notify_sentry: true,
             },
-            ErrorKind::OutboxStageSerializationFailed => ErrorKindProperties {
+            ErrorKind::StageStateSerializationFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
-                kind: "outbox_stage_serialization_failed",
-                title: "Outbox stage serialization failed",
+                kind: "stage_state_serialization_failed",
+                title: "Stage state serialization failed",
                 is_notify_sentry: true,
             },
-            ErrorKind::StageSerializationFailed => ErrorKindProperties {
+            ErrorKind::StageStateDeserializationFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
-                kind: "stage_serialization_failed",
-                title: "Stage serialization failed",
+                kind: "stage_state_deserialization_failed",
+                title: "Stage state deserialization failed",
                 is_notify_sentry: true,
             },
             ErrorKind::MqttPublishFailed => ErrorKindProperties {

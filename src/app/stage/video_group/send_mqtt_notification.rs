@@ -2,10 +2,9 @@ use crate::{
     app::{
         context::GlobalContext,
         error::{ErrorExt, ErrorKind},
-        stage::AppStage,
+        stage::{AppStage, StageError, StageHandle},
     },
     db,
-    outbox::{error::StageError, StageHandle},
 };
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

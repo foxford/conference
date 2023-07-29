@@ -2,10 +2,9 @@ use crate::{
     app::{
         context::GlobalContext,
         error::{ErrorExt, ErrorKind},
-        stage::{video_group::VideoGroupSendMqttNotification, AppStage},
+        stage::{video_group::VideoGroupSendMqttNotification, AppStage, StageError, StageHandle},
     },
     db,
-    outbox::{error::StageError, StageHandle},
 };
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;

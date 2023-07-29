@@ -1,15 +1,23 @@
 use crate::{
-    app::{context::GlobalContext, error::Error},
+    app::{
+        context::GlobalContext,
+        error::Error,
+        stage::video_group::{
+            VideoGroupSendMqttNotification, VideoGroupSendNatsNotification,
+            VideoGroupUpdateJanusConfig,
+        },
+    },
     backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
     },
     db::{self, room::FindQueryable},
 };
 use anyhow::{anyhow, Context};
+use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use svc_events::{
-    stage::{SendNotificationStageV1, UpdateJanusConfigStageV1},
-    Event, EventV1,
+    stage::{SendNatsNotificationStageV1, SendMqttNotificationStageV1, UpdateJanusConfigStageV1},
+    Event, EventId, EventV1,
 };
 use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
@@ -24,6 +32,74 @@ use crate::app::{
 
 pub mod nats_ids;
 pub mod video_group;
+
+pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+#[derive(Debug, thiserror::Error)]
+pub struct StageError {
+    kind: String,
+    error: BoxError,
+}
+
+impl std::fmt::Display for StageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "stage error, kind: {}, error: {}", self.kind, self.error)
+    }
+}
+
+impl StageError {
+    pub fn new(kind: String, error: BoxError) -> Self {
+        Self { kind, error }
+    }
+
+    pub fn kind(&self) -> &str {
+        &self.kind
+    }
+}
+
+#[async_trait::async_trait]
+pub trait StageHandle
+where
+    Self: Sized + Clone + Send + Sync + 'static,
+{
+    type Context;
+    type Stage;
+
+    async fn handle(
+        &self,
+        ctx: &Self::Context,
+        id: &EventId,
+    ) -> Result<Option<Self::Stage>, StageError>;
+}
+
+#[allow(clippy::enum_variant_names)]
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(tag = "name")]
+pub enum AppStage {
+    VideoGroupUpdateJanusConfig(VideoGroupUpdateJanusConfig),
+    VideoGroupSendNatsNotification(VideoGroupSendNatsNotification),
+    VideoGroupSendMqttNotification(VideoGroupSendMqttNotification),
+}
+
+#[async_trait::async_trait]
+impl StageHandle for AppStage {
+    type Context = Arc<dyn GlobalContext + Send + Sync>;
+    type Stage = AppStage;
+
+    async fn handle(&self, ctx: &Self::Context, id: &EventId) -> Result<Option<Self>, StageError> {
+        match self {
+            AppStage::VideoGroupUpdateJanusConfig(s) => s.handle(ctx, id).await,
+            AppStage::VideoGroupSendNatsNotification(s) => s.handle(ctx, id).await,
+            AppStage::VideoGroupSendMqttNotification(s) => s.handle(ctx, id).await,
+        }
+    }
+}
+
+impl From<Error> for StageError {
+    fn from(error: Error) -> Self {
+        StageError::new(error.error_kind().kind().into(), Box::new(error))
+    }
+}
 
 pub async fn route_message(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
@@ -66,10 +142,13 @@ pub async fn route_message(
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
         Event::V1(EventV1::UpdateJanusConfigStage(e)) => {
-            handle_update_janus_config_stage(ctx.as_ref(), e, classroom_id).await
+            handle_update_janus_config_stage(ctx.clone(), e, classroom_id).await
         }
-        Event::V1(EventV1::SendNotificationStage(_e)) => {
-            handle_send_notification_stage(ctx.as_ref(), &room).await
+        Event::V1(EventV1::SendNatsNotificationStage(e)) => {
+            handle_send_nats_notification_stage(ctx.clone(), e, classroom_id).await
+        }
+        Event::V1(EventV1::SendMqttNotificationStage(e)) => {
+            handle_send_mqtt_notification_stage(ctx.clone(), e, classroom_id).await
         }
         _ => {
             // ignore
@@ -81,91 +160,145 @@ pub async fn route_message(
 }
 
 async fn handle_update_janus_config_stage(
-    ctx: &(dyn GlobalContext + Sync),
+    ctx: Arc<dyn GlobalContext + Sync + Send>,
     e: UpdateJanusConfigStageV1,
     classroom_id: Uuid,
 ) -> Result<(), HandleMessageFailure<Error>> {
-    let mut conn = ctx.get_conn().await.transient()?;
-
-    let janus_backend = db::janus_backend::FindQuery::new(&e.backend_id)
-        .execute(&mut conn)
-        .await
-        .error(ErrorKind::DbQueryFailed)
-        .transient()?
-        .ok_or_else(|| anyhow!("Janus backend not found"))
-        .error(ErrorKind::BackendNotFound)
-        .transient()?;
-
-    let configs = serde_json::from_str(&e.configs)
-        .context("parse configs")
-        .error(ErrorKind::StageSerializationFailed)
+    let stage: AppStage = serde_json::from_value(e.stage_state)
+        .error(ErrorKind::StageStateDeserializationFailed)
         .permanent()?;
 
-    let request = UpdateReaderConfigRequest {
-        session_id: janus_backend.session_id(),
-        handle_id: janus_backend.handle_id(),
-        body: UpdateReaderConfigRequestBody::new(configs),
-    };
+    let result = StageHandle::handle(&stage, &ctx, &e.event_id).await;
+    match result {
+        Ok(Some(next_stage)) => {
+            let mut conn = ctx.get_conn().await.transient()?;
 
-    ctx.janus_clients()
-        .get_or_insert(&janus_backend)
-        .error(ErrorKind::BackendClientCreationFailed)
-        .transient()?
-        .reader_update(request)
-        .await
-        .context("Reader update")
-        .error(ErrorKind::BackendRequestFailed)
-        .transient()?;
+            let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new("conference_internal_event")
+                .execute(&mut conn)
+                .await
+                .error(ErrorKind::InsertEventIdFailed)
+                .transient()?;
 
-    let event = Event::from(SendNotificationStageV1 {});
+            let serialized_stage = serde_json::to_value(next_stage)
+                .context("serialization failed")
+                .error(ErrorKind::StageStateSerializationFailed)
+                .permanent()?;
 
-    let payload = serde_json::to_vec(&event)
-        .error(ErrorKind::InvalidPayload)
-        .permanent()?;
+            let event = Event::from(SendNatsNotificationStageV1 {
+                event_id: event_id.clone(),
+                stage_state: serialized_stage,
+            });
 
-    let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new("conference_internal_event")
-        .execute(&mut conn)
-        .await
-        .error(ErrorKind::InsertEventIdFailed)
-        .transient()?;
+            let payload = serde_json::to_vec(&event)
+                .error(ErrorKind::InvalidPayload)
+                .permanent()?;
 
-    let subject = svc_nats_client::Subject::new(
-        SUBJECT_PREFIX.to_string(),
-        classroom_id,
-        event_id.entity_type().to_string(),
-    );
+            let subject = svc_nats_client::Subject::new(
+                SUBJECT_PREFIX.to_string(),
+                classroom_id,
+                event_id.entity_type().to_string(),
+            );
 
-    let event = svc_nats_client::event::Builder::new(
-        subject,
-        payload,
-        event_id.to_owned(),
-        ctx.agent_id().to_owned(),
-    )
-    .build();
+            let event = svc_nats_client::event::Builder::new(
+                subject,
+                payload,
+                event_id.to_owned(),
+                ctx.agent_id().to_owned(),
+            )
+            .build();
 
-    ctx.nats_client()
-        .ok_or_else(|| anyhow!("nats client not found"))
-        .error(ErrorKind::NatsClientNotFound)
-        .transient()?
-        .publish(&event)
-        .await
-        .error(ErrorKind::NatsPublishFailed)
-        .transient()?;
+            ctx.nats_client()
+                .ok_or_else(|| anyhow!("nats client not found"))
+                .error(ErrorKind::NatsClientNotFound)
+                .transient()?
+                .publish(&event)
+                .await
+                .error(ErrorKind::NatsPublishFailed)
+                .transient()?;
+        },
+        _ => (),
+    }
 
     Ok(())
 }
 
-async fn handle_send_notification_stage(
-    ctx: &(dyn GlobalContext + Sync),
-    room: &db::room::Object,
+async fn handle_send_nats_notification_stage(
+    ctx: Arc<dyn GlobalContext + Sync + Send>,
+    e: SendNatsNotificationStageV1,
+    classroom_id: Uuid,
 ) -> Result<(), HandleMessageFailure<Error>> {
-    let topic = format!("rooms/{}/events", room.id);
+    let stage: AppStage = serde_json::from_value(e.stage_state)
+        .error(ErrorKind::StageStateDeserializationFailed)
+        .permanent()?;
 
-    ctx.mqtt_client()
-        .lock()
-        .publish(MQTT_NOTIFICATION_LABEL, &topic)
-        .error(ErrorKind::MqttPublishFailed)
-        .transient()?;
+    let result = StageHandle::handle(&stage, &ctx, &e.event_id).await;
+    match result {
+        Ok(Some(next_stage)) => {
+            let mut conn = ctx.get_conn().await.transient()?;
+
+            let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new("conference_internal_event")
+                .execute(&mut conn)
+                .await
+                .error(ErrorKind::InsertEventIdFailed)
+                .transient()?;
+
+            let serialized_stage = serde_json::to_value(next_stage)
+                .context("serialization failed")
+                .error(ErrorKind::StageStateSerializationFailed)
+                .permanent()?;
+
+            let event = Event::from(SendMqttNotificationStageV1 {
+                event_id: event_id.clone(),
+                stage_state: serialized_stage,
+            });
+
+            let payload = serde_json::to_vec(&event)
+                .error(ErrorKind::InvalidPayload)
+                .permanent()?;
+
+            let subject = svc_nats_client::Subject::new(
+                SUBJECT_PREFIX.to_string(),
+                classroom_id,
+                event_id.entity_type().to_string(),
+            );
+
+            let event = svc_nats_client::event::Builder::new(
+                subject,
+                payload,
+                event_id.to_owned(),
+                ctx.agent_id().to_owned(),
+            )
+            .build();
+
+            ctx.nats_client()
+                .ok_or_else(|| anyhow!("nats client not found"))
+                .error(ErrorKind::NatsClientNotFound)
+                .transient()?
+                .publish(&event)
+                .await
+                .error(ErrorKind::NatsPublishFailed)
+                .transient()?;
+        },
+        _ => (),
+    }
+
+    Ok(())
+}
+
+async fn handle_send_mqtt_notification_stage(
+    ctx: Arc<dyn GlobalContext + Sync + Send>,
+    e: SendMqttNotificationStageV1,
+    classroom_id: Uuid,
+) -> Result<(), HandleMessageFailure<Error>> {
+    let stage: AppStage = serde_json::from_value(e.stage_state)
+        .error(ErrorKind::StageStateDeserializationFailed)
+        .permanent()?;
+
+    let result = StageHandle::handle(&stage, &ctx, &e.event_id).await;
+    match result {
+        Ok(Some(next_stage)) => (),
+        _ => (),
+    }
 
     Ok(())
 }

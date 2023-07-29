@@ -13,7 +13,7 @@ use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Authenticable, Subscription,
 };
-use svc_events::stage::UpdateJanusConfigStageV1;
+use svc_events::{stage::UpdateJanusConfigStageV1, EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
 
 use svc_utils::extractors::AgentIdExtractor;
 use tracing_attributes::instrument;
@@ -30,7 +30,7 @@ use crate::{
         group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::video_group::{MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
+        stage::{self, video_group::{SUBJECT_PREFIX, MQTT_NOTIFICATION_LABEL, VideoGroupUpdateJanusConfig}, AppStage},
         API_VERSION,
     },
     authz::AuthzObject,
@@ -752,17 +752,17 @@ impl EnterHandler {
                                     })
                                     .collect::<Vec<_>>();
 
-                                let event = svc_events::Event::from(UpdateJanusConfigStageV1 {
-                                    backend_id,
-                                    target_account: agent_id.as_account_id().clone(),
-                                    configs: serde_json::to_string(&items)
-                                        .context("serialization failed")
-                                        .error(AppErrorKind::StageSerializationFailed)?,
+                                let timestamp = Utc::now().timestamp_nanos();
+                                let event = Event::from(VideoGroupEvent::Updated {
+                                    created_at: timestamp,
                                 });
-
-                                let payload = serde_json::to_vec(&event)
-                                    .context("serialization failed")
-                                    .error(AppErrorKind::StageSerializationFailed)?;
+                                let init_stage = VideoGroupUpdateJanusConfig::init(
+                                    event,
+                                    room.classroom_id(),
+                                    room.id(),
+                                    backend_id,
+                                    items,
+                                );
 
                                 let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new(
                                     "conference_internal_event",
@@ -771,6 +771,19 @@ impl EnterHandler {
                                 .await
                                 .error(AppErrorKind::InsertEventIdFailed)?;
 
+                                let serialized_stage = serde_json::to_value(init_stage)
+                                    .context("serialization failed")
+                                    .error(AppErrorKind::StageStateSerializationFailed)?;
+
+                                let event = svc_events::Event::from(UpdateJanusConfigStageV1 {
+                                    event_id: event_id.clone(),
+                                    stage_state: serialized_stage,
+                                });
+
+                                let payload = serde_json::to_vec(&event)
+                                    .context("serialization failed")
+                                    .error(AppErrorKind::StageStateSerializationFailed)?;
+                            
                                 let subject = svc_nats_client::Subject::new(
                                     SUBJECT_PREFIX.to_string(),
                                     room.classroom_id(),

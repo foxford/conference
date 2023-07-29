@@ -2,14 +2,13 @@ use crate::{
     app::{
         context::GlobalContext,
         error::{ErrorExt, ErrorKind},
-        stage::{video_group::VideoGroupSendNatsNotification, AppStage},
+        stage::{video_group::VideoGroupSendNatsNotification, AppStage, StageError, StageHandle},
     },
     backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
         UpdateReaderConfigRequestBodyConfigItem,
     },
     db,
-    outbox::{error::StageError, StageHandle},
 };
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;

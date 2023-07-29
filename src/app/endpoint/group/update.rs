@@ -10,7 +10,7 @@ use crate::{
         group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::video_group::SUBJECT_PREFIX,
+        stage::{self, video_group::{MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX, VideoGroupUpdateJanusConfig}, AppStage},
     },
     authz::AuthzObject,
     backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
@@ -25,7 +25,7 @@ use sqlx::Connection;
 use std::sync::Arc;
 use svc_agent::{mqtt::ResponseStatus, Addressable};
 use svc_authz::Authenticable;
-use svc_events::stage::UpdateJanusConfigStageV1;
+use svc_events::{stage::UpdateJanusConfigStageV1, EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
 use svc_utils::extractors::AgentIdExtractor;
 
 #[derive(Deserialize)]
@@ -106,6 +106,28 @@ impl Handler {
             let _event_id = conn
                 .transaction::<_, _, AppError>(|conn| {
                     Box::pin(async move {
+                        let existed_groups = db::group_agent::FindQuery::new(room.id())
+                            .execute(conn)
+                            .await?
+                            .groups()
+                            .len();
+
+                        let timestamp = Utc::now().timestamp_nanos();
+                        let event = if existed_groups == 1 {
+                            VideoGroupEvent::Created {
+                                created_at: timestamp,
+                            }
+                        } else if existed_groups > 1 && groups.len() == 1 {
+                            VideoGroupEvent::Deleted {
+                                created_at: timestamp,
+                            }
+                        } else {
+                            VideoGroupEvent::Updated {
+                                created_at: timestamp,
+                            }
+                        };
+                        let event = Event::from(event);
+
                         db::group_agent::UpsertQuery::new(room.id(), &groups)
                             .execute(conn)
                             .await?;
@@ -126,17 +148,13 @@ impl Handler {
                             })
                             .collect::<Vec<_>>();
 
-                        let event = svc_events::Event::from(UpdateJanusConfigStageV1 {
+                        let init_stage = VideoGroupUpdateJanusConfig::init(
+                            event,
+                            room.classroom_id(),
+                            room.id(),
                             backend_id,
-                            target_account: agent_id.as_account_id().clone(),
-                            configs: serde_json::to_string(&items)
-                                .context("serialization failed")
-                                .error(AppErrorKind::StageSerializationFailed)?,
-                        });
-
-                        let payload = serde_json::to_vec(&event)
-                            .context("serialization failed")
-                            .error(AppErrorKind::StageSerializationFailed)?;
+                            items,
+                        );
 
                         let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new(
                             "conference_internal_event",
@@ -144,6 +162,19 @@ impl Handler {
                         .execute(conn)
                         .await
                         .error(AppErrorKind::InsertEventIdFailed)?;
+
+                        let serialized_stage = serde_json::to_value(init_stage)
+                            .context("serialization failed")
+                            .error(AppErrorKind::StageStateSerializationFailed)?;
+
+                        let event = svc_events::Event::from(UpdateJanusConfigStageV1 {
+                            event_id: event_id.clone(),
+                            stage_state: serialized_stage,
+                        });
+
+                        let payload = serde_json::to_vec(&event)
+                            .context("serialization failed")
+                            .error(AppErrorKind::StageStateSerializationFailed)?;
 
                         let subject = svc_nats_client::Subject::new(
                             SUBJECT_PREFIX.to_string(),
