@@ -1640,38 +1640,6 @@
     },
     "query": "\n            INSERT INTO rtc (room_id, created_by)\n            VALUES ($1, $2)\n            RETURNING\n                id as \"id: Id\",\n                room_id as \"room_id: Id\",\n                created_at,\n                created_by as \"created_by: AgentId\"\n            "
   },
-  "42d6513794f521c855792fc97e30a370576419cf40325439b457b61475e0879c": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "entity_type",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 2,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "\n            INSERT INTO nats_event_ids (entity_type)\n            VALUES ($1)\n            RETURNING\n                id,\n                entity_type,\n                created_at\n            "
-  },
   "5778cf98aff0f0aebc2b6d7b0124af2724de2829b299ced59822eee9dc0a49b7": {
     "describe": {
       "columns": [
@@ -3825,6 +3793,24 @@
       }
     },
     "query": "\n            SELECT\n                r.id as \"rtc_id: db::rtc::Id\",\n                rwc.send_video,\n                rwc.send_audio,\n                rwc.video_remb,\n                rwc.send_audio_updated_by as \"send_audio_updated_by: AgentId\",\n                rwc.updated_at,\n                r.room_id as \"room_id: db::room::Id\",\n                r.created_at,\n                r.created_by as \"created_by: AgentId\"\n            FROM rtc_writer_config as rwc\n            INNER JOIN rtc as r\n            ON rwc.rtc_id = r.id\n            WHERE\n                r.room_id = $1\n            "
+  },
+  "bfb29cc3ea8b513b3f99044d7a3dba31ea2086bfa71a563d880c663d41a7c08c": {
+    "describe": {
+      "columns": [
+        {
+          "name": "value!: i64",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT nextval('nats_event_seq_id') as \"value!: i64\";"
   },
   "c6e330e656742646fa54f472491b0ba9efef6950090c4838c501d6de5f6b8dda": {
     "describe": {
