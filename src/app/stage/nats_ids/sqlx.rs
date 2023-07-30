@@ -1,5 +1,3 @@
-use chrono::{serde::ts_seconds, DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 
 use svc_events::EventId;
