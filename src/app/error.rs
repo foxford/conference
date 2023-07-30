@@ -54,11 +54,11 @@ pub enum ErrorKind {
     JanusResponseTimeout,
     StageStateSerializationFailed,
     StageStateDeserializationFailed,
+    StageProcessingFailed,
     MqttPublishFailed,
     NatsPublishFailed,
     NatsClientNotFound,
     InsertEventIdFailed,
-    OutboxPipelineError,
 }
 
 impl ErrorKind {
@@ -315,6 +315,12 @@ impl From<ErrorKind> for ErrorKindProperties {
                 title: "Stage state deserialization failed",
                 is_notify_sentry: true,
             },
+            ErrorKind::StageProcessingFailed => ErrorKindProperties {
+                status: ResponseStatus::UNPROCESSABLE_ENTITY,
+                kind: "stage_processing_failed",
+                title: "Stage processing failed",
+                is_notify_sentry: true,
+            },
             ErrorKind::MqttPublishFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "mqtt_publish_failed",
@@ -337,12 +343,6 @@ impl From<ErrorKind> for ErrorKindProperties {
                 status: ResponseStatus::FAILED_DEPENDENCY,
                 kind: "insert_event_id_failed",
                 title: "Insert EventId Failed",
-                is_notify_sentry: true,
-            },
-            ErrorKind::OutboxPipelineError => ErrorKindProperties {
-                status: ResponseStatus::FAILED_DEPENDENCY,
-                kind: "outbox pipeline error",
-                title: "Outbox pipeline error",
                 is_notify_sentry: true,
             },
         }
