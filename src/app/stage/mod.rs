@@ -209,9 +209,11 @@ async fn handle_update_janus_config_stage(
                 .await
                 .error(ErrorKind::NatsPublishFailed)
                 .transient()?;
-        },
+        }
         Ok(None) => (),
-        _ => Err(anyhow!("UpdateJanusConfigStage failed")).error(ErrorKind::StageProcessingFailed).transient()?
+        _ => Err(anyhow!("UpdateJanusConfigStage failed"))
+            .error(ErrorKind::StageProcessingFailed)
+            .transient()?,
     }
 
     Ok(())
@@ -276,7 +278,9 @@ async fn handle_send_nats_notification_stage(
                 .transient()?;
         }
         Ok(None) => (),
-        _ => Err(anyhow!("SendNatsNotificationStage failed")).error(ErrorKind::StageProcessingFailed).transient()?
+        _ => Err(anyhow!("SendNatsNotificationStage failed"))
+            .error(ErrorKind::StageProcessingFailed)
+            .transient()?,
     }
 
     Ok(())
@@ -294,7 +298,9 @@ async fn handle_send_mqtt_notification_stage(
     match result {
         Ok(Some(_next_stage)) => (),
         Ok(None) => (),
-        _ => Err(anyhow!("SendMqttNotificationStage failed")).error(ErrorKind::StageProcessingFailed).transient()?
+        _ => Err(anyhow!("SendMqttNotificationStage failed"))
+            .error(ErrorKind::StageProcessingFailed)
+            .transient()?,
     }
 
     Ok(())
