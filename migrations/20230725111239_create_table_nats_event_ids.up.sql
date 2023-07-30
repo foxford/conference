@@ -1,5 +1,0 @@
-CREATE TABLE IF NOT EXISTS nats_event_ids (
-    id BIGSERIAL PRIMARY KEY NOT NULL,
-    entity_type TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
-);
