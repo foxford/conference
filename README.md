@@ -8,7 +8,7 @@ A WebRTC based conference media server.
 export DATABASE_URL="postgres://postgres:password@127.0.0.1:5432/conference"
 cargo sqlx database create
 cargo sqlx migrate run
-cargo sqlx prepare --tests
+cargo sqlx prepare -- --tests
 ```
 
 ## License
