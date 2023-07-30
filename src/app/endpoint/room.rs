@@ -715,7 +715,7 @@ impl EnterHandler {
 
             let maybe_event_id = {
                 let ctx = ctx.clone();
-                conn.transaction::<_, _, AppError>(|conn| {
+                conn.transaction::<_, _, AppError>(|mut conn| {
                     Box::pin(async move {
                         let group_agent = db::group_agent::FindQuery::new(room_id)
                             .execute(conn)
@@ -768,12 +768,10 @@ impl EnterHandler {
                                     items,
                                 );
 
-                                let event_id = crate::app::stage::nats_ids::sqlx::InsertQuery::new(
-                                    "conference_internal_event",
-                                )
-                                .execute(conn)
-                                .await
-                                .error(AppErrorKind::InsertEventIdFailed)?;
+                                let event_id = crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
+                                    .await
+                                    .error(AppErrorKind::InsertEventIdFailed)?
+                                    .to_event_id();
 
                                 let serialized_stage = serde_json::to_value(init_stage)
                                     .context("serialization failed")

@@ -167,11 +167,11 @@ async fn handle_update_janus_config_stage(
             let mut conn = ctx.get_conn().await.transient()?;
 
             let event_id =
-                crate::app::stage::nats_ids::sqlx::InsertQuery::new("conference_internal_event")
-                    .execute(&mut conn)
+                crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
                     .await
                     .error(ErrorKind::InsertEventIdFailed)
-                    .transient()?;
+                    .transient()?
+                    .to_event_id();
 
             let serialized_stage = serde_json::to_value(next_stage)
                 .context("serialization failed")
@@ -234,11 +234,11 @@ async fn handle_send_nats_notification_stage(
             let mut conn = ctx.get_conn().await.transient()?;
 
             let event_id =
-                crate::app::stage::nats_ids::sqlx::InsertQuery::new("conference_internal_event")
-                    .execute(&mut conn)
+                crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
                     .await
                     .error(ErrorKind::InsertEventIdFailed)
-                    .transient()?;
+                    .transient()?
+                    .to_event_id();
 
             let serialized_stage = serde_json::to_value(next_stage)
                 .context("serialization failed")

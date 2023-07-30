@@ -1,48 +1,26 @@
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::PgConnection;
 
 use svc_events::EventId;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Object {
-    id: i64,
-    entity_type: String,
-    #[serde(with = "ts_seconds")]
-    created_at: DateTime<Utc>,
+
+pub struct NextSeqId {
+    pub value: i64,
 }
 
-impl Object {
-    pub fn id(&self) -> EventId {
-        // TODO: add operation
-        EventId::from((self.entity_type.clone(), "".to_owned(), self.id))
+impl NextSeqId {
+    pub fn to_event_id(&self) -> EventId {
+        EventId::from(("conference_internal_event".to_string(), "".to_string(), self.value))
     }
 }
 
-#[derive(Debug)]
-pub struct InsertQuery<'a> {
-    entity_type: &'a str,
+pub async fn get_next_seq_id(conn: &mut PgConnection) -> sqlx::Result<NextSeqId> {
+    sqlx::query_as!(
+        NextSeqId,
+        r#"SELECT nextval('nats_event_seq_id') as "value!: i64";"#
+    )
+    .fetch_one(conn)
+    .await
 }
 
-impl<'a> InsertQuery<'a> {
-    pub fn new(entity_type: &'a str) -> Self {
-        Self { entity_type }
-    }
-
-    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<EventId> {
-        sqlx::query_as!(
-            Object,
-            r#"
-            INSERT INTO nats_event_ids (entity_type)
-            VALUES ($1)
-            RETURNING
-                id,
-                entity_type,
-                created_at
-            "#,
-            self.entity_type,
-        )
-        .fetch_one(conn)
-        .await
-        .map(|r| r.id())
-    }
-}
