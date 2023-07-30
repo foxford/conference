@@ -156,10 +156,11 @@ impl Handler {
                             items,
                         );
 
-                        let event_id = crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
-                            .await
-                            .error(AppErrorKind::InsertEventIdFailed)?
-                            .to_event_id();
+                        let event_id =
+                            crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
+                                .await
+                                .error(AppErrorKind::InsertEventIdFailed)?
+                                .to_event_id();
 
                         let serialized_stage = serde_json::to_value(init_stage)
                             .context("serialization failed")

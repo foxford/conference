@@ -4,14 +4,17 @@ use sqlx::PgConnection;
 
 use svc_events::EventId;
 
-
 pub struct NextSeqId {
     pub value: i64,
 }
 
 impl NextSeqId {
     pub fn to_event_id(&self) -> EventId {
-        EventId::from(("conference_internal_event".to_string(), "".to_string(), self.value))
+        EventId::from((
+            "conference_internal_event".to_string(),
+            "".to_string(),
+            self.value,
+        ))
     }
 }
 
@@ -23,4 +26,3 @@ pub async fn get_next_seq_id(conn: &mut PgConnection) -> sqlx::Result<NextSeqId>
     .fetch_one(conn)
     .await
 }
-
