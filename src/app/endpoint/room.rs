@@ -715,7 +715,7 @@ impl EnterHandler {
 
             let maybe_event_id = {
                 let ctx = ctx.clone();
-                conn.transaction::<_, _, AppError>(|mut conn| {
+                conn.transaction::<_, _, AppError>(|conn| {
                     Box::pin(async move {
                         let group_agent = db::group_agent::FindQuery::new(room_id)
                             .execute(conn)
@@ -769,7 +769,7 @@ impl EnterHandler {
                                 );
 
                                 let event_id =
-                                    crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
+                                    crate::app::stage::nats_ids::sqlx::get_next_seq_id(conn)
                                         .await
                                         .error(AppErrorKind::InsertEventIdFailed)?
                                         .to_event_id();

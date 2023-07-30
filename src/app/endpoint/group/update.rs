@@ -104,7 +104,7 @@ impl Handler {
             let context = context.clone();
             let backend_id = backend_id.clone();
             let _event_id = conn
-                .transaction::<_, _, AppError>(|mut conn| {
+                .transaction::<_, _, AppError>(|conn| {
                     Box::pin(async move {
                         let existed_groups = db::group_agent::FindQuery::new(room.id())
                             .execute(conn)
@@ -156,11 +156,10 @@ impl Handler {
                             items,
                         );
 
-                        let event_id =
-                            crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
-                                .await
-                                .error(AppErrorKind::InsertEventIdFailed)?
-                                .to_event_id();
+                        let event_id = crate::app::stage::nats_ids::sqlx::get_next_seq_id(conn)
+                            .await
+                            .error(AppErrorKind::InsertEventIdFailed)?
+                            .to_event_id();
 
                         let serialized_stage = serde_json::to_value(init_stage)
                             .context("serialization failed")
