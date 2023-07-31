@@ -7,3 +7,6 @@ mod send_nats_notification;
 pub mod update_janus_config;
 
 pub const ENTITY_TYPE: &str = "video_group";
+pub const CREATED_OPERATION: &str = "created";
+pub const UPDATED_OPERATION: &str = "updated";
+pub const DELETED_OPERATION: &str = "deleted";

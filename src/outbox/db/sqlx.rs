@@ -15,12 +15,12 @@ pub struct Object {
     retry_count: i32,
     #[serde(with = "ts_seconds")]
     created_at: DateTime<Utc>,
+    operation: String,
 }
 
 impl Object {
     pub fn id(&self) -> EventId {
-        // TODO: add operation
-        EventId::from((self.entity_type.clone(), "".to_owned(), self.id))
+        EventId::from((self.entity_type.clone(), self.operation.clone(), self.id))
     }
 
     pub fn retry_count(&self) -> i32 {
@@ -29,6 +29,10 @@ impl Object {
 
     pub fn entity_type(&self) -> &str {
         &self.entity_type
+    }
+
+    pub fn operation(&self) -> &str {
+        &self.operation
     }
 
     pub fn stage(&self) -> &JsonValue {
@@ -60,7 +64,8 @@ impl ListQuery {
                 delivery_deadline_at,
                 error_kind,
                 retry_count,
-                created_at
+                created_at,
+                operation
             FROM outbox
             WHERE
                 delivery_deadline_at <= now()
@@ -79,6 +84,7 @@ pub struct InsertQuery<'a> {
     entity_type: &'a str,
     stage: JsonValue,
     delivery_deadline_at: DateTime<Utc>,
+    operation: &'a str,
 }
 
 impl<'a> InsertQuery<'a> {
@@ -86,11 +92,13 @@ impl<'a> InsertQuery<'a> {
         entity_type: &'a str,
         stage: JsonValue,
         delivery_deadline_at: DateTime<Utc>,
+        operation: &'a str,
     ) -> Self {
         Self {
             entity_type,
             stage,
             delivery_deadline_at,
+            operation,
         }
     }
 
@@ -98,8 +106,8 @@ impl<'a> InsertQuery<'a> {
         sqlx::query_as!(
             Object,
             r#"
-            INSERT INTO outbox (entity_type, stage, delivery_deadline_at)
-            VALUES ($1, $2, $3)
+            INSERT INTO outbox (entity_type, stage, delivery_deadline_at, operation)
+            VALUES ($1, $2, $3, $4)
             RETURNING
                 id,
                 entity_type,
@@ -107,11 +115,13 @@ impl<'a> InsertQuery<'a> {
                 delivery_deadline_at,
                 error_kind,
                 retry_count,
-                created_at
+                created_at,
+                operation
             "#,
             self.entity_type,
             self.stage,
             self.delivery_deadline_at,
+            self.operation
         )
         .fetch_one(conn)
         .await
@@ -146,7 +156,8 @@ impl<'a> UpdateQuery<'a> {
                 error_kind = $2
             WHERE
                 id = $3 AND
-                entity_type = $4
+                entity_type = $4 AND
+                operation = $5
             RETURNING
                 id,
                 entity_type,
@@ -154,12 +165,14 @@ impl<'a> UpdateQuery<'a> {
                 delivery_deadline_at,
                 error_kind,
                 retry_count,
-                created_at
+                created_at,
+                operation
             "#,
             self.delivery_deadline_at,
             self.error_kind,
             self.id.sequence_id(),
             self.id.entity_type(),
+            self.id.operation()
         )
         .fetch_one(conn)
         .await
@@ -182,7 +195,8 @@ impl<'a> DeleteQuery<'a> {
             DELETE FROM outbox
             WHERE
                 id = $1 AND
-                entity_type = $2
+                entity_type = $2 AND
+                operation = $3
             RETURNING
                 id,
                 entity_type,
@@ -190,10 +204,12 @@ impl<'a> DeleteQuery<'a> {
                 delivery_deadline_at,
                 error_kind,
                 retry_count,
-                created_at
+                created_at,
+                operation
             "#,
             self.id.sequence_id(),
-            self.id.entity_type()
+            self.id.entity_type(),
+            self.id.operation()
         )
         .fetch_one(conn)
         .await
@@ -220,15 +236,18 @@ impl<'a> FindQuery<'a> {
                 delivery_deadline_at,
                 error_kind,
                 retry_count,
-                created_at
+                created_at,
+                operation
             FROM outbox
             WHERE
                 id = $1 AND
-                entity_type = $2
+                entity_type = $2 AND
+                operation = $3
             FOR UPDATE SKIP LOCKED
             "#,
             self.id.sequence_id(),
             self.id.entity_type(),
+            self.id.operation()
         )
         .fetch_one(conn)
         .await
