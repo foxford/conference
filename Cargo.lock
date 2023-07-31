@@ -577,7 +577,7 @@ dependencies = [
 
 [[package]]
 name = "conference"
-version = "0.6.60"
+version = "0.6.61"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3611,6 +3611,7 @@ dependencies = [
  "futures",
  "http",
  "hyper",
+ "once_cell",
  "prometheus",
  "svc-agent",
  "svc-authn",

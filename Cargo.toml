@@ -2,7 +2,7 @@
 authors = ["Andrei Nesterov <ae.nesterov@gmail.com>"]
 edition = "2018"
 name = "conference"
-version = "0.6.60"
+version = "0.6.61"
 
 [dependencies]
 anyhow = "1.0"
@@ -42,7 +42,7 @@ svc-error = { version = "0.6", features = [
 ] }
 svc-events = { version = "0.10" }
 svc-nats-client = { version = "0.7" }
-svc-utils = { version = "0.8", features = ["cors-middleware", "authn-extractor"] }
+svc-utils = { version = "0.8", features = ["cors-middleware", "authn-extractor", "metrics-middleware"] }
 thiserror = "1.0"
 tokio = { version = "1.28", features = ["full"] }
 tower = "0.4"
