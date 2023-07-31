@@ -74,23 +74,21 @@ pub enum AppStage {
     VideoGroupSendMqttNotification(VideoGroupSendMqttNotification),
 }
 
-#[async_trait::async_trait]
-impl StageHandle for AppStage {
-    type Context = Arc<dyn GlobalContext + Send + Sync>;
-    type Stage = AppStage;
-
-    async fn handle(&self, ctx: &Self::Context, id: &EventId) -> Result<Option<Self>, StageError> {
-        match self {
-            AppStage::VideoGroupUpdateJanusConfig(s) => s.handle(ctx, id).await,
-            AppStage::VideoGroupSendNatsNotification(s) => s.handle(ctx, id).await,
-            AppStage::VideoGroupSendMqttNotification(s) => s.handle(ctx, id).await,
-        }
-    }
-}
-
 impl From<Error> for StageError {
     fn from(error: Error) -> Self {
         StageError::new(error.error_kind().kind().into(), Box::new(error))
+    }
+}
+
+async fn handle_stage(
+    ctx: &Arc<dyn GlobalContext + Send + Sync>,
+    stage: &AppStage,
+    id: &EventId,
+) -> Result<Option<AppStage>, StageError> {
+    match stage {
+        AppStage::VideoGroupUpdateJanusConfig(s) => s.handle(ctx, id).await,
+        AppStage::VideoGroupSendNatsNotification(s) => s.handle(ctx, id).await,
+        AppStage::VideoGroupSendMqttNotification(s) => s.handle(ctx, id).await,
     }
 }
 
@@ -161,7 +159,7 @@ async fn handle_update_janus_config_stage(
         .error(ErrorKind::StageStateDeserializationFailed)
         .permanent()?;
 
-    let result = StageHandle::handle(&stage, &ctx, &e.event_id).await;
+    let result = handle_stage(&ctx, &stage, &e.event_id).await;
     match result {
         Ok(Some(next_stage)) => {
             let mut conn = ctx.get_conn().await.transient()?;
@@ -227,7 +225,7 @@ async fn handle_send_nats_notification_stage(
         .error(ErrorKind::StageStateDeserializationFailed)
         .permanent()?;
 
-    let result = StageHandle::handle(&stage, &ctx, &e.event_id).await;
+    let result = handle_stage(&ctx, &stage, &e.event_id).await;
     match result {
         Ok(Some(next_stage)) => {
             let mut conn = ctx.get_conn().await.transient()?;
@@ -292,7 +290,7 @@ async fn handle_send_mqtt_notification_stage(
         .error(ErrorKind::StageStateDeserializationFailed)
         .permanent()?;
 
-    let result = StageHandle::handle(&stage, &ctx, &e.event_id).await;
+    let result = handle_stage(&ctx, &stage, &e.event_id).await;
     match result {
         Ok(Some(_next_stage)) => (),
         Ok(None) => (),
