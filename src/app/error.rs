@@ -58,7 +58,7 @@ pub enum ErrorKind {
     MqttPublishFailed,
     NatsPublishFailed,
     NatsClientNotFound,
-    InsertEventIdFailed,
+    CreatingNewSequenceIdFailed,
 }
 
 impl ErrorKind {
@@ -339,10 +339,10 @@ impl From<ErrorKind> for ErrorKindProperties {
                 title: "Nats client not found",
                 is_notify_sentry: true,
             },
-            ErrorKind::InsertEventIdFailed => ErrorKindProperties {
+            ErrorKind::CreatingNewSequenceIdFailed => ErrorKindProperties {
                 status: ResponseStatus::FAILED_DEPENDENCY,
-                kind: "insert_event_id_failed",
-                title: "Insert EventId Failed",
+                kind: "creating_new_sequence_id_failed",
+                title: "Creating a new SequenceId Failed",
                 is_notify_sentry: true,
             },
         }

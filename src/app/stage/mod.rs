@@ -168,7 +168,7 @@ async fn handle_update_janus_config_stage(
 
             let event_id = crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
                 .await
-                .error(ErrorKind::InsertEventIdFailed)
+                .error(ErrorKind::CreatingNewSequenceIdFailed)
                 .transient()?
                 .to_event_id();
 
@@ -234,7 +234,7 @@ async fn handle_send_nats_notification_stage(
 
             let event_id = crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
                 .await
-                .error(ErrorKind::InsertEventIdFailed)
+                .error(ErrorKind::CreatingNewSequenceIdFailed)
                 .transient()?
                 .to_event_id();
 
