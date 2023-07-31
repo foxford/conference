@@ -772,7 +772,7 @@ impl EnterHandler {
                                     crate::app::stage::nats_ids::sqlx::get_next_seq_id(conn)
                                         .await
                                         .error(AppErrorKind::CreatingNewSequenceIdFailed)?
-                                        .to_event_id();
+                                        .to_event_id("update configs");
 
                                 let serialized_stage = serde_json::to_value(init_stage)
                                     .context("serialization failed")

@@ -7,10 +7,10 @@ pub struct NextSeqId {
 }
 
 impl NextSeqId {
-    pub fn to_event_id(&self) -> EventId {
+    pub fn to_event_id(&self, operation: &str) -> EventId {
         EventId::from((
             "conference_internal_event".to_string(),
-            "".to_string(),
+            operation.to_string(),
             self.value,
         ))
     }
