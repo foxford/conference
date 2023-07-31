@@ -1,8 +1,8 @@
 use crate::{
     app::{
         context::GlobalContext,
-        error::{ErrorExt, ErrorKind},
-        stage::{video_group::VideoGroupSendMqttNotification, AppStage, StageError, StageHandle},
+        error::{Error, ErrorExt, ErrorKind},
+        stage::{video_group::VideoGroupSendMqttNotification, AppStage, StageHandle},
     },
     db,
 };
@@ -31,7 +31,7 @@ impl StageHandle for VideoGroupSendNatsNotification {
         &self,
         ctx: &Self::Context,
         id: &EventId,
-    ) -> Result<Option<Self::Stage>, StageError> {
+    ) -> Result<Option<Self::Stage>, Error> {
         let event = svc_events::Event::from(self.event.clone());
 
         let payload = serde_json::to_vec(&event)

@@ -1,8 +1,8 @@
 use crate::{
     app::{
         context::GlobalContext,
-        error::{ErrorExt, ErrorKind},
-        stage::{AppStage, StageError, StageHandle},
+        error::{Error, ErrorExt, ErrorKind},
+        stage::{AppStage, StageHandle},
     },
     db,
 };
@@ -27,7 +27,7 @@ impl StageHandle for VideoGroupSendMqttNotification {
         &self,
         ctx: &Self::Context,
         _id: &EventId,
-    ) -> Result<Option<Self::Stage>, StageError> {
+    ) -> Result<Option<Self::Stage>, Error> {
         let topic = format!("rooms/{}/events", self.room_id);
 
         ctx.mqtt_client()

@@ -23,26 +23,6 @@ use crate::app::error::{ErrorExt, ErrorKind};
 pub mod nats_ids;
 pub mod video_group;
 
-pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
-
-#[derive(Debug, thiserror::Error)]
-pub struct StageError {
-    kind: String,
-    error: BoxError,
-}
-
-impl std::fmt::Display for StageError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "stage error, kind: {}, error: {}", self.kind, self.error)
-    }
-}
-
-impl StageError {
-    pub fn new(kind: String, error: BoxError) -> Self {
-        Self { kind, error }
-    }
-}
-
 #[async_trait::async_trait]
 pub trait StageHandle
 where
@@ -51,11 +31,8 @@ where
     type Context;
     type Stage;
 
-    async fn handle(
-        &self,
-        ctx: &Self::Context,
-        id: &EventId,
-    ) -> Result<Option<Self::Stage>, StageError>;
+    async fn handle(&self, ctx: &Self::Context, id: &EventId)
+        -> Result<Option<Self::Stage>, Error>;
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -67,17 +44,11 @@ pub enum AppStage {
     VideoGroupSendMqttNotification(VideoGroupSendMqttNotification),
 }
 
-impl From<Error> for StageError {
-    fn from(error: Error) -> Self {
-        StageError::new(error.error_kind().kind().into(), Box::new(error))
-    }
-}
-
 async fn handle_stage(
     ctx: &Arc<dyn GlobalContext + Send + Sync>,
     stage: &AppStage,
     id: &EventId,
-) -> Result<Option<AppStage>, StageError> {
+) -> Result<Option<AppStage>, Error> {
     match stage {
         AppStage::VideoGroupUpdateJanusConfig(s) => s.handle(ctx, id).await,
         AppStage::VideoGroupSendNatsNotification(s) => s.handle(ctx, id).await,

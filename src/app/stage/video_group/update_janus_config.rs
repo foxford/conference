@@ -1,8 +1,8 @@
 use crate::{
     app::{
         context::GlobalContext,
-        error::{ErrorExt, ErrorKind},
-        stage::{video_group::VideoGroupSendNatsNotification, AppStage, StageError, StageHandle},
+        error::{Error, ErrorExt, ErrorKind},
+        stage::{video_group::VideoGroupSendNatsNotification, AppStage, StageHandle},
     },
     backend::janus::client::update_agent_reader_config::{
         UpdateReaderConfigRequest, UpdateReaderConfigRequestBody,
@@ -56,7 +56,7 @@ impl StageHandle for VideoGroupUpdateJanusConfig {
         &self,
         ctx: &Self::Context,
         _id: &EventId,
-    ) -> Result<Option<Self::Stage>, StageError> {
+    ) -> Result<Option<Self::Stage>, Error> {
         let mut conn = ctx.get_conn().await?;
 
         let janus_backend = db::janus_backend::FindQuery::new(&self.backend_id)
