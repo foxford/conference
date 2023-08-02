@@ -333,30 +333,33 @@ async fn handle_event_impl<C: Context>(
                                     .error(AppErrorKind::MessageParsingFailed)
                             })?;
 
-                        let mut conn = context.get_conn().await?;
-                        let rtc = rtc::FindQuery::new(rtc_id)
-                            .execute(&mut conn)
-                            .await?
-                            .context("RTC not found")
-                            .error(AppErrorKind::RtcNotFound)?;
+                        let (room, rtcs_with_recs) = {
+                            let mut conn = context.get_conn().await?;
+                            let rtc = rtc::FindQuery::new(rtc_id)
+                                .execute(&mut conn)
+                                .await?
+                                .context("RTC not found")
+                                .error(AppErrorKind::RtcNotFound)?;
 
-                        let room = endpoint::helpers::find_room_by_rtc_id(
-                            rtc.id(),
-                            endpoint::helpers::RoomTimeRequirement::Any,
-                            &mut conn,
-                        )
-                        .await?;
-
-                        recording::UpdateQuery::new(rtc_id)
-                            .status(recording::Status::Ready)
-                            .mjr_dumps_uris(mjr_dumps_uris)
-                            .execute(&mut conn)
+                            let room = endpoint::helpers::find_room_by_rtc_id(
+                                rtc.id(),
+                                endpoint::helpers::RoomTimeRequirement::Any,
+                                &mut conn,
+                            )
                             .await?;
 
-                        let mut conn = context.get_conn().await?;
-                        let rtcs_with_recs = rtc::ListWithRecordingQuery::new(room.id())
-                            .execute(&mut conn)
-                            .await?;
+                            recording::UpdateQuery::new(rtc_id)
+                                .status(recording::Status::Ready)
+                                .mjr_dumps_uris(mjr_dumps_uris)
+                                .execute(&mut conn)
+                                .await?;
+
+                            let rtcs_with_recs = rtc::ListWithRecordingQuery::new(room.id())
+                                .execute(&mut conn)
+                                .await?;
+
+                            (room, rtcs_with_recs)
+                        };
 
                         // Ensure that all rtcs with a recording have ready recording.
                         let room_done = rtcs_with_recs.iter().all(|(_rtc, maybe_recording)| {
@@ -447,7 +450,6 @@ async fn handle_hangup_detach<C: Context>(
     let stop_stream_evt = match janus_rtc_stream::stop(opaque_id.stream_id, &mut conn).await? {
         Some(rtc_stream) => {
             let start_timestamp = context.start_timestamp();
-            let mut conn = context.get_conn().await?;
 
             // Publish the update event only if the stream object has been changed.
             // If there's no actual media stream, the object wouldn't contain its start time.

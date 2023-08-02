@@ -105,9 +105,9 @@ impl Handler {
             .context("backend not found")
             .error(AppErrorKind::BackendNotFound)?;
 
-        let mut conn = context.get_conn().await?;
-        let event_id = conn
-            .transaction::<_, _, AppError>(|conn| {
+        let event_id = {
+            let mut conn = context.get_conn().await?;
+            conn.transaction::<_, _, AppError>(|conn| {
                 Box::pin(async move {
                     let existed_groups = db::group_agent::FindQuery::new(room.id())
                         .execute(conn)
@@ -187,7 +187,8 @@ impl Handler {
                     Ok(event_id)
                 })
             })
-            .await?;
+            .await?
+        };
 
         let pipeline = DieselPipeline::new(
             context.db().clone(),

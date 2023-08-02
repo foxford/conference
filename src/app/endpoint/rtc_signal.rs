@@ -233,12 +233,14 @@ impl RequestHandler for CreateHandler {
                         if is_recvonly {
                             current_span.record("intent", "read");
 
-                            let mut conn = context.get_conn().await?;
-                            let reader_config = db::rtc_reader_config::read_config(
-                                payload.handle_id.rtc_id(),
-                                &mut conn,
-                            )
-                            .await?;
+                            let reader_config = {
+                                let mut conn = context.get_conn().await?;
+                                db::rtc_reader_config::read_config(
+                                    payload.handle_id.rtc_id(),
+                                    &mut conn,
+                                )
+                                .await?
+                            };
 
                             // Authorization
                             let _authz_time =
@@ -339,18 +341,22 @@ impl RequestHandler for CreateHandler {
                             )
                             .await?;
 
-                            let mut conn = context.get_conn().await?;
-                            let reader_config = db::rtc_reader_config::read_config(
-                                payload.handle_id.rtc_id(),
-                                &mut conn,
-                            )
-                            .await?;
+                            let (reader_config, writer_config) = {
+                                let mut conn = context.get_conn().await?;
+                                let reader_config = db::rtc_reader_config::read_config(
+                                    payload.handle_id.rtc_id(),
+                                    &mut conn,
+                                )
+                                .await?;
 
-                            let writer_config = db::rtc_writer_config::read_config(
-                                payload.handle_id.rtc_id(),
-                                &mut conn,
-                            )
-                            .await?;
+                                let writer_config = db::rtc_writer_config::read_config(
+                                    payload.handle_id.rtc_id(),
+                                    &mut conn,
+                                )
+                                .await?;
+
+                                (reader_config, writer_config)
+                            };
 
                             let agent_id = reqp.as_agent_id().to_owned();
                             let request = CreateStreamRequest {

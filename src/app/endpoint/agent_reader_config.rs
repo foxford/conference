@@ -162,11 +162,11 @@ impl RequestHandler for UpdateHandler {
             .await?;
         context.metrics().observe_auth(authz_time);
 
-        let mut conn = context.get_conn().await?;
         // Find backend and send updates to it if present.
         let maybe_backend = match room.backend_id() {
             None => None,
             Some(backend_id) => {
+                let mut conn = context.get_conn().await?;
                 db::janus_backend::FindQuery::new(backend_id)
                     .execute(&mut conn)
                     .await?
@@ -175,8 +175,10 @@ impl RequestHandler for UpdateHandler {
 
         let agent_id = reqp.as_agent_id().clone();
         let room_id = room.id();
-        let rtc_reader_configs_with_rtcs = conn
-            .transaction::<_, _, AppError>(|conn| {
+        let rtc_reader_configs_with_rtcs = {
+            let mut conn = context.get_conn().await?;
+
+            conn.transaction::<_, _, AppError>(|conn| {
                 Box::pin(async move {
                     // An agent can create/update reader configs only for agents in the same group
                     let groups = db::group_agent::FindQuery::new(room_id)
@@ -239,7 +241,8 @@ impl RequestHandler for UpdateHandler {
                     Ok(rtc_reader_configs_with_rtcs)
                 })
             })
-            .await?;
+            .await?
+        };
 
         if let Some(backend) = maybe_backend {
             let items = rtc_reader_configs_with_rtcs

@@ -221,11 +221,11 @@ impl RequestHandler for UpdateHandler {
             Some(authz_time)
         };
 
-        let mut conn = context.get_conn().await?;
         // Find backend and send updates to it if present.
         let maybe_backend = match room.backend_id() {
             None => None,
             Some(backend_id) => {
+                let mut conn = context.get_conn().await?;
                 db::janus_backend::FindQuery::new(backend_id)
                     .execute(&mut conn)
                     .await?
@@ -235,69 +235,75 @@ impl RequestHandler for UpdateHandler {
         let room_id = room.id();
         let agent_id = reqp.as_agent_id().clone();
 
-        conn.transaction::<_, _, AppError>(|conn| {
-            Box::pin(async move {
-                // Find RTCs owned by agents.
-                let agent_ids = payload
-                    .configs
-                    .iter()
-                    .map(|c| &c.agent_id)
-                    .collect::<Vec<_>>();
+        let rtc_writer_configs_with_rtcs = {
+            let mut conn = context.get_conn().await?;
 
-                let rtcs = db::rtc::ListQuery::new()
-                    .room_id(room_id)
-                    .created_by(agent_ids.as_slice())
-                    .execute(conn)
-                    .await?;
+            conn.transaction::<_, _, AppError>(|conn| {
+                Box::pin(async move {
+                    // Find RTCs owned by agents.
+                    let agent_ids = payload
+                        .configs
+                        .iter()
+                        .map(|c| &c.agent_id)
+                        .collect::<Vec<_>>();
 
-                let agents_to_rtcs = rtcs
-                    .iter()
-                    .map(|rtc| (rtc.created_by(), rtc.id()))
-                    .collect::<HashMap<_, _>>();
+                    let rtcs = db::rtc::ListQuery::new()
+                        .room_id(room_id)
+                        .created_by(agent_ids.as_slice())
+                        .execute(conn)
+                        .await?;
 
-                // Create or update the config.
-                for state_config_item in payload.configs {
-                    let rtc_id = agents_to_rtcs
-                        .get(&state_config_item.agent_id)
-                        .ok_or_else(|| anyhow!("{} has no owned RTC", state_config_item.agent_id))
-                        .error(AppErrorKind::InvalidPayload)?;
+                    let agents_to_rtcs = rtcs
+                        .iter()
+                        .map(|rtc| (rtc.created_by(), rtc.id()))
+                        .collect::<HashMap<_, _>>();
 
-                    let mut q = db::rtc_writer_config::UpsertQuery::new(*rtc_id);
+                    // Create or update the config.
+                    for state_config_item in payload.configs {
+                        let rtc_id = agents_to_rtcs
+                            .get(&state_config_item.agent_id)
+                            .ok_or_else(|| {
+                                anyhow!("{} has no owned RTC", state_config_item.agent_id)
+                            })
+                            .error(AppErrorKind::InvalidPayload)?;
 
-                    if let Some(send_video) = state_config_item.send_video {
-                        q = q.send_video(send_video);
+                        let mut q = db::rtc_writer_config::UpsertQuery::new(*rtc_id);
+
+                        if let Some(send_video) = state_config_item.send_video {
+                            q = q.send_video(send_video);
+                        }
+
+                        if let Some(send_audio) = state_config_item.send_audio {
+                            q = q.send_audio(send_audio).send_audio_updated_by(&agent_id);
+                        }
+
+                        if let Some(video_remb) = state_config_item.video_remb {
+                            q = q.video_remb(video_remb.into());
+                        }
+
+                        q.execute(conn).await?;
+
+                        if state_config_item.send_video.is_some()
+                            || state_config_item.send_audio.is_some()
+                        {
+                            let snapshot_q = db::rtc_writer_config_snapshot::InsertQuery::new(
+                                *rtc_id,
+                                state_config_item.send_video,
+                                state_config_item.send_audio,
+                            );
+                            snapshot_q.execute(conn).await?;
+                        }
                     }
-
-                    if let Some(send_audio) = state_config_item.send_audio {
-                        q = q.send_audio(send_audio).send_audio_updated_by(&agent_id);
-                    }
-
-                    if let Some(video_remb) = state_config_item.video_remb {
-                        q = q.video_remb(video_remb.into());
-                    }
-
-                    q.execute(conn).await?;
-
-                    if state_config_item.send_video.is_some()
-                        || state_config_item.send_audio.is_some()
-                    {
-                        let snapshot_q = db::rtc_writer_config_snapshot::InsertQuery::new(
-                            *rtc_id,
-                            state_config_item.send_video,
-                            state_config_item.send_audio,
-                        );
-                        snapshot_q.execute(conn).await?;
-                    }
-                }
-                Ok(())
+                    Ok(())
+                })
             })
-        })
-        .await?;
-
-        // Retrieve state data.
-        let rtc_writer_configs_with_rtcs = db::rtc_writer_config::ListWithRtcQuery::new(room_id)
-            .execute(&mut conn)
             .await?;
+
+            // Retrieve state data.
+            db::rtc_writer_config::ListWithRtcQuery::new(room_id)
+                .execute(&mut conn)
+                .await?
+        };
 
         if let Some(backend) = maybe_backend {
             let items = rtc_writer_configs_with_rtcs

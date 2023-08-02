@@ -140,8 +140,10 @@ impl RequestHandler for ListHandler {
         }
         query = query.limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT));
 
-        let mut conn = context.get_conn().await?;
-        let rtc_streams = query.execute(&mut conn).await?;
+        let rtc_streams = {
+            let mut conn = context.get_conn().await?;
+            query.execute(&mut conn).await?
+        };
 
         context
             .metrics()

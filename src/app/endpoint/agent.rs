@@ -95,13 +95,16 @@ impl RequestHandler for ListHandler {
         context.metrics().observe_auth(authz_time);
 
         // Get agents list in the room.
-        let mut conn = context.get_conn().await?;
-        let agents = db::agent::ListQuery::new()
-            .room_id(payload.room_id)
-            .offset(payload.offset.unwrap_or(0))
-            .limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT))
-            .execute(&mut conn)
-            .await?;
+        let agents = {
+            let mut conn = context.get_conn().await?;
+
+            db::agent::ListQuery::new()
+                .room_id(payload.room_id)
+                .offset(payload.offset.unwrap_or(0))
+                .limit(std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT))
+                .execute(&mut conn)
+                .await?
+        };
 
         context
             .metrics()

@@ -133,32 +133,36 @@ impl RequestHandler for CreateHandler {
 
         // Create a room.
         let audience = payload.audience.clone();
-        let mut conn = context.get_conn().await?;
-        let mut q = db::room::InsertQuery::new(
-            payload.time,
-            &payload.audience,
-            rtc_sharing_policy,
-            payload.classroom_id,
-        );
 
-        if let Some(reserve) = payload.reserve {
-            q = q.reserve(reserve);
-        }
-
-        if let Some(ref tags) = payload.tags {
-            q = q.tags(tags);
-        }
-
-        let room = q.execute(&mut conn).await?;
-
-        // Create a default group for minigroups
-        if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
+        let room = {
             let mut conn = context.get_conn().await?;
-            let groups = Groups::new(vec![GroupItem::new(0, vec![])]);
-            db::group_agent::UpsertQuery::new(room.id(), &groups)
-                .execute(&mut conn)
-                .await?;
-        }
+            let mut q = db::room::InsertQuery::new(
+                payload.time,
+                &payload.audience,
+                rtc_sharing_policy,
+                payload.classroom_id,
+            );
+
+            if let Some(reserve) = payload.reserve {
+                q = q.reserve(reserve);
+            }
+
+            if let Some(ref tags) = payload.tags {
+                q = q.tags(tags);
+            }
+
+            let room = q.execute(&mut conn).await?;
+
+            // Create a default group for minigroups
+            if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
+                let groups = Groups::new(vec![GroupItem::new(0, vec![])]);
+                db::group_agent::UpsertQuery::new(room.id(), &groups)
+                    .execute(&mut conn)
+                    .await?;
+            }
+
+            room
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -715,12 +719,12 @@ impl EnterHandler {
                 );
             }
 
-            // Adds participants to the default group for minigroups
-            let mut conn = context.get_conn().await?;
-            let agent_id = reqp.as_agent_id().clone();
+            let maybe_event_id = {
+                // Adds participants to the default group for minigroups
+                let mut conn = context.get_conn().await?;
+                let agent_id = reqp.as_agent_id().clone();
 
-            let maybe_event_id = conn
-                .transaction::<_, _, AppError>(|conn| {
+                conn.transaction::<_, _, AppError>(|conn| {
                     Box::pin(async move {
                         let group_agent = db::group_agent::FindQuery::new(room_id)
                             .execute(conn)
@@ -797,7 +801,8 @@ impl EnterHandler {
                         Ok(None)
                     })
                 })
-                .await?;
+                .await?
+            };
 
             match maybe_event_id {
                 Some(event_id) => {
@@ -864,24 +869,28 @@ impl RequestHandler for LeaveHandler {
     ) -> RequestResult {
         let mqtt_params = reqp.as_mqtt_params()?;
 
-        let mut conn = context.get_conn().await?;
+        let room = {
+            let mut conn = context.get_conn().await?;
 
-        let room =
-            helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &mut conn)
+            let room =
+                helpers::find_room_by_id(payload.id, helpers::RoomTimeRequirement::Any, &mut conn)
+                    .await?;
+
+            let agent_id = reqp.as_agent_id().clone();
+            // Check room presence.
+            let presence = db::agent::ListQuery::new()
+                .room_id(room.id())
+                .agent_id(&agent_id)
+                .execute(&mut conn)
                 .await?;
 
-        let agent_id = reqp.as_agent_id().clone();
-        // Check room presence.
-        let presence = db::agent::ListQuery::new()
-            .room_id(room.id())
-            .agent_id(&agent_id)
-            .execute(&mut conn)
-            .await?;
+            if presence.is_empty() {
+                return Err(anyhow!("Agent is not online in the room"))
+                    .error(AppErrorKind::AgentNotEnteredTheRoom);
+            }
 
-        if presence.is_empty() {
-            return Err(anyhow!("Agent is not online in the room"))
-                .error(AppErrorKind::AgentNotEnteredTheRoom);
-        }
+            room
+        };
 
         // Send dynamic subscription deletion request to the broker.
         let subject = reqp.as_agent_id().to_owned();

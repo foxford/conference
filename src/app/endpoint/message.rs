@@ -61,16 +61,18 @@ impl RequestHandler for UnicastHandler {
     ) -> RequestResult {
         let mqtt_params = reqp.as_mqtt_params()?;
 
-        let mut conn = context.get_conn().await?;
-        let room = helpers::find_room_by_id(
-            payload.room_id,
-            helpers::RoomTimeRequirement::Open,
-            &mut conn,
-        )
-        .await?;
+        {
+            let mut conn = context.get_conn().await?;
+            let room = helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?;
 
-        helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
-        helpers::check_room_presence(&room, &payload.agent_id, &mut conn).await?;
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+            helpers::check_room_presence(&room, &payload.agent_id, &mut conn).await?;
+        };
 
         let response_topic =
             Subscription::multicast_requests_from(&payload.agent_id, Some(API_VERSION))
@@ -136,15 +138,19 @@ impl RequestHandler for BroadcastHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let mut conn = context.get_conn().await?;
-        let room = helpers::find_room_by_id(
-            payload.room_id,
-            helpers::RoomTimeRequirement::Open,
-            &mut conn,
-        )
-        .await?;
+        let room = {
+            let mut conn = context.get_conn().await?;
+            let room = helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?;
 
-        helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+            helpers::check_room_presence(&room, reqp.as_agent_id(), &mut conn).await?;
+
+            room
+        };
 
         // Respond and broadcast to the room topic.
         let mut response = Response::new(

@@ -97,10 +97,12 @@ impl RequestHandler for Handler {
             .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let mut conn = context.get_conn().await?;
-        let group_agent = db::group_agent::FindQuery::new(room_id)
-            .execute(&mut conn)
-            .await?;
+        let group_agent = {
+            let mut conn = context.get_conn().await?;
+            db::group_agent::FindQuery::new(room_id)
+                .execute(&mut conn)
+                .await?
+        };
 
         let mut groups = group_agent.groups();
         if payload.within_group {

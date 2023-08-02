@@ -167,10 +167,12 @@ impl<'a, C: GlobalContext + ?Sized> RtcCreate<'a, C> {
             .await?;
 
         // Create an rtc.
-        let mut conn = self.ctx.get_conn().await?;
-        let rtc = db::rtc::InsertQuery::new(room.id(), self.reqp.as_agent_id())
-            .execute(&mut conn)
-            .await?;
+        let rtc = {
+            let mut conn = self.ctx.get_conn().await?;
+            db::rtc::InsertQuery::new(room.id(), self.reqp.as_agent_id())
+                .execute(&mut conn)
+                .await?
+        };
 
         let notification_topic = format!("rooms/{}/events", rtc.room_id());
         Ok(RtcCreateResult {
@@ -244,12 +246,14 @@ impl RequestHandler for ReadHandler {
         context.metrics().observe_auth(authz_time);
 
         // Return rtc.
-        let mut conn = context.get_conn().await?;
-        let rtc = db::rtc::FindQuery::new(payload.id)
-            .execute(&mut conn)
-            .await?
-            .context("RTC not found")
-            .error(AppErrorKind::RtcNotFound)?;
+        let rtc = {
+            let mut conn = context.get_conn().await?;
+            db::rtc::FindQuery::new(payload.id)
+                .execute(&mut conn)
+                .await?
+                .context("RTC not found")
+                .error(AppErrorKind::RtcNotFound)?
+        };
 
         context
             .metrics()
@@ -326,13 +330,15 @@ impl RequestHandler for ListHandler {
         payload: Self::Payload,
         reqp: RequestParams<'_>,
     ) -> RequestResult {
-        let mut conn = context.get_conn().await?;
-        let room = helpers::find_room_by_id(
-            payload.room_id,
-            helpers::RoomTimeRequirement::Open,
-            &mut conn,
-        )
-        .await?;
+        let room = {
+            let mut conn = context.get_conn().await?;
+            helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Open,
+                &mut conn,
+            )
+            .await?
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -350,7 +356,6 @@ impl RequestHandler for ListHandler {
         context.metrics().observe_auth(authz_time);
 
         // Return rtc list.
-        let mut conn = context.get_conn().await?;
         let mut query = db::rtc::ListQuery::new().room_id(payload.room_id);
 
         if let Some(offset) = payload.offset {
@@ -360,7 +365,10 @@ impl RequestHandler for ListHandler {
         let limit = std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT);
         query = query.limit(limit);
 
-        let rtcs = query.execute(&mut conn).await?;
+        let rtcs = {
+            let mut conn = context.get_conn().await?;
+            query.execute(&mut conn).await?
+        };
 
         context
             .metrics()
@@ -559,90 +567,94 @@ where
 
         tokio::try_join!(self.check_room_policy(&room), self.authz(&room))?;
 
-        let mut conn = self.ctx.get_conn().await?;
-        let group = self.ctx.config().janus_group.clone();
-        // There are 4 cases:
-        // 1. Connecting as a writer for a webinar for the first time. There's no `backend_id` in that case.
-        //    Select the most loaded backend that is capable to host the room's reservation.
-        //    If there's no capable backend then select the least loaded and send a warning
-        //    to Sentry. If there are no backends at all then return `no available backends`
-        // 2. Connecting as a writer for a minigroup for the first time. There's no `backend_id` in that case.
-        //    Select the least loaded backend and fallback on most loaded. Minigroups have a fixed size,
-        //    that is why least loaded should work fine.
-        // 3. Connecting as reader with existing `backend_id`. Choose it because Janus doesn't
-        //    support clustering and it must be the same server that the writer is connected to.
-        // 4. Reconnecting as writer with existing `backend_id`. Select it to avoid partitioning
-        //    of the record across multiple servers.
-        let backend = match room.backend_id() {
-                Some(backend_id) => db::janus_backend::FindQuery::new(backend_id)
-                    .execute(&mut conn)
-                    .await?
-                    .context("No backend found for stream")
-                    .error(AppErrorKind::BackendNotFound)?,
-                None if group.as_deref() == Some("minigroup") => {
-                    let b = db::janus_backend::least_loaded(room.id(), group.as_deref(), &mut conn).await.transpose();
-                    let b = match b {
-                        Some(b) => Some(b),
-                        None => {
-                            db::janus_backend::most_loaded(room.id(), group.as_deref(), &mut conn).await.transpose()
-                        }
-                    };
-
-                    b
-                        .context("No available backends")
-                        .error(AppErrorKind::NoAvailableBackends)??
-                }
-                None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &mut conn).await? {
-                    Some(backend) => backend,
-                    None => db::janus_backend::least_loaded(room.id(), group.as_deref(), &mut conn).await?
-                        .map(|backend| {
-                            use sentry::protocol::{value::Value, Event, Level};
-                            let backend_id = backend.id().to_string();
-
-                            warn!(%backend_id, "No capable backends to host the reserve; falling back to the least loaded backend");
-
-                            let mut extra = std::collections::BTreeMap::new();
-                            extra.insert(String::from("room_id"), Value::from(room.id().to_string()));
-                            extra.insert(String::from("rtc_id"), Value::from(self.rtc_id.to_string()));
-                            extra.insert(String::from("backend_id"), Value::from(backend_id));
-
-                            if let Some(reserve) = room.reserve() {
-                                extra.insert(String::from("reserve"), Value::from(reserve));
-                            }
-
-                            sentry::capture_event(Event {
-                                message: Some(String::from("No capable backends to host the reserve; falling back to the least loaded backend")),
-                                level: Level::Warning,
-                                extra,
-                                ..Default::default()
-                            });
-
-                            backend
-                        })
-                        .context("No available backends")
-                        .error(AppErrorKind::NoAvailableBackends)?,
-                },
-            };
-
-        match self.intent {
-            ConnectIntent::Read => {
-                // Check that the backend's capacity is not exceeded for readers.
-                if db::janus_backend::free_capacity(self.rtc_id, &mut conn).await? == 0 {
-                    return Err(anyhow!(
-                        "Active agents number on the backend exceeded its capacity"
-                    ))
-                    .error(AppErrorKind::CapacityExceeded);
-                }
-            }
-            ConnectIntent::Write => {
-                if room.backend_id().is_none() {
-                    db::room::UpdateQuery::new(room.id())
-                        .backend_id(Some(backend.id()))
+        let backend = {
+            let mut conn = self.ctx.get_conn().await?;
+            let group = self.ctx.config().janus_group.clone();
+            // There are 4 cases:
+            // 1. Connecting as a writer for a webinar for the first time. There's no `backend_id` in that case.
+            //    Select the most loaded backend that is capable to host the room's reservation.
+            //    If there's no capable backend then select the least loaded and send a warning
+            //    to Sentry. If there are no backends at all then return `no available backends`
+            // 2. Connecting as a writer for a minigroup for the first time. There's no `backend_id` in that case.
+            //    Select the least loaded backend and fallback on most loaded. Minigroups have a fixed size,
+            //    that is why least loaded should work fine.
+            // 3. Connecting as reader with existing `backend_id`. Choose it because Janus doesn't
+            //    support clustering and it must be the same server that the writer is connected to.
+            // 4. Reconnecting as writer with existing `backend_id`. Select it to avoid partitioning
+            //    of the record across multiple servers.
+            let backend = match room.backend_id() {
+                    Some(backend_id) => db::janus_backend::FindQuery::new(backend_id)
                         .execute(&mut conn)
-                        .await?;
+                        .await?
+                        .context("No backend found for stream")
+                        .error(AppErrorKind::BackendNotFound)?,
+                    None if group.as_deref() == Some("minigroup") => {
+                        let b = db::janus_backend::least_loaded(room.id(), group.as_deref(), &mut conn).await.transpose();
+                        let b = match b {
+                            Some(b) => Some(b),
+                            None => {
+                                db::janus_backend::most_loaded(room.id(), group.as_deref(), &mut conn).await.transpose()
+                            }
+                        };
+
+                        b
+                            .context("No available backends")
+                            .error(AppErrorKind::NoAvailableBackends)??
+                    }
+                    None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &mut conn).await? {
+                        Some(backend) => backend,
+                        None => db::janus_backend::least_loaded(room.id(), group.as_deref(), &mut conn).await?
+                            .map(|backend| {
+                                use sentry::protocol::{value::Value, Event, Level};
+                                let backend_id = backend.id().to_string();
+
+                                warn!(%backend_id, "No capable backends to host the reserve; falling back to the least loaded backend");
+
+                                let mut extra = std::collections::BTreeMap::new();
+                                extra.insert(String::from("room_id"), Value::from(room.id().to_string()));
+                                extra.insert(String::from("rtc_id"), Value::from(self.rtc_id.to_string()));
+                                extra.insert(String::from("backend_id"), Value::from(backend_id));
+
+                                if let Some(reserve) = room.reserve() {
+                                    extra.insert(String::from("reserve"), Value::from(reserve));
+                                }
+
+                                sentry::capture_event(Event {
+                                    message: Some(String::from("No capable backends to host the reserve; falling back to the least loaded backend")),
+                                    level: Level::Warning,
+                                    extra,
+                                    ..Default::default()
+                                });
+
+                                backend
+                            })
+                            .context("No available backends")
+                            .error(AppErrorKind::NoAvailableBackends)?,
+                    },
+                };
+
+            match self.intent {
+                ConnectIntent::Read => {
+                    // Check that the backend's capacity is not exceeded for readers.
+                    if db::janus_backend::free_capacity(self.rtc_id, &mut conn).await? == 0 {
+                        return Err(anyhow!(
+                            "Active agents number on the backend exceeded its capacity"
+                        ))
+                        .error(AppErrorKind::CapacityExceeded);
+                    }
+                }
+                ConnectIntent::Write => {
+                    if room.backend_id().is_none() {
+                        db::room::UpdateQuery::new(room.id())
+                            .backend_id(Some(backend.id()))
+                            .execute(&mut conn)
+                            .await?;
+                    }
                 }
             }
-        }
+
+            backend
+        };
 
         let rtc_stream_id = db::janus_rtc_stream::Id::random();
 
@@ -666,32 +678,34 @@ where
         let handle_id = handle.id;
         let room_id = room.id();
 
-        let mut conn = self.ctx.get_conn().await?;
-        conn.transaction(|conn| {
-            Box::pin(async move {
-                // Find agent in the DB who made the original `rtc.connect` request.
-                let maybe_agent = agent::ListQuery::new()
-                    .agent_id(&agent_id)
-                    .room_id(room_id)
-                    .status(agent::Status::Ready)
-                    .limit(1)
-                    .execute(conn)
-                    .await?;
-
-                if let Some(agent) = maybe_agent.first() {
-                    // Create agent connection in the DB.
-                    agent_connection::UpsertQuery::new(agent.id(), payload_id, handle_id)
+        {
+            let mut conn = self.ctx.get_conn().await?;
+            conn.transaction(|conn| {
+                Box::pin(async move {
+                    // Find agent in the DB who made the original `rtc.connect` request.
+                    let maybe_agent = agent::ListQuery::new()
+                        .agent_id(&agent_id)
+                        .room_id(room_id)
+                        .status(agent::Status::Ready)
+                        .limit(1)
                         .execute(conn)
                         .await?;
 
-                    Ok(())
-                } else {
-                    // Agent may be already gone.
-                    Err(anyhow!("Agent not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
-                }
+                    if let Some(agent) = maybe_agent.first() {
+                        // Create agent connection in the DB.
+                        agent_connection::UpsertQuery::new(agent.id(), payload_id, handle_id)
+                            .execute(conn)
+                            .await?;
+
+                        Ok(())
+                    } else {
+                        // Agent may be already gone.
+                        Err(anyhow!("Agent not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
+                    }
+                })
             })
-        })
-        .await?;
+            .await?;
+        }
 
         let handle_id = HandleId::new(
             rtc_stream_id,
@@ -710,9 +724,10 @@ where
         let jsep = Jsep::OfferOrAnswer(self.jsep.clone());
 
         let answer = if is_recvonly {
-            let mut conn = self.ctx.get_conn().await?;
-            let reader_config =
-                db::rtc_reader_config::read_config(handle_id.rtc_id(), &mut conn).await?;
+            let reader_config = {
+                let mut conn = self.ctx.get_conn().await?;
+                db::rtc_reader_config::read_config(handle_id.rtc_id(), &mut conn).await?
+            };
 
             let request = ReadStreamRequest {
                 body: ReadStreamRequestBody::new(
@@ -959,90 +974,94 @@ impl RequestHandler for ConnectHandler {
         let room_id = room.id();
 
         // Choose backend to connect.
-        let mut conn = context.get_conn().await?;
-        let group = context.config().janus_group.clone();
-        // There are 4 cases:
-        // 1. Connecting as a writer for a webinar for the first time. There's no `backend_id` in that case.
-        //    Select the most loaded backend that is capable to host the room's reservation.
-        //    If there's no capable backend then select the least loaded and send a warning
-        //    to Sentry. If there are no backends at all then return `no available backends`
-        // 2. Connecting as a writer for a minigroup for the first time. There's no `backend_id` in that case.
-        //    Select the least loaded backend and fallback on most loaded. Minigroups have a fixed size,
-        //    that is why least loaded should work fine.
-        // 3. Connecting as reader with existing `backend_id`. Choose it because Janus doesn't
-        //    support clustering and it must be the same server that the writer is connected to.
-        // 4. Reconnecting as writer with existing `backend_id`. Select it to avoid partitioning
-        //    of the record across multiple servers.
-        let backend = match room.backend_id() {
-                Some(backend_id) => db::janus_backend::FindQuery::new(backend_id)
-                    .execute(&mut conn)
-                    .await?
-                    .context("No backend found for stream")
-                    .error(AppErrorKind::BackendNotFound)?,
-                None if group.as_deref() == Some("minigroup") => {
-                    let b = db::janus_backend::least_loaded(room.id(), group.as_deref(), &mut conn).await.transpose();
-                    let b = match b {
-                        Some(b) => Some(b),
-                        None => {
-                            db::janus_backend::most_loaded(room.id(), group.as_deref(), &mut conn).await.transpose()
-                        }
-                    };
-
-                    b
-                        .context("No available backends")
-                        .error(AppErrorKind::NoAvailableBackends)??
-                }
-                None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &mut conn).await? {
-                    Some(backend) => backend,
-                    None => db::janus_backend::least_loaded(room.id(), group.as_deref(), &mut conn).await?
-                        .map(|backend| {
-                            use sentry::protocol::{value::Value, Event, Level};
-                            let backend_id = backend.id().to_string();
-
-                            warn!(%backend_id, "No capable backends to host the reserve; falling back to the least loaded backend");
-
-                            let mut extra = std::collections::BTreeMap::new();
-                            extra.insert(String::from("room_id"), Value::from(room.id().to_string()));
-                            extra.insert(String::from("rtc_id"), Value::from(payload.id.to_string()));
-                            extra.insert(String::from("backend_id"), Value::from(backend_id));
-
-                            if let Some(reserve) = room.reserve() {
-                                extra.insert(String::from("reserve"), Value::from(reserve));
-                            }
-
-                            sentry::capture_event(Event {
-                                message: Some(String::from("No capable backends to host the reserve; falling back to the least loaded backend")),
-                                level: Level::Warning,
-                                extra,
-                                ..Default::default()
-                            });
-
-                            backend
-                        })
-                        .context("No available backends")
-                        .error(AppErrorKind::NoAvailableBackends)?,
-                },
-            };
-
-        match payload.intent {
-            ConnectIntent::Read => {
-                // Check that the backend's capacity is not exceeded for readers.
-                if db::janus_backend::free_capacity(payload.id, &mut conn).await? == 0 {
-                    return Err(anyhow!(
-                        "Active agents number on the backend exceeded its capacity"
-                    ))
-                    .error(AppErrorKind::CapacityExceeded);
-                }
-            }
-            ConnectIntent::Write => {
-                if room.backend_id().is_none() {
-                    db::room::UpdateQuery::new(room.id())
-                        .backend_id(Some(backend.id()))
+        let backend = {
+            let mut conn = context.get_conn().await?;
+            let group = context.config().janus_group.clone();
+            // There are 4 cases:
+            // 1. Connecting as a writer for a webinar for the first time. There's no `backend_id` in that case.
+            //    Select the most loaded backend that is capable to host the room's reservation.
+            //    If there's no capable backend then select the least loaded and send a warning
+            //    to Sentry. If there are no backends at all then return `no available backends`
+            // 2. Connecting as a writer for a minigroup for the first time. There's no `backend_id` in that case.
+            //    Select the least loaded backend and fallback on most loaded. Minigroups have a fixed size,
+            //    that is why least loaded should work fine.
+            // 3. Connecting as reader with existing `backend_id`. Choose it because Janus doesn't
+            //    support clustering and it must be the same server that the writer is connected to.
+            // 4. Reconnecting as writer with existing `backend_id`. Select it to avoid partitioning
+            //    of the record across multiple servers.
+            let backend = match room.backend_id() {
+                    Some(backend_id) => db::janus_backend::FindQuery::new(backend_id)
                         .execute(&mut conn)
-                        .await?;
+                        .await?
+                        .context("No backend found for stream")
+                        .error(AppErrorKind::BackendNotFound)?,
+                    None if group.as_deref() == Some("minigroup") => {
+                        let b = db::janus_backend::least_loaded(room.id(), group.as_deref(), &mut conn).await.transpose();
+                        let b = match b {
+                            Some(b) => Some(b),
+                            None => {
+                                db::janus_backend::most_loaded(room.id(), group.as_deref(), &mut conn).await.transpose()
+                            }
+                        };
+
+                        b
+                            .context("No available backends")
+                            .error(AppErrorKind::NoAvailableBackends)??
+                    }
+                    None => match db::janus_backend::most_loaded(room.id(), group.as_deref(), &mut conn).await? {
+                        Some(backend) => backend,
+                        None => db::janus_backend::least_loaded(room.id(), group.as_deref(), &mut conn).await?
+                            .map(|backend| {
+                                use sentry::protocol::{value::Value, Event, Level};
+                                let backend_id = backend.id().to_string();
+
+                                warn!(%backend_id, "No capable backends to host the reserve; falling back to the least loaded backend");
+
+                                let mut extra = std::collections::BTreeMap::new();
+                                extra.insert(String::from("room_id"), Value::from(room.id().to_string()));
+                                extra.insert(String::from("rtc_id"), Value::from(payload.id.to_string()));
+                                extra.insert(String::from("backend_id"), Value::from(backend_id));
+
+                                if let Some(reserve) = room.reserve() {
+                                    extra.insert(String::from("reserve"), Value::from(reserve));
+                                }
+
+                                sentry::capture_event(Event {
+                                    message: Some(String::from("No capable backends to host the reserve; falling back to the least loaded backend")),
+                                    level: Level::Warning,
+                                    extra,
+                                    ..Default::default()
+                                });
+
+                                backend
+                            })
+                            .context("No available backends")
+                            .error(AppErrorKind::NoAvailableBackends)?,
+                    },
+                };
+
+            match payload.intent {
+                ConnectIntent::Read => {
+                    // Check that the backend's capacity is not exceeded for readers.
+                    if db::janus_backend::free_capacity(payload.id, &mut conn).await? == 0 {
+                        return Err(anyhow!(
+                            "Active agents number on the backend exceeded its capacity"
+                        ))
+                        .error(AppErrorKind::CapacityExceeded);
+                    }
+                }
+                ConnectIntent::Write => {
+                    if room.backend_id().is_none() {
+                        db::room::UpdateQuery::new(room.id())
+                            .backend_id(Some(backend.id()))
+                            .execute(&mut conn)
+                            .await?;
+                    }
                 }
             }
-        }
+
+            backend
+        };
 
         let rtc_stream_id = db::janus_rtc_stream::Id::random();
 
@@ -1064,33 +1083,35 @@ impl RequestHandler for ConnectHandler {
         let agent_id = reqp.as_agent_id().clone();
         let handle_id = handle.id;
 
-        let mut conn = context.get_conn().await?;
-        let payload_id = payload.id;
-        conn.transaction(|conn| {
-            Box::pin(async move {
-                // Find agent in the DB who made the original `rtc.connect` request.
-                let maybe_agent = agent::ListQuery::new()
-                    .agent_id(&agent_id)
-                    .room_id(room_id)
-                    .status(agent::Status::Ready)
-                    .limit(1)
-                    .execute(conn)
-                    .await?;
-
-                if let Some(agent) = maybe_agent.first() {
-                    // Create agent connection in the DB.
-                    agent_connection::UpsertQuery::new(agent.id(), payload_id, handle_id)
+        {
+            let mut conn = context.get_conn().await?;
+            let payload_id = payload.id;
+            conn.transaction(|conn| {
+                Box::pin(async move {
+                    // Find agent in the DB who made the original `rtc.connect` request.
+                    let maybe_agent = agent::ListQuery::new()
+                        .agent_id(&agent_id)
+                        .room_id(room_id)
+                        .status(agent::Status::Ready)
+                        .limit(1)
                         .execute(conn)
                         .await?;
 
-                    Ok(())
-                } else {
-                    // Agent may be already gone.
-                    Err(anyhow!("Agent not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
-                }
+                    if let Some(agent) = maybe_agent.first() {
+                        // Create agent connection in the DB.
+                        agent_connection::UpsertQuery::new(agent.id(), payload_id, handle_id)
+                            .execute(conn)
+                            .await?;
+
+                        Ok(())
+                    } else {
+                        // Agent may be already gone.
+                        Err(anyhow!("Agent not found")).error(AppErrorKind::AgentNotEnteredTheRoom)
+                    }
+                })
             })
-        })
-        .await?;
+            .await?;
+        }
 
         // Returning Real-Time connection handle
         let resp = Response::new(

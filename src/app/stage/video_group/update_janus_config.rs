@@ -58,14 +58,15 @@ impl StageHandle for VideoGroupUpdateJanusConfig {
         ctx: &Self::Context,
         _id: &EventId,
     ) -> Result<Option<Self::Stage>, StageError> {
-        let mut conn = ctx.get_conn().await?;
-
-        let janus_backend = db::janus_backend::FindQuery::new(&self.backend_id)
-            .execute(&mut conn)
-            .await
-            .error(ErrorKind::DbQueryFailed)?
-            .ok_or_else(|| anyhow!("Janus backend not found"))
-            .error(ErrorKind::BackendNotFound)?;
+        let janus_backend = {
+            let mut conn = ctx.get_conn().await?;
+            db::janus_backend::FindQuery::new(&self.backend_id)
+                .execute(&mut conn)
+                .await
+                .error(ErrorKind::DbQueryFailed)?
+                .ok_or_else(|| anyhow!("Janus backend not found"))
+                .error(ErrorKind::BackendNotFound)?
+        };
 
         let request = UpdateReaderConfigRequest {
             session_id: janus_backend.session_id(),

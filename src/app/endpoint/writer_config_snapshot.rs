@@ -55,13 +55,15 @@ impl RequestHandler for ReadHandler {
         let account_id = reqp.as_account_id().to_owned();
         let service_audience = context.agent_id().as_account_id().to_owned();
 
-        let mut conn = context.get_conn().await?;
-        let room = helpers::find_room_by_id(
-            payload.room_id,
-            helpers::RoomTimeRequirement::Any,
-            &mut conn,
-        )
-        .await?;
+        let room = {
+            let mut conn = context.get_conn().await?;
+            helpers::find_room_by_id(
+                payload.room_id,
+                helpers::RoomTimeRequirement::Any,
+                &mut conn,
+            )
+            .await?
+        };
 
         tracing::Span::current().record(
             "classroom_id",
@@ -84,9 +86,12 @@ impl RequestHandler for ReadHandler {
             .error(AppErrorKind::InvalidPayload)?;
         }
 
-        let snapshots = db::rtc_writer_config_snapshot::ListWithRtcQuery::new(room.id())
-            .execute(&mut conn)
-            .await?;
+        let snapshots = {
+            let mut conn = context.get_conn().await?;
+            db::rtc_writer_config_snapshot::ListWithRtcQuery::new(room.id())
+                .execute(&mut conn)
+                .await?
+        };
 
         Ok(Response::new(
             ResponseStatus::OK,
