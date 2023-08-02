@@ -9,6 +9,7 @@ use crate::{
         },
         AppErrorKind,
     },
+    backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
     db::{
         self,
         room::{FindQueryable, Object as RoomObject},
@@ -18,7 +19,7 @@ use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use svc_agent::AgentId;
-use svc_events::{stage::UpdateJanusConfigStageV1, Event, EventId, EventV1};
+use svc_events::{stage::UpdateJanusConfigAndSendNotificationStageV1, Event, EventId, EventV1};
 use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
     Subject,
@@ -100,10 +101,11 @@ pub async fn route_message(
         .context("parse nats headers")
         .permanent()?;
     let agent_id = headers.sender_id();
+    let event_id = headers.event_id();
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
-        Event::V1(EventV1::UpdateJanusConfigStage(e)) => {
-            handle_update_janus_config_stage(ctx.clone(), e, room, agent_id.clone()).await
+        Event::V1(EventV1::UpdateJanusConfigAndSendNotificationStage(e)) => {
+            handle_update_janus_config_and_send_notification_stage(ctx.clone(), &event_id, e, room, agent_id.clone()).await
         }
         _ => {
             // ignore
@@ -114,9 +116,10 @@ pub async fn route_message(
     FailureKindExt::map_err(r, |e| anyhow!(e))
 }
 
-async fn handle_update_janus_config_stage(
+async fn handle_update_janus_config_and_send_notification_stage(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
-    e: UpdateJanusConfigStageV1,
+    event_id: &EventId,
+    e: UpdateJanusConfigAndSendNotificationStageV1,
     room: RoomObject,
     agent_id: AgentId,
 ) -> Result<(), HandleMessageFailure<Error>> {
@@ -152,16 +155,33 @@ async fn handle_update_janus_config_stage(
         .transient()?;
 
     // Update rtc_reader_configs
-    let _configs = group_reader_config::update(&mut conn, room.id(), groups)
+    let configs = group_reader_config::update(&mut conn, room.id(), groups)
         .await
         .error(AppErrorKind::DbQueryFailed)
         .transient()?;
 
-    let stage: AppStage = serde_json::from_value(e.stage_state)
-        .error(ErrorKind::StageStateDeserializationFailed)
-        .permanent()?;
+    // Generate configs for janus
+    let items = configs
+        .into_iter()
+        .map(|((rtc_id, agent_id), value)| {
+            UpdateReaderConfigRequestBodyConfigItem {
+                reader_id: agent_id,
+                stream_id: rtc_id,
+                receive_video: value,
+                receive_audio: value,
+            }
+        })
+        .collect::<Vec<_>>();
 
-    let result = handle_stage(&ctx, &stage, &e.event_id).await;
+    let init_stage = VideoGroupUpdateJanusConfig::init(
+        EventV1::from(e.event),
+        room.classroom_id(),
+        room.id(),
+        e.backend_id,
+        items,
+    );
+
+    let result = handle_stage(&ctx, &init_stage, &event_id).await;
     let next_stage = match result {
         Ok(Some(next_stage)) => next_stage,
         _ => Err(anyhow!("UpdateJanusConfigStage failed"))
@@ -169,7 +189,7 @@ async fn handle_update_janus_config_stage(
             .transient()?,
     };
 
-    let result = handle_stage(&ctx, &next_stage, &e.event_id).await;
+    let result = handle_stage(&ctx, &next_stage, &event_id).await;
     let next_stage = match result {
         Ok(Some(next_stage)) => next_stage,
         _ => Err(anyhow!("SendNatsNotificationStage failed"))
@@ -177,7 +197,7 @@ async fn handle_update_janus_config_stage(
             .transient()?,
     };
 
-    let result = handle_stage(&ctx, &next_stage, &e.event_id).await;
+    let result = handle_stage(&ctx, &next_stage, &event_id).await;
     match result {
         Ok(None) => (),
         _ => Err(anyhow!("SendMqttNotificationStage failed"))

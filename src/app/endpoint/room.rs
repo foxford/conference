@@ -14,7 +14,7 @@ use svc_agent::{
     Addressable, AgentId, Authenticable, Subscription,
 };
 use svc_events::{
-    stage::UpdateJanusConfigStageV1, EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent,
+    stage::UpdateJanusConfigAndSendNotificationStageV1, VideoGroupEventV1 as VideoGroupEvent,
 };
 
 use svc_utils::extractors::AgentIdExtractor;
@@ -29,16 +29,14 @@ use crate::{
             rtc::{RtcCreate, RtcCreateResult},
             subscription::CorrelationDataPayload,
         },
-        group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
         stage::video_group::{
-            VideoGroupUpdateJanusConfig, MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX,
+            MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX,
         },
         API_VERSION,
     },
     authz::AuthzObject,
-    backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
     client::mqtt_gateway::MqttGatewayClient,
     db::{
         self,
@@ -725,7 +723,6 @@ impl EnterHandler {
                         let agent_exists = groups.is_agent_exist(&agent_id);
 
                         if !agent_exists {
-                            let changed_groups = groups.add_to_default_group(&agent_id);
                             // Check the number of groups, and if there are more than 1,
                             // then create RTC reader configs for participants from other groups
                             if groups.len() > 1 {
@@ -735,34 +732,10 @@ impl EnterHandler {
                                     .context("backend not found")
                                     .error(AppErrorKind::BackendNotFound)?;
 
-                                let configs =
-                                    group_reader_config::read(conn, room_id, changed_groups)
-                                        .await?;
-
-                                // Generate configs for janus
-                                let items = configs
-                                    .into_iter()
-                                    .map(|((rtc_id, agent_id), value)| {
-                                        UpdateReaderConfigRequestBodyConfigItem {
-                                            reader_id: agent_id,
-                                            stream_id: rtc_id,
-                                            receive_video: value,
-                                            receive_audio: value,
-                                        }
-                                    })
-                                    .collect::<Vec<_>>();
-
                                 let timestamp = Utc::now().timestamp_nanos();
-                                let event = Event::from(VideoGroupEvent::Updated {
+                                let event = VideoGroupEvent::Updated {
                                     created_at: timestamp,
-                                });
-                                let init_stage = VideoGroupUpdateJanusConfig::init(
-                                    event,
-                                    room.classroom_id(),
-                                    room.id(),
-                                    backend_id,
-                                    items,
-                                );
+                                };
 
                                 let event_id =
                                     crate::app::stage::nats_ids::sqlx::get_next_seq_id(conn)
@@ -770,13 +743,9 @@ impl EnterHandler {
                                         .error(AppErrorKind::CreatingNewSequenceIdFailed)?
                                         .to_event_id("update configs");
 
-                                let serialized_stage = serde_json::to_value(init_stage)
-                                    .context("serialization failed")
-                                    .error(AppErrorKind::StageStateSerializationFailed)?;
-
-                                let event = svc_events::Event::from(UpdateJanusConfigStageV1 {
-                                    event_id: event_id.clone(),
-                                    stage_state: serialized_stage,
+                                let event = svc_events::Event::from(UpdateJanusConfigAndSendNotificationStageV1 {
+                                    backend_id,
+                                    event,
                                 });
 
                                 let payload = serde_json::to_vec(&event)
