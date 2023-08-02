@@ -5,7 +5,7 @@ use crate::{
         group_reader_config,
         stage::video_group::{
             VideoGroupSendMqttNotification, VideoGroupSendNatsNotification,
-            VideoGroupUpdateJanusConfig,
+            VideoGroupUpdateJanusConfig, ENTITY_TYPE,
         },
         AppErrorKind,
     },
@@ -180,6 +180,11 @@ async fn handle_update_janus_config_and_send_notification_stage(
         )
         .collect::<Vec<_>>();
 
+    let event_id = &EventId::from((
+        ENTITY_TYPE.to_string(),
+        "send_notification".to_string(),
+        event_id.sequence_id(),
+    ));
     let init_stage = VideoGroupUpdateJanusConfig::init(
         EventV1::from(e.event),
         room.classroom_id(),
