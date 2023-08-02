@@ -130,10 +130,11 @@ impl Handler {
                             .error(AppErrorKind::CreatingNewSequenceIdFailed)?
                             .to_event_id("update configs");
 
-                        let event = svc_events::Event::from(UpdateJanusConfigAndSendNotificationStageV1 {
-                            backend_id,
-                            event,
-                        });
+                        let event =
+                            svc_events::Event::from(UpdateJanusConfigAndSendNotificationStageV1 {
+                                backend_id,
+                                event,
+                            });
 
                         let payload = serde_json::to_vec(&event)
                             .context("serialization failed")

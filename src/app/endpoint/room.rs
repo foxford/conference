@@ -31,9 +31,7 @@ use crate::{
         },
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::video_group::{
-            MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX,
-        },
+        stage::video_group::{MQTT_NOTIFICATION_LABEL, SUBJECT_PREFIX},
         API_VERSION,
     },
     authz::AuthzObject,
@@ -743,10 +741,12 @@ impl EnterHandler {
                                         .error(AppErrorKind::CreatingNewSequenceIdFailed)?
                                         .to_event_id("update configs");
 
-                                let event = svc_events::Event::from(UpdateJanusConfigAndSendNotificationStageV1 {
-                                    backend_id,
-                                    event,
-                                });
+                                let event = svc_events::Event::from(
+                                    UpdateJanusConfigAndSendNotificationStageV1 {
+                                        backend_id,
+                                        event,
+                                    },
+                                );
 
                                 let payload = serde_json::to_vec(&event)
                                     .context("serialization failed")

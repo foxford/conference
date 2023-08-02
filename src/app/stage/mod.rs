@@ -105,7 +105,14 @@ pub async fn route_message(
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
         Event::V1(EventV1::UpdateJanusConfigAndSendNotificationStage(e)) => {
-            handle_update_janus_config_and_send_notification_stage(ctx.clone(), &event_id, e, room, agent_id.clone()).await
+            handle_update_janus_config_and_send_notification_stage(
+                ctx.clone(),
+                &event_id,
+                e,
+                room,
+                agent_id.clone(),
+            )
+            .await
         }
         _ => {
             // ignore
@@ -163,14 +170,14 @@ async fn handle_update_janus_config_and_send_notification_stage(
     // Generate configs for janus
     let items = configs
         .into_iter()
-        .map(|((rtc_id, agent_id), value)| {
-            UpdateReaderConfigRequestBodyConfigItem {
+        .map(
+            |((rtc_id, agent_id), value)| UpdateReaderConfigRequestBodyConfigItem {
                 reader_id: agent_id,
                 stream_id: rtc_id,
                 receive_video: value,
                 receive_audio: value,
-            }
-        })
+            },
+        )
         .collect::<Vec<_>>();
 
     let init_stage = VideoGroupUpdateJanusConfig::init(
