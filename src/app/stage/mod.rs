@@ -107,7 +107,7 @@ pub async fn route_message(
         Event::V1(EventV1::UpdateJanusConfigAndSendNotificationStage(e)) => {
             handle_update_janus_config_and_send_notification_stage(
                 ctx.clone(),
-                &event_id,
+                event_id,
                 e,
                 room,
                 agent_id.clone(),
@@ -188,7 +188,7 @@ async fn handle_update_janus_config_and_send_notification_stage(
         items,
     );
 
-    let result = handle_stage(&ctx, &init_stage, &event_id).await;
+    let result = handle_stage(&ctx, &init_stage, event_id).await;
     let next_stage = match result {
         Ok(Some(next_stage)) => next_stage,
         _ => Err(anyhow!("UpdateJanusConfigStage failed"))
@@ -196,7 +196,7 @@ async fn handle_update_janus_config_and_send_notification_stage(
             .transient()?,
     };
 
-    let result = handle_stage(&ctx, &next_stage, &event_id).await;
+    let result = handle_stage(&ctx, &next_stage, event_id).await;
     let next_stage = match result {
         Ok(Some(next_stage)) => next_stage,
         _ => Err(anyhow!("SendNatsNotificationStage failed"))
@@ -204,7 +204,7 @@ async fn handle_update_janus_config_and_send_notification_stage(
             .transient()?,
     };
 
-    let result = handle_stage(&ctx, &next_stage, &event_id).await;
+    let result = handle_stage(&ctx, &next_stage, event_id).await;
     match result {
         Ok(None) => (),
         _ => Err(anyhow!("SendMqttNotificationStage failed"))
