@@ -7,7 +7,7 @@ use crate::{
             VideoGroupSendMqttNotification, VideoGroupSendNatsNotification,
             VideoGroupUpdateJanusConfig, ENTITY_TYPE,
         },
-        AppErrorKind,
+        AppError, AppErrorKind,
     },
     backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
     db::{
@@ -17,6 +17,7 @@ use crate::{
 };
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
+use sqlx::Connection;
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use svc_agent::AgentId;
 use svc_events::{stage::UpdateJanusConfigAndSendNotificationStageV1, Event, EventId, EventV1};
@@ -136,36 +137,44 @@ async fn handle_update_janus_config_and_send_notification_stage(
         .error(AppErrorKind::DbConnAcquisitionFailed)
         .transient()?;
 
-    let group_agent = db::group_agent::FindQuery::new(room.id())
-        .execute(&mut conn)
-        .await
-        .error(AppErrorKind::DbQueryFailed)
-        .transient()?;
+    let configs = {
+        let room = room.clone();
+        conn.transaction::<_, _, AppError>(|conn| {
+            Box::pin(async move {
+                let group_agent = db::group_agent::FindQuery::new(room.id())
+                    .execute(conn)
+                    .await
+                    .error(AppErrorKind::DbQueryFailed)?;
 
-    let mut groups = group_agent.groups();
-    if !groups.is_agent_exist(&agent_id) {
-        groups = groups.add_to_default_group(&agent_id);
-    }
+                let mut groups = group_agent.groups();
+                if !groups.is_agent_exist(&agent_id) {
+                    groups = groups.add_to_default_group(&agent_id);
+                }
 
-    let _existed_groups = db::group_agent::FindQuery::new(room.id())
-        .execute(&mut conn)
+                let _existed_groups = db::group_agent::FindQuery::new(room.id())
+                    .execute(conn)
+                    .await
+                    .error(AppErrorKind::DbQueryFailed)?
+                    .groups()
+                    .len();
+
+                db::group_agent::UpsertQuery::new(room.id(), &groups)
+                    .execute(conn)
+                    .await
+                    .error(AppErrorKind::DbQueryFailed)?;
+
+                // Update rtc_reader_configs
+                let configs = group_reader_config::update(conn, room.id(), groups)
+                    .await
+                    .error(AppErrorKind::DbQueryFailed)?;
+
+                Ok(configs)
+            })
+        })
         .await
         .error(AppErrorKind::DbQueryFailed)
         .transient()?
-        .groups()
-        .len();
-
-    db::group_agent::UpsertQuery::new(room.id(), &groups)
-        .execute(&mut conn)
-        .await
-        .error(AppErrorKind::DbQueryFailed)
-        .transient()?;
-
-    // Update rtc_reader_configs
-    let configs = group_reader_config::update(&mut conn, room.id(), groups)
-        .await
-        .error(AppErrorKind::DbQueryFailed)
-        .transient()?;
+    };
 
     // Generate configs for janus
     let items = configs
