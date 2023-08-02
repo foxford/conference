@@ -2,16 +2,19 @@ use crate::{
     app::{
         context::GlobalContext,
         error::Error,
+        group_reader_config,
         stage::video_group::{
             VideoGroupSendMqttNotification, VideoGroupSendNatsNotification,
             VideoGroupUpdateJanusConfig,
         },
+        AppErrorKind,
     },
-    db::{self, room::FindQueryable},
+    db::{self, room::{FindQueryable, Object as RoomObject}},
 };
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
+use svc_agent::AgentId;
 use svc_events::{stage::UpdateJanusConfigStageV1, Event, EventId, EventV1};
 use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
@@ -69,7 +72,7 @@ pub async fn route_message(
         .permanent()?;
 
     let classroom_id = subject.classroom_id();
-    let _room = {
+    let room = {
         let mut conn = ctx
             .get_conn()
             .await
@@ -93,11 +96,11 @@ pub async fn route_message(
     let headers = svc_nats_client::Headers::try_from(msg.headers.clone().unwrap_or_default())
         .context("parse nats headers")
         .permanent()?;
-    let _agent_id = headers.sender_id();
+    let agent_id = headers.sender_id();
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
         Event::V1(EventV1::UpdateJanusConfigStage(e)) => {
-            handle_update_janus_config_stage(ctx.clone(), e).await
+            handle_update_janus_config_stage(ctx.clone(), e, room, agent_id.clone()).await
         }
         _ => {
             // ignore
@@ -111,7 +114,45 @@ pub async fn route_message(
 async fn handle_update_janus_config_stage(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
     e: UpdateJanusConfigStageV1,
+    room: RoomObject,
+    agent_id: AgentId,
 ) -> Result<(), HandleMessageFailure<Error>> {
+    let mut conn = ctx.get_conn()
+        .await
+        .error(AppErrorKind::DbConnAcquisitionFailed)
+        .transient()?;
+
+    let group_agent = db::group_agent::FindQuery::new(room.id())
+        .execute(&mut conn)
+        .await
+        .error(AppErrorKind::DbQueryFailed)
+        .transient()?;
+
+    let mut groups = group_agent.groups();
+    if !groups.is_agent_exist(&agent_id) {
+        groups = groups.add_to_default_group(&agent_id);
+    }
+
+    let _existed_groups = db::group_agent::FindQuery::new(room.id())
+        .execute(&mut conn)
+        .await
+        .error(AppErrorKind::DbQueryFailed)
+        .transient()?
+        .groups()
+        .len();
+
+    db::group_agent::UpsertQuery::new(room.id(), &groups)
+        .execute(&mut conn)
+        .await
+        .error(AppErrorKind::DbQueryFailed)
+        .transient()?;
+
+    // Update rtc_reader_configs
+    let _configs = group_reader_config::update(&mut conn, room.id(), groups)
+        .await
+        .error(AppErrorKind::DbQueryFailed)
+        .transient()?;
+
     let stage: AppStage = serde_json::from_value(e.stage_state)
         .error(ErrorKind::StageStateDeserializationFailed)
         .permanent()?;

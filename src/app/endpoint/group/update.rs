@@ -128,12 +128,8 @@ impl Handler {
                         };
                         let event = Event::from(event);
 
-                        db::group_agent::UpsertQuery::new(room.id(), &groups)
-                            .execute(conn)
-                            .await?;
-
                         // Update rtc_reader_configs
-                        let configs = group_reader_config::update(conn, room.id(), groups).await?;
+                        let configs = group_reader_config::read(conn, room.id(), groups).await?;
 
                         // Generate configs for janus
                         let items = configs

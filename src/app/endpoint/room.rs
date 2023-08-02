@@ -726,10 +726,6 @@ impl EnterHandler {
 
                         if !agent_exists {
                             let changed_groups = groups.add_to_default_group(&agent_id);
-                            db::group_agent::UpsertQuery::new(room_id, &changed_groups)
-                                .execute(conn)
-                                .await?;
-
                             // Check the number of groups, and if there are more than 1,
                             // then create RTC reader configs for participants from other groups
                             if groups.len() > 1 {
@@ -740,7 +736,7 @@ impl EnterHandler {
                                     .error(AppErrorKind::BackendNotFound)?;
 
                                 let configs =
-                                    group_reader_config::update(conn, room_id, changed_groups)
+                                    group_reader_config::read(conn, room_id, changed_groups)
                                         .await?;
 
                                 // Generate configs for janus
