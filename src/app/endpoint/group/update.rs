@@ -1,11 +1,7 @@
 use crate::{
     app::{
         context::{AppContext, GlobalContext},
-        endpoint::{
-            helpers,
-            prelude::{AppError, AppErrorKind},
-            RequestResult,
-        },
+        endpoint::{helpers, prelude::AppErrorKind, RequestResult},
         error::ErrorExt,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
@@ -19,7 +15,6 @@ use axum::{extract::Path, Extension, Json};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::Connection;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
 use svc_events::{
@@ -97,75 +92,66 @@ impl Handler {
             .context("backend not found")
             .error(AppErrorKind::BackendNotFound)?;
 
-        let mut conn = context.get_conn().await?;
         {
+            let mut conn = context.get_conn().await?;
             let context = context.clone();
             let backend_id = backend_id.clone();
-            let _event_id = conn
-                .transaction::<_, _, AppError>(|conn| {
-                    Box::pin(async move {
-                        let existed_groups = db::group_agent::FindQuery::new(room.id())
-                            .execute(conn)
-                            .await?
-                            .groups()
-                            .len();
+            let existed_groups = db::group_agent::FindQuery::new(room.id())
+                .execute(&mut conn)
+                .await?
+                .groups()
+                .len();
 
-                        let timestamp = Utc::now().timestamp_nanos();
-                        let event = if existed_groups == 1 {
-                            VideoGroupEvent::Created {
-                                created_at: timestamp,
-                            }
-                        } else if existed_groups > 1 && groups.len() == 1 {
-                            VideoGroupEvent::Deleted {
-                                created_at: timestamp,
-                            }
-                        } else {
-                            VideoGroupEvent::Updated {
-                                created_at: timestamp,
-                            }
-                        };
+            let timestamp = Utc::now().timestamp_nanos();
+            let event = if existed_groups == 1 {
+                VideoGroupEvent::Created {
+                    created_at: timestamp,
+                }
+            } else if existed_groups > 1 && groups.len() == 1 {
+                VideoGroupEvent::Deleted {
+                    created_at: timestamp,
+                }
+            } else {
+                VideoGroupEvent::Updated {
+                    created_at: timestamp,
+                }
+            };
 
-                        let event_id = crate::app::stage::nats_ids::sqlx::get_next_seq_id(conn)
-                            .await
-                            .error(AppErrorKind::CreatingNewSequenceIdFailed)?
-                            .to_event_id("update configs");
+            let event_id = crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
+                .await
+                .error(AppErrorKind::CreatingNewSequenceIdFailed)?
+                .to_event_id("update configs");
 
-                        let event =
-                            svc_events::Event::from(UpdateJanusConfigAndSendNotificationStageV1 {
-                                backend_id,
-                                event,
-                            });
+            let event = svc_events::Event::from(UpdateJanusConfigAndSendNotificationStageV1 {
+                backend_id,
+                event,
+            });
 
-                        let payload = serde_json::to_vec(&event)
-                            .context("serialization failed")
-                            .error(AppErrorKind::StageStateSerializationFailed)?;
+            let payload = serde_json::to_vec(&event)
+                .context("serialization failed")
+                .error(AppErrorKind::StageStateSerializationFailed)?;
 
-                        let subject = svc_nats_client::Subject::new(
-                            SUBJECT_PREFIX.to_string(),
-                            room.classroom_id(),
-                            event_id.entity_type().to_string(),
-                        );
+            let subject = svc_nats_client::Subject::new(
+                SUBJECT_PREFIX.to_string(),
+                room.classroom_id(),
+                event_id.entity_type().to_string(),
+            );
 
-                        let event = svc_nats_client::event::Builder::new(
-                            subject,
-                            payload,
-                            event_id.to_owned(),
-                            context.agent_id().to_owned(),
-                        )
-                        .build();
+            let event = svc_nats_client::event::Builder::new(
+                subject,
+                payload,
+                event_id.to_owned(),
+                context.agent_id().to_owned(),
+            )
+            .build();
 
-                        context
-                            .nats_client()
-                            .ok_or_else(|| anyhow!("nats client not found"))
-                            .error(AppErrorKind::NatsClientNotFound)?
-                            .publish(&event)
-                            .await
-                            .error(AppErrorKind::NatsPublishFailed)?;
-
-                        Ok(event_id)
-                    })
-                })
-                .await?;
+            context
+                .nats_client()
+                .ok_or_else(|| anyhow!("nats client not found"))
+                .error(AppErrorKind::NatsClientNotFound)?
+                .publish(&event)
+                .await
+                .error(AppErrorKind::NatsPublishFailed)?;
         }
 
         context
