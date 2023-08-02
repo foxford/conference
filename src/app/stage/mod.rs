@@ -9,7 +9,10 @@ use crate::{
         },
         AppErrorKind,
     },
-    db::{self, room::{FindQueryable, Object as RoomObject}},
+    db::{
+        self,
+        room::{FindQueryable, Object as RoomObject},
+    },
 };
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
@@ -117,7 +120,8 @@ async fn handle_update_janus_config_stage(
     room: RoomObject,
     agent_id: AgentId,
 ) -> Result<(), HandleMessageFailure<Error>> {
-    let mut conn = ctx.get_conn()
+    let mut conn = ctx
+        .get_conn()
         .await
         .error(AppErrorKind::DbConnAcquisitionFailed)
         .transient()?;

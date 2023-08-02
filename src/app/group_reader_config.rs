@@ -13,7 +13,6 @@ pub async fn update(
     room_id: db::room::Id,
     groups: Groups,
 ) -> sqlx::Result<HashMap<(Id, AgentId), bool>> {
-
     let configs = read(conn, room_id, groups.clone()).await?;
 
     let (mut rtc_ids, mut agent_ids, mut receive_video, mut receive_audio) =
@@ -121,7 +120,6 @@ pub async fn read(
 
     Ok(configs)
 }
-
 
 #[cfg(test)]
 mod tests {
