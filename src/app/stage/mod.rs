@@ -150,13 +150,6 @@ async fn handle_update_janus_config_and_send_notification_stage(
                     groups = groups.add_to_default_group(&agent_id);
                 }
 
-                let _existed_groups = db::group_agent::FindQuery::new(room.id())
-                    .execute(conn)
-                    .await
-                    .error(AppErrorKind::DbQueryFailed)?
-                    .groups()
-                    .len();
-
                 db::group_agent::UpsertQuery::new(room.id(), &groups)
                     .execute(conn)
                     .await
