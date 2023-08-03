@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Connection;
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use svc_agent::AgentId;
-use svc_events::{VideoGroupEventV1, Event, EventId, EventV1};
+use svc_events::{Event, EventId, EventV1, VideoGroupEventV1};
 use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
     Subject,
@@ -106,14 +106,7 @@ pub async fn route_message(
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
         Event::V1(EventV1::VideoGroup(e)) => {
-            handle_video_group_intent_event(
-                ctx.clone(),
-                event_id,
-                e,
-                room,
-                agent_id.clone(),
-            )
-            .await
+            handle_video_group_intent_event(ctx.clone(), event_id, e, room, agent_id.clone()).await
         }
         _ => {
             // ignore

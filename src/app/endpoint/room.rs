@@ -12,9 +12,7 @@ use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Authenticable, Subscription,
 };
-use svc_events::{
-    VideoGroupEventV1 as VideoGroupEvent,
-};
+use svc_events::VideoGroupEventV1 as VideoGroupEvent;
 
 use svc_utils::extractors::AgentIdExtractor;
 use tracing_attributes::instrument;
@@ -704,75 +702,74 @@ impl EnterHandler {
                 );
             }
 
-            let maybe_event_id =
-                {
-                    // Adds participants to the default group for minigroups
-                    let mut conn = context.get_conn().await?;
-                    let agent_id = reqp.as_agent_id().clone();
+            let maybe_event_id = {
+                // Adds participants to the default group for minigroups
+                let mut conn = context.get_conn().await?;
+                let agent_id = reqp.as_agent_id().clone();
 
-                    let mut maybe_event_id = None;
-                    let group_agent = db::group_agent::FindQuery::new(room_id)
-                        .execute(&mut conn)
-                        .await?;
+                let mut maybe_event_id = None;
+                let group_agent = db::group_agent::FindQuery::new(room_id)
+                    .execute(&mut conn)
+                    .await?;
 
-                    let groups = group_agent.groups();
-                    let agent_exists = groups.is_agent_exist(&agent_id);
+                let groups = group_agent.groups();
+                let agent_exists = groups.is_agent_exist(&agent_id);
 
-                    if !agent_exists {
-                        // Check the number of groups, and if there are more than 1,
-                        // then create RTC reader configs for participants from other groups
-                        if groups.len() > 1 {
-                            let backend_id = room
-                                .backend_id()
-                                .cloned()
-                                .context("backend not found")
-                                .error(AppErrorKind::BackendNotFound)?;
+                if !agent_exists {
+                    // Check the number of groups, and if there are more than 1,
+                    // then create RTC reader configs for participants from other groups
+                    if groups.len() > 1 {
+                        let backend_id = room
+                            .backend_id()
+                            .cloned()
+                            .context("backend not found")
+                            .error(AppErrorKind::BackendNotFound)?;
 
-                            let timestamp = Utc::now().timestamp_nanos();
-                            let event = VideoGroupEvent::Updated {
-                                created_at: timestamp,
-                                backend_id,
-                            };
+                        let timestamp = Utc::now().timestamp_nanos();
+                        let event = VideoGroupEvent::Updated {
+                            created_at: timestamp,
+                            backend_id,
+                        };
 
-                            let event_id =
-                                crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
-                                    .await
-                                    .error(AppErrorKind::CreatingNewSequenceIdFailed)?
-                                    .to_event_id("update configs");
-
-                            let event = svc_events::Event::from(event);
-
-                            let payload = serde_json::to_vec(&event)
-                                .context("serialization failed")
-                                .error(AppErrorKind::StageStateSerializationFailed)?;
-
-                            let subject = svc_nats_client::Subject::new(
-                                SUBJECT_PREFIX.to_string(),
-                                room.classroom_id(),
-                                event_id.entity_type().to_string(),
-                            );
-
-                            let event = svc_nats_client::event::Builder::new(
-                                subject,
-                                payload,
-                                event_id.to_owned(),
-                                ctx.agent_id().to_owned(),
-                            )
-                            .build();
-
-                            ctx.nats_client()
-                                .ok_or_else(|| anyhow!("nats client not found"))
-                                .error(AppErrorKind::NatsClientNotFound)?
-                                .publish(&event)
+                        let event_id =
+                            crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
                                 .await
-                                .error(AppErrorKind::NatsPublishFailed)?;
+                                .error(AppErrorKind::CreatingNewSequenceIdFailed)?
+                                .to_event_id("update configs");
 
-                            maybe_event_id = Some(event_id)
-                        }
+                        let event = svc_events::Event::from(event);
+
+                        let payload = serde_json::to_vec(&event)
+                            .context("serialization failed")
+                            .error(AppErrorKind::StageStateSerializationFailed)?;
+
+                        let subject = svc_nats_client::Subject::new(
+                            SUBJECT_PREFIX.to_string(),
+                            room.classroom_id(),
+                            event_id.entity_type().to_string(),
+                        );
+
+                        let event = svc_nats_client::event::Builder::new(
+                            subject,
+                            payload,
+                            event_id.to_owned(),
+                            ctx.agent_id().to_owned(),
+                        )
+                        .build();
+
+                        ctx.nats_client()
+                            .ok_or_else(|| anyhow!("nats client not found"))
+                            .error(AppErrorKind::NatsClientNotFound)?
+                            .publish(&event)
+                            .await
+                            .error(AppErrorKind::NatsPublishFailed)?;
+
+                        maybe_event_id = Some(event_id)
                     }
+                }
 
-                    maybe_event_id
-                };
+                maybe_event_id
+            };
 
             match maybe_event_id {
                 Some(_event_id) => (),

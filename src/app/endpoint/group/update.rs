@@ -17,9 +17,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
-use svc_events::{
-    VideoGroupEventV1 as VideoGroupEvent,
-};
+use svc_events::VideoGroupEventV1 as VideoGroupEvent;
 use svc_utils::extractors::AgentIdExtractor;
 
 #[derive(Deserialize)]
