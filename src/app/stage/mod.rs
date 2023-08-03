@@ -106,7 +106,7 @@ pub async fn route_message(
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
         Event::V1(EventV1::VideoGroup(e)) => {
-            handle_update_janus_config_and_send_notification_stage(
+            handle_video_group_intent_event(
                 ctx.clone(),
                 event_id,
                 e,
@@ -124,7 +124,7 @@ pub async fn route_message(
     FailureKindExt::map_err(r, |e| anyhow!(e))
 }
 
-async fn handle_update_janus_config_and_send_notification_stage(
+async fn handle_video_group_intent_event(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
     event_id: &EventId,
     e: VideoGroupEventV1,
