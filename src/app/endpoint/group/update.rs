@@ -18,7 +18,7 @@ use serde_json::json;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
 use svc_events::{
-    stage::UpdateJanusConfigAndSendNotificationStageV1, VideoGroupEventV1 as VideoGroupEvent,
+    VideoGroupEventV1 as VideoGroupEvent,
 };
 use svc_utils::extractors::AgentIdExtractor;
 
@@ -106,14 +106,17 @@ impl Handler {
             let event = if existed_groups == 1 {
                 VideoGroupEvent::Created {
                     created_at: timestamp,
+                    backend_id,
                 }
             } else if existed_groups > 1 && groups.len() == 1 {
                 VideoGroupEvent::Deleted {
                     created_at: timestamp,
+                    backend_id,
                 }
             } else {
                 VideoGroupEvent::Updated {
                     created_at: timestamp,
+                    backend_id,
                 }
             };
 
@@ -122,10 +125,7 @@ impl Handler {
                 .error(AppErrorKind::CreatingNewSequenceIdFailed)?
                 .to_event_id("update configs");
 
-            let event = svc_events::Event::from(UpdateJanusConfigAndSendNotificationStageV1 {
-                backend_id,
-                event,
-            });
+            let event = svc_events::Event::from(event);
 
             let payload = serde_json::to_vec(&event)
                 .context("serialization failed")

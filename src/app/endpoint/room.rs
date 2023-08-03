@@ -13,7 +13,7 @@ use svc_agent::{
     Addressable, AgentId, Authenticable, Subscription,
 };
 use svc_events::{
-    stage::UpdateJanusConfigAndSendNotificationStageV1, VideoGroupEventV1 as VideoGroupEvent,
+    VideoGroupEventV1 as VideoGroupEvent,
 };
 
 use svc_utils::extractors::AgentIdExtractor;
@@ -731,6 +731,7 @@ impl EnterHandler {
                             let timestamp = Utc::now().timestamp_nanos();
                             let event = VideoGroupEvent::Updated {
                                 created_at: timestamp,
+                                backend_id,
                             };
 
                             let event_id =
@@ -739,9 +740,7 @@ impl EnterHandler {
                                     .error(AppErrorKind::CreatingNewSequenceIdFailed)?
                                     .to_event_id("update configs");
 
-                            let event = svc_events::Event::from(
-                                UpdateJanusConfigAndSendNotificationStageV1 { backend_id, event },
-                            );
+                            let event = svc_events::Event::from(event);
 
                             let payload = serde_json::to_vec(&event)
                                 .context("serialization failed")

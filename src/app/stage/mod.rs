@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Connection;
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use svc_agent::AgentId;
-use svc_events::{stage::UpdateJanusConfigAndSendNotificationStageV1, Event, EventId, EventV1};
+use svc_events::{VideoGroupEventV1, Event, EventId, EventV1};
 use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
     Subject,
@@ -105,7 +105,7 @@ pub async fn route_message(
     let event_id = headers.event_id();
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
-        Event::V1(EventV1::UpdateJanusConfigAndSendNotificationStage(e)) => {
+        Event::V1(EventV1::VideoGroup(e)) => {
             handle_update_janus_config_and_send_notification_stage(
                 ctx.clone(),
                 event_id,
@@ -127,17 +127,16 @@ pub async fn route_message(
 async fn handle_update_janus_config_and_send_notification_stage(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
     event_id: &EventId,
-    e: UpdateJanusConfigAndSendNotificationStageV1,
+    e: VideoGroupEventV1,
     room: RoomObject,
     agent_id: AgentId,
 ) -> Result<(), HandleMessageFailure<Error>> {
-    let mut conn = ctx
-        .get_conn()
-        .await
-        .error(AppErrorKind::DbConnAcquisitionFailed)
-        .transient()?;
-
     let configs = {
+        let mut conn = ctx
+            .get_conn()
+            .await
+            .error(AppErrorKind::DbConnAcquisitionFailed)
+            .transient()?;
         let room = room.clone();
         conn.transaction::<_, _, AppError>(|conn| {
             Box::pin(async move {
@@ -195,10 +194,10 @@ async fn handle_update_janus_config_and_send_notification_stage(
         event_id.sequence_id(),
     ));
     let init_stage = VideoGroupUpdateJanusConfig::init(
-        EventV1::from(e.event),
+        EventV1::from(e.clone()),
         room.classroom_id(),
         room.id(),
-        e.backend_id,
+        e.backend_id(),
         items,
     );
 
