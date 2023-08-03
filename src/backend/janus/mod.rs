@@ -207,6 +207,9 @@ async fn handle_event_impl<C: Context>(
                         .and_then(|status| {
                             if status == "200" {
                                 Ok(())
+                            } else if status == "503" {
+                                Err(anyhow!("Too many agents on Janus instance"))
+                                    .error(AppErrorKind::CapacityExceeded)
                             } else {
                                 Err(anyhow!("Received {} status", status))
                                     .error(AppErrorKind::BackendRequestFailed)
