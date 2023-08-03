@@ -12,7 +12,7 @@ use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Authenticable, Subscription,
 };
-use svc_events::VideoGroupEventV1 as VideoGroupEvent;
+use svc_events::VideoGroupIntentEventV1 as VideoGroupIntentEvent;
 
 use svc_utils::extractors::AgentIdExtractor;
 use tracing_attributes::instrument;
@@ -726,7 +726,7 @@ impl EnterHandler {
                             .error(AppErrorKind::BackendNotFound)?;
 
                         let timestamp = Utc::now().timestamp_nanos();
-                        let event = VideoGroupEvent::Updated {
+                        let event = VideoGroupIntentEvent::UpdateIntent {
                             created_at: timestamp,
                             backend_id,
                         };

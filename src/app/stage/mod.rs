@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Connection;
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use svc_agent::AgentId;
-use svc_events::{Event, EventId, EventV1, VideoGroupEventV1};
+use svc_events::{Event, EventId, EventV1, VideoGroupEventV1, VideoGroupIntentEventV1};
 use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
     Subject,
@@ -105,7 +105,7 @@ pub async fn route_message(
     let event_id = headers.event_id();
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
-        Event::V1(EventV1::VideoGroup(e)) => {
+        Event::V1(EventV1::VideoGroupIntent(e)) => {
             handle_video_group_intent_event(ctx.clone(), event_id, e, room, agent_id.clone()).await
         }
         _ => {
@@ -120,7 +120,7 @@ pub async fn route_message(
 async fn handle_video_group_intent_event(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
     event_id: &EventId,
-    e: VideoGroupEventV1,
+    e: VideoGroupIntentEventV1,
     room: RoomObject,
     agent_id: AgentId,
 ) -> Result<(), HandleMessageFailure<Error>> {
@@ -179,11 +179,13 @@ async fn handle_video_group_intent_event(
         "send_notification".to_string(),
         event_id.sequence_id(),
     ));
+    let backend_id = e.backend_id();
+    let event = Into::<VideoGroupEventV1>::into(e);
     let init_stage = VideoGroupUpdateJanusConfig::init(
-        EventV1::from(e.clone()),
+        EventV1::from(event),
         room.classroom_id(),
         room.id(),
-        e.backend_id(),
+        backend_id,
         items,
     );
 
