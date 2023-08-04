@@ -52,7 +52,7 @@ pub enum ErrorKind {
     RtcNotFound,
     MethodNotSupported,
     JanusResponseTimeout,
-    StageStateSerializationFailed,
+    VideoGroupIntentEventSerializationFailed,
     StageProcessingFailed,
     MqttPublishFailed,
     NatsPublishFailed,
@@ -302,10 +302,10 @@ impl From<ErrorKind> for ErrorKindProperties {
                 title: "Janus response timeout",
                 is_notify_sentry: true,
             },
-            ErrorKind::StageStateSerializationFailed => ErrorKindProperties {
+            ErrorKind::VideoGroupIntentEventSerializationFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
-                kind: "stage_state_serialization_failed",
-                title: "Stage state serialization failed",
+                kind: "video_group_intent_event_serialization_failed",
+                title: "VideoGroupIntentEventV1 serialization failed",
                 is_notify_sentry: true,
             },
             ErrorKind::StageProcessingFailed => ErrorKindProperties {

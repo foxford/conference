@@ -127,7 +127,7 @@ impl Handler {
 
             let payload = serde_json::to_vec(&event)
                 .context("serialization failed")
-                .error(AppErrorKind::StageStateSerializationFailed)?;
+                .error(AppErrorKind::VideoGroupIntentEventSerializationFailed)?;
 
             let subject = svc_nats_client::Subject::new(
                 SUBJECT_PREFIX.to_string(),
