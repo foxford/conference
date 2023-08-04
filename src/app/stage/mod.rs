@@ -4,8 +4,7 @@ use crate::{
         error::Error,
         group_reader_config,
         stage::video_group::{
-            VideoGroupSendMqttNotification, VideoGroupSendNatsNotification,
-            VideoGroupUpdateJanusConfig, ENTITY_TYPE,
+            send_mqtt_notification, send_nats_notification, update_janus_config, ENTITY_TYPE,
         },
         AppError, AppErrorKind,
     },
@@ -16,7 +15,6 @@ use crate::{
     },
 };
 use anyhow::{anyhow, Context};
-use serde::{Deserialize, Serialize};
 use sqlx::Connection;
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use svc_agent::AgentId;
@@ -25,44 +23,12 @@ use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
     Subject,
 };
+use uuid::Uuid;
 
 use crate::app::error::{ErrorExt, ErrorKind};
 
 pub mod nats_ids;
 pub mod video_group;
-
-#[async_trait::async_trait]
-pub trait StageHandle
-where
-    Self: Sized + Clone + Send + Sync + 'static,
-{
-    type Context;
-    type Stage;
-
-    async fn handle(&self, ctx: &Self::Context, id: &EventId)
-        -> Result<Option<Self::Stage>, Error>;
-}
-
-#[allow(clippy::enum_variant_names)]
-#[derive(Deserialize, Serialize, Clone)]
-#[serde(tag = "name")]
-pub enum AppStage {
-    VideoGroupUpdateJanusConfig(VideoGroupUpdateJanusConfig),
-    VideoGroupSendNatsNotification(VideoGroupSendNatsNotification),
-    VideoGroupSendMqttNotification(VideoGroupSendMqttNotification),
-}
-
-async fn handle_stage(
-    ctx: &Arc<dyn GlobalContext + Send + Sync>,
-    stage: &AppStage,
-    id: &EventId,
-) -> Result<Option<AppStage>, Error> {
-    match stage {
-        AppStage::VideoGroupUpdateJanusConfig(s) => s.handle(ctx, id).await,
-        AppStage::VideoGroupSendNatsNotification(s) => s.handle(ctx, id).await,
-        AppStage::VideoGroupSendMqttNotification(s) => s.handle(ctx, id).await,
-    }
-}
 
 pub async fn route_message(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
@@ -106,7 +72,15 @@ pub async fn route_message(
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
         Event::V1(EventV1::VideoGroupIntent(e)) => {
-            handle_video_group_intent_event(ctx.clone(), event_id, e, room, agent_id.clone()).await
+            handle_video_group_intent_event(
+                ctx.clone(),
+                event_id,
+                e,
+                room,
+                agent_id.clone(),
+                classroom_id,
+            )
+            .await
         }
         _ => {
             // ignore
@@ -123,6 +97,7 @@ async fn handle_video_group_intent_event(
     e: VideoGroupIntentEventV1,
     room: RoomObject,
     agent_id: AgentId,
+    classroom_id: Uuid,
 ) -> Result<(), HandleMessageFailure<Error>> {
     let configs = {
         let mut conn = ctx
@@ -174,44 +149,28 @@ async fn handle_video_group_intent_event(
         )
         .collect::<Vec<_>>();
 
+    let backend_id = e.backend_id();
+
+    update_janus_config(ctx.clone(), backend_id, items)
+        .await
+        .error(ErrorKind::StageProcessingFailed)
+        .transient()?;
+
     let event_id = &EventId::from((
         ENTITY_TYPE.to_string(),
         "send_notification".to_string(),
         event_id.sequence_id(),
     ));
-    let backend_id = e.backend_id();
-    let event = Into::<VideoGroupEventV1>::into(e);
-    let init_stage = VideoGroupUpdateJanusConfig::init(
-        EventV1::from(event),
-        room.classroom_id(),
-        room.id(),
-        backend_id,
-        items,
-    );
+    let event = EventV1::from(Into::<VideoGroupEventV1>::into(e));
+    send_nats_notification(ctx.clone(), classroom_id, event, event_id)
+        .await
+        .error(ErrorKind::StageProcessingFailed)
+        .transient()?;
 
-    let result = handle_stage(&ctx, &init_stage, event_id).await;
-    let next_stage = match result {
-        Ok(Some(next_stage)) => next_stage,
-        _ => Err(anyhow!("UpdateJanusConfigStage failed"))
-            .error(ErrorKind::StageProcessingFailed)
-            .transient()?,
-    };
-
-    let result = handle_stage(&ctx, &next_stage, event_id).await;
-    let next_stage = match result {
-        Ok(Some(next_stage)) => next_stage,
-        _ => Err(anyhow!("SendNatsNotificationStage failed"))
-            .error(ErrorKind::StageProcessingFailed)
-            .transient()?,
-    };
-
-    let result = handle_stage(&ctx, &next_stage, event_id).await;
-    match result {
-        Ok(None) => (),
-        _ => Err(anyhow!("SendMqttNotificationStage failed"))
-            .error(ErrorKind::StageProcessingFailed)
-            .transient()?,
-    }
+    send_mqtt_notification(ctx, room.id)
+        .await
+        .error(ErrorKind::StageProcessingFailed)
+        .transient()?;
 
     Ok(())
 }

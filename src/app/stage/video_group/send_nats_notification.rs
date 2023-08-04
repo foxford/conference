@@ -1,68 +1,46 @@
-use crate::{
-    app::{
-        context::GlobalContext,
-        error::{Error, ErrorExt, ErrorKind},
-        stage::{video_group::VideoGroupSendMqttNotification, AppStage, StageHandle},
-    },
-    db,
+use crate::app::{
+    context::GlobalContext,
+    error::{Error, ErrorExt, ErrorKind},
 };
 use anyhow::{anyhow, Context};
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use svc_events::{EventId, EventV1 as Event};
 use uuid::Uuid;
 
 pub const SUBJECT_PREFIX: &str = "classroom";
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct VideoGroupSendNatsNotification {
-    pub room_id: db::room::Id,
-    pub classroom_id: Uuid,
-    pub event: Event,
-}
+pub async fn send_nats_notification(
+    ctx: Arc<dyn GlobalContext + Send + Sync>,
+    classroom_id: Uuid,
+    event: Event,
+    id: &EventId,
+) -> Result<(), Error> {
+    let event = svc_events::Event::from(event.clone());
 
-#[async_trait]
-impl StageHandle for VideoGroupSendNatsNotification {
-    type Context = Arc<dyn GlobalContext + Send + Sync>;
-    type Stage = AppStage;
+    let payload = serde_json::to_vec(&event)
+        .context("invalid payload")
+        .error(ErrorKind::InvalidPayload)?;
 
-    async fn handle(
-        &self,
-        ctx: &Self::Context,
-        id: &EventId,
-    ) -> Result<Option<Self::Stage>, Error> {
-        let event = svc_events::Event::from(self.event.clone());
+    let subject = svc_nats_client::Subject::new(
+        SUBJECT_PREFIX.to_string(),
+        classroom_id,
+        id.entity_type().to_string(),
+    );
 
-        let payload = serde_json::to_vec(&event)
-            .context("invalid payload")
-            .error(ErrorKind::InvalidPayload)?;
+    let event = svc_nats_client::event::Builder::new(
+        subject,
+        payload,
+        id.to_owned(),
+        ctx.agent_id().to_owned(),
+    )
+    .build();
 
-        let subject = svc_nats_client::Subject::new(
-            SUBJECT_PREFIX.to_string(),
-            self.classroom_id,
-            id.entity_type().to_string(),
-        );
+    ctx.nats_client()
+        .ok_or_else(|| anyhow!("nats client not found"))
+        .error(ErrorKind::NatsClientNotFound)?
+        .publish(&event)
+        .await
+        .error(ErrorKind::NatsPublishFailed)?;
 
-        let event = svc_nats_client::event::Builder::new(
-            subject,
-            payload,
-            id.to_owned(),
-            ctx.agent_id().to_owned(),
-        )
-        .build();
-
-        ctx.nats_client()
-            .ok_or_else(|| anyhow!("nats client not found"))
-            .error(ErrorKind::NatsClientNotFound)?
-            .publish(&event)
-            .await
-            .error(ErrorKind::NatsPublishFailed)?;
-
-        let next_stage = AppStage::VideoGroupSendMqttNotification(VideoGroupSendMqttNotification {
-            room_id: self.room_id.to_owned(),
-        });
-
-        Ok(Some(next_stage))
-    }
+    Ok(())
 }
