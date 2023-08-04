@@ -53,7 +53,6 @@ pub enum ErrorKind {
     MethodNotSupported,
     JanusResponseTimeout,
     StageStateSerializationFailed,
-    StageStateDeserializationFailed,
     StageProcessingFailed,
     MqttPublishFailed,
     NatsPublishFailed,
@@ -307,12 +306,6 @@ impl From<ErrorKind> for ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "stage_state_serialization_failed",
                 title: "Stage state serialization failed",
-                is_notify_sentry: true,
-            },
-            ErrorKind::StageStateDeserializationFailed => ErrorKindProperties {
-                status: ResponseStatus::UNPROCESSABLE_ENTITY,
-                kind: "stage_state_deserialization_failed",
-                title: "Stage state deserialization failed",
                 is_notify_sentry: true,
             },
             ErrorKind::StageProcessingFailed => ErrorKindProperties {
