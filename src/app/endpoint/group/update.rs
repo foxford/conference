@@ -5,9 +5,9 @@ use crate::{
         error::ErrorExt,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::video_group::SUBJECT_PREFIX,
     },
     authz::AuthzObject,
+    client::nats,
     db::{self, group_agent::Groups},
 };
 use anyhow::{anyhow, Context};
@@ -123,31 +123,14 @@ impl Handler {
 
             let event = svc_events::Event::from(event);
 
-            let payload = serde_json::to_vec(&event)
-                .context("serialization failed")
-                .error(AppErrorKind::VideoGroupIntentEventSerializationFailed)?;
-
-            let subject = svc_nats_client::Subject::new(
-                SUBJECT_PREFIX.to_string(),
+            nats::publish_event(
+                context.clone(),
                 room.classroom_id(),
-                event_id.entity_type().to_string(),
-            );
-
-            let event = svc_nats_client::event::Builder::new(
-                subject,
-                payload,
-                event_id.to_owned(),
-                context.agent_id().to_owned(),
+                &event_id,
+                event,
+                Default::default(),
             )
-            .build();
-
-            context
-                .nats_client()
-                .ok_or_else(|| anyhow!("nats client not found"))
-                .error(AppErrorKind::NatsClientNotFound)?
-                .publish(&event)
-                .await
-                .error(AppErrorKind::NatsPublishFailed)?;
+            .await?;
         }
 
         context

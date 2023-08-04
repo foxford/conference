@@ -3,12 +3,11 @@ use crate::{
         context::GlobalContext,
         error::Error,
         group_reader_config,
-        stage::video_group::{
-            send_mqtt_notification, send_nats_notification, update_janus_config, ENTITY_TYPE,
-        },
+        stage::video_group::{send_mqtt_notification, update_janus_config, ENTITY_TYPE},
         AppError, AppErrorKind,
     },
     backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
+    client::nats,
     db::{
         self,
         room::{FindQueryable, Object as RoomObject},
@@ -161,11 +160,18 @@ async fn handle_video_group_intent_event(
         "send_notification".to_string(),
         event_id.sequence_id(),
     ));
-    let event = EventV1::from(Into::<VideoGroupEventV1>::into(e));
-    send_nats_notification(ctx.clone(), classroom_id, event, event_id)
-        .await
-        .error(ErrorKind::StageProcessingFailed)
-        .transient()?;
+    let event = Event::from(EventV1::from(Into::<VideoGroupEventV1>::into(e)));
+
+    nats::publish_event(
+        ctx.clone(),
+        classroom_id,
+        &event_id,
+        event,
+        Default::default(),
+    )
+    .await
+    .error(ErrorKind::StageProcessingFailed)
+    .transient()?;
 
     send_mqtt_notification(ctx, room.id)
         .await
