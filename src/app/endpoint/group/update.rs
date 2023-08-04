@@ -92,8 +92,6 @@ impl Handler {
 
         {
             let mut conn = context.get_conn().await?;
-            let context = context.clone();
-            let backend_id = backend_id.clone();
             let existed_groups = db::group_agent::FindQuery::new(room.id())
                 .execute(&mut conn)
                 .await?
