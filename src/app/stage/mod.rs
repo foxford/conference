@@ -17,7 +17,7 @@ use anyhow::{anyhow, Context};
 use sqlx::Connection;
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use svc_agent::AgentId;
-use svc_events::{Event, EventId, EventV1, VideoGroupEventV1, VideoGroupIntentEventV1};
+use svc_events::{Event, EventId, EventV1, VideoGroupEventV1};
 use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
     Subject,
@@ -70,14 +70,45 @@ pub async fn route_message(
     let event_id = headers.event_id();
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
-        Event::V1(EventV1::VideoGroupIntent(e)) => {
+        Event::V1(EventV1::VideoGroupCreateIntent(e)) => {
             handle_video_group_intent_event(
                 ctx.clone(),
                 event_id,
-                e,
                 room,
                 agent_id.clone(),
                 classroom_id,
+                e.backend_id.clone(),
+                VideoGroupEventV1::Created {
+                    created_at: e.created_at,
+                },
+            )
+            .await
+        }
+        Event::V1(EventV1::VideoGroupDeleteIntent(e)) => {
+            handle_video_group_intent_event(
+                ctx.clone(),
+                event_id,
+                room,
+                agent_id.clone(),
+                classroom_id,
+                e.backend_id.clone(),
+                VideoGroupEventV1::Deleted {
+                    created_at: e.created_at,
+                },
+            )
+            .await
+        }
+        Event::V1(EventV1::VideoGroupUpdateIntent(e)) => {
+            handle_video_group_intent_event(
+                ctx.clone(),
+                event_id,
+                room,
+                agent_id.clone(),
+                classroom_id,
+                e.backend_id.clone(),
+                VideoGroupEventV1::Updated {
+                    created_at: e.created_at,
+                },
             )
             .await
         }
@@ -93,10 +124,11 @@ pub async fn route_message(
 async fn handle_video_group_intent_event(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
     event_id: &EventId,
-    e: VideoGroupIntentEventV1,
     room: RoomObject,
     agent_id: AgentId,
     classroom_id: Uuid,
+    backend_id: AgentId,
+    event: VideoGroupEventV1,
 ) -> Result<(), HandleMessageFailure<Error>> {
     let configs = {
         let mut conn = ctx
@@ -148,8 +180,6 @@ async fn handle_video_group_intent_event(
         )
         .collect::<Vec<_>>();
 
-    let backend_id = e.backend_id();
-
     update_janus_config(ctx.clone(), backend_id, items)
         .await
         .error(ErrorKind::StageProcessingFailed)
@@ -160,7 +190,7 @@ async fn handle_video_group_intent_event(
         "send_notification".to_string(),
         event_id.sequence_id(),
     ));
-    let event = Event::from(EventV1::from(Into::<VideoGroupEventV1>::into(e)));
+    let event = Event::from(event);
 
     nats::publish_event(
         ctx.clone(),

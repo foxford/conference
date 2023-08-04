@@ -17,7 +17,11 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
-use svc_events::VideoGroupIntentEventV1 as VideoGroupIntentEvent;
+use svc_events::{
+    EventV1, VideoGroupCreateIntentEventV1 as VideoGroupCreateIntentEvent,
+    VideoGroupDeleteIntentEventV1 as VideoGroupDeleteIntentEvent,
+    VideoGroupUpdateIntentEventV1 as VideoGroupUpdateIntentEvent,
+};
 use svc_utils::extractors::AgentIdExtractor;
 
 #[derive(Deserialize)]
@@ -100,20 +104,20 @@ impl Handler {
 
             let timestamp = Utc::now().timestamp_nanos();
             let event = if existed_groups == 1 {
-                VideoGroupIntentEvent::CreateIntent {
+                EventV1::VideoGroupCreateIntent(VideoGroupCreateIntentEvent {
                     created_at: timestamp,
                     backend_id,
-                }
+                })
             } else if existed_groups > 1 && groups.len() == 1 {
-                VideoGroupIntentEvent::DeleteIntent {
+                EventV1::VideoGroupDeleteIntent(VideoGroupDeleteIntentEvent {
                     created_at: timestamp,
                     backend_id,
-                }
+                })
             } else {
-                VideoGroupIntentEvent::UpdateIntent {
+                EventV1::VideoGroupUpdateIntent(VideoGroupUpdateIntentEvent {
                     created_at: timestamp,
                     backend_id,
-                }
+                })
             };
 
             let event_id = crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
