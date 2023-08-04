@@ -3623,7 +3623,7 @@ dependencies = [
 [[package]]
 name = "svc-events"
 version = "0.11.0"
-source = "git+https://github.com/foxford/svc-events?branch=wakeful-kitten/ULMS-2507#8db71529c3bc3a016ad2fbfb6e8562e25f8ba527"
+source = "git+https://github.com/foxford/svc-events?branch=wakeful-kitten/ULMS-2507#0c296777c592a0a487153f095b53a1ebab2e000c"
 dependencies = [
  "serde 1.0.152",
  "serde_json",
