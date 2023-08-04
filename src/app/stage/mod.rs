@@ -165,7 +165,7 @@ async fn handle_video_group_intent_event(
     nats::publish_event(
         ctx.clone(),
         classroom_id,
-        &event_id,
+        event_id,
         event,
         Default::default(),
     )
