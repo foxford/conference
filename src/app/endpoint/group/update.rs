@@ -155,17 +155,14 @@ impl Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{group_agent::GroupItem, rtc::SharingPolicy as RtcSharingPolicy};
+    use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
     use crate::test_helpers::{
         db::TestDb,
         factory,
-        prelude::{GlobalContext, TestAgent, TestAuthz, TestContext},
-        shared_helpers,
-        test_deps::LocalDeps,
-        USR_AUDIENCE,
+        prelude::{TestAgent, TestAuthz, TestContext},
+        shared_helpers, USR_AUDIENCE,
     };
     use chrono::{Duration, Utc};
-    use std::collections::HashMap;
     use std::ops::Bound;
 
     #[sqlx::test]
@@ -273,3 +270,4 @@ mod tests {
         assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
         assert_eq!(err.kind(), "invalid_payload");
     }
+}
