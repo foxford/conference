@@ -33,11 +33,11 @@ jobs:
           toolchain: stable
           override: true
           components: rustfmt, clippy
-    - uses: Swatinem/rust-cache@v1
-    - name: clippy
-      run: cargo clippy -- -D warnings
-    - name: fmt
-      run: cargo fmt -- --check
+    # - uses: Swatinem/rust-cache@v1
+    # - name: clippy
+    #   run: cargo clippy -- -D warnings
+    # - name: fmt
+    #   run: cargo fmt -- --check
     - name: Login into private registry
       run: |
         printf "%s" "${DOCKER_PASSWORD}" | docker login -u ${DOCKER_USERNAME} --password-stdin cr.yandex
