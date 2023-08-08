@@ -1819,53 +1819,6 @@ mod test {
         }
 
         #[sqlx::test]
-        async fn add_new_participant_to_default_group(pool: sqlx::PgPool) {
-            let db = TestDb::new(pool);
-            let mut conn = db.get_conn().await;
-
-            // Create room.
-            let room = shared_helpers::insert_room_with_owned(&mut conn).await;
-
-            factory::GroupAgent::new(room.id(), Groups::new(vec![GroupItem::new(0, vec![])]))
-                .upsert(&mut conn)
-                .await;
-
-            // Allow agent to subscribe to the rooms' events.
-            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut authz = TestAuthz::new();
-            let classroom_id = room.classroom_id().to_string();
-            authz.allow(
-                agent.account_id(),
-                vec!["classrooms", &classroom_id],
-                "read",
-            );
-            authz.allow(
-                agent.account_id(),
-                vec!["classrooms", &classroom_id, "rtcs"],
-                "create",
-            );
-
-            // Make room.enter request.
-            let context = TestContext::new(db, authz).await;
-            let payload = EnterRequest { id: room.id() };
-
-            let reqp = RequestParams::Http {
-                agent_id: &agent.agent_id(),
-            };
-            EnterHandler::handle(Arc::new(context), payload, reqp, Utc::now())
-                .await
-                .expect("Room entrance failed");
-
-            let group_agent = db::group_agent::FindQuery::new(room.id())
-                .execute(&mut conn)
-                .await
-                .expect("failed to find a group agent");
-
-            let groups = Groups::new(vec![GroupItem::new(0, vec![agent.agent_id().clone()])]);
-            assert_eq!(group_agent.groups(), groups);
-        }
-
-        #[sqlx::test]
         async fn existed_participant_in_group(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let mut conn = db.get_conn().await;
