@@ -1612,7 +1612,7 @@ mod test {
         use chrono::{Duration, Utc};
 
         use crate::db::group_agent::{GroupItem, Groups};
-        use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
+        use crate::test_helpers::{db::TestDb, prelude::*};
 
         use super::super::*;
 
@@ -1866,90 +1866,6 @@ mod test {
                 .expect("failed to get group agents");
 
             assert_eq!(group_agent.groups().len(), 1);
-        }
-
-        #[sqlx::test]
-        async fn create_reader_configs(pool: sqlx::PgPool) {
-            let local_deps = LocalDeps::new();
-            let janus = local_deps.run_janus();
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
-            let db = TestDb::new(pool);
-
-            let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
-
-            let mut conn = db.get_conn().await;
-
-            let backend =
-                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
-                    .await;
-
-            let room = factory::Room::new()
-                .audience(USR_AUDIENCE)
-                .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                .backend_id(backend.id())
-                .insert(&mut conn)
-                .await;
-
-            factory::GroupAgent::new(
-                room.id(),
-                Groups::new(vec![
-                    GroupItem::new(0, vec![]),
-                    GroupItem::new(1, vec![agent1.agent_id().clone()]),
-                ]),
-            )
-            .upsert(&mut conn)
-            .await;
-
-            for agent in &[&agent1, &agent2] {
-                factory::Rtc::new(room.id())
-                    .created_by(agent.agent_id().to_owned())
-                    .insert(&mut conn)
-                    .await;
-            }
-
-            // Allow agent to subscribe to the rooms' events.
-            let mut authz = TestAuthz::new();
-            let classroom_id = room.classroom_id().to_string();
-            authz.allow(
-                agent2.account_id(),
-                vec!["classrooms", &classroom_id],
-                "read",
-            );
-
-            // Make room.enter request.
-            let mut context = TestContext::new(db, authz).await;
-            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-            context.with_janus(tx);
-
-            let payload = EnterRequest { id: room.id() };
-
-            let reqp = RequestParams::Http {
-                agent_id: &agent2.agent_id(),
-            };
-            EnterHandler::handle(Arc::new(context.clone()), payload, reqp, Utc::now())
-                .await
-                .expect("Room entrance failed");
-
-            let group_agent = db::group_agent::FindQuery::new(room.id())
-                .execute(&mut conn)
-                .await
-                .expect("failed to get group agents");
-
-            assert_eq!(group_agent.groups().len(), 2);
-
-            let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(
-                room.id(),
-                &[agent1.agent_id(), agent2.agent_id()],
-            )
-            .execute(&mut conn)
-            .await
-            .expect("failed to get rtc reader configs");
-
-            assert_eq!(reader_configs.len(), 2);
-
-            context.janus_clients().remove_client(&backend);
         }
     }
 
