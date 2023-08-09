@@ -69,45 +69,43 @@ pub async fn route_message(
     let event_id = headers.event_id();
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
-        Event::V1(EventV1::VideoGroupCreateIntent(e)) => {
+        Event::V1(ev)
+            if matches!(
+                ev,
+                EventV1::VideoGroupCreateIntent(_)
+                    | EventV1::VideoGroupDeleteIntent(_)
+                    | EventV1::VideoGroupUpdateIntent(_)
+            ) =>
+        {
+            let (backend_id, new_event) = match ev {
+                EventV1::VideoGroupCreateIntent(e) => (
+                    e.backend_id,
+                    VideoGroupEventV1::Created {
+                        created_at: e.created_at,
+                    },
+                ),
+                EventV1::VideoGroupDeleteIntent(e) => (
+                    e.backend_id,
+                    VideoGroupEventV1::Deleted {
+                        created_at: e.created_at,
+                    },
+                ),
+                EventV1::VideoGroupUpdateIntent(e) => (
+                    e.backend_id,
+                    VideoGroupEventV1::Updated {
+                        created_at: e.created_at,
+                    },
+                ),
+                _ => unreachable!(),
+            };
             handle_video_group_intent_event(
                 ctx.clone(),
                 event_id,
                 room,
                 agent_id.clone(),
                 classroom_id,
-                e.backend_id.clone(),
-                VideoGroupEventV1::Created {
-                    created_at: e.created_at,
-                },
-            )
-            .await
-        }
-        Event::V1(EventV1::VideoGroupDeleteIntent(e)) => {
-            handle_video_group_intent_event(
-                ctx.clone(),
-                event_id,
-                room,
-                agent_id.clone(),
-                classroom_id,
-                e.backend_id.clone(),
-                VideoGroupEventV1::Deleted {
-                    created_at: e.created_at,
-                },
-            )
-            .await
-        }
-        Event::V1(EventV1::VideoGroupUpdateIntent(e)) => {
-            handle_video_group_intent_event(
-                ctx.clone(),
-                event_id,
-                room,
-                agent_id.clone(),
-                classroom_id,
-                e.backend_id.clone(),
-                VideoGroupEventV1::Updated {
-                    created_at: e.created_at,
-                },
+                backend_id,
+                new_event,
             )
             .await
         }
