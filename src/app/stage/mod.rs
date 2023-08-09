@@ -26,7 +26,6 @@ use uuid::Uuid;
 
 use crate::app::error::{ErrorExt, ErrorKind};
 
-pub mod nats_ids;
 pub mod video_group;
 
 pub async fn route_message(

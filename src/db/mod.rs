@@ -24,6 +24,7 @@ pub mod id;
 pub mod janus_backend;
 pub mod janus_rtc_stream;
 pub mod orphaned_room;
+pub mod nats_id;
 pub mod recording;
 pub mod room;
 pub mod rtc;

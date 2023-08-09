@@ -120,7 +120,7 @@ impl Handler {
                 })
             };
 
-            let event_id = crate::app::stage::nats_ids::sqlx::get_next_seq_id(&mut conn)
+            let event_id = crate::db::nats_id::get_next_seq_id(&mut conn)
                 .await
                 .error(AppErrorKind::CreatingNewSequenceIdFailed)?
                 .to_event_id("update configs");
