@@ -8,11 +8,7 @@ pub struct NextSeqId {
 
 impl NextSeqId {
     pub fn to_event_id(&self, operation: &str) -> EventId {
-        EventId::from((
-            "conference_internal_event".to_string(),
-            operation.to_string(),
-            self.value,
-        ))
+        EventId::from(("video_group".to_string(), operation.to_string(), self.value))
     }
 }
 
