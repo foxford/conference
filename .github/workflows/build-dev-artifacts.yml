@@ -8,13 +8,13 @@ on:
 
 jobs:
   build-chart:
-    uses: foxford/reusable-workflows/.github/workflows/build-dev-chart.yml@master
+    uses: foxford/reusable-workflows/.github/workflows/build-dev-chart.yml@ULMS-2367/setup-workflows-for-monorepo
     secrets:
       helm_registry_username: ${{ secrets.YANDEX_HELM_USERNAME }}
       helm_registry_password: ${{ secrets.YANDEX_HELM_PASSWORD }}
 
   build-image:
-    uses: foxford/reusable-workflows/.github/workflows/build-dev-image.yml@master
+    uses: foxford/reusable-workflows/.github/workflows/build-dev-image.yml@ULMS-2367/setup-workflows-for-monorepo
     secrets:
       docker_registry_username: ${{ secrets.YANDEX_DOCKER_USERNAME }}
       docker_registry_password: ${{ secrets.YANDEX_DOCKER_PASSWORD }}

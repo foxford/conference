@@ -26,7 +26,7 @@ on:
 
 jobs:
   deploy:
-    uses: foxford/reusable-workflows/.github/workflows/deploy-via-flux.yml@master
+    uses: foxford/reusable-workflows/.github/workflows/deploy-via-flux.yml@ULMS-2367/setup-workflows-for-monorepo
     with:
       cluster: ${{ inputs.cluster }}
       namespace: ${{ inputs.namespace }}
