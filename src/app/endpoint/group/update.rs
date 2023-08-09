@@ -127,14 +127,7 @@ impl Handler {
 
             let event = svc_events::Event::from(event);
 
-            nats::publish_event(
-                context.clone(),
-                room.classroom_id(),
-                &event_id,
-                event,
-                Default::default(),
-            )
-            .await?;
+            nats::publish_event(context.clone(), room.classroom_id(), &event_id, event).await?;
         }
 
         context

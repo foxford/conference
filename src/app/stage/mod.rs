@@ -192,16 +192,10 @@ async fn handle_video_group_intent_event(
     ));
     let event = Event::from(event);
 
-    nats::publish_event(
-        ctx.clone(),
-        classroom_id,
-        event_id,
-        event,
-        Default::default(),
-    )
-    .await
-    .error(ErrorKind::StageProcessingFailed)
-    .transient()?;
+    nats::publish_event(ctx.clone(), classroom_id, event_id, event)
+        .await
+        .error(ErrorKind::StageProcessingFailed)
+        .transient()?;
 
     send_mqtt_notification(ctx, room.id)
         .await

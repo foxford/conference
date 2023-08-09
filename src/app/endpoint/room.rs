@@ -739,14 +739,7 @@ impl EnterHandler {
 
                         let event = svc_events::Event::from(event);
 
-                        nats::publish_event(
-                            ctx,
-                            room.classroom_id(),
-                            &event_id,
-                            event,
-                            Default::default(),
-                        )
-                        .await?;
+                        nats::publish_event(ctx, room.classroom_id(), &event_id, event).await?;
 
                         maybe_event_id = Some(event_id)
                     }
