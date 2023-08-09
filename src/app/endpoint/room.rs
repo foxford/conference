@@ -725,17 +725,16 @@ impl EnterHandler {
                             .context("backend not found")
                             .error(AppErrorKind::BackendNotFound)?;
 
-                        let timestamp = Utc::now().timestamp_nanos();
+                        let created_at = Utc::now().timestamp_nanos();
                         let event = VideoGroupUpdateIntentEvent {
-                            created_at: timestamp,
+                            created_at,
                             backend_id,
                         };
 
-                        let event_id =
-                            crate::db::nats_id::get_next_seq_id(&mut conn)
-                                .await
-                                .error(AppErrorKind::CreatingNewSequenceIdFailed)?
-                                .to_event_id("update configs");
+                        let event_id = crate::db::nats_id::get_next_seq_id(&mut conn)
+                            .await
+                            .error(AppErrorKind::CreatingNewSequenceIdFailed)?
+                            .to_event_id("update configs");
 
                         let event = svc_events::Event::from(event);
 

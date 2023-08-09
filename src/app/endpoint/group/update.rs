@@ -102,20 +102,20 @@ impl Handler {
                 .groups()
                 .len();
 
-            let timestamp = Utc::now().timestamp_nanos();
+            let created_at = Utc::now().timestamp_nanos();
             let event = if existed_groups == 1 {
                 EventV1::VideoGroupCreateIntent(VideoGroupCreateIntentEvent {
-                    created_at: timestamp,
+                    created_at,
                     backend_id,
                 })
             } else if existed_groups > 1 && groups.len() == 1 {
                 EventV1::VideoGroupDeleteIntent(VideoGroupDeleteIntentEvent {
-                    created_at: timestamp,
+                    created_at,
                     backend_id,
                 })
             } else {
                 EventV1::VideoGroupUpdateIntent(VideoGroupUpdateIntentEvent {
-                    created_at: timestamp,
+                    created_at,
                     backend_id,
                 })
             };
