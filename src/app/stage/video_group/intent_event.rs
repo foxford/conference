@@ -167,7 +167,7 @@ pub async fn handle_intent(
 
     update_janus_config(ctx.clone(), backend_id, items)
         .await
-        .error(ErrorKind::StageProcessingFailed)
+        .error(ErrorKind::JanusConfigUpdatingFailed)
         .transient()?;
 
     let event_id = &EventId::from((
@@ -179,12 +179,12 @@ pub async fn handle_intent(
 
     nats::publish_event(ctx.clone(), classroom_id, event_id, event)
         .await
-        .error(ErrorKind::StageProcessingFailed)
+        .error(ErrorKind::NatsPublishFailed)
         .transient()?;
 
     send_mqtt_notification(ctx, room.id)
         .await
-        .error(ErrorKind::StageProcessingFailed)
+        .error(ErrorKind::MqttPublishFailed)
         .transient()?;
 
     Ok(())

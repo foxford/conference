@@ -52,10 +52,10 @@ pub enum ErrorKind {
     RtcNotFound,
     MethodNotSupported,
     JanusResponseTimeout,
-    StageProcessingFailed,
     MqttPublishFailed,
     NatsPublishFailed,
     NatsClientNotFound,
+    JanusConfigUpdatingFailed,
     CreatingNewSequenceIdFailed,
 }
 
@@ -301,12 +301,6 @@ impl From<ErrorKind> for ErrorKindProperties {
                 title: "Janus response timeout",
                 is_notify_sentry: true,
             },
-            ErrorKind::StageProcessingFailed => ErrorKindProperties {
-                status: ResponseStatus::UNPROCESSABLE_ENTITY,
-                kind: "stage_processing_failed",
-                title: "Stage processing failed",
-                is_notify_sentry: true,
-            },
             ErrorKind::MqttPublishFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "mqtt_publish_failed",
@@ -329,6 +323,12 @@ impl From<ErrorKind> for ErrorKindProperties {
                 status: ResponseStatus::FAILED_DEPENDENCY,
                 kind: "creating_new_sequence_id_failed",
                 title: "Creating a new SequenceId Failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::JanusConfigUpdatingFailed => ErrorKindProperties {
+                status: ResponseStatus::UNPROCESSABLE_ENTITY,
+                kind: "janus_config_updating_failed",
+                title: "Janus config updating failed",
                 is_notify_sentry: true,
             },
         }
