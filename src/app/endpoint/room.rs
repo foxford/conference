@@ -12,7 +12,6 @@ use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Authenticable, Subscription,
 };
-use svc_events::VideoGroupUpdateIntentEventV1 as VideoGroupUpdateIntentEvent;
 
 use svc_utils::extractors::AgentIdExtractor;
 use tracing_attributes::instrument;
@@ -32,7 +31,7 @@ use crate::{
         API_VERSION,
     },
     authz::AuthzObject,
-    client::{mqtt_gateway::MqttGatewayClient, nats},
+    client::{mqtt_gateway::MqttGatewayClient},
     db::{
         self,
         group_agent::{GroupItem, Groups},

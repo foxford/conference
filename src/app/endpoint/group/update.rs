@@ -8,7 +8,6 @@ use crate::{
         stage::video_group::{save_create_intent, save_delete_intent, save_update_intent},
     },
     authz::AuthzObject,
-    client::nats,
     db::{self, group_agent::Groups},
 };
 use anyhow::{anyhow, Context};
@@ -18,11 +17,6 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
-use svc_events::{
-    EventV1, VideoGroupCreateIntentEventV1 as VideoGroupCreateIntentEvent,
-    VideoGroupDeleteIntentEventV1 as VideoGroupDeleteIntentEvent,
-    VideoGroupUpdateIntentEventV1 as VideoGroupUpdateIntentEvent,
-};
 use svc_utils::extractors::AgentIdExtractor;
 
 #[derive(Deserialize)]

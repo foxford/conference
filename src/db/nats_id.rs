@@ -1,7 +1,5 @@
 use sqlx::PgConnection;
 
-use svc_events::EventId;
-
 pub struct NextSeqId {
     pub value: i64,
 }

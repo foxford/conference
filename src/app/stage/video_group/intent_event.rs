@@ -1,4 +1,3 @@
-use sqlx::PgConnection;
 use std::sync::Arc;
 use svc_agent::AgentId;
 use chrono::Utc;
@@ -13,10 +12,10 @@ use svc_events::{
 use crate::{
     app::{
         error::{Error, ErrorExt, ErrorKind as AppErrorKind},
-        AppContext, GlobalContext,
+        GlobalContext,
     },
     client::nats,
-    db::{self, nats_id},
+    db,
 };
 
 const ENTITY_TYPE: &str = "video_group";
@@ -91,7 +90,7 @@ async fn get_next_secuence_id(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
 ) -> Result<i64, Error> {
     let mut conn = ctx.get_conn().await?;
-    let value = crate::db::nats_id::get_next_seq_id(&mut conn)
+    let value = db::nats_id::get_next_seq_id(&mut conn)
         .await
         .error(AppErrorKind::CreatingNewSequenceIdFailed)?
         .value;
