@@ -5,6 +5,4 @@ pub mod update_janus_config;
 pub use update_janus_config::update_janus_config;
 
 mod intent_event;
-pub use intent_event::{save_create_intent, save_delete_intent, save_update_intent};
-
-pub const ENTITY_TYPE: &str = "video_group";
+pub use intent_event::{handle_intent, save_create_intent, save_delete_intent, save_update_intent};
