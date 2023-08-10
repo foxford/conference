@@ -1,1 +1,1 @@
-DROP SEQUENCE IF EXISTS nats_event_seq_id;
+DROP SEQUENCE IF EXISTS video_group_entity_seq_id;
