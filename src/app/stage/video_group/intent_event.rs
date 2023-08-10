@@ -27,6 +27,10 @@ const CREATE_INTENT_OP: &str = "video_group_create_intent";
 const DELETE_INTENT_OP: &str = "video_group_delete_intent";
 const UPDATE_INTENT_OP: &str = "video_group_update_intent";
 
+const CREATE_COMPLETED_OP: &str = "video_group_create_complited";
+const DELETE_COMPLETED_OP: &str = "video_group_delete_complited";
+const UPDATE_COMPLETED_OP: &str = "video_group_update_complited";
+
 pub async fn save_create_intent(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
     room: db::room::Object,
@@ -168,7 +172,7 @@ pub async fn handle_intent(
 
     let event_id = &EventId::from((
         ENTITY_TYPE.to_string(),
-        "send_notification".to_string(),
+        event_to_operation(&event),
         event_id.sequence_id(),
     ));
     let event = Event::from(event);
@@ -194,4 +198,12 @@ async fn get_next_secuence_id(ctx: Arc<dyn GlobalContext + Sync + Send>) -> Resu
         .value;
 
     Ok(value)
+}
+
+fn event_to_operation(event: &VideoGroupEventV1) -> String {
+    match &event {
+        VideoGroupEventV1::Created { .. } => CREATE_COMPLETED_OP.to_string(),
+        VideoGroupEventV1::Deleted { .. } => DELETE_COMPLETED_OP.to_string(),
+        VideoGroupEventV1::Updated { .. } => UPDATE_COMPLETED_OP.to_string(),
+    }
 }
