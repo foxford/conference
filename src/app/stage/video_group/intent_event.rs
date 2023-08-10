@@ -23,13 +23,13 @@ use crate::{
 };
 
 const ENTITY_TYPE: &str = "video_group";
-const CREATE_INTENT_OP: &str = "video_group_create_intent";
-const DELETE_INTENT_OP: &str = "video_group_delete_intent";
-const UPDATE_INTENT_OP: &str = "video_group_update_intent";
+const CREATE_INTENT_OP: &str = "create_intent";
+const DELETE_INTENT_OP: &str = "delete_intent";
+const UPDATE_INTENT_OP: &str = "update_intent";
 
-const CREATE_COMPLETED_OP: &str = "video_group_create_complited";
-const DELETE_COMPLETED_OP: &str = "video_group_delete_complited";
-const UPDATE_COMPLETED_OP: &str = "video_group_update_complited";
+const CREATE_COMPLETED_OP: &str = "create_complited";
+const DELETE_COMPLETED_OP: &str = "delete_complited";
+const UPDATE_COMPLETED_OP: &str = "update_complited";
 
 pub async fn save_create_intent(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
@@ -192,7 +192,7 @@ pub async fn handle_intent(
 
 async fn get_next_secuence_id(ctx: Arc<dyn GlobalContext + Sync + Send>) -> Result<i64, Error> {
     let mut conn = ctx.get_conn().await?;
-    let value = db::nats_id::get_next_seq_id(&mut conn)
+    let value = db::video_group_op::get_next_seq_id(&mut conn)
         .await
         .error(AppErrorKind::CreatingNewSequenceIdFailed)?
         .value;
