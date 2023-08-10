@@ -31,7 +31,7 @@ use crate::{
         API_VERSION,
     },
     authz::AuthzObject,
-    client::{mqtt_gateway::MqttGatewayClient},
+    client::mqtt_gateway::MqttGatewayClient,
     db::{
         self,
         group_agent::{GroupItem, Groups},
