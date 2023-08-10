@@ -28,7 +28,7 @@ use crate::{
         },
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::video_group::MQTT_NOTIFICATION_LABEL,
+        stage::video_group::{save_update_intent, MQTT_NOTIFICATION_LABEL},
         API_VERSION,
     },
     authz::AuthzObject,
@@ -725,20 +725,7 @@ impl EnterHandler {
                             .context("backend not found")
                             .error(AppErrorKind::BackendNotFound)?;
 
-                        let created_at = Utc::now().timestamp_nanos();
-                        let event = VideoGroupUpdateIntentEvent {
-                            created_at,
-                            backend_id,
-                        };
-
-                        let event_id = crate::db::nats_id::get_next_seq_id(&mut conn)
-                            .await
-                            .error(AppErrorKind::CreatingNewSequenceIdFailed)?
-                            .to_event_id("update configs");
-
-                        let event = svc_events::Event::from(event);
-
-                        nats::publish_event(ctx, room.classroom_id(), &event_id, event).await?;
+                        let event_id = save_update_intent(ctx.clone(), room, backend_id).await?;
 
                         maybe_event_id = Some(event_id)
                     }

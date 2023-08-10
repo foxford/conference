@@ -5,6 +5,7 @@ use crate::{
         error::ErrorExt,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
+        stage::video_group::{save_create_intent, save_delete_intent, save_update_intent},
     },
     authz::AuthzObject,
     client::nats,
@@ -94,41 +95,22 @@ impl Handler {
             .context("backend not found")
             .error(AppErrorKind::BackendNotFound)?;
 
-        {
+        let existed_groups = {
             let mut conn = context.get_conn().await?;
-            let existed_groups = db::group_agent::FindQuery::new(room.id())
+            db::group_agent::FindQuery::new(room.id())
                 .execute(&mut conn)
                 .await?
                 .groups()
-                .len();
+                .len()
+        };
 
-            let created_at = Utc::now().timestamp_nanos();
-            let event = if existed_groups == 1 {
-                EventV1::VideoGroupCreateIntent(VideoGroupCreateIntentEvent {
-                    created_at,
-                    backend_id,
-                })
-            } else if existed_groups > 1 && groups.len() == 1 {
-                EventV1::VideoGroupDeleteIntent(VideoGroupDeleteIntentEvent {
-                    created_at,
-                    backend_id,
-                })
-            } else {
-                EventV1::VideoGroupUpdateIntent(VideoGroupUpdateIntentEvent {
-                    created_at,
-                    backend_id,
-                })
-            };
-
-            let event_id = crate::db::nats_id::get_next_seq_id(&mut conn)
-                .await
-                .error(AppErrorKind::CreatingNewSequenceIdFailed)?
-                .to_event_id("update configs");
-
-            let event = svc_events::Event::from(event);
-
-            nats::publish_event(context.clone(), room.classroom_id(), &event_id, event).await?;
-        }
+        if existed_groups == 1 {
+            save_create_intent(context.clone(), room, backend_id).await?
+        } else if existed_groups > 1 && groups.len() == 1 {
+            save_delete_intent(context.clone(), room, backend_id).await?
+        } else {
+            save_update_intent(context.clone(), room, backend_id).await?
+        };
 
         context
             .metrics()
