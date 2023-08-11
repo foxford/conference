@@ -23,24 +23,25 @@ use crate::{
 };
 
 const ENTITY_TYPE: &str = "video_group";
+
 const CREATE_INTENT_OP: &str = "create_intent";
 const DELETE_INTENT_OP: &str = "delete_intent";
 const UPDATE_INTENT_OP: &str = "update_intent";
 
-const CREATE_COMPLETED_OP: &str = "create_complited";
-const DELETE_COMPLETED_OP: &str = "delete_complited";
-const UPDATE_COMPLETED_OP: &str = "update_complited";
+const CREATE_COMPLETED_OP: &str = "create_completed";
+const DELETE_COMPLETED_OP: &str = "delete_completed";
+const UPDATE_COMPLETED_OP: &str = "update_completed";
 
 pub async fn save_create_intent(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
     room: db::room::Object,
     backend_id: AgentId,
 ) -> Result<EventId, Error> {
-    let secuence_id = get_next_secuence_id(ctx.clone()).await?;
+    let sequence_id = get_next_sequence_id(ctx.clone()).await?;
     let event_id = EventId::from((
         ENTITY_TYPE.to_string(),
         CREATE_INTENT_OP.to_string(),
-        secuence_id,
+        sequence_id,
     ));
 
     let created_at = Utc::now().timestamp_nanos();
@@ -61,11 +62,11 @@ pub async fn save_delete_intent(
     room: db::room::Object,
     backend_id: AgentId,
 ) -> Result<EventId, Error> {
-    let secuence_id = get_next_secuence_id(ctx.clone()).await?;
+    let sequence_id = get_next_sequence_id(ctx.clone()).await?;
     let event_id = EventId::from((
         ENTITY_TYPE.to_string(),
         DELETE_INTENT_OP.to_string(),
-        secuence_id,
+        sequence_id,
     ));
 
     let created_at = Utc::now().timestamp_nanos();
@@ -86,11 +87,11 @@ pub async fn save_update_intent(
     room: db::room::Object,
     backend_id: AgentId,
 ) -> Result<EventId, Error> {
-    let secuence_id = get_next_secuence_id(ctx.clone()).await?;
+    let sequence_id = get_next_sequence_id(ctx.clone()).await?;
     let event_id = EventId::from((
         ENTITY_TYPE.to_string(),
         UPDATE_INTENT_OP.to_string(),
-        secuence_id,
+        sequence_id,
     ));
 
     let created_at = Utc::now().timestamp_nanos();
@@ -190,7 +191,7 @@ pub async fn handle_intent(
     Ok(())
 }
 
-async fn get_next_secuence_id(ctx: Arc<dyn GlobalContext + Sync + Send>) -> Result<i64, Error> {
+async fn get_next_sequence_id(ctx: Arc<dyn GlobalContext + Sync + Send>) -> Result<i64, Error> {
     let mut conn = ctx.get_conn().await?;
     let value = db::video_group_op::get_next_seq_id(&mut conn)
         .await
