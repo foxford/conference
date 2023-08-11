@@ -37,24 +37,16 @@ pub async fn save_create_intent(
     room: db::room::Object,
     backend_id: AgentId,
 ) -> Result<EventId, Error> {
-    let sequence_id = get_next_sequence_id(ctx.clone()).await?;
-    let event_id = EventId::from((
-        ENTITY_TYPE.to_string(),
-        CREATE_INTENT_OP.to_string(),
-        sequence_id,
-    ));
-
-    let created_at = Utc::now().timestamp_nanos();
-    let event = svc_events::Event::from(EventV1::VideoGroupCreateIntent(
-        VideoGroupCreateIntentEvent {
-            created_at,
+    save_intent(
+        ctx,
+        room,
+        CREATE_INTENT_OP,
+        EventV1::VideoGroupCreateIntent(VideoGroupCreateIntentEvent {
+            created_at: Utc::now().timestamp_nanos(),
             backend_id,
-        },
-    ));
-
-    nats::publish_event(ctx.clone(), room.classroom_id(), &event_id, event).await?;
-
-    Ok(event_id)
+        }),
+    )
+    .await
 }
 
 pub async fn save_delete_intent(
@@ -62,24 +54,16 @@ pub async fn save_delete_intent(
     room: db::room::Object,
     backend_id: AgentId,
 ) -> Result<EventId, Error> {
-    let sequence_id = get_next_sequence_id(ctx.clone()).await?;
-    let event_id = EventId::from((
-        ENTITY_TYPE.to_string(),
-        DELETE_INTENT_OP.to_string(),
-        sequence_id,
-    ));
-
-    let created_at = Utc::now().timestamp_nanos();
-    let event = svc_events::Event::from(EventV1::VideoGroupDeleteIntent(
-        VideoGroupDeleteIntentEvent {
-            created_at,
+    save_intent(
+        ctx,
+        room,
+        DELETE_INTENT_OP,
+        EventV1::VideoGroupDeleteIntent(VideoGroupDeleteIntentEvent {
+            created_at: Utc::now().timestamp_nanos(),
             backend_id,
-        },
-    ));
-
-    nats::publish_event(ctx.clone(), room.classroom_id(), &event_id, event).await?;
-
-    Ok(event_id)
+        }),
+    )
+    .await
 }
 
 pub async fn save_update_intent(
@@ -87,24 +71,16 @@ pub async fn save_update_intent(
     room: db::room::Object,
     backend_id: AgentId,
 ) -> Result<EventId, Error> {
-    let sequence_id = get_next_sequence_id(ctx.clone()).await?;
-    let event_id = EventId::from((
-        ENTITY_TYPE.to_string(),
-        UPDATE_INTENT_OP.to_string(),
-        sequence_id,
-    ));
-
-    let created_at = Utc::now().timestamp_nanos();
-    let event = svc_events::Event::from(EventV1::VideoGroupUpdateIntent(
-        VideoGroupUpdateIntentEvent {
-            created_at,
+    save_intent(
+        ctx,
+        room,
+        UPDATE_INTENT_OP,
+        EventV1::VideoGroupUpdateIntent(VideoGroupUpdateIntentEvent {
+            created_at: Utc::now().timestamp_nanos(),
             backend_id,
-        },
-    ));
-
-    nats::publish_event(ctx.clone(), room.classroom_id(), &event_id, event).await?;
-
-    Ok(event_id)
+        }),
+    )
+    .await
 }
 
 pub async fn handle_intent(
@@ -189,6 +165,21 @@ pub async fn handle_intent(
         .transient()?;
 
     Ok(())
+}
+
+async fn save_intent(
+    ctx: Arc<dyn GlobalContext + Sync + Send>,
+    room: db::room::Object,
+    operation: &str,
+    event: EventV1,
+) -> Result<EventId, Error> {
+    let sequence_id = get_next_sequence_id(ctx.clone()).await?;
+    let event_id = EventId::from((ENTITY_TYPE.to_string(), operation.to_string(), sequence_id));
+    let event = svc_events::Event::from(event);
+
+    nats::publish_event(ctx.clone(), room.classroom_id(), &event_id, event).await?;
+
+    Ok(event_id)
 }
 
 async fn get_next_sequence_id(ctx: Arc<dyn GlobalContext + Sync + Send>) -> Result<i64, Error> {
