@@ -53,14 +53,11 @@ pub async fn route_message(
     let event_id = headers.event_id();
 
     let r: Result<(), HandleMessageFailure<Error>> = match event {
-        Event::V1(ev)
-            if matches!(
-                ev,
-                EventV1::VideoGroupCreateIntent(_)
-                    | EventV1::VideoGroupDeleteIntent(_)
-                    | EventV1::VideoGroupUpdateIntent(_)
-            ) =>
-        {
+        Event::V1(
+            ev @ EventV1::VideoGroupCreateIntent(_)
+            | ev @ EventV1::VideoGroupDeleteIntent(_)
+            | ev @ EventV1::VideoGroupUpdateIntent(_),
+        ) => {
             let (backend_id, new_event) = match ev {
                 EventV1::VideoGroupCreateIntent(e) => (
                     e.backend_id,
