@@ -30,3 +30,4 @@ pub mod rtc;
 pub mod rtc_reader_config;
 pub mod rtc_writer_config;
 pub mod rtc_writer_config_snapshot;
+pub mod video_group_op;

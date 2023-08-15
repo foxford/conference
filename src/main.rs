@@ -99,7 +99,6 @@ mod backend;
 mod client;
 mod config;
 mod db;
-mod outbox;
 mod serde;
 #[cfg(test)]
 mod test_helpers;

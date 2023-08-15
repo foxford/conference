@@ -1,6 +1,5 @@
 use std::{error::Error as StdError, fmt, sync::Arc};
 
-use crate::outbox::error::PipelineError;
 use enum_iterator::IntoEnumIterator;
 use svc_agent::mqtt::ResponseStatus;
 use svc_error::{extension::sentry, Error as SvcError};
@@ -53,11 +52,11 @@ pub enum ErrorKind {
     RtcNotFound,
     MethodNotSupported,
     JanusResponseTimeout,
-    OutboxStageSerializationFailed,
     MqttPublishFailed,
     NatsPublishFailed,
     NatsClientNotFound,
-    OutboxPipelineError,
+    JanusConfigUpdatingFailed,
+    CreatingNewSequenceIdFailed,
 }
 
 impl ErrorKind {
@@ -302,12 +301,6 @@ impl From<ErrorKind> for ErrorKindProperties {
                 title: "Janus response timeout",
                 is_notify_sentry: true,
             },
-            ErrorKind::OutboxStageSerializationFailed => ErrorKindProperties {
-                status: ResponseStatus::UNPROCESSABLE_ENTITY,
-                kind: "outbox_stage_serialization_failed",
-                title: "Outbox stage serialization failed",
-                is_notify_sentry: true,
-            },
             ErrorKind::MqttPublishFailed => ErrorKindProperties {
                 status: ResponseStatus::UNPROCESSABLE_ENTITY,
                 kind: "mqtt_publish_failed",
@@ -326,10 +319,16 @@ impl From<ErrorKind> for ErrorKindProperties {
                 title: "Nats client not found",
                 is_notify_sentry: true,
             },
-            ErrorKind::OutboxPipelineError => ErrorKindProperties {
+            ErrorKind::CreatingNewSequenceIdFailed => ErrorKindProperties {
                 status: ResponseStatus::FAILED_DEPENDENCY,
-                kind: "outbox pipeline error",
-                title: "Outbox pipeline error",
+                kind: "creating_new_sequence_id_failed",
+                title: "Creating a new SequenceId Failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::JanusConfigUpdatingFailed => ErrorKindProperties {
+                status: ResponseStatus::UNPROCESSABLE_ENTITY,
+                kind: "janus_config_updating_failed",
+                title: "Janus config updating failed",
                 is_notify_sentry: true,
             },
         }
@@ -452,11 +451,5 @@ pub trait ErrorExt<T> {
 impl<T, E: Into<anyhow::Error>> ErrorExt<T> for Result<T, E> {
     fn error(self, kind: ErrorKind) -> Result<T, Error> {
         self.map_err(|source| Error::new(kind, source.into()))
-    }
-}
-
-impl From<PipelineError> for Error {
-    fn from(error: PipelineError) -> Self {
-        Error::new(ErrorKind::OutboxPipelineError, error)
     }
 }

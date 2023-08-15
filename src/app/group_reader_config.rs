@@ -13,6 +13,30 @@ pub async fn update(
     room_id: db::room::Id,
     groups: Groups,
 ) -> sqlx::Result<HashMap<(Id, AgentId), bool>> {
+    let configs = read(conn, room_id, groups.clone()).await?;
+
+    let (mut rtc_ids, mut agent_ids, mut receive_video, mut receive_audio) =
+        (vec![], vec![], vec![], vec![]);
+
+    for ((rtc_id, agent_id), value) in configs.iter() {
+        rtc_ids.push(*rtc_id);
+        agent_ids.push(agent_id);
+        receive_video.push(*value);
+        receive_audio.push(*value);
+    }
+
+    db::rtc_reader_config::batch_insert(conn, &rtc_ids, &agent_ids, &receive_video, &receive_audio)
+        .await?;
+
+    Ok(configs)
+}
+
+/// Read `rtc_reader_configs` based on `group_agents`.
+pub async fn read(
+    conn: &mut sqlx::PgConnection,
+    room_id: db::room::Id,
+    groups: Groups,
+) -> sqlx::Result<HashMap<(Id, AgentId), bool>> {
     let agent_ids = groups.iter().flat_map(|g| g.agents()).collect::<Vec<_>>();
 
     let rtcs = db::rtc::ListQuery::new()
@@ -93,19 +117,6 @@ pub async fn update(
                 .or_insert(group1 == group2);
         }
     }
-
-    let (mut rtc_ids, mut agent_ids, mut receive_video, mut receive_audio) =
-        (vec![], vec![], vec![], vec![]);
-
-    for ((rtc_id, agent_id), value) in configs.iter() {
-        rtc_ids.push(*rtc_id);
-        agent_ids.push(agent_id);
-        receive_video.push(*value);
-        receive_audio.push(*value);
-    }
-
-    db::rtc_reader_config::batch_insert(conn, &rtc_ids, &agent_ids, &receive_video, &receive_audio)
-        .await?;
 
     Ok(configs)
 }

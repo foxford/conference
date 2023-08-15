@@ -7,15 +7,13 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use sqlx::Connection;
 use std::{ops::Bound, sync::Arc};
 use svc_agent::{
     mqtt::{OutgoingRequest, ResponseStatus, ShortTermTimingProperties, SubscriptionTopic},
     Addressable, AgentId, Authenticable, Subscription,
 };
-use svc_events::{EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
+
 use svc_utils::extractors::AgentIdExtractor;
-use tracing::error;
 use tracing_attributes::instrument;
 use uuid::Uuid;
 
@@ -27,29 +25,18 @@ use crate::{
             rtc::{RtcCreate, RtcCreateResult},
             subscription::CorrelationDataPayload,
         },
-        group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::{
-            self,
-            video_group::{VideoGroupUpdateJanusConfig, MQTT_NOTIFICATION_LABEL},
-            AppStage,
-        },
+        stage::video_group::{save_update_intent, MQTT_NOTIFICATION_LABEL},
         API_VERSION,
     },
     authz::AuthzObject,
-    backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
     client::mqtt_gateway::MqttGatewayClient,
     db::{
         self,
         group_agent::{GroupItem, Groups},
         room::{RoomBackend, Time},
         rtc::SharingPolicy as RtcSharingPolicy,
-    },
-    outbox::{
-        self,
-        error::ErrorKind,
-        pipeline::{sqlx::Pipeline as DieselPipeline, Pipeline},
     },
 };
 
@@ -680,7 +667,6 @@ impl EnterHandler {
 
         let ctx = context.clone();
         let room_id = room.id();
-        let outbox_config = ctx.config().clone().outbox;
         if room.rtc_sharing_policy() == db::rtc::SharingPolicy::Owned {
             let mut conn = context.get_conn().await?;
             let rtcs = db::rtc::ListQuery::new()
@@ -715,108 +701,40 @@ impl EnterHandler {
                 );
             }
 
-            // Adds participants to the default group for minigroups
-            let mut conn = context.get_conn().await?;
-            let agent_id = reqp.as_agent_id().clone();
+            let maybe_event_id = {
+                // Adds participants to the default group for minigroups
+                let mut conn = context.get_conn().await?;
+                let agent_id = reqp.as_agent_id().clone();
 
-            let maybe_event_id = conn
-                .transaction::<_, _, AppError>(|conn| {
-                    Box::pin(async move {
-                        let group_agent = db::group_agent::FindQuery::new(room_id)
-                            .execute(conn)
-                            .await?;
+                let mut maybe_event_id = None;
+                let group_agent = db::group_agent::FindQuery::new(room_id)
+                    .execute(&mut conn)
+                    .await?;
 
-                        let groups = group_agent.groups();
-                        let agent_exists = groups.is_agent_exist(&agent_id);
+                let groups = group_agent.groups();
+                let agent_exists = groups.is_agent_exist(&agent_id);
 
-                        if !agent_exists {
-                            let changed_groups = groups.add_to_default_group(&agent_id);
-                            db::group_agent::UpsertQuery::new(room_id, &changed_groups)
-                                .execute(conn)
-                                .await?;
+                if !agent_exists {
+                    // Check the number of groups, and if there are more than 1,
+                    // then create RTC reader configs for participants from other groups
+                    if groups.len() > 1 {
+                        let backend_id = room
+                            .backend_id()
+                            .cloned()
+                            .context("backend not found")
+                            .error(AppErrorKind::BackendNotFound)?;
 
-                            // Check the number of groups, and if there are more than 1,
-                            // then create RTC reader configs for participants from other groups
-                            if groups.len() > 1 {
-                                let backend_id = room
-                                    .backend_id()
-                                    .cloned()
-                                    .context("backend not found")
-                                    .error(AppErrorKind::BackendNotFound)?;
+                        let event_id = save_update_intent(ctx.clone(), room, backend_id).await?;
 
-                                let configs =
-                                    group_reader_config::update(conn, room_id, changed_groups)
-                                        .await?;
-
-                                // Generate configs for janus
-                                let items = configs
-                                    .into_iter()
-                                    .map(|((rtc_id, agent_id), value)| {
-                                        UpdateReaderConfigRequestBodyConfigItem {
-                                            reader_id: agent_id,
-                                            stream_id: rtc_id,
-                                            receive_video: value,
-                                            receive_audio: value,
-                                        }
-                                    })
-                                    .collect();
-
-                                let timestamp = Utc::now().timestamp_nanos();
-                                let event = Event::from(VideoGroupEvent::Updated {
-                                    created_at: timestamp,
-                                });
-                                let init_stage = VideoGroupUpdateJanusConfig::init(
-                                    event,
-                                    room.classroom_id(),
-                                    room.id(),
-                                    backend_id,
-                                    items,
-                                );
-
-                                let serialized_stage = serde_json::to_value(init_stage)
-                                    .context("serialization failed")
-                                    .error(AppErrorKind::OutboxStageSerializationFailed)?;
-
-                                let delivery_deadline_at = outbox::util::delivery_deadline_from_now(
-                                    outbox_config.try_wake_interval,
-                                );
-
-                                let event_id = outbox::db::sqlx::InsertQuery::new(
-                                    stage::video_group::ENTITY_TYPE,
-                                    serialized_stage,
-                                    delivery_deadline_at,
-                                )
-                                .execute(conn)
-                                .await?;
-
-                                return Ok(Some(event_id));
-                            }
-                        }
-
-                        Ok(None)
-                    })
-                })
-                .await?;
-
-            match maybe_event_id {
-                Some(event_id) => {
-                    let pipeline = DieselPipeline::new(
-                        ctx.db().clone(),
-                        outbox_config.try_wake_interval,
-                        outbox_config.max_delivery_interval,
-                    );
-                    if let Err(err) = pipeline
-                        .run_single_stage::<AppStage, _>(ctx, event_id)
-                        .await
-                    {
-                        if let ErrorKind::StageError(kind) = &err.kind {
-                            context.metrics().observe_outbox_error(kind);
-                        }
-
-                        error!(%err, "failed to complete stage");
-                        AppError::from(err).notify_sentry();
+                        maybe_event_id = Some(event_id)
                     }
                 }
+
+                maybe_event_id
+            };
+
+            match maybe_event_id {
+                Some(_event_id) => (),
                 None => {
                     response.add_notification(
                         MQTT_NOTIFICATION_LABEL,
@@ -1672,7 +1590,7 @@ mod test {
         use chrono::{Duration, Utc};
 
         use crate::db::group_agent::{GroupItem, Groups};
-        use crate::test_helpers::{db::TestDb, prelude::*, test_deps::LocalDeps};
+        use crate::test_helpers::{db::TestDb, prelude::*};
 
         use super::super::*;
 
@@ -1879,53 +1797,6 @@ mod test {
         }
 
         #[sqlx::test]
-        async fn add_new_participant_to_default_group(pool: sqlx::PgPool) {
-            let db = TestDb::new(pool);
-            let mut conn = db.get_conn().await;
-
-            // Create room.
-            let room = shared_helpers::insert_room_with_owned(&mut conn).await;
-
-            factory::GroupAgent::new(room.id(), Groups::new(vec![GroupItem::new(0, vec![])]))
-                .upsert(&mut conn)
-                .await;
-
-            // Allow agent to subscribe to the rooms' events.
-            let agent = TestAgent::new("web", "user123", USR_AUDIENCE);
-            let mut authz = TestAuthz::new();
-            let classroom_id = room.classroom_id().to_string();
-            authz.allow(
-                agent.account_id(),
-                vec!["classrooms", &classroom_id],
-                "read",
-            );
-            authz.allow(
-                agent.account_id(),
-                vec!["classrooms", &classroom_id, "rtcs"],
-                "create",
-            );
-
-            // Make room.enter request.
-            let context = TestContext::new(db, authz).await;
-            let payload = EnterRequest { id: room.id() };
-
-            let reqp = RequestParams::Http {
-                agent_id: &agent.agent_id(),
-            };
-            EnterHandler::handle(Arc::new(context), payload, reqp, Utc::now())
-                .await
-                .expect("Room entrance failed");
-
-            let group_agent = db::group_agent::FindQuery::new(room.id())
-                .execute(&mut conn)
-                .await
-                .expect("failed to find a group agent");
-
-            let groups = Groups::new(vec![GroupItem::new(0, vec![agent.agent_id().clone()])]);
-            assert_eq!(group_agent.groups(), groups);
-        }
-
-        #[sqlx::test]
         async fn existed_participant_in_group(pool: sqlx::PgPool) {
             let db = TestDb::new(pool);
             let mut conn = db.get_conn().await;
@@ -1973,90 +1844,6 @@ mod test {
                 .expect("failed to get group agents");
 
             assert_eq!(group_agent.groups().len(), 1);
-        }
-
-        #[sqlx::test]
-        async fn create_reader_configs(pool: sqlx::PgPool) {
-            let local_deps = LocalDeps::new();
-            let janus = local_deps.run_janus();
-            let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
-            let db = TestDb::new(pool);
-
-            let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
-            let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
-
-            let mut conn = db.get_conn().await;
-
-            let backend =
-                shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
-                    .await;
-
-            let room = factory::Room::new()
-                .audience(USR_AUDIENCE)
-                .time((Bound::Included(Utc::now()), Bound::Unbounded))
-                .rtc_sharing_policy(RtcSharingPolicy::Owned)
-                .backend_id(backend.id())
-                .insert(&mut conn)
-                .await;
-
-            factory::GroupAgent::new(
-                room.id(),
-                Groups::new(vec![
-                    GroupItem::new(0, vec![]),
-                    GroupItem::new(1, vec![agent1.agent_id().clone()]),
-                ]),
-            )
-            .upsert(&mut conn)
-            .await;
-
-            for agent in &[&agent1, &agent2] {
-                factory::Rtc::new(room.id())
-                    .created_by(agent.agent_id().to_owned())
-                    .insert(&mut conn)
-                    .await;
-            }
-
-            // Allow agent to subscribe to the rooms' events.
-            let mut authz = TestAuthz::new();
-            let classroom_id = room.classroom_id().to_string();
-            authz.allow(
-                agent2.account_id(),
-                vec!["classrooms", &classroom_id],
-                "read",
-            );
-
-            // Make room.enter request.
-            let mut context = TestContext::new(db, authz).await;
-            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-            context.with_janus(tx);
-
-            let payload = EnterRequest { id: room.id() };
-
-            let reqp = RequestParams::Http {
-                agent_id: &agent2.agent_id(),
-            };
-            EnterHandler::handle(Arc::new(context.clone()), payload, reqp, Utc::now())
-                .await
-                .expect("Room entrance failed");
-
-            let group_agent = db::group_agent::FindQuery::new(room.id())
-                .execute(&mut conn)
-                .await
-                .expect("failed to get group agents");
-
-            assert_eq!(group_agent.groups().len(), 2);
-
-            let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(
-                room.id(),
-                &[agent1.agent_id(), agent2.agent_id()],
-            )
-            .execute(&mut conn)
-            .await
-            .expect("failed to get rtc reader configs");
-
-            assert_eq!(reader_configs.len(), 2);
-
-            context.janus_clients().remove_client(&backend);
         }
     }
 

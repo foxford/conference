@@ -1,54 +1,16 @@
 use crate::{
-    app::{
-        context::GlobalContext,
-        error::Error,
-        stage::video_group::{
-            VideoGroupSendMqttNotification, VideoGroupSendNatsNotification,
-            VideoGroupUpdateJanusConfig,
-        },
-    },
+    app::{context::GlobalContext, error::Error, stage},
     db::{self, room::FindQueryable},
-    outbox::{error::StageError, StageHandle},
 };
 use anyhow::{anyhow, Context};
-use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, str::FromStr, sync::Arc};
-use svc_events::{Event, EventId};
+use svc_events::{Event, EventV1, VideoGroupEventV1};
 use svc_nats_client::{
     consumer::{FailureKind, FailureKindExt, HandleMessageFailure},
     Subject,
 };
 
 pub mod video_group;
-
-#[allow(clippy::enum_variant_names)]
-#[derive(Deserialize, Serialize, Clone)]
-#[serde(tag = "name")]
-pub enum AppStage {
-    VideoGroupUpdateJanusConfig(VideoGroupUpdateJanusConfig),
-    VideoGroupSendNatsNotification(VideoGroupSendNatsNotification),
-    VideoGroupSendMqttNotification(VideoGroupSendMqttNotification),
-}
-
-#[async_trait::async_trait]
-impl StageHandle for AppStage {
-    type Context = Arc<dyn GlobalContext + Send + Sync>;
-    type Stage = AppStage;
-
-    async fn handle(&self, ctx: &Self::Context, id: &EventId) -> Result<Option<Self>, StageError> {
-        match self {
-            AppStage::VideoGroupUpdateJanusConfig(s) => s.handle(ctx, id).await,
-            AppStage::VideoGroupSendNatsNotification(s) => s.handle(ctx, id).await,
-            AppStage::VideoGroupSendMqttNotification(s) => s.handle(ctx, id).await,
-        }
-    }
-}
-
-impl From<Error> for StageError {
-    fn from(error: Error) -> Self {
-        StageError::new(error.error_kind().kind().into(), Box::new(error))
-    }
-}
 
 pub async fn route_message(
     ctx: Arc<dyn GlobalContext + Sync + Send>,
@@ -63,7 +25,7 @@ pub async fn route_message(
         .permanent()?;
 
     let classroom_id = subject.classroom_id();
-    let _room = {
+    let room = {
         let mut conn = ctx
             .get_conn()
             .await
@@ -87,11 +49,48 @@ pub async fn route_message(
     let headers = svc_nats_client::Headers::try_from(msg.headers.clone().unwrap_or_default())
         .context("parse nats headers")
         .permanent()?;
-    let _agent_id = headers.sender_id();
+    let agent_id = headers.sender_id();
+    let event_id = headers.event_id();
 
-    // TODO: remove after adding more match bindings
-    #[allow(clippy::match_single_binding)]
     let r: Result<(), HandleMessageFailure<Error>> = match event {
+        Event::V1(
+            ev @ EventV1::VideoGroupCreateIntent(_)
+            | ev @ EventV1::VideoGroupDeleteIntent(_)
+            | ev @ EventV1::VideoGroupUpdateIntent(_),
+        ) => {
+            let (backend_id, new_event) = match ev {
+                EventV1::VideoGroupCreateIntent(e) => (
+                    e.backend_id,
+                    VideoGroupEventV1::Created {
+                        created_at: e.created_at,
+                    },
+                ),
+                EventV1::VideoGroupDeleteIntent(e) => (
+                    e.backend_id,
+                    VideoGroupEventV1::Deleted {
+                        created_at: e.created_at,
+                    },
+                ),
+                EventV1::VideoGroupUpdateIntent(e) => (
+                    e.backend_id,
+                    VideoGroupEventV1::Updated {
+                        created_at: e.created_at,
+                    },
+                ),
+                _ => unreachable!(),
+            };
+            // handle_video_group_intent_event(
+            stage::video_group::handle_intent(
+                ctx.clone(),
+                event_id,
+                room,
+                agent_id.clone(),
+                classroom_id,
+                backend_id,
+                new_event,
+            )
+            .await
+        }
         _ => {
             // ignore
             Ok(())

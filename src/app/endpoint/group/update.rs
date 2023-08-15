@@ -1,37 +1,23 @@
 use crate::{
     app::{
         context::{AppContext, GlobalContext},
-        endpoint::{
-            helpers,
-            prelude::{AppError, AppErrorKind},
-            RequestResult,
-        },
+        endpoint::{helpers, prelude::AppErrorKind, RequestResult},
         error::ErrorExt,
-        group_reader_config,
         metrics::HistogramExt,
         service_utils::{RequestParams, Response},
-        stage::{self, video_group::VideoGroupUpdateJanusConfig, AppStage},
+        stage::video_group::{save_create_intent, save_delete_intent, save_update_intent},
     },
     authz::AuthzObject,
-    backend::janus::client::update_agent_reader_config::UpdateReaderConfigRequestBodyConfigItem,
     db::{self, group_agent::Groups},
-    outbox::{
-        self,
-        error::ErrorKind,
-        pipeline::{sqlx::Pipeline as DieselPipeline, Pipeline},
-    },
 };
 use anyhow::{anyhow, Context};
 use axum::{extract::Path, Extension, Json};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::Connection;
 use std::sync::Arc;
 use svc_agent::mqtt::ResponseStatus;
-use svc_events::{EventV1 as Event, VideoGroupEventV1 as VideoGroupEvent};
 use svc_utils::extractors::AgentIdExtractor;
-use tracing::error;
 
 #[derive(Deserialize)]
 pub struct Payload {
@@ -67,8 +53,6 @@ impl Handler {
         reqp: RequestParams<'_>,
         start_timestamp: DateTime<Utc>,
     ) -> RequestResult {
-        let outbox_config = context.config().clone().outbox;
-
         let Payload { room_id, groups } = payload;
 
         let room = {
@@ -105,97 +89,22 @@ impl Handler {
             .context("backend not found")
             .error(AppErrorKind::BackendNotFound)?;
 
-        let mut conn = context.get_conn().await?;
-        let event_id = conn
-            .transaction::<_, _, AppError>(|conn| {
-                Box::pin(async move {
-                    let existed_groups = db::group_agent::FindQuery::new(room.id())
-                        .execute(conn)
-                        .await?
-                        .groups()
-                        .len();
+        let existed_groups = {
+            let mut conn = context.get_conn().await?;
+            db::group_agent::FindQuery::new(room.id())
+                .execute(&mut conn)
+                .await?
+                .groups()
+                .len()
+        };
 
-                    let timestamp = Utc::now().timestamp_nanos();
-                    let event = if existed_groups == 1 {
-                        VideoGroupEvent::Created {
-                            created_at: timestamp,
-                        }
-                    } else if existed_groups > 1 && groups.len() == 1 {
-                        VideoGroupEvent::Deleted {
-                            created_at: timestamp,
-                        }
-                    } else {
-                        VideoGroupEvent::Updated {
-                            created_at: timestamp,
-                        }
-                    };
-                    let event = Event::from(event);
-
-                    db::group_agent::UpsertQuery::new(room.id(), &groups)
-                        .execute(conn)
-                        .await?;
-
-                    // Update rtc_reader_configs
-                    let configs = group_reader_config::update(conn, room.id(), groups).await?;
-
-                    // Generate config items for janus
-                    let items = configs
-                        .into_iter()
-                        .map(|((rtc_id, agent_id), value)| {
-                            UpdateReaderConfigRequestBodyConfigItem {
-                                reader_id: agent_id,
-                                stream_id: rtc_id,
-                                receive_video: value,
-                                receive_audio: value,
-                            }
-                        })
-                        .collect();
-
-                    let init_stage = VideoGroupUpdateJanusConfig::init(
-                        event,
-                        room.classroom_id(),
-                        room.id(),
-                        backend_id,
-                        items,
-                    );
-
-                    let serialized_stage = serde_json::to_value(init_stage)
-                        .context("serialization failed")
-                        .error(AppErrorKind::OutboxStageSerializationFailed)?;
-
-                    let delivery_deadline_at =
-                        outbox::util::delivery_deadline_from_now(outbox_config.try_wake_interval);
-
-                    let event_id = outbox::db::sqlx::InsertQuery::new(
-                        stage::video_group::ENTITY_TYPE,
-                        serialized_stage,
-                        delivery_deadline_at,
-                    )
-                    .execute(conn)
-                    .await?;
-
-                    Ok(event_id)
-                })
-            })
-            .await?;
-
-        let pipeline = DieselPipeline::new(
-            context.db().clone(),
-            outbox_config.try_wake_interval,
-            outbox_config.max_delivery_interval,
-        );
-
-        if let Err(err) = pipeline
-            .run_single_stage::<AppStage, _>(context.clone(), event_id)
-            .await
-        {
-            if let ErrorKind::StageError(kind) = &err.kind {
-                context.metrics().observe_outbox_error(kind);
-            }
-
-            error!(%err, "failed to complete stage");
-            AppError::from(err).notify_sentry();
-        }
+        if existed_groups == 1 {
+            save_create_intent(context.clone(), room, backend_id).await?
+        } else if existed_groups > 1 && groups.len() == 1 {
+            save_delete_intent(context.clone(), room, backend_id).await?
+        } else {
+            save_update_intent(context.clone(), room, backend_id).await?
+        };
 
         context
             .metrics()
@@ -215,17 +124,14 @@ impl Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{group_agent::GroupItem, rtc::SharingPolicy as RtcSharingPolicy};
+    use crate::db::rtc::SharingPolicy as RtcSharingPolicy;
     use crate::test_helpers::{
         db::TestDb,
         factory,
-        prelude::{GlobalContext, TestAgent, TestAuthz, TestContext},
-        shared_helpers,
-        test_deps::LocalDeps,
-        USR_AUDIENCE,
+        prelude::{TestAgent, TestAuthz, TestContext},
+        shared_helpers, USR_AUDIENCE,
     };
     use chrono::{Duration, Utc};
-    use std::collections::HashMap;
     use std::ops::Bound;
 
     #[sqlx::test]
@@ -332,159 +238,5 @@ mod tests {
 
         assert_eq!(err.status(), ResponseStatus::BAD_REQUEST);
         assert_eq!(err.kind(), "invalid_payload");
-    }
-
-    #[sqlx::test]
-    async fn update_group_agents(pool: sqlx::PgPool) {
-        let local_deps = LocalDeps::new();
-        let janus = local_deps.run_janus();
-        let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
-
-        let db = TestDb::new(pool);
-
-        let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
-        let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
-
-        let mut conn = db.get_conn().await;
-
-        let backend =
-            shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
-                .await;
-
-        let room = factory::Room::new()
-            .audience(USR_AUDIENCE)
-            .time((Bound::Included(Utc::now()), Bound::Unbounded))
-            .rtc_sharing_policy(RtcSharingPolicy::Owned)
-            .backend_id(backend.id())
-            .insert(&mut conn)
-            .await;
-
-        factory::GroupAgent::new(
-            room.id(),
-            Groups::new(vec![GroupItem::new(0, vec![]), GroupItem::new(1, vec![])]),
-        )
-        .upsert(&mut conn)
-        .await;
-
-        for agent in &[&agent1, &agent2] {
-            factory::Rtc::new(room.id())
-                .created_by(agent.agent_id().to_owned())
-                .insert(&mut conn)
-                .await;
-        }
-
-        // Allow agent to update the room.
-        let mut authz = TestAuthz::new();
-        let classroom_id = room.classroom_id().to_string();
-        authz.allow(
-            agent1.account_id(),
-            vec!["classrooms", &classroom_id],
-            "update",
-        );
-
-        let mut context = TestContext::new(db, authz).await;
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        context.with_janus(tx);
-
-        let payload = Payload {
-            room_id: room.id(),
-            groups: Groups::new(vec![
-                GroupItem::new(0, vec![agent1.agent_id().to_owned()]),
-                GroupItem::new(1, vec![agent2.agent_id().to_owned()]),
-            ]),
-        };
-
-        let reqp = RequestParams::Http {
-            agent_id: &agent1.agent_id(),
-        };
-        Handler::handle(Arc::new(context.clone()), payload, reqp, Utc::now())
-            .await
-            .expect("Group update failed");
-
-        let group_agent = db::group_agent::FindQuery::new(room.id())
-            .execute(&mut conn)
-            .await
-            .expect("failed to get groups with participants");
-
-        let groups = group_agent.groups();
-        assert_eq!(groups.len(), 2);
-
-        let group_agents = groups
-            .iter()
-            .flat_map(|g| g.agents().into_iter().map(move |a| (a.clone(), g.number())))
-            .collect::<HashMap<_, _>>();
-
-        let agent1_number = group_agents.get(agent1.agent_id()).unwrap();
-        assert_eq!(*agent1_number, 0);
-
-        let agent2_number = group_agents.get(agent2.agent_id()).unwrap();
-        assert_eq!(*agent2_number, 1);
-
-        let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(
-            room.id(),
-            &[agent1.agent_id(), agent2.agent_id()],
-        )
-        .execute(&mut conn)
-        .await
-        .expect("failed to get rtc reader configs");
-
-        assert_eq!(reader_configs.len(), 2);
-
-        for (cfg, _) in reader_configs {
-            assert!(!cfg.receive_video());
-            assert!(!cfg.receive_audio());
-        }
-
-        // Make one more group.update request
-        let payload = Payload {
-            room_id: room.id(),
-            groups: Groups::new(vec![GroupItem::new(
-                0,
-                vec![agent1.agent_id().to_owned(), agent2.agent_id().to_owned()],
-            )]),
-        };
-
-        let reqp = RequestParams::Http {
-            agent_id: &agent1.agent_id(),
-        };
-        Handler::handle(Arc::new(context.clone()), payload, reqp, Utc::now())
-            .await
-            .expect("Group update failed");
-
-        let group_agent = db::group_agent::FindQuery::new(room.id())
-            .execute(&mut conn)
-            .await
-            .expect("failed to get groups with participants");
-
-        let groups = group_agent.groups();
-        assert_eq!(groups.len(), 1);
-
-        let group_agents = groups
-            .iter()
-            .flat_map(|g| g.agents().into_iter().map(move |a| (a.clone(), g.number())))
-            .collect::<HashMap<_, _>>();
-
-        let agent1_number = group_agents.get(agent1.agent_id()).unwrap();
-        assert_eq!(*agent1_number, 0);
-
-        let agent2_number = group_agents.get(agent2.agent_id()).unwrap();
-        assert_eq!(*agent2_number, 0);
-
-        let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(
-            room.id(),
-            &[agent1.agent_id(), agent2.agent_id()],
-        )
-        .execute(&mut conn)
-        .await
-        .expect("failed to get rtc reader configs");
-
-        assert_eq!(reader_configs.len(), 2);
-
-        for (cfg, _) in reader_configs {
-            assert!(cfg.receive_video());
-            assert!(cfg.receive_audio());
-        }
-
-        context.janus_clients().remove_client(&backend);
     }
 }

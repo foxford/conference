@@ -232,63 +232,6 @@
     },
     "query": "\n            INSERT INTO rtc_writer_config (rtc_id, send_video, send_audio, video_remb, send_audio_updated_by)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (rtc_id) DO UPDATE\n            SET\n                video_remb = $4,\n                send_audio_updated_by = $5,\n                send_video = COALESCE($6, rtc_writer_config.send_video),\n                send_audio = COALESCE($7, rtc_writer_config.send_audio)\n            RETURNING\n                rtc_id as \"rtc_id: db::rtc::Id\",\n                send_video,\n                send_audio,\n                video_remb,\n                send_audio_updated_by as \"send_audio_updated_by: AgentId\",\n                updated_at\n            "
   },
-  "11f3579a85222cd0d11e2a148dcea656c9c7a4ca942b6d11008fd0cc6e7a69fb": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "entity_type",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "stage",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "delivery_deadline_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "error_kind",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "retry_count",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 6,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Text"
-        ]
-      }
-    },
-    "query": "\n            SELECT\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            FROM outbox\n            WHERE\n                id = $1 AND\n                entity_type = $2\n            FOR UPDATE SKIP LOCKED\n            "
-  },
   "12176dce0364c36ba97b1e17ba7e18750a06a54814f5605b9c72580fa1528651": {
     "describe": {
       "columns": [
@@ -914,65 +857,6 @@
       }
     },
     "query": "\n        INSERT INTO orphaned_room\n        VALUES ($1, $2)\n        ON CONFLICT (id) DO UPDATE\n        SET\n            host_left_at = $2\n        "
-  },
-  "18d6a334debacd190f663f9db94cb0c32398bcf4a953298dfcda16c0ee2a73c3": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "entity_type",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "stage",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "delivery_deadline_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "error_kind",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "retry_count",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 6,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Timestamptz",
-          "Text",
-          "Int8",
-          "Text"
-        ]
-      }
-    },
-    "query": "\n            UPDATE outbox\n            SET\n                delivery_deadline_at = $1,\n                retry_count = retry_count + 1,\n                error_kind = $2\n            WHERE\n                id = $3 AND\n                entity_type = $4\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            "
   },
   "1d3c074fcededd8ba566d9df8563a4c9497e5f864fbda9cd7087a396ade1a993": {
     "describe": {
@@ -2000,121 +1884,6 @@
     },
     "query": "\n            DELETE FROM agent\n            WHERE\n                created_at < $1\n            "
   },
-  "74563df7263d1a393ac145b308a5c8e1a5d1d79ca6af3c9b8a82873ed4680bfe": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "entity_type",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "stage",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "delivery_deadline_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "error_kind",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "retry_count",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 6,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Text"
-        ]
-      }
-    },
-    "query": "\n            DELETE FROM outbox\n            WHERE\n                id = $1 AND\n                entity_type = $2\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            "
-  },
-  "766d36412c35b9ca0f538bc6a1d798b721fd7cc0a8690064679a776d471e324d": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "entity_type",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "stage",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "delivery_deadline_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "error_kind",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "retry_count",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 6,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Jsonb",
-          "Timestamptz"
-        ]
-      }
-    },
-    "query": "\n            INSERT INTO outbox (entity_type, stage, delivery_deadline_at)\n            VALUES ($1, $2, $3)\n            RETURNING\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            "
-  },
   "78acec91d5e5e90db0f511ef0a2c4e9302752a686430b909d25bb91d1865a2bb": {
     "describe": {
       "columns": [
@@ -2842,62 +2611,6 @@
     },
     "query": "\n            SELECT\n                rtc_id as \"rtc_id: db::rtc::Id\",\n                started_at,\n                segments as \"segments: Vec<SegmentPg>\",\n                status as \"status: Status\",\n                mjr_dumps_uris\n            FROM recording\n            WHERE\n                rtc_id = $1\n            "
   },
-  "8e0dd6b92699513b291bc88ac5cf6a99d07dd15912d4c4dbf1ab3f0387f67aeb": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "entity_type",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "stage",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "delivery_deadline_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "error_kind",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "retry_count",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 6,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int8"
-        ]
-      }
-    },
-    "query": "\n            SELECT\n                id,\n                entity_type,\n                stage,\n                delivery_deadline_at,\n                error_kind,\n                retry_count,\n                created_at\n            FROM outbox\n            WHERE\n                delivery_deadline_at <= now()\n            LIMIT $1\n            FOR UPDATE SKIP LOCKED\n            "
-  },
   "9d820858806c1f013c97a34d8eed99315e15ebed9f6c23f859bff6152a6b7e41": {
     "describe": {
       "columns": [
@@ -3433,6 +3146,24 @@
       }
     },
     "query": "\n        WITH\n            room_load AS (\n                SELECT\n                    a.room_id,\n                    SUM(COALESCE(rwc.video_remb, 1000000) / 1000000.0) AS taken\n                FROM agent AS a\n                INNER JOIN agent_connection AS ac\n                ON ac.agent_id = a.id\n                LEFT JOIN rtc_writer_config AS rwc\n                ON rwc.rtc_id = ac.rtc_id\n                GROUP BY a.room_id\n            ),\n            active_room AS (\n                SELECT *\n                FROM room\n                WHERE backend_id IS NOT NULL\n                AND   time @> NOW()\n            ),\n            janus_backend_load AS (\n                SELECT\n                    backend_id,\n                    SUM(GREATEST(taken, reserve)) AS load\n                FROM (\n                    SELECT DISTINCT ON(backend_id, room_id)\n                        ar.backend_id,\n                        ar.id                   AS room_id,\n                        COALESCE(rl.taken, 0)   AS taken,\n                        COALESCE(ar.reserve, 0) AS reserve\n                    FROM active_room AS ar\n                    LEFT JOIN room_load AS rl\n                    ON rl.room_id = ar.id\n                ) AS sub\n                GROUP BY backend_id\n            )\n        SELECT\n            jb.id as \"id: AgentId\",\n            jb.handle_id as \"handle_id: HandleId\",\n            jb.session_id as \"session_id: SessionId\",\n            jb.created_at,\n            jb.capacity,\n            jb.balancer_capacity,\n            jb.api_version,\n            jb.\"group\",\n            jb.janus_url\n        FROM janus_backend AS jb\n        LEFT JOIN janus_backend_load AS jbl\n        ON jbl.backend_id = jb.id\n        LEFT JOIN room AS r2\n        ON 1 = 1\n        WHERE r2.id = $1\n        AND   COALESCE(jb.balancer_capacity, jb.capacity, 2147483647) - COALESCE(jbl.load, 0) >= COALESCE(r2.reserve, 1)\n        AND   jb.api_version = $2\n        AND   ($3::text IS NULL OR jb.\"group\" = $3::text)\n        ORDER BY COALESCE(jbl.load, 0) DESC, RANDOM()\n        LIMIT 1\n        "
+  },
+  "b35798c45f14d863452da74cc9c1cab143dd8921433759ebbea36cdffdce1a8a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "value!: i64",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT nextval('video_group_entity_seq_id') as \"value!: i64\";"
   },
   "b455c3678396a464959c16700a01d4b1ad9bf04962aae01edc51d7f8a5adfd52": {
     "describe": {
