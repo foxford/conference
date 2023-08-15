@@ -199,3 +199,180 @@ fn event_to_operation(event: &VideoGroupEventV1) -> String {
         VideoGroupEventV1::Updated { .. } => UPDATE_COMPLETED_OP.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{
+        db::TestDb,
+        factory,
+        prelude::{TestAgent, TestAuthz, TestContext},
+        shared_helpers,
+        test_deps::LocalDeps,
+        USR_AUDIENCE,
+    };
+    use crate::{
+        app::service_utils::RequestParams,
+        db::{
+            group_agent::{GroupItem, Groups},
+            rtc::SharingPolicy as RtcSharingPolicy,
+        },
+    };
+    use chrono::{Duration, Utc};
+    use std::{collections::HashMap, ops::Bound};
+    use svc_authn::AccountId;
+
+    #[sqlx::test]
+    async fn handle_intent_test(pool: sqlx::PgPool) {
+        let local_deps = LocalDeps::new();
+        let janus = local_deps.run_janus();
+        let (session_id, handle_id) = shared_helpers::init_janus(&janus.url).await;
+
+        let db = TestDb::new(pool);
+
+        let agent1 = TestAgent::new("web", "user1", USR_AUDIENCE);
+        let agent2 = TestAgent::new("web", "user2", USR_AUDIENCE);
+
+        let mut conn = db.get_conn().await;
+
+        let backend =
+            shared_helpers::insert_janus_backend(&mut conn, &janus.url, session_id, handle_id)
+                .await;
+
+        let room = factory::Room::new()
+            .audience(USR_AUDIENCE)
+            .time((Bound::Included(Utc::now()), Bound::Unbounded))
+            .rtc_sharing_policy(RtcSharingPolicy::Owned)
+            .backend_id(backend.id())
+            .insert(&mut conn)
+            .await;
+
+        let agent_id = AgentId::new(
+            "instance01",
+            AccountId::new("service_name", "svc.example.org"),
+        );
+        let event_id = EventId::from((ENTITY_TYPE.to_string(), CREATE_INTENT_OP.to_string(), 1));
+
+        let event = VideoGroupEventV1::Created {
+            created_at: Utc::now().timestamp_nanos(),
+        };
+
+        factory::GroupAgent::new(
+            room.id(),
+            Groups::new(vec![GroupItem::new(0, vec![]), GroupItem::new(1, vec![])]),
+        )
+        .upsert(&mut conn)
+        .await;
+
+        for agent in &[&agent1, &agent2] {
+            factory::Rtc::new(room.id())
+                .created_by(agent.agent_id().to_owned())
+                .insert(&mut conn)
+                .await;
+        }
+
+        // Allow agent to update the room.
+        let mut authz = TestAuthz::new();
+        let classroom_id = room.classroom_id();
+        authz.allow(
+            agent1.account_id(),
+            vec!["classrooms", &classroom_id.to_string()],
+            "update",
+        );
+
+        let mut context = TestContext::new(db, authz).await;
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        context.with_janus(tx);
+
+        handle_intent(
+            context,
+            &event_id,
+            room,
+            agent_id,
+            classroom_id,
+            backend.id().clone(),
+            event,
+        )
+        .await;
+
+        let group_agent = db::group_agent::FindQuery::new(room.id())
+            .execute(&mut conn)
+            .await
+            .expect("failed to get groups with participants");
+
+        let groups = group_agent.groups();
+        assert_eq!(groups.len(), 2);
+
+        let group_agents = groups
+            .iter()
+            .flat_map(|g| g.agents().into_iter().map(move |a| (a.clone(), g.number())))
+            .collect::<HashMap<_, _>>();
+
+        let agent1_number = group_agents.get(agent1.agent_id()).unwrap();
+        assert_eq!(*agent1_number, 0);
+
+        let agent2_number = group_agents.get(agent2.agent_id()).unwrap();
+        assert_eq!(*agent2_number, 1);
+
+        let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(
+            room.id(),
+            &[agent1.agent_id(), agent2.agent_id()],
+        )
+        .execute(&mut conn)
+        .await
+        .expect("failed to get rtc reader configs");
+
+        assert_eq!(reader_configs.len(), 2);
+
+        for (cfg, _) in reader_configs {
+            assert!(!cfg.receive_video());
+            assert!(!cfg.receive_audio());
+        }
+
+        // handle_intent(
+        //     context,
+        //     event_id,
+        //     room,
+        //     agent_id,
+        //     classroom_id,
+        //     backend_id,
+        //     event,
+        // ).await;
+
+        let group_agent = db::group_agent::FindQuery::new(room.id())
+            .execute(&mut conn)
+            .await
+            .expect("failed to get groups with participants");
+
+        let groups = group_agent.groups();
+        assert_eq!(groups.len(), 1);
+
+        let group_agents = groups
+            .iter()
+            .flat_map(|g| g.agents().into_iter().map(move |a| (a.clone(), g.number())))
+            .collect::<HashMap<_, _>>();
+
+        let agent1_number = group_agents.get(agent1.agent_id()).unwrap();
+        assert_eq!(*agent1_number, 0);
+
+        let agent2_number = group_agents.get(agent2.agent_id()).unwrap();
+        assert_eq!(*agent2_number, 0);
+
+        let reader_configs = db::rtc_reader_config::ListWithRtcQuery::new(
+            room.id(),
+            &[agent1.agent_id(), agent2.agent_id()],
+        )
+        .execute(&mut conn)
+        .await
+        .expect("failed to get rtc reader configs");
+
+        assert_eq!(reader_configs.len(), 2);
+
+        for (cfg, _) in reader_configs {
+            assert!(cfg.receive_video());
+            assert!(cfg.receive_audio());
+        }
+
+        context.janus_clients().remove_client(&backend);
+    }
+}
